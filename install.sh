@@ -42,6 +42,38 @@ fi
 NODE_VER=$(node -v)
 echo "[SUCCESS] Node.js detected: $NODE_VER"
 
+# Node.js version alignment check for Tailwind v4 / Vite 6.
+NODE_MAJOR=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+if [ "$NODE_MAJOR" -lt 20 ]; then
+    echo
+    echo "=========================================================================="
+    echo " ⚠️  [WARNING] Outdated Node.js Version Detected: $NODE_VER"
+    echo "=========================================================================="
+    echo " GreEnergy PRIZM utilizes modern systems (such as Tailwind CSS v4 and"
+    echo " Vite 6) which strictly require Node.js v20.0.0 or higher."
+    echo " "
+    echo " Your current Node.js version ($NODE_VER) is known to crash on build"
+    echo " with the native binding error: 'Cannot find native binding' for '@tailwindcss/oxide'."
+    echo " "
+    echo " We STRONGLY recommend upgrading Node.js to an LTS version (v20 or v22)."
+    echo " "
+    echo " How to easily upgrade using Node Version Manager (NVM):"
+    echo "   1. Install NVM (if not already installed):"
+    echo "      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+    echo "   2. Restart your terminal session or run:"
+    echo "      source ~/.bashrc"
+    echo "   3. Install and set Node.js v20:"
+    echo "      nvm install 20 && nvm use 20"
+    echo "=========================================================================="
+    echo
+    echo "Would you like to try to proceed with installation on your current version anyway? (y/N)"
+    read -r proceed_old
+    if [[ ! "$proceed_old" =~ ^[Yy]$ ]]; then
+        echo "[INFO] Installer aborted. Please upgrade Node.js and try running the script again!"
+        exit 1
+    fi
+fi
+
 # 2. INSTALL DEPENDENCIES
 echo
 echo "[STEP 2/4] Installing project dependencies..."

@@ -9,7 +9,7 @@ This guide describes how a technician can unzip the package and run the automate
 ## 🛠️ System Requirements
 
 To run this application locally, you only need to have **Node.js** installed on your laptop:
-- **Node.js**: v18.0.0 or higher (LTS recommended)
+- **Node.js**: **v20.0.0 or higher** (LTS v20 or v22 are highly recommended. Note that Tailwind CSS v4 and Vite 6 require Native bindings which fail on under-versioned Node.js v18 engines).
 - **NPM**: Package manager built-in with Node.js (normally installed automatically)
 
 ---

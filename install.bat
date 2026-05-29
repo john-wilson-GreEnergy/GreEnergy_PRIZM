@@ -55,6 +55,34 @@ if !errorlevel! neq 0 (
 for /f "tokens=*" %%i in ('node -v') do set NODE_VER=%%i
 echo [SUCCESS] Node.js detected: !NODE_VER!
 
+:: Check Node.js version for Tailwind v4 Compatibility
+set "NODE_MAJOR="
+for /f "tokens=1 delims=v." %%a in ("!NODE_VER!") do (
+    set "NODE_MAJOR=%%a"
+)
+if defined NODE_MAJOR (
+    if !NODE_MAJOR! LSS 20 (
+        echo.
+        echo ==========================================================================
+        echo  [WARNING] Outdated Node.js Version Detected: !NODE_VER!
+        echo ==========================================================================
+        echo  GreEnergy PRIZM utilizes modern frameworks (such as Tailwind CSS v4 and
+        echo  Vite 6) which strictly require Node.js v20.0.0 or higher.
+        echo.
+        echo  Your current Node.js version may fail on compilation with native errors.
+        echo  We strongly recommend installing Node.js v20 or LTS from:
+        echo  https://nodejs.org/
+        echo ==========================================================================
+        echo.
+        set /p "proceed_old=Would you like to try to proceed with installation anyway? (Y/N): "
+        if /i "!proceed_old!" neq "Y" (
+            echo [INFO] Installation aborted. Please upgrade Node.js and try again!
+            pause
+            exit /b 1
+        )
+    )
+)
+
 :: Step 2: Install Dependencies
 echo.
 echo [STEP 2/4] Installing Node library dependencies...
