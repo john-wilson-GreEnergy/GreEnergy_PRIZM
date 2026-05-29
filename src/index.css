@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --ge-primary: #5CF2A5;
+  --ge-accent: #22C55E;
+  --ge-bg: #050A08;
+  --ge-bg-2: #0A120F;
+  --ge-surface: #0F1A15;
+  --ge-border: rgba(92, 242, 165, 0.18);
+  --ge-text: #EAFEF4;
+  --ge-muted: rgba(234, 254, 244, 0.65);
+  --ge-warning: #FBBF24;
+  --ge-error: #EF4444;
+  --ge-info: #38BDF8;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-ge-primary: var(--ge-primary);
+  --color-ge-accent: var(--ge-accent);
+  --color-ge-bg: var(--ge-bg);
+  --color-ge-bg-2: var(--ge-bg-2);
+  --color-ge-surface: var(--ge-surface);
+  --color-ge-border: var(--ge-border);
+  --color-ge-text: var(--ge-text);
+  --color-ge-muted: var(--ge-muted);
+  --color-ge-warning: var(--ge-warning);
+  --color-ge-error: var(--ge-error);
+  --color-ge-info: var(--ge-info);
+
+  /* Map existing classes to the new GreEnergy brand colors */
+  --color-slate-950: var(--ge-bg);
+  --color-slate-900: var(--ge-bg-2);
+  --color-slate-800: var(--ge-surface);
+  --color-bess-card: var(--ge-surface);
+  --color-bess-bg: var(--ge-bg);
+  --color-bess-header: var(--ge-bg-2);
+  --color-bess-sidebar: var(--ge-bg-2);
+  --color-bess-stat: var(--ge-surface);
+
+  /* Map cyan to GreEnergy action colors */
+  --color-cyan-300: #8bfbc1;
+  --color-cyan-400: var(--ge-primary);
+  --color-cyan-500: var(--ge-accent);
+  --color-cyan-600: #16a34a;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

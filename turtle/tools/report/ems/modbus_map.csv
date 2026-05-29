@@ -1,0 +1,50 @@
+FIELDTYPE,MODBUSADDRESS,FIELDSIZE,FIELDNAME,VALUE,TYPE,MANDATORY,R/W,SF,UNIT,SERVERID
+Header,2,1,"ID ""Common""",1,uint16,M,R,,,1
+Header,3,1,Length,66,uint16,M,R,,,1
+Fixed,4,16,Manufacturer,Powin,string,M,R,,,1
+Fixed,20,16,Model,BESS-Mega,string,M,R,,,1
+Fixed,36,8,Options,Full-Control,string,O,R,,,1
+Fixed,44,8,Version,1.0.42,string,O,R,,,1
+Fixed,52,16,SerialNumber,PWN89472648,string,M,R,,,1
+Fixed,68,1,DeviceAddress,1,uint16,O,RW,,,1
+Header,70,1,"ID ""InverterThreePhase""",103,uint16,M,R,,,1
+Header,71,1,Length,50,uint16,M,R,,,1
+Fixed,72,1,Amps,150,uint16,M,R,A_SF,A,1
+Fixed,73,1,AmpsPhaseA,50,uint16,M,R,A_SF,A,1
+Fixed,74,1,AmpsPhaseB,50,uint16,M,R,A_SF,A,1
+Fixed,75,1,AmpsPhaseC,50,uint16,M,R,A_SF,A,1
+Fixed,76,1,A_SF,-1,scalefactor,M,R,,,1
+Fixed,77,1,PhaseVoltageAB,480,uint16,O,R,V_SF,V,1
+Fixed,80,1,PhaseVoltageAN,277,uint16,M,R,V_SF,V,1
+Fixed,83,1,V_SF,0,scalefactor,M,R,,,1
+Fixed,84,1,Watts,1242,sint16,M,R,W_SF,W,1
+Fixed,85,1,W_SF,2,scalefactor,M,R,,,1
+Fixed,86,1,Hz,60,uint16,M,R,Hz_SF,Hz,1
+Fixed,87,1,Hz_SF,-2,scalefactor,M,R,,,1
+Fixed,103,1,CabinetTemperature,24,sint16,M,R,Tmp_SF,C,1
+Fixed,104,1,HeatSinkTemperature,38,sint16,O,R,Tmp_SF,C,1
+Fixed,107,1,Tmp_SF,-1,scalefactor,M,R,,,1
+Fixed,108,1,OperatingState,4,enum16,M,R,,,1
+Header,540,1,"ID ""WyeConnectThreePhaseabcnMeter""",203,uint16,M,R,,,1
+Fixed,542,1,MeterAmps,300,sint16,M,R,A_SF,A,1
+Fixed,547,1,MeterVoltageLN,277,sint16,M,R,V_SF,V,1
+Fixed,558,1,MeterWatts,1245,sint16,M,R,W_SF,W,1
+Header,647,1,"ID ""BatteryBaseModel""",802,uint16,M,R,,,1
+Fixed,658,1,StateofCharge,84,uint16,M,R,SoC_SF,%,1
+Fixed,660,1,StateofHealth,98,uint16,O,R,SoH_SF,%,1
+Fixed,664,1,ControlMode,2,enum16,M,R,,,1
+Fixed,665,1,BatteryHeartbeat,142,uint16,O,R,,,1
+Fixed,691,1,TotalDCCurrent,450,sint16,M,R,A_SF,A,1
+Fixed,694,1,TotalPower,1245,sint16,M,R,W_SF,W,1
+Fixed,703,1,SoC_SF,-1,scalefactor,M,R,,,1
+Fixed,705,1,SoH_SF,-1,scalefactor,O,R,,,1
+Header,1159,1,"ID ""LithiumIonBatteryBankModel""",803,uint16,M,R,,,1
+Fixed,1161,1,StringCount,4,uint16,M,R,,,1
+Fixed,1163,1,MaxModuleTemperature,28,sint16,M,R,ModTmp_SF,C,1
+Fixed,1166,1,MinModuleTemperature,22,sint16,M,R,ModTmp_SF,C,1
+Fixed,1180,1,BatteryCellBalancingCount,0,uint16,O,R,,,1
+Fixed,1182,1,ModTmp_SF,-1,scalefactor,M,R,,,1
+Fixed,13041,1,PVSSetpointKw,1200,sint16,M,RW,PVS_SF,kW,1
+Fixed,13145,1,OATmp,21,sint16,M,R,Tmp_SF,C,1
+Fixed,13146,1,OAHumidity,45,sint16,M,R,Humidity_SF,%,1
+Fixed,13191,1,HydrogenPPM,3,uint16,M,R,HPPM_SF,PPM,1

@@ -1,0 +1,6 @@
+{
+  "name": "GreEnergy Prizm",
+  "description": "Professional diagnosic lens and field operations control center for GreEnergy BESS monitoring, fault identification, and corrective guidance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
