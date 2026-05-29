@@ -23,7 +23,9 @@ import {
   RotateCw,
   Gauge,
   Zap,
-  Info
+  Info,
+  Radio,
+  Wifi
 } from "lucide-react";
 
 import SystemDetailsView from "./kobold/SystemDetailsView";
@@ -153,6 +155,54 @@ const INITIAL_REGISTERS: ModbusRegister[] = [
   { register: 13191, type: "uint16", fieldType: "Fixed", description: "HydrogenPPM", rw: "R", scaleFactorName: "HPPM_SF", unit: "PPM", liveStatus: "idle" }
 ];
 
+const renderValueHighlight = (valStr: string) => {
+  const trimmed = valStr.trim();
+  if (trimmed.startsWith('"')) {
+    return <span className="text-emerald-400"> {trimmed}</span>;
+  }
+  if (trimmed.startsWith('true') || trimmed.startsWith('false')) {
+    return <span className="text-amber-400 font-bold"> {trimmed}</span>;
+  }
+  if (!isNaN(parseFloat(trimmed))) {
+    return <span className="text-yellow-300 font-mono"> {trimmed}</span>;
+  }
+  return <span className="text-white/80"> {valStr}</span>;
+};
+
+const renderJsonHighlight = (obj: any) => {
+  const code = JSON.stringify(obj, null, 2);
+  return (
+    <pre className="font-mono text-xs text-white/90 overflow-x-auto whitespace-pre p-3 bg-[#0B0D13] border border-white/5 rounded-md leading-relaxed selection:bg-cyan-500/20 max-h-[450px] overflow-y-auto w-full">
+      {code.split('\n').map((line, idx) => {
+        let content: React.ReactNode = line;
+        const keyMatch = line.match(/^(\s*)"([^"]+)":/);
+        
+        if (keyMatch) {
+          const indent = keyMatch[1];
+          const key = keyMatch[2];
+          const rest = line.substring(keyMatch[0].length);
+          
+          content = (
+            <span>
+              {indent}
+              <span className="text-cyan-400 font-bold">"{key}"</span>:
+              {renderValueHighlight(rest)}
+            </span>
+          );
+        } else {
+          content = <span className="text-white/50">{line}</span>;
+        }
+        
+        return (
+          <div key={idx} className="hover:bg-white/[0.02] px-1 rounded-sm border-l border-white/[0.02]">
+            {content}
+          </div>
+        );
+      })}
+    </pre>
+  );
+};
+
 export default function KoboldMonitor({ initialDevices }: { initialDevices: any[] }) {
   // --- COMMISSIONING / UPLOAD STATES ---
   const [isCommissioned, setIsCommissioned] = useState<boolean>(() => {
@@ -180,6 +230,82 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [isLivePolling, setIsLivePolling] = useState<boolean>(true);
   const [pollCounter, setPollCounter] = useState<number>(3);
   const [selectedString, setSelectedString] = useState<StringRow | null>(null);
+
+  // --- CLOUD TELEMETRY PACKET INTERCEPTOR STATES ---
+  const [telemetryPackets, setTelemetryPackets] = useState<any[]>([]);
+  const [isTelemetryAligned, setIsTelemetryAligned] = useState<boolean>(false);
+  const [selectedPacketId, setSelectedPacketId] = useState<string | null>(null);
+  const [isInterceptorLive, setIsInterceptorLive] = useState<boolean>(true);
+  const [isAligningScale, setIsAligningScale] = useState<boolean>(false);
+  const [packetSearchQuery, setPacketSearchQuery] = useState<string>("");
+
+  // --- CLOUD TELEMETRY ACTIONS ---
+  const handleToggleAlignment = async (nowAligned: boolean) => {
+    setIsAligningScale(true);
+    try {
+      const res = await fetch("/api/cloud-telemetry/align", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aligned: nowAligned })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsTelemetryAligned(data.calibrationAligned);
+        
+        // Push notification log
+        setNotifications(prev => [
+          {
+            time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            source: "GATEWAY_CALIBRATION",
+            message: nowAligned 
+              ? "Applied power register scale factor calibration. Aligning local telemetry outputs with Cloud Stream."
+              : "Reset local app configuration to raw register values. Mismatches with Cloud stream expected.",
+            type: nowAligned ? "success" : "warning"
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error("Failed to set telemetry calibration:", err);
+    } finally {
+      setIsAligningScale(false);
+    }
+  };
+
+  const handleForceExport = async () => {
+    try {
+      const res = await fetch("/api/cloud-telemetry/trigger-export", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setTelemetryPackets(prev => [data.latestPacket, ...prev]);
+        setSelectedPacketId(data.latestPacket.id);
+        
+        setNotifications(prev => [
+          {
+            time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            source: "EGRESS_EXPORTER",
+            message: `Manual telemetry packet exported from 10.0.0.3 to cloud: ID ${data.latestPacket.id}`,
+            type: "success"
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error("Force export failed:", err);
+    }
+  };
+
+  const handleDownloadPackets = () => {
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+      JSON.stringify(telemetryPackets, null, 2)
+    )}`;
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", jsonString);
+    downloadAnchor.setAttribute("download", `intercepted_cloud_telemetry_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
 
   // --- SEED TABLES matching Screenshots 1 & 2 ---
   const [emsApps, setEmsApps] = useState<EmsApp[]>([
@@ -532,6 +658,32 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     }, 1000);
     return () => clearInterval(interval);
   }, [isLivePolling, isCommissioned]);
+
+  // Intercepted telemetry stream polling
+  useEffect(() => {
+    if (selectedCategory !== "Cloud Telemetry Interceptor" || !isInterceptorLive) return;
+
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch("/api/cloud-telemetry/packets");
+        if (res.ok) {
+          const data = await res.json();
+          setTelemetryPackets(data.packets);
+          setIsTelemetryAligned(data.calibrationAligned);
+          // Set initial selection if none is loaded
+          if (data.packets.length > 0 && !selectedPacketId) {
+            setSelectedPacketId(data.packets[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch cloud telemetry stream:", err);
+      }
+    };
+
+    fetchTelemetry(); // run once immediately
+    const timer = setInterval(fetchTelemetry, 3000);
+    return () => clearInterval(timer);
+  }, [selectedCategory, isInterceptorLive, selectedPacketId]);
 
   const parseAndSetModbusMap = (text: string) => {
     const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
@@ -1125,6 +1277,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 {[
                   { name: "Modbus Map Registers", icon: Database },
                   { name: "Site IP Topology Map", icon: Sliders },
+                  { name: "Cloud Telemetry Interceptor", icon: Radio },
                   { name: "System Event logs", icon: FileText }
                 ].map((item) => {
                   const Icon = item.icon;
@@ -1855,6 +2008,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs font-mono">
                       <a 
+                        href="/turtle/tools/report/ems/ip_modbus_associations.csv" 
+                        target="_blank" 
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#059669]/15 border border-[#059669]/30 hover:bg-[#059669]/25 text-[#34d399] rounded font-bold"
+                        rel="noreferrer"
+                      >
+                        <ExternalLink size={11} />
+                        Download IP-to-Modbus Grid Map CSV
+                      </a>
+                      <a 
                         href="/turtle/tools/report/ems/ipMap.csv" 
                         target="_blank" 
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-white/80 rounded font-bold"
@@ -2262,6 +2424,284 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                   </div>
 
+                </div>
+              )}
+
+              {/* CATEGORY VIEW: CLOUD TELEMETRY INTERCEPTOR */}
+              {selectedCategory === "Cloud Telemetry Interceptor" && (
+                <div className="space-y-6">
+                  {/* HEADER SECTION */}
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/5 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Cloud Telemetry Stream Interceptor & Sniffer</h3>
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                          isInterceptorLive ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-zinc-500/15 text-zinc-400 border border-zinc-500/20"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isInterceptorLive ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"}`}></span>
+                          {isInterceptorLive ? "LISTENING (10.0.*.*)" : "PAUSED"}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-mono text-white/40 mt-1">
+                        The primary EMS site-level controller (<strong className="text-white">10.0.0.3</strong>) exports granulated BMS and downstream device telemetry to the cloud platform via encrypted egress POSTs. This utility intercepts and visualizes these payload packets in real-time.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs font-mono">
+                      <button
+                        type="button"
+                        onClick={() => setIsInterceptorLive(!isInterceptorLive)}
+                        className={`px-3 py-1.5 border rounded font-bold transition-all ${
+                          isInterceptorLive 
+                            ? "bg-amber-500/15 text-amber-300 border-amber-500/20 hover:bg-amber-500/25" 
+                            : "bg-emerald-500/15 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/25"
+                        }`}
+                      >
+                        {isInterceptorLive ? "Pause Interceptor" : "Resume Interceptor"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleForceExport}
+                        className="px-3 py-1.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550/20 rounded font-bold transition-all font-bold"
+                      >
+                        Force Export Packet
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDownloadPackets}
+                        disabled={telemetryPackets.length === 0}
+                        className="px-3 py-1.5 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 disabled:opacity-40 rounded font-bold transition-all font-bold"
+                      >
+                        Export Packet Log (.json)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* MISMATCH DIAGNOSIS AND CALIBRATION CONTROLLER */}
+                  <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        {isTelemetryAligned ? (
+                          <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm font-mono">
+                            <CheckCircle size={16} />
+                            REGISTER SCALING MULTIPLIERS ALIGNED & SYNCHRONIZED
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-rose-400 font-bold text-sm font-mono">
+                            <AlertTriangle className="animate-bounce" size={16} />
+                            BMS TELEMETRY MULTIPLIER DISCONNECT DETECTED (Mismatched Scales)
+                          </div>
+                        )}
+                        <p className="text-[10px] font-mono text-white/50 mt-1 max-w-4xl">
+                          {isTelemetryAligned 
+                            ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the Cloud stream targets."
+                            : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the Cloud requires applying the standard Powin scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the Cloud dashboard!"
+                          }
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleAlignment(!isTelemetryAligned)}
+                        disabled={isAligningScale}
+                        className={`shrink-0 px-4 py-2 text-xs font-mono font-black uppercase tracking-wider rounded-md border shadow-lg transition-all ${
+                          isTelemetryAligned
+                            ? "bg-rose-500/10 text-rose-300 border-rose-500/20 hover:bg-rose-500/20"
+                            : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25 animate-pulse"
+                        }`}
+                      >
+                        {isAligningScale ? "Calibrating..." : isTelemetryAligned ? "Reset Calibration to Raw" : "⚡ Calibrate local gateway scales"}
+                      </button>
+                    </div>
+
+                    {/* COMPARISON METRICS TABLE */}
+                    <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
+                      <table className="w-full text-left border-collapse text-xs font-mono">
+                        <thead>
+                          <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
+                            <th className="p-2.5">Telemetry Parameter</th>
+                            <th className="p-2.5">Uncalibrated Local App View</th>
+                            <th className="p-2.5">Calibrated Cloud Stream Payload</th>
+                            <th className="p-2.5">Multiplier Scale</th>
+                            <th className="p-2.5 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.03]">
+                          <tr>
+                            <td className="p-2.5 font-bold text-white">Lineup Active Power</td>
+                            <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-white/30 font-normal block">Raw holding register 84 value</span></td>
+                            <td className="p-2.5 text-emerald-400 font-bold">
+                              {isTelemetryAligned ? "124.2 kW" : "124,200.0 kW"}
+                              <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                            </td>
+                            <td className="p-2.5 text-white/60">W_SF = 2 (Multiplier: 10^2)</td>
+                            <td className="p-2.5 text-center">
+                              {isTelemetryAligned ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                              ) : (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">MISMATCH (100x)</span>
+                              )}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="p-2.5 font-bold text-white">BESS Direct Current</td>
+                            <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-white/30 font-normal block">Raw register 691 integer</span></td>
+                            <td className="p-2.5 text-emerald-400 font-bold">
+                              {isTelemetryAligned ? "45.0 A" : "450.0 A"}
+                              <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                            </td>
+                            <td className="p-2.5 text-white/60">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
+                            <td className="p-2.5 text-center">
+                              {isTelemetryAligned ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                              ) : (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">MISMATCH (10x)</span>
+                              )}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="p-2.5 font-bold text-white">Anode Cluster C (10.0.1.10) Temperature</td>
+                            <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Module temp register 1163</span></td>
+                            <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span></td>
+                            <td className="p-2.5 text-white/60">No offset (10^0 = 1)</td>
+                            <td className="p-2.5 text-center">
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="p-2.5 font-bold text-white">Rack Node 10.0.3.10 Status</td>
+                            <td className="p-2.5 text-zinc-400 font-bold">STALE / NO POLL <span className="text-[9px] text-zinc-500 font-normal block">Omitted from raw site map cache</span></td>
+                            <td className="p-2.5 text-rose-400 font-bold">FAULTED <span className="text-[9px] text-rose-400/50 font-normal block">Logged in telemetry payload stream</span></td>
+                            <td className="p-2.5 text-white/60">N/A (Status Code alignment)</td>
+                            <td className="p-2.5 text-center">
+                              {isTelemetryAligned ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">RESOLVED</span>
+                              ) : (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">IP FILTER WARN</span>
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* SNIPER WORKSPACE GRID */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* LEFT WORKSPACE PANEL: CAPTURED TELEMETRY PACKET STREAM */}
+                    <div className="lg:col-span-5 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px]">
+                      <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded p-2 text-[10px] font-mono">
+                        <span className="text-white/40 font-bold uppercase">INTERCEPTED STREAM BUFFER</span>
+                        <span className="text-cyan-400 font-black">{telemetryPackets.length} PACKETS CAPTURED</span>
+                      </div>
+
+                      {/* SEARCH INPUT */}
+                      <div className="relative">
+                        <Search size={12} className="absolute left-2.5 top-2.5 text-white/30" />
+                        <input
+                          type="text"
+                          placeholder="Filter intercepted stream by ID, status, payload key..."
+                          value={packetSearchQuery}
+                          onChange={(e) => setPacketSearchQuery(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 pl-8 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* STREAM SCROLL AREA */}
+                      <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-none">
+                        {telemetryPackets.filter(p => {
+                          const query = packetSearchQuery.toLowerCase();
+                          if (!query) return true;
+                          return (
+                            p.id.toLowerCase().includes(query) ||
+                            p.rawPayloadSize.toLowerCase().includes(query) ||
+                            JSON.stringify(p.payload).toLowerCase().includes(query)
+                          );
+                        }).map((packet) => {
+                          const isSelected = selectedPacketId === packet.id;
+                          const dateObj = new Date(packet.timestamp);
+                          const timeStr = dateObj.toLocaleTimeString();
+                          
+                          return (
+                            <div
+                              key={packet.id}
+                              onClick={() => setSelectedPacketId(packet.id)}
+                              className={`p-2.5 rounded-md border text-xs font-mono transition-all cursor-pointer ${
+                                isSelected 
+                                  ? "bg-cyan-500/10 border-cyan-500/40 text-white" 
+                                  : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5"
+                              }`}
+                            >
+                              <div className="flex justify-between items-start">
+                                <span className={`font-bold mt-0.5 text-[10px] ${isSelected ? "text-cyan-300" : "text-white/70"}`}>
+                                  {packet.id}
+                                </span>
+                                <span className="text-[10px] text-white/30">{timeStr}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 text-[10px] text-white/40">
+                                <span className="text-white/30 font-medium">Protocol:</span> <span className="text-[#059669] font-bold">{packet.transmissionProtocol}</span>
+                                <span>•</span>
+                                <span className="text-white/30 font-medium">Size:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span>
+                              </div>
+                              <div className="flex justify-between items-center mt-2 pt-1 border-t border-white/[0.03]">
+                                <span className="text-[9px] text-[#059669] shrink-0 font-bold">202 ACCEPTED</span>
+                                <span className="text-[9px] text-white/30 truncate max-w-[150px]">{packet.payload.meta.ingest_channel}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* RIGHT WORKSPACE PANEL: INTERACT PAYLOAD INSPECTOR */}
+                    <div className="lg:col-span-7 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px] overflow-hidden">
+                      {(() => {
+                        const packet = telemetryPackets.find(p => p.id === selectedPacketId);
+                        if (!packet) {
+                          return (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center text-white/30 font-mono text-xs">
+                              <Radio size={32} className="text-white/10 animate-pulse mb-3" />
+                              Select an intercepted cloud telemetry packet on the left to inspect its granulated payload stream.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
+                            {/* PACKET SUMMARY BAR */}
+                            <div className="bg-white/5 rounded-lg p-3 border border-white/5 space-y-2 text-xs font-mono">
+                              <div className="flex justify-between items-start border-b border-white/5 pb-2">
+                                <div>
+                                  <div className="text-white font-bold text-[13px]">{packet.id}</div>
+                                  <div className="text-[10px] text-white/40 mt-0.5">{packet.timestamp}</div>
+                                </div>
+                                <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase text-[10px]">
+                                  {packet.responseStatus}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] pt-1">
+                                <div className="flex justify-between"><span className="text-white/30 font-medium">Egress IP:</span> <span className="text-white/80 font-bold">{packet.sourceIp}</span></div>
+                                <div className="flex justify-between"><span className="text-white/30 font-medium">Source Component:</span> <span className="text-white/80 font-bold">{packet.sourceComponent}</span></div>
+                                <div className="flex justify-between"><span className="text-white/30 font-medium">Target Cloud:</span> <span className="text-white/80 font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
+                                <div className="flex justify-between"><span className="text-white/30 font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
+                              </div>
+                            </div>
+
+                            {/* RAW JSON VIEW */}
+                            <div className="flex-1 flex flex-col min-h-0">
+                              <div className="text-[10px] font-mono tracking-wider font-bold text-[#059669] uppercase border-b border-white/5 pb-1 mb-2 flex justify-between items-center">
+                                <span>GRANULATED INTERCEPTED PAYLOAD JSON</span>
+                                <span className="text-white/30 text-[9px] lowercase font-normal">JSON viewer with code highlighting</span>
+                              </div>
+                              <div className="flex-1 overflow-auto bg-[#090b10] rounded-md border border-white/5 relative flex">
+                                {renderJsonHighlight(packet.payload)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </div>
               )}
 

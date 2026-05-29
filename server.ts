@@ -235,6 +235,162 @@ function recordCurl(device: BessDevice, endpoint: string, method: string, descri
   if (curlLogs.length > 50) curlLogs.pop();
 }
 
+// --- CLOUD TELEMETRY INTERCEPTOR ---
+export interface CloudTelemetryPacket {
+  id: string;
+  timestamp: string;
+  sourceIp: string;
+  sourceComponent: string;
+  destinationCloudEndpoint: string;
+  transmissionProtocol: string;
+  rawPayloadSize: string;
+  responseStatus: string;
+  payload: any;
+}
+
+let cloudTelemetryPackets: CloudTelemetryPacket[] = [];
+let telemetryCalibrationAligned = false;
+
+function generateTelemetryPacket() {
+  const now = new Date();
+  const packetId = "p_export_" + Math.random().toString(36).substring(2, 9);
+  
+  // Downstream device values matching the active device states with simulated scale mismatch
+  const devStateList = devices.map(d => {
+    // scale factor discrepancies when not aligned
+    const currentScale = telemetryCalibrationAligned ? 1.0 : 10.0;
+    const powerScale = telemetryCalibrationAligned ? 1.0 : 100.0;
+    
+    return {
+      device_id: d.id,
+      name: d.name,
+      ip: d.ipAddress,
+      status: d.status,
+      soc: d.soc,
+      soh: d.soh,
+      voltage: d.voltage,
+      current: parseFloat((d.current * currentScale).toFixed(1)), // raw vs scaled current
+      power: parseFloat((d.power * powerScale).toFixed(2)), // raw watts vs scaled kW
+      temperature: d.temperature,
+      isOnline: d.isOnline,
+      cellVoltages: d.cellVoltages
+    };
+  });
+
+  const rawActivePower = devices.reduce((sum, d) => sum + (d.isOnline ? d.power : 0), 0);
+  const powerMult = telemetryCalibrationAligned ? 1.0 : 100.0;
+
+  const payload = {
+    meta: {
+      site_id: "SOLAR_STAR_3",
+      ems_controller_ip: "10.0.0.3",
+      controller_version: "v3.12.8-stable",
+      timestamp_epoch: Math.floor(now.getTime() / 1000),
+      ingest_channel: "production-live-us-west"
+    },
+    bms_summary: {
+      total_active_power_kw: parseFloat((rawActivePower * powerMult).toFixed(2)),
+      overall_isolation_status: "NOMINAL",
+      active_faults_count: devices.filter(d => d.status === "Faulted").length
+    },
+    downstream_devices: devStateList
+  };
+
+  const pct: CloudTelemetryPacket = {
+    id: packetId,
+    timestamp: now.toISOString(),
+    sourceIp: "10.0.0.3",
+    sourceComponent: "Primary EMS Controller",
+    destinationCloudEndpoint: "https://bess-cloud-ingest.greenergycare.com/bess/v2/ingest",
+    transmissionProtocol: "HTTPS POST",
+    rawPayloadSize: `${(JSON.stringify(payload).length / 1024).toFixed(2)} KB`,
+    responseStatus: "202 ACCEPTED",
+    payload
+  };
+
+  cloudTelemetryPackets.unshift(pct);
+  if (cloudTelemetryPackets.length > 50) {
+    cloudTelemetryPackets.pop();
+  }
+}
+
+// Generate some initial historical packets so the stream is pre-populated
+for (let i = 15; i >= 0; i--) {
+  const now = new Date(Date.now() - i * 60000); // spread over last 15 minutes
+  const packetId = "p_export_hist_" + Math.random().toString(36).substring(2, 9);
+  
+  const payload = {
+    meta: {
+      site_id: "SOLAR_STAR_3",
+      ems_controller_ip: "10.0.0.3",
+      controller_version: "v3.12.8-stable",
+      timestamp_epoch: Math.floor(now.getTime() / 1000),
+      ingest_channel: "production-live-us-west"
+    },
+    bms_summary: {
+      total_active_power_kw: telemetryCalibrationAligned ? -25.0 : -2500.0,
+      overall_isolation_status: "NOMINAL",
+      active_faults_count: 1
+    },
+    downstream_devices: [
+      {
+        device_id: "bess-01",
+        name: "Substation Alpha-1 Core",
+        ip: "192.168.1.101",
+        status: "Charging",
+        soc: 38.5,
+        soh: 96.8,
+        voltage: 482.4,
+        current: telemetryCalibrationAligned ? 207.3 : 2073,
+        power: telemetryCalibrationAligned ? 100.0 : 10000,
+        temperature: 34.2,
+        isOnline: true,
+        cellVoltages: [3.21, 3.22, 3.21, 3.23, 3.22, 3.21, 3.22, 3.23, 3.21, 3.21, 3.22, 3.22, 3.21, 3.23, 3.22, 3.21]
+      },
+      {
+        device_id: "bess-02",
+        name: "Solar Array B Buffer",
+        ip: "192.168.1.102",
+        status: "Discharging",
+        soc: 82.1,
+        soh: 98.1,
+        voltage: 812.5,
+        current: telemetryCalibrationAligned ? -153.8 : -1538,
+        power: telemetryCalibrationAligned ? -125.0 : -12500,
+        temperature: 31.2,
+        isOnline: true,
+        cellVoltages: [3.31, 3.32, 3.31, 3.30, 3.31, 3.32, 3.32, 3.31, 3.31, 3.30, 3.31, 3.32, 3.31, 3.30, 3.32, 3.31]
+      },
+      {
+        device_id: "bess-03",
+        name: "Anode Storage Cluster C",
+        ip: "192.168.1.103",
+        status: "Faulted",
+        soc: 18.4,
+        soh: 89.2,
+        voltage: 410.2,
+        current: 0.0,
+        power: 0.0,
+        temperature: 42.5,
+        isOnline: true,
+        cellVoltages: [3.12, 3.12, 3.13, 3.35, 3.12, 3.12, 3.13, 3.12, 3.12, 3.13, 3.12, 3.12, 3.12, 3.34, 3.12, 3.12]
+      }
+    ]
+  };
+
+  cloudTelemetryPackets.push({
+    id: packetId,
+    timestamp: now.toISOString(),
+    sourceIp: "10.0.0.3",
+    sourceComponent: "Primary EMS Controller",
+    destinationCloudEndpoint: "https://bess-cloud-ingest.greenergycare.com/bess/v2/ingest",
+    transmissionProtocol: "HTTPS POST",
+    rawPayloadSize: `${(JSON.stringify(payload).length / 1024).toFixed(2)} KB`,
+    responseStatus: "202 ACCEPTED",
+    payload
+  });
+}
+
 // SIMULATOR UPDATE INTERVAL (triggers every 3 seconds to keep real-time values fluctuating)
 setInterval(() => {
   let changed = false;
@@ -349,6 +505,11 @@ setInterval(() => {
 
   if (changed) {
     writeJSONFile(DEVICES_FILE, devices);
+  }
+  
+  // Also push a live telemetry export packet from the controller
+  if (typeof generateTelemetryPacket === "function") {
+    generateTelemetryPacket();
   }
 }, 3000);
 
@@ -608,6 +769,36 @@ app.post("/api/scan", (req, res) => {
 // API: Fetch curl logs to verify console bindings
 app.get("/api/curllogs", (req, res) => {
   res.json(curlLogs);
+});
+
+// API: Get intercepted cloud telemetry packets
+app.get("/api/cloud-telemetry/packets", (req, res) => {
+  res.json({
+    packets: cloudTelemetryPackets,
+    calibrationAligned: telemetryCalibrationAligned
+  });
+});
+
+// API: Adjust/align calibration configuration
+app.post("/api/cloud-telemetry/align", (req, res) => {
+  const { aligned } = req.body;
+  telemetryCalibrationAligned = !!aligned;
+  // immediately trigger a fresh aligned packet
+  generateTelemetryPacket();
+  res.json({
+    success: true,
+    calibrationAligned: telemetryCalibrationAligned
+  });
+});
+
+// API: Manually trigger / force standard telemetry export packet
+app.post("/api/cloud-telemetry/trigger-export", (req, res) => {
+  generateTelemetryPacket();
+  res.json({
+    success: true,
+    message: "Triggered standard telemetry payload export!",
+    latestPacket: cloudTelemetryPackets[0]
+  });
 });
 
 // API: Fetch error logs
@@ -1126,6 +1317,11 @@ app.post("/api/upload-ip-map", (req, res) => {
 app.get("/turtle/tools/report/ems/modbus_map.csv", (req, res) => {
   res.setHeader("Content-Type", "text/csv");
   res.sendFile(path.join(process.cwd(), "turtle/tools/report/ems/modbus_map.csv"));
+});
+
+app.get("/turtle/tools/report/ems/ip_modbus_associations.csv", (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.sendFile(path.join(process.cwd(), "turtle/tools/report/ems/ip_modbus_associations.csv"));
 });
 
 app.post("/api/upload-modbus-map", (req, res) => {
