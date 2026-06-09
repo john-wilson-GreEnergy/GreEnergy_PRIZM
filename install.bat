@@ -110,8 +110,19 @@ echo.
 echo [STEP 4/4] Generating desktop icon for one-click launcher...
 
 set "LauncherPath=%~dp0run.bat"
+set "IconLoc=shell32.dll,238"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'GreEnergy PRIZM.lnk')); $s.TargetPath='%LauncherPath%'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='shell32.dll,238'; $s.Description='GreEnergy PRIZM BESS Operations and Telemetry Monitor'; $s.Save()"
+if exist "%~dp0logo.ico" (
+    set "IconLoc=%~dp0logo.ico"
+    echo [INFO] Custom company logo.ico detected. Applying to Desktop shortcut.
+) else if exist "%~dp0public\favicon.ico" (
+    set "IconLoc=%~dp0public\favicon.ico"
+    echo [INFO] Public favicon.ico detected. Applying to Desktop shortcut.
+) else (
+    echo [INFO] No custom .ico found. Applying default network node icon.
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'GreEnergy PRIZM.lnk')); $s.TargetPath='%LauncherPath%'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='!IconLoc!'; $s.Description='GreEnergy PRIZM BESS Operations and Telemetry Monitor'; $s.Save()"
 
 if !errorlevel! neq 0 (
     echo [ERROR] Failed to compile Desktop shortcut!
