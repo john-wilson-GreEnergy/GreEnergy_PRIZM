@@ -25,7 +25,8 @@ import {
   Zap,
   Info,
   Radio,
-  Wifi
+  Wifi,
+  Terminal
 } from "lucide-react";
 
 import SystemDetailsView from "./kobold/SystemDetailsView";
@@ -238,6 +239,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [isInterceptorLive, setIsInterceptorLive] = useState<boolean>(true);
   const [isAligningScale, setIsAligningScale] = useState<boolean>(false);
   const [packetSearchQuery, setPacketSearchQuery] = useState<string>("");
+  const [localCloudOutage, setLocalCloudOutage] = useState<boolean>(false);
+  const [softBalancingOverride, setSoftBalancingOverride] = useState<boolean>(false);
+  const [systemWideIsolation, setSystemWideIsolation] = useState<boolean>(false);
+  const [simulatedIp, setSimulatedIp] = useState<string>("10.0.3.10");
+  const [simulatedRegister, setSimulatedRegister] = useState<string>("1180");
+  const [simulatedQueryResult, setSimulatedQueryResult] = useState<any>(null);
+  const [queryLoading, setQueryLoading] = useState<boolean>(false);
+  const [telemetrySubTab, setTelemetrySubTab] = useState<string>("sniffer");
 
   // --- CLOUD TELEMETRY ACTIONS ---
   const handleToggleAlignment = async (nowAligned: boolean) => {
@@ -305,6 +314,139 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  const handleToggleOutage = async (active: boolean) => {
+    try {
+      const res = await fetch("/api/cloud-telemetry/outage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLocalCloudOutage(data.localCloudOutageActive);
+        if (data.cloudTelemetryPacket) {
+          setTelemetryPackets(prev => {
+            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = data.cloudTelemetryPacket;
+              return updated;
+            }
+            return [data.cloudTelemetryPacket, ...prev];
+          });
+          setSelectedPacketId(data.cloudTelemetryPacket.id);
+        }
+        setNotifications(prev => [
+          {
+            time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            source: "WAN_STATE",
+            message: active 
+              ? "Forced simulated WAN outage. Local PRIZM backup database buffering all site packets offline." 
+              : "Simulated WAN outage cleared. Local cloud synchronizer synchronized packet buffers.",
+            type: active ? "warning" : "success"
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleBalancing = async (active: boolean) => {
+    try {
+      const res = await fetch("/api/cloud-telemetry/override-balancing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSoftBalancingOverride(data.softBalancingOverride);
+        if (data.cloudTelemetryPacket) {
+          setTelemetryPackets(prev => {
+            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = data.cloudTelemetryPacket;
+              return updated;
+            }
+            return [data.cloudTelemetryPacket, ...prev];
+          });
+          setSelectedPacketId(data.cloudTelemetryPacket.id);
+        }
+        setNotifications(prev => [
+          {
+            time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            source: "LOCAL_OVERRIDE",
+            message: active 
+              ? "MANUAL CONTROL OVERRIDE: Active cell balancing shutoffs forced on 10.0.3.10." 
+              : "Manual balancing overrides released. Local EMS automatically managing strings.",
+            type: active ? "success" : "info"
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleCutoff = async (active: boolean) => {
+    try {
+      const res = await fetch("/api/cloud-telemetry/cutoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemWideIsolation(data.systemWideIsolationTriggered);
+        if (data.cloudTelemetryPacket) {
+          setTelemetryPackets(prev => {
+            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = data.cloudTelemetryPacket;
+              return updated;
+            }
+            return [data.cloudTelemetryPacket, ...prev];
+          });
+          setSelectedPacketId(data.cloudTelemetryPacket.id);
+        }
+        setNotifications(prev => [
+          {
+            time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            source: "LOCAL_CUTOFF",
+            message: active 
+              ? "EMERGENCY SAFETY RELAY TRIP: All site DC contactors opened locally!" 
+              : "Emergency safety cutoff released. Local EMS restarting balance routines.",
+            type: active ? "critical" : "success"
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleRunDiagnosticQuery = async () => {
+    setQueryLoading(true);
+    setSimulatedQueryResult(null);
+    try {
+      const res = await fetch(`/api/cloud-telemetry/query?ip=${simulatedIp}&register=${simulatedRegister}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSimulatedQueryResult(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setQueryLoading(false);
+    }
   };
 
   // --- SEED TABLES matching Screenshots 1 & 2 ---
@@ -670,6 +812,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           const data = await res.json();
           setTelemetryPackets(data.packets);
           setIsTelemetryAligned(data.calibrationAligned);
+          setLocalCloudOutage(data.localCloudOutageActive || false);
+          setSoftBalancingOverride(data.softBalancingOverride || false);
+          setSystemWideIsolation(data.systemWideIsolationTriggered || false);
           // Set initial selection if none is loaded
           if (data.packets.length > 0 && !selectedPacketId) {
             setSelectedPacketId(data.packets[0].id);
@@ -2438,7 +2583,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
                           isInterceptorLive ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-zinc-500/15 text-zinc-400 border border-zinc-500/20"
                         }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${isInterceptorLive ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"}`}></span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isInterceptorLive ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"}`}></span>
                           {isInterceptorLive ? "LISTENING (10.0.*.*)" : "PAUSED"}
                         </span>
                       </div>
@@ -2461,7 +2606,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <button
                         type="button"
                         onClick={handleForceExport}
-                        className="px-3 py-1.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550/20 rounded font-bold transition-all font-bold"
+                        className="px-3 py-1.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550/20 rounded font-bold"
                       >
                         Force Export Packet
                       </button>
@@ -2469,239 +2614,707 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         type="button"
                         onClick={handleDownloadPackets}
                         disabled={telemetryPackets.length === 0}
-                        className="px-3 py-1.5 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 disabled:opacity-40 rounded font-bold transition-all font-bold"
+                        className="px-3 py-1.5 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 disabled:opacity-40 rounded font-bold transition-all"
                       >
                         Export Packet Log (.json)
                       </button>
                     </div>
                   </div>
 
-                  {/* MISMATCH DIAGNOSIS AND CALIBRATION CONTROLLER */}
-                  <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        {isTelemetryAligned ? (
-                          <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm font-mono">
-                            <CheckCircle size={16} />
-                            REGISTER SCALING MULTIPLIERS ALIGNED & SYNCHRONIZED
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 text-rose-400 font-bold text-sm font-mono">
-                            <AlertTriangle className="animate-bounce" size={16} />
-                            BMS TELEMETRY MULTIPLIER DISCONNECT DETECTED (Mismatched Scales)
-                          </div>
-                        )}
-                        <p className="text-[10px] font-mono text-white/50 mt-1 max-w-4xl">
-                          {isTelemetryAligned 
-                            ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the Cloud stream targets."
-                            : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the Cloud requires applying the standard Powin scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the Cloud dashboard!"
-                          }
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleToggleAlignment(!isTelemetryAligned)}
-                        disabled={isAligningScale}
-                        className={`shrink-0 px-4 py-2 text-xs font-mono font-black uppercase tracking-wider rounded-md border shadow-lg transition-all ${
-                          isTelemetryAligned
-                            ? "bg-rose-500/10 text-rose-300 border-rose-500/20 hover:bg-rose-500/20"
-                            : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25 animate-pulse"
-                        }`}
-                      >
-                        {isAligningScale ? "Calibrating..." : isTelemetryAligned ? "Reset Calibration to Raw" : "⚡ Calibrate local gateway scales"}
-                      </button>
-                    </div>
-
-                    {/* COMPARISON METRICS TABLE */}
-                    <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
-                      <table className="w-full text-left border-collapse text-xs font-mono">
-                        <thead>
-                          <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
-                            <th className="p-2.5">Telemetry Parameter</th>
-                            <th className="p-2.5">Uncalibrated Local App View</th>
-                            <th className="p-2.5">Calibrated Cloud Stream Payload</th>
-                            <th className="p-2.5">Multiplier Scale</th>
-                            <th className="p-2.5 text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/[0.03]">
-                          <tr>
-                            <td className="p-2.5 font-bold text-white">Lineup Active Power</td>
-                            <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-white/30 font-normal block">Raw holding register 84 value</span></td>
-                            <td className="p-2.5 text-emerald-400 font-bold">
-                              {isTelemetryAligned ? "124.2 kW" : "124,200.0 kW"}
-                              <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
-                            </td>
-                            <td className="p-2.5 text-white/60">W_SF = 2 (Multiplier: 10^2)</td>
-                            <td className="p-2.5 text-center">
-                              {isTelemetryAligned ? (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
-                              ) : (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">MISMATCH (100x)</span>
-                              )}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold text-white">BESS Direct Current</td>
-                            <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-white/30 font-normal block">Raw register 691 integer</span></td>
-                            <td className="p-2.5 text-emerald-400 font-bold">
-                              {isTelemetryAligned ? "45.0 A" : "450.0 A"}
-                              <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
-                            </td>
-                            <td className="p-2.5 text-white/60">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
-                            <td className="p-2.5 text-center">
-                              {isTelemetryAligned ? (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
-                              ) : (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">MISMATCH (10x)</span>
-                              )}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold text-white">Anode Cluster C (10.0.1.10) Temperature</td>
-                            <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Module temp register 1163</span></td>
-                            <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span></td>
-                            <td className="p-2.5 text-white/60">No offset (10^0 = 1)</td>
-                            <td className="p-2.5 text-center">
-                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold text-white">Rack Node 10.0.3.10 Status</td>
-                            <td className="p-2.5 text-zinc-400 font-bold">STALE / NO POLL <span className="text-[9px] text-zinc-500 font-normal block">Omitted from raw site map cache</span></td>
-                            <td className="p-2.5 text-rose-400 font-bold">FAULTED <span className="text-[9px] text-rose-400/50 font-normal block">Logged in telemetry payload stream</span></td>
-                            <td className="p-2.5 text-white/60">N/A (Status Code alignment)</td>
-                            <td className="p-2.5 text-center">
-                              {isTelemetryAligned ? (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">RESOLVED</span>
-                              ) : (
-                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">IP FILTER WARN</span>
-                              )}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                  {/* SUB SECTIONS TABS NAVIGATION */}
+                  <div className="flex border-b border-white/5 gap-2 -mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setTelemetrySubTab("sniffer")}
+                      className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
+                        telemetrySubTab === "sniffer" 
+                          ? "border-cyan-400 text-white bg-white/[0.02]" 
+                          : "border-transparent text-white/50 hover:text-white/80"
+                      }`}
+                    >
+                      📡 Telemetry Packet Sniffer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTelemetrySubTab("replica")}
+                      className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
+                        telemetrySubTab === "replica" 
+                          ? "border-cyan-400 text-white bg-white/[0.02]" 
+                          : "border-transparent text-white/50 hover:text-white/80"
+                      }`}
+                    >
+                      🖥️ Local Control Center (Cloud Replica)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTelemetrySubTab("modbus")}
+                      className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
+                        telemetrySubTab === "modbus" 
+                          ? "border-cyan-400 text-white bg-white/[0.02]" 
+                          : "border-transparent text-white/50 hover:text-white/80"
+                      }`}
+                    >
+                      🔌 Point Registry Tester (Modbus)
+                    </button>
                   </div>
 
-                  {/* SNIPER WORKSPACE GRID */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    {/* LEFT WORKSPACE PANEL: CAPTURED TELEMETRY PACKET STREAM */}
-                    <div className="lg:col-span-5 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px]">
-                      <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded p-2 text-[10px] font-mono">
-                        <span className="text-white/40 font-bold uppercase">INTERCEPTED STREAM BUFFER</span>
-                        <span className="text-cyan-400 font-black">{telemetryPackets.length} PACKETS CAPTURED</span>
+                  {/* TAB CONTENT: SNIFFER MODE (ORIGINAL CALIBRATION & SNIPER VIEW) */}
+                  {telemetrySubTab === "sniffer" && (
+                    <div className="space-y-6">
+                      {/* MISMATCH DIAGNOSIS AND CALIBRATION CONTROLLER */}
+                      <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                          <div>
+                            {isTelemetryAligned ? (
+                              <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm font-mono">
+                                <CheckCircle size={16} />
+                                REGISTER SCALING MULTIPLIERS ALIGNED & SYNCHRONIZED
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-rose-400 font-bold text-sm font-mono">
+                                <AlertTriangle className="animate-bounce" size={16} />
+                                BMS TELEMETRY MULTIPLIER DISCONNECT DETECTED (Mismatched Scales)
+                              </div>
+                            )}
+                            <p className="text-[10px] font-mono text-white/50 mt-1 max-w-4xl">
+                              {isTelemetryAligned 
+                                ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the Cloud stream targets."
+                                : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the Cloud requires applying the standard Powin scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the Cloud dashboard!"
+                              }
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAlignment(!isTelemetryAligned)}
+                            disabled={isAligningScale}
+                            className={`shrink-0 px-4 py-2 text-xs font-mono font-black uppercase tracking-wider rounded-md border shadow-lg transition-all ${
+                              isTelemetryAligned
+                                ? "bg-rose-500/10 text-rose-300 border-rose-500/20 hover:bg-rose-500/20"
+                                : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25 animate-pulse"
+                            }`}
+                          >
+                            {isAligningScale ? "Calibrating..." : isTelemetryAligned ? "Reset Calibration to Raw" : "⚡ Calibrate local gateway scales"}
+                          </button>
+                        </div>
+
+                        {/* COMPARISON METRICS TABLE */}
+                        <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
+                          <table className="w-full text-left border-collapse text-xs font-mono">
+                            <thead>
+                              <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
+                                <th className="p-2.5">Telemetry Parameter</th>
+                                <th className="p-2.5">Uncalibrated Local App View</th>
+                                <th className="p-2.5">Calibrated Cloud Stream Payload</th>
+                                <th className="p-2.5">Multiplier Scale</th>
+                                <th className="p-2.5 text-center">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.03]">
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">Lineup Active Power</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-white/30 font-normal block">Raw holding register 84 value</span></td>
+                                <td className="p-2.5 text-emerald-400 font-bold">
+                                  {isTelemetryAligned ? "124.2 kW" : "124,200.0 kW"}
+                                  <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                                </td>
+                                <td className="p-2.5 text-white/60">W_SF = 2 (Multiplier: 10^2)</td>
+                                <td className="p-2.5 text-center">
+                                  {isTelemetryAligned ? (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                                  ) : (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">MISMATCH (100x)</span>
+                                  )}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">BESS Direct Current</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-white/30 font-normal block">Raw register 691 integer</span></td>
+                                <td className="p-2.5 text-emerald-400 font-bold">
+                                  {isTelemetryAligned ? "45.0 A" : "450.0 A"}
+                                  <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                                </td>
+                                <td className="p-2.5 text-white/60">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
+                                <td className="p-2.5 text-center">
+                                  {isTelemetryAligned ? (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                                  ) : (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">MISMATCH (10x)</span>
+                                  )}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">Anode Cluster C (10.0.1.10) Temperature</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Module temp register 1163</span></td>
+                                <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span></td>
+                                <td className="p-2.5 text-white/60">No offset (10^0 = 1)</td>
+                                <td className="p-2.5 text-center">
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">Rack Node 10.0.3.10 Status</td>
+                                <td className="p-2.5 text-zinc-400 font-bold">STALE / NO POLL <span className="text-[9px] text-zinc-500 font-normal block">Omitted from raw site map cache</span></td>
+                                <td className="p-2.5 text-rose-400 font-bold">FAULTED <span className="text-[9px] text-rose-400/50 font-normal block">Logged in telemetry payload stream</span></td>
+                                <td className="p-2.5 text-white/60">N/A (Status Code alignment)</td>
+                                <td className="p-2.5 text-center">
+                                  {isTelemetryAligned ? (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">RESOLVED</span>
+                                  ) : (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">IP FILTER WARN</span>
+                                  )}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
 
-                      {/* SEARCH INPUT */}
-                      <div className="relative">
-                        <Search size={12} className="absolute left-2.5 top-2.5 text-white/30" />
-                        <input
-                          type="text"
-                          placeholder="Filter intercepted stream by ID, status, payload key..."
-                          value={packetSearchQuery}
-                          onChange={(e) => setPacketSearchQuery(e.target.value)}
-                          className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 pl-8 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
-                        />
-                      </div>
+                      {/* SNIPER WORKSPACE GRID */}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        {/* LEFT WORKSPACE PANEL: CAPTURED TELEMETRY PACKET STREAM */}
+                        <div className="lg:col-span-5 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px]">
+                          <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded p-2 text-[10px] font-mono">
+                            <span className="text-white/40 font-bold uppercase">INTERCEPTED STREAM BUFFER</span>
+                            <span className="text-cyan-400 font-black">{telemetryPackets.length} PACKETS CAPTURED</span>
+                          </div>
 
-                      {/* STREAM SCROLL AREA */}
-                      <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-none">
-                        {telemetryPackets.filter(p => {
-                          const query = packetSearchQuery.toLowerCase();
-                          if (!query) return true;
-                          return (
-                            p.id.toLowerCase().includes(query) ||
-                            p.rawPayloadSize.toLowerCase().includes(query) ||
-                            JSON.stringify(p.payload).toLowerCase().includes(query)
-                          );
-                        }).map((packet) => {
-                          const isSelected = selectedPacketId === packet.id;
-                          const dateObj = new Date(packet.timestamp);
-                          const timeStr = dateObj.toLocaleTimeString();
-                          
-                          return (
-                            <div
-                              key={packet.id}
-                              onClick={() => setSelectedPacketId(packet.id)}
-                              className={`p-2.5 rounded-md border text-xs font-mono transition-all cursor-pointer ${
-                                isSelected 
-                                  ? "bg-cyan-500/10 border-cyan-500/40 text-white" 
-                                  : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5"
-                              }`}
-                            >
-                              <div className="flex justify-between items-start">
-                                <span className={`font-bold mt-0.5 text-[10px] ${isSelected ? "text-cyan-300" : "text-white/70"}`}>
-                                  {packet.id}
-                                </span>
-                                <span className="text-[10px] text-white/30">{timeStr}</span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1 text-[10px] text-white/40">
-                                <span className="text-white/30 font-medium">Protocol:</span> <span className="text-[#059669] font-bold">{packet.transmissionProtocol}</span>
-                                <span>•</span>
-                                <span className="text-white/30 font-medium">Size:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span>
-                              </div>
-                              <div className="flex justify-between items-center mt-2 pt-1 border-t border-white/[0.03]">
-                                <span className="text-[9px] text-[#059669] shrink-0 font-bold">202 ACCEPTED</span>
-                                <span className="text-[9px] text-white/30 truncate max-w-[150px]">{packet.payload.meta.ingest_channel}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                          {/* SEARCH INPUT */}
+                          <div className="relative">
+                            <Search size={12} className="absolute left-2.5 top-2.5 text-white/30" />
+                            <input
+                              type="text"
+                              placeholder="Filter intercepted stream by ID, status, payload key..."
+                              value={packetSearchQuery}
+                              onChange={(e) => setPacketSearchQuery(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 pl-8 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                            />
+                          </div>
 
-                    {/* RIGHT WORKSPACE PANEL: INTERACT PAYLOAD INSPECTOR */}
-                    <div className="lg:col-span-7 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px] overflow-hidden">
-                      {(() => {
-                        const packet = telemetryPackets.find(p => p.id === selectedPacketId);
-                        if (!packet) {
-                          return (
-                            <div className="flex-1 flex flex-col items-center justify-center text-center text-white/30 font-mono text-xs">
-                              <Radio size={32} className="text-white/10 animate-pulse mb-3" />
-                              Select an intercepted cloud telemetry packet on the left to inspect its granulated payload stream.
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
-                            {/* PACKET SUMMARY BAR */}
-                            <div className="bg-white/5 rounded-lg p-3 border border-white/5 space-y-2 text-xs font-mono">
-                              <div className="flex justify-between items-start border-b border-white/5 pb-2">
-                                <div>
-                                  <div className="text-white font-bold text-[13px]">{packet.id}</div>
-                                  <div className="text-[10px] text-white/40 mt-0.5">{packet.timestamp}</div>
+                          {/* STREAM SCROLL AREA */}
+                          <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-none">
+                            {telemetryPackets.filter(p => {
+                              const query = packetSearchQuery.toLowerCase();
+                              if (!query) return true;
+                              return (
+                                p.id.toLowerCase().includes(query) ||
+                                p.rawPayloadSize.toLowerCase().includes(query) ||
+                                JSON.stringify(p.payload).toLowerCase().includes(query)
+                              );
+                            }).map((packet) => {
+                              const isSelected = selectedPacketId === packet.id;
+                              const dateObj = new Date(packet.timestamp);
+                              const timeStr = dateObj.toLocaleTimeString();
+                              const isErr = packet.responseStatus.includes("503");
+                              
+                              return (
+                                <div
+                                  key={packet.id}
+                                  onClick={() => setSelectedPacketId(packet.id)}
+                                  className={`p-2.5 rounded-md border text-xs font-mono transition-all cursor-pointer ${
+                                    isSelected 
+                                      ? "bg-cyan-500/10 border-cyan-500/40 text-white" 
+                                      : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5"
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-start">
+                                    <span className={`font-bold mt-0.5 text-[10px] ${isSelected ? "text-cyan-300" : "text-white/70"}`}>
+                                      {packet.id}
+                                    </span>
+                                    <span className="text-[10px] text-white/30">{timeStr}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1 text-[10px] text-white/40">
+                                    <span className="text-white/30 font-medium">Protocol:</span> <span className="text-[#059669] font-bold">{packet.transmissionProtocol}</span>
+                                    <span>•</span>
+                                    <span className="text-white/30 font-medium">Size:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center mt-2 pt-1 border-t border-white/[0.03]">
+                                    <span className={`text-[9px] shrink-0 font-bold ${isErr ? "text-rose-400" : "text-[#059669]"}`}>
+                                      {packet.responseStatus}
+                                    </span>
+                                    <span className="text-[9px] text-white/30 truncate max-w-[150px]">{packet.payload?.meta?.ingest_channel || "local-sync"}</span>
+                                  </div>
                                 </div>
-                                <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase text-[10px]">
-                                  {packet.responseStatus}
-                                </span>
-                              </div>
+                              );
+                            })}
+                          </div>
+                        </div>
 
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] pt-1">
-                                <div className="flex justify-between"><span className="text-white/30 font-medium">Egress IP:</span> <span className="text-white/80 font-bold">{packet.sourceIp}</span></div>
-                                <div className="flex justify-between"><span className="text-white/30 font-medium">Source Component:</span> <span className="text-white/80 font-bold">{packet.sourceComponent}</span></div>
-                                <div className="flex justify-between"><span className="text-white/30 font-medium">Target Cloud:</span> <span className="text-white/80 font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
-                                <div className="flex justify-between"><span className="text-white/30 font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
+                        {/* RIGHT WORKSPACE PANEL: INTERACT PAYLOAD INSPECTOR */}
+                        <div className="lg:col-span-7 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px] overflow-hidden">
+                          {(() => {
+                            const packet = telemetryPackets.find(p => p.id === selectedPacketId);
+                            if (!packet) {
+                              return (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center text-white/30 font-mono text-xs">
+                                  <Radio size={32} className="text-white/10 animate-pulse mb-3" />
+                                  Select an intercepted cloud telemetry packet on the left to inspect its granulated payload stream.
+                                </div>
+                              );
+                            }
+
+                            const isErr = packet.responseStatus.includes("503");
+
+                            return (
+                              <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
+                                {/* PACKET SUMMARY BAR */}
+                                <div className="bg-white/5 rounded-lg p-3 border border-white/5 space-y-2 text-xs font-mono">
+                                  <div className="flex justify-between items-start border-b border-white/5 pb-2">
+                                    <div>
+                                      <div className="text-white font-bold text-[13px]">{packet.id}</div>
+                                      <div className="text-[10px] text-white/40 mt-0.5">{packet.timestamp}</div>
+                                    </div>
+                                    <span className={`px-2 py-0.5 border rounded font-black uppercase text-[10px] ${
+                                      isErr 
+                                        ? "bg-rose-500/15 text-rose-400 border-rose-500/20" 
+                                        : "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
+                                    }`}>
+                                      {packet.responseStatus}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] pt-1">
+                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Egress IP:</span> <span className="text-white/80 font-bold">{packet.sourceIp}</span></div>
+                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Source Component:</span> <span className="text-white/80 font-bold">{packet.sourceComponent}</span></div>
+                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Target Cloud:</span> <span className="text-white/80 font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
+                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
+                                  </div>
+                                </div>
+
+                                {/* RAW JSON VIEW */}
+                                <div className="flex-1 flex flex-col min-h-0">
+                                  <div className="text-[10px] font-mono tracking-wider font-bold text-[#059669] uppercase border-b border-white/5 pb-1 mb-2 flex justify-between items-center">
+                                    <span>GRANULATED INTERCEPTED PAYLOAD JSON</span>
+                                    <span className="text-white/30 text-[9px] lowercase font-normal">JSON viewer with code highlighting</span>
+                                  </div>
+                                  <div className="flex-1 overflow-auto bg-[#090b10] rounded-md border border-white/5 relative flex">
+                                    {renderJsonHighlight(packet.payload)}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB CONTENT: LOCAL REPLICA DASHBOARD (REPLICATING CLOUD CONTROL CAPABILITIES LOCALLY) */}
+                  {telemetrySubTab === "replica" && (
+                    <div className="space-y-6">
+                      {/* INTERACTIVE CONTROLLER TILES */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* TILE 1: CLOUD SYSTEM WAN CONNECTION */}
+                        <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
+                          localCloudOutage 
+                            ? "bg-rose-500/5 border-rose-500/25 text-rose-300"
+                            : "bg-emerald-500/5 border-emerald-500/15 text-emerald-300"
+                        }`}>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold uppercase tracking-wider">WAN Cloud Sync Connection</span>
+                            {localCloudOutage ? <Wifi size={16} className="text-rose-400 animate-pulse" /> : <Wifi size={16} className="text-emerald-400" />}
+                          </div>
+
+                          <div className="text-2xl font-black">
+                            {localCloudOutage ? "OUTAGEFALLBACK" : "CONNECTED"}
+                          </div>
+                          
+                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                            {localCloudOutage 
+                              ? "CRITICAL: Internet Connection DOWN. Localized database backup store is recording all high-frequency Modbus registers with zero data loss."
+                              : "STATUS NORMAL: Local BESS site registers are automatically synchronized with central Cloud servers every 3000ms. All systems normal."
+                            }
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleOutage(!localCloudOutage)}
+                            className={`w-full py-1.5 rounded font-black text-xs uppercase tracking-wide border transition-all ${
+                              localCloudOutage 
+                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
+                                : "bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30"
+                            }`}
+                          >
+                            {localCloudOutage ? "🔌 Reconnect WAN Bridge" : "⚠️ Cut WAN Bridge (Simulate Outage)"}
+                          </button>
+                        </div>
+
+                        {/* TILE 2: CELL VOLTAGE OVERRIDE & SHUNT CONTROLLER */}
+                        <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
+                          softBalancingOverride 
+                            ? "bg-cyan-500/5 border-cyan-500/25 text-cyan-300"
+                            : (systemWideIsolation ? "bg-zinc-500/5 border-white/5 text-zinc-400" : "bg-zinc-500/5 border-amber-500/20 text-amber-300")
+                        }`}>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold uppercase tracking-wider">Latching Shunt Override</span>
+                            <Sliders size={16} className={softBalancingOverride ? "text-cyan-400 animate-spin" : "text-amber-400"} />
+                          </div>
+
+                          <div className="text-2xl font-black">
+                            {softBalancingOverride ? "SHUNT ACTIVE" : "AUTO INTERLOCK"}
+                          </div>
+
+                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                            {softBalancingOverride 
+                              ? "OVERRIDE ENGAGED: Forcing dynamic cell shunts on 10.0.3.10. Cell 14 voltage successfully balanced down to 3.24V. String ONLINE."
+                              : "AUTO CONTROLLER: String 1 is currently faulted on over-voltage (Cell 14: 3.51V). Bypassing automated latch loops requires manual shunt balancing."
+                            }
+                          </p>
+
+                          <button
+                            type="button"
+                            disabled={systemWideIsolation}
+                            onClick={() => handleToggleBalancing(!softBalancingOverride)}
+                            className="w-full py-1.5 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 disabled:opacity-30 rounded font-black text-xs uppercase tracking-wide transition-all"
+                          >
+                            {softBalancingOverride ? "Release Balancing Shunts" : "⚡ Force Cell Balancing Overrides"}
+                          </button>
+                        </div>
+
+                        {/* TILE 3: EMERGENCY SYSTEM CUTOFF */}
+                        <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
+                          systemWideIsolation 
+                            ? "bg-rose-950/20 border-rose-500/40 text-rose-300 animate-pulse"
+                            : "bg-[#161313] border-white/5 text-white/50"
+                        }`}>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold uppercase tracking-wider">Emergency DC Isolation Relay</span>
+                            <AlertTriangle size={16} className={systemWideIsolation ? "text-rose-400" : "text-white/20"} />
+                          </div>
+
+                          <div className={`text-2xl font-black ${systemWideIsolation ? "text-rose-400 font-bold" : "text-white/40"}`}>
+                            {systemWideIsolation ? "ISOLATION TRIP ACTIVE" : "NOMINAL ENERGIZE"}
+                          </div>
+
+                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                            {systemWideIsolation 
+                              ? "E-STOP ENGAGED: Local manual safety stop coil tripped. Main substations isolated. Grid power flow completely shut down."
+                              : "NORMAL RUNNING: All contactor logic is active. Safety loop coils energized. Control room holds master safety intervention authority."
+                            }
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCutoff(!systemWideIsolation)}
+                            className={`w-full py-1.5 rounded font-black text-xs uppercase tracking-wide border transition-all ${
+                              systemWideIsolation 
+                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
+                                : "bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30"
+                            }`}
+                          >
+                            {systemWideIsolation ? "Clear Safety Cutoff Trigger" : "🛑 Trigger Emergency Cutoff (Local)"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* LIVE FLOW POWER VISUALIZER DIAGRAM */}
+                      <div className="p-5 rounded-lg bg-[#0C0E17] border border-white/5 space-y-4 font-mono">
+                        <div className="flex justify-between items-start border-b border-white/5 pb-3">
+                          <div>
+                            <h4 className="text-xs font-bold uppercase text-white tracking-wider flex items-center gap-2">
+                              <Activity size={14} className="text-cyan-400" />
+                              REPLICATED SITE ACTIVE POWER-FLOW SCHEMATIC
+                            </h4>
+                            <p className="text-[10px] text-white/40 mt-1">
+                              Real-time interactive diagram representing Modbus voltage lines, cells, and isolated nodes mapped across local subnets.
+                            </p>
+                          </div>
+                          <span className="text-[11px] bg-cyan-500/10 text-cyan-300 px-2 py-0.5 rounded font-bold">
+                            Active Load: {systemWideIsolation ? "0.0 kW" : (softBalancingOverride ? "248.4 kW" : "124.2 kW")}
+                          </span>
+                        </div>
+
+                        {/* RENDER DYNAMIC SVG LINEUP MATRICES */}
+                        <div className="flex flex-col lg:flex-row justify-around items-center gap-6 py-6 bg-black/40 rounded-lg border border-white/[0.02]">
+                          
+                          {/* LINEUP 1 ELEMENT */}
+                          <div className="bg-[#12141F] rounded-lg border border-white/5 p-3.5 w-64 space-y-3 relative text-xs">
+                            <div className="absolute -top-2.5 left-3 bg-cyan-600/20 border border-cyan-500/30 rounded px-1.5 py-0.5 text-[9px] text-cyan-300 font-bold font-mono">
+                              LINEUP 1 (10.0.1.1)
+                            </div>
+                            <div className="flex justify-between font-bold pt-1">
+                              <span className="text-white/60">BMS Core Mode:</span>
+                              <span className={systemWideIsolation ? "text-zinc-500" : "text-emerald-400"}>
+                                {systemWideIsolation ? "Isolated" : "Charging"}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-white/50 pt-1">
+                              <div className="bg-white/[0.01] p-1.5 rounded">
+                                <span className="block text-[9px] text-white/30">Active registers</span>
+                                <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : 124.2).toFixed(1)} kW</strong>
+                              </div>
+                              <div className="bg-white/[0.01] p-1.5 rounded">
+                                <span className="block text-[9px] text-white/30">Total Current</span>
+                                <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : 45.0).toFixed(1)} A</strong>
                               </div>
                             </div>
 
-                            {/* RAW JSON VIEW */}
-                            <div className="flex-1 flex flex-col min-h-0">
-                              <div className="text-[10px] font-mono tracking-wider font-bold text-[#059669] uppercase border-b border-white/5 pb-1 mb-2 flex justify-between items-center">
-                                <span>GRANULATED INTERCEPTED PAYLOAD JSON</span>
-                                <span className="text-white/30 text-[9px] lowercase font-normal">JSON viewer with code highlighting</span>
+                            {/* SUB-NODES STRING GRID */}
+                            <div className="space-y-1.5 border-t border-white/5 pt-2.5">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-white/40">S1 (10.0.1.10)</span>
+                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-white/30" : "bg-emerald-500/10 text-emerald-400"}`}>
+                                  {systemWideIsolation ? "CLOSED" : "CLOSED"}
+                                </span>
                               </div>
-                              <div className="flex-1 overflow-auto bg-[#090b10] rounded-md border border-white/5 relative flex">
-                                {renderJsonHighlight(packet.payload)}
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-white/40">S2 (10.0.1.15)</span>
+                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-white/30" : "bg-emerald-500/10 text-emerald-400"}`}>
+                                  {systemWideIsolation ? "CLOSED" : "CLOSED"}
+                                </span>
                               </div>
                             </div>
                           </div>
-                        );
-                      })()}
+
+                          {/* SYSTEM WYE METER CENTER PIN (FLOWING LINES) */}
+                          <div className="flex flex-col items-center justify-center text-center p-3 relative bg-white/[0.01] rounded-full border border-white/5 w-24 h-24">
+                            <Zap size={24} className={`${systemWideIsolation ? "text-white/15" : "text-yellow-400 animate-pulse"}`} />
+                            <span className="text-[9px] text-white/30 font-bold block mt-1 uppercase">Main Meter</span>
+                            <span className="text-[10px] text-white/80 font-black font-semibold mt-0.5">
+                              {systemWideIsolation ? "0.0 W" : "12.45 kW"}
+                            </span>
+                          </div>
+
+                          {/* LINEUP 3 STORAGE CABINET (ANODE CLUSTER) */}
+                          <div className={`rounded-lg border p-3.5 w-64 space-y-3 relative text-xs transition-all ${
+                            softBalancingOverride 
+                              ? "bg-[#121E23] border-cyan-500/20 text-cyan-200" 
+                              : (systemWideIsolation ? "bg-[#121212] border-white/5 text-white/30" : "bg-[#1F1212] border-rose-500/20 text-rose-200")
+                          }`}>
+                            <div className={`absolute -top-2.5 left-3 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
+                              softBalancingOverride 
+                                ? "bg-cyan-600/20 border-cyan-500/30 text-cyan-300"
+                                : (systemWideIsolation ? "bg-white/5 border-white/10 text-white/40" : "bg-rose-600/20 border-rose-500/30 text-rose-300")
+                            }`}>
+                              LINEUP 3 (10.0.3.1)
+                            </div>
+                            <div className="flex justify-between font-bold pt-1">
+                              <span className="text-white/60">BMS Core Mode:</span>
+                              <span className={systemWideIsolation ? "text-zinc-500" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-rose-400 font-bold animate-pulse")}>
+                                {systemWideIsolation ? "Isolated" : (softBalancingOverride ? "Charging" : "FAULTED")}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-white/50 pt-1">
+                              <div className="bg-white/[0.01] p-1.5 rounded">
+                                <span className="block text-[9px] text-white/30">Active Power</span>
+                                <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : (softBalancingOverride ? 124.2 : 0)).toFixed(1)} kW</strong>
+                              </div>
+                              <div className="bg-white/[0.01] p-1.5 rounded">
+                                <span className="block text-[9px] text-white/30">Max Cell Temp</span>
+                                <strong className={`block text-xs mt-0.5 ${softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}`}>
+                                  {softBalancingOverride ? "28.5 °C" : "55.0 °C"}
+                                </strong>
+                              </div>
+                            </div>
+
+                            {/* SUB-NODES STRING GRID MATCHING HARDWARE STRINGS */}
+                            <div className="space-y-1.5 border-t border-white/5 pt-2.5 text-[10px]">
+                              {/* STRING 1 MONITORED AREA */}
+                              <div className="flex justify-between items-center bg-black/20 p-1.5 rounded mt-1">
+                                <span className="text-white/60 font-bold">S1 (10.0.3.10)</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
+                                  systemWideIsolation ? "bg-white/5 text-white/30" : (softBalancingOverride ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/15 text-rose-400 animate-pulse")
+                                }`}>
+                                  {systemWideIsolation ? "CLOSED" : (softBalancingOverride ? "CLOSED" : "BALANCING_TRIP_OPEN")}
+                                </span>
+                              </div>
+                              {/* STRINGCELL VOLTAGE HIGH DISCOVERY */}
+                              <div className="text-[9px] text-white/40 leading-relaxed px-1 space-y-0.5">
+                                <div className="flex justify-between">
+                                  <span>Cell 14 (OverVolt):</span> 
+                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}>
+                                    {softBalancingOverride ? "3.24 V" : "3.51 V [OverTrip]"}
+                                  </strong>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Cell 13 (UnderVolt):</span> 
+                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-rose-300/60"}>
+                                    {softBalancingOverride ? "3.23 V" : "3.08 V"}
+                                  </strong>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* GRANULATED SITE CONTROLLER INGEST GRID */}
+                      <div className="border border-white/5 rounded-lg p-4 bg-white/[0.01] space-y-3 font-mono">
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Localized Modbus Device Registry State Matrix</h4>
+                          <span className="text-[10px] text-white/30 lowercase">Local DB live-query outputs</span>
+                        </div>
+                        <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
+                                <th className="p-2.5">Endpoint IP</th>
+                                <th className="p-2.5">Component Role</th>
+                                <th className="p-2.5">Register State Values (Raw)</th>
+                                <th className="p-2.5">Calibrated Value (aligned)</th>
+                                <th className="p-2.5">Local Relays</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.03] text-white/80">
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">10.0.1.1</td>
+                                <td className="p-2.5">Lineup 1 BMS Core</td>
+                                <td className="p-2.5 text-zinc-400">Power: <strong className="text-white">{systemWideIsolation ? 0 : 1242}</strong> (Watts Register 84), SoC: <strong className="text-white">425</strong> (Reg 658)</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "0.0" : "124.2"} kW / 42.5% SoC</td>
+                                <td className="p-2.5"><span className="text-emerald-400">NOMINAL_CHARGE</span></td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">10.0.1.10</td>
+                                <td className="p-2.5">Array 1 Node String 1</td>
+                                <td className="p-2.5 text-zinc-400">Voltage: <strong className="text-white">{systemWideIsolation ? 4102 : 4802}</strong> (Reg 691)</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "410.2" : "480.2"} V (DC String)</td>
+                                <td className="p-2.5"><span className="text-emerald-400">CLOSED</span></td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">10.0.3.1</td>
+                                <td className="p-2.5 text-rose-300">Lineup 3 BMS Core</td>
+                                <td className="p-2.5 text-zinc-400">
+                                  Power: <strong className="text-white">{(systemWideIsolation || !softBalancingOverride) ? 0 : 1242}</strong> (Reg 84), MaxTemp: <strong className={`font-bold ${softBalancingOverride ? "text-white" : "text-rose-400 animate-pulse"}`}>{softBalancingOverride ? 294 : 524}</strong> (Reg 1163)
+                                </td>
+                                <td className="p-2.5 text-cyan-300 font-bold">
+                                  {systemWideIsolation ? "0.0 kW / Stale" : (softBalancingOverride ? "124.2 kW / 29.4 °C" : "0.0 kW / 52.4 °C")}
+                                </td>
+                                <td className="p-2.5">
+                                  <span className={systemWideIsolation ? "text-white/30" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-rose-400 font-bold animate-pulse")}>
+                                    {systemWideIsolation ? "CLOSED" : (softBalancingOverride ? "CLOSED_BYPASS" : "FAULT_OPEN")}
+                                  </span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">10.0.3.10</td>
+                                <td className="p-2.5 text-rose-300">Array 3 Node String 1</td>
+                                <td className="p-2.5 text-zinc-400">MaxCellVolt: <strong className={`font-bold ${softBalancingOverride ? "text-white" : "text-rose-400"}`}>{softBalancingOverride ? 3240 : 3510}</strong> mV (Reg 1159)</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">{softBalancingOverride ? "3.24 V" : "3.51 V (High Spike)"}</td>
+                                <td className="p-2.5">
+                                  <span className={softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}>
+                                    {softBalancingOverride ? "CLOSED" : "TRIPPED_OPEN"}
+                                  </span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="p-2.5 font-bold text-white">10.0.0.3</td>
+                                <td className="p-2.5">EMS Master Wye Meter</td>
+                                <td className="p-2.5 text-zinc-400">MeterWatts: <strong className="text-white">{systemWideIsolation ? 0 : 1245000}</strong> (W Wye Reg 558)</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "0.0" : "124.5"} kW / 30.0 A Current</td>
+                                <td className="p-2.5"><span className="text-zinc-500">N/A (Utility Line AC)</span></td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* TAB CONTENT: MODBUS POINT TESTER (RUNNING LOCAL QUERIES FOR GRANTED VISIBILITY) */}
+                  {telemetrySubTab === "modbus" && (
+                    <div className="space-y-6">
+                      <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4 font-mono text-xs">
+                        <div className="border-b border-white/5 pb-2">
+                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Point Registry Modbus Simulation Terminal</h4>
+                          <p className="text-[10px] text-white/40 mt-1">
+                            Simulate sending a local GET Modbus query across the private lineup subnet. This demonstrates how local systems can communicate directly with the underlying registers bypassing any cloud layer.
+                          </p>
+                        </div>
+
+                        {/* HOST / REGISTER SELECTOR BOX */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white/[0.01] p-3 rounded-lg border border-white/[0.02] items-end">
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-white/50 mb-1.5">Target IP address</label>
+                            <select
+                              value={simulatedIp}
+                              onChange={(e) => setSimulatedIp(e.target.value)}
+                              className="w-full bg-[#12141C] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                            >
+                              <option value="10.0.0.3">10.0.0.3 (EMS Master Utility Meter)</option>
+                              <option value="10.0.1.1">10.0.1.1 (Lineup 1 AC BMS)</option>
+                              <option value="10.0.3.1">10.0.3.1 (Lineup 3 AC BMS)</option>
+                              <option value="10.0.3.10">10.0.3.10 (Array 3 String 1 Controller)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-white/50 mb-1.5">Holding register address</label>
+                            <select
+                              value={simulatedRegister}
+                              onChange={(e) => setSimulatedRegister(e.target.value)}
+                              className="w-full bg-[#12141C] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                            >
+                              <option value="84">84 (Watts / Power Active)</option>
+                              <option value="542">542 (MeterAmps / Main Grid AC Current)</option>
+                              <option value="558">558 (MeterWatts / Main Grid AC Watts)</option>
+                              <option value="658">658 (State of Charge / SoC %)</option>
+                              <option value="691">691 (Total DC Current / Amps)</option>
+                              <option value="1163">1163 (Max Module cell Temperature)</option>
+                              <option value="1180">1180 (Active cell Balancing Count)</option>
+                            </select>
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <button
+                              type="button"
+                              onClick={handleRunDiagnosticQuery}
+                              disabled={queryLoading}
+                              className="w-full py-1.5 bg-cyan-500/25 text-cyan-300 hover:bg-cyan-500/35 active:scale-95 disabled:opacity-40 border border-cyan-500/30 rounded font-bold uppercase tracking-wider tracking-widest text-xs transition-all"
+                            >
+                              {queryLoading ? "Querying Subnet IP register..." : "⚡ Execute Direct modbus GET Query"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* TERMINAL INTERACTIVE TERMINAL LOG BOX */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center text-[10px] text-white/40 uppercase font-black">
+                            <span>Interactive Terminal stdout</span>
+                            <span>Direct loop polling status: ONLINE</span>
+                          </div>
+
+                          <div className="relative bg-[#05060A] rounded-lg p-4 border border-white/5 font-mono text-xs text-cyan-400 overflow-x-auto min-h-[160px] max-h-[300px]">
+                            {queryLoading ? (
+                              <div className="flex items-center gap-2 text-white/50 italic animate-pulse">
+                                <RefreshCw className="animate-spin" size={14} />
+                                [HOST_INFO] dispatching Modbus TCP Request packet to {simulatedIp}...
+                              </div>
+                            ) : simulatedQueryResult ? (
+                              <div className="space-y-1.5 select-all leading-relaxed text-[11px] text-emerald-400">
+                                <div><span className="text-white/40">[10.0.0.2 Gateway ~]#</span> modbus_read_reg --host={simulatedQueryResult.ip} --register={simulatedQueryResult.register} --timeout=1500</div>
+                                <div className="text-white/30">---------------------------------------------------------</div>
+                                <div className="text-white font-bold">[RESPONSE RECEIVED: 200 OK]</div>
+                                <div><span className="text-white/40">&gt; Target Subnet IP:</span> <strong className="text-white font-black">{simulatedQueryResult.ip}</strong></div>
+                                <div><span className="text-white/40">&gt; Target Register:</span> <strong className="text-white font-black">Holding {simulatedQueryResult.register}</strong></div>
+                                <div><span className="text-white/40">&gt; Decoded Point Name:</span> <strong className="text-cyan-300 font-bold">{simulatedQueryResult.name}</strong></div>
+                                <div><span className="text-white/40">&gt; Raw Modbus Integer:</span> <strong className="text-yellow-400 font-bold">{simulatedQueryResult.value}</strong> <span className="text-white/20">({simulatedQueryResult.unit})</span></div>
+                                <div className="text-white/30">---------------------------------------------------------</div>
+                                <div>
+                                  <span className="text-white/40">&gt; Scaling multiplier translation:</span>{" "}
+                                  <strong className="text-white">
+                                    {simulatedQueryResult.register === 84 ? "Scale target is kW (multiply raw value by 10^1 to obtain Watts, or read raw as 1.242 kW)" : 
+                                     simulatedQueryResult.register === 542 ? "Scale (A_SF) = -1. Output is raw 300 (represents 30.0 A)" : 
+                                     simulatedQueryResult.register === 558 ? "Scale (W_SF) = 2. Output is raw 1245000 (represents 12.45 kW)" : 
+                                     simulatedQueryResult.register === 1163 ? "Scale (ModTmp_SF) = -1. Output represents 34.6 °C (raw 346) / 52.4 °C (raw 524)" : 
+                                     "Direct unscaled unit reading loaded."}
+                                  </strong>
+                                </div>
+                                <div className="text-[9px] text-[#A7F3D0]/60 italic font-sans mt-3">
+                                  Query executed successfully over local BACnet bridge. Device registers responded with active status codes.
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-white/20 italic text-center p-6 flex flex-col items-center justify-center space-y-2 h-[140px]">
+                                <Terminal size={24} className="text-white/5" />
+                                <span>No direct queries dispatched in this session. Configure host parameters above and click Execute to query local registers instantly.</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
 

@@ -49,6 +49,17 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
   const [editModel, setEditModel] = useState("");
   const [editCapacity, setEditCapacity] = useState(500);
 
+  // Modbus Edit States
+  const [editIsRealtime, setEditIsRealtime] = useState(false);
+  const [editUnitId, setEditUnitId] = useState(1);
+  const [editSocReg, setEditSocReg] = useState(658);
+  const [editSohReg, setEditSohReg] = useState(660);
+  const [editVoltReg, setEditVoltReg] = useState(80);
+  const [editCurrReg, setEditCurrReg] = useState(691);
+  const [editPowerReg, setEditPowerReg] = useState(84);
+  const [editTempReg, setEditTempReg] = useState(103);
+  const [editFreqReg, setEditFreqReg] = useState(86);
+
   // Fetch server-rendered curl triggers under-the-hood
   useEffect(() => {
     fetch("/api/curllogs")
@@ -62,7 +73,14 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
     if (!name || !ipAddress) return;
     setLoading(true);
     try {
-      await onAddDevice({ name, ipAddress, port, model, capacityKwh });
+      await onAddDevice({ 
+        name, 
+        ipAddress, 
+        port, 
+        model, 
+        capacityKwh,
+        isRealtimeEnabled: false // Disable on initial create unless toggled later
+      });
       setName("");
       setIpAddress("");
       setMsg("Device registered and Modbus handshake established!");
@@ -96,6 +114,15 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
     setEditPort(dev.port);
     setEditModel(dev.model);
     setEditCapacity(dev.capacityKwh);
+    setEditIsRealtime(dev.isRealtimeEnabled || false);
+    setEditUnitId(dev.modbusUnitId !== undefined ? dev.modbusUnitId : 1);
+    setEditSocReg(dev.socReg !== undefined ? dev.socReg : 658);
+    setEditSohReg(dev.sohReg !== undefined ? dev.sohReg : 660);
+    setEditVoltReg(dev.voltageReg !== undefined ? dev.voltageReg : 80);
+    setEditCurrReg(dev.currentReg !== undefined ? dev.currentReg : 691);
+    setEditPowerReg(dev.powerReg !== undefined ? dev.powerReg : 84);
+    setEditTempReg(dev.tempReg !== undefined ? dev.tempReg : 103);
+    setEditFreqReg(dev.frequencyReg !== undefined ? dev.frequencyReg : 86);
   };
 
   const saveEdit = async (id: string) => {
@@ -105,7 +132,16 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
         ipAddress: editIp,
         port: editPort,
         model: editModel,
-        capacityKwh: editCapacity
+        capacityKwh: editCapacity,
+        isRealtimeEnabled: editIsRealtime,
+        modbusUnitId: editUnitId,
+        socReg: editSocReg,
+        sohReg: editSohReg,
+        voltageReg: editVoltReg,
+        currentReg: editCurrReg,
+        powerReg: editPowerReg,
+        tempReg: editTempReg,
+        frequencyReg: editFreqReg
       });
       setEditingId(null);
       setRefreshCurlTrigger(prev => prev + 1);
@@ -187,7 +223,7 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
                 return (
                   <div key={dev.id} className="border border-white/5 bg-[#161922] p-4 rounded transition-all hover:bg-white/5">
                     {isEditing ? (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[10px] font-mono text-white/40 uppercase">Device Name</label>
@@ -204,7 +240,7 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
                               type="text" 
                               value={editModel}
                               onChange={e => setEditModel(e.target.value)}
-                              className="mt-1 w-full text-xs font-mono rounded bg--[#0F1117] border border-white/10 px-2.5 py-1.5 text-white focus:outline-none focus:border-cyan-500"
+                              className="mt-1 w-full text-xs font-mono rounded bg-[#0F1117] border border-white/10 px-2.5 py-1.5 text-white focus:outline-none"
                             />
                           </div>
                         </div>
@@ -239,7 +275,108 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
                           </div>
                         </div>
 
-                        <div className="flex justify-end gap-2 pt-2">
+                        {/* Modbus Realtime Polling Switch Section */}
+                        <div className="border border-white/5 bg-[#0F1117]/60 rounded p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                                🔌 Enable Realtime Modbus TCP Polling
+                              </span>
+                              <span className="text-[9px] text-white/30 font-mono">
+                                Read dynamic values directly from device registers instead of simulation.
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={editIsRealtime}
+                                onChange={e => setEditIsRealtime(e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500"></div>
+                            </label>
+                          </div>
+
+                          {editIsRealtime && (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-white/5 animate-fade-in text-[10px] font-mono">
+                              <div>
+                                <label className="text-white/40 block">Unit ID (Address)</label>
+                                <input 
+                                  type="number" 
+                                  value={editUnitId} 
+                                  onChange={e => setEditUnitId(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">SoC % Reg (FC3)</label>
+                                <input 
+                                  type="number" 
+                                  value={editSocReg} 
+                                  onChange={e => setEditSocReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">SoH % Reg</label>
+                                <input 
+                                  type="number" 
+                                  value={editSohReg} 
+                                  onChange={e => setEditSohReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">Voltage Reg (V)</label>
+                                <input 
+                                  type="number" 
+                                  value={editVoltReg} 
+                                  onChange={e => setEditVoltReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-white/40 block">Current Reg (A)</label>
+                                <input 
+                                  type="number" 
+                                  value={editCurrReg} 
+                                  onChange={e => setEditCurrReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">Active Power (kW)</label>
+                                <input 
+                                  type="number" 
+                                  value={editPowerReg} 
+                                  onChange={e => setEditPowerReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">Temp Register (°C)</label>
+                                <input 
+                                  type="number" 
+                                  value={editTempReg} 
+                                  onChange={e => setEditTempReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/40 block">Frequency Reg (Hz)</label>
+                                <input 
+                                  type="number" 
+                                  value={editFreqReg} 
+                                  onChange={e => setEditFreqReg(Number(e.target.value))}
+                                  className="mt-1 w-full rounded bg-[#161922] border border-white/15 px-2 py-1 text-white" 
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
                           <button 
                             onClick={() => setEditingId(null)}
                             className="px-2.5 py-1.5 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 rounded transition-colors cursor-pointer"
@@ -251,45 +388,104 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
                             className="px-3 py-1.5 text-xs font-mono bg-cyan-500 text-black rounded hover:bg-cyan-400 font-bold uppercase tracking-wider transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <Save size={12} />
-                            Save
+                            Save Configuration
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-mono">
-                        <div className="flex items-start gap-3">
-                          <div className="bg-white/5 border border-white/10 p-2 rounded text-cyan-400 shrink-0">
-                            <Cpu size={16} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-white text-xs">{dev.name}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dev.status === "Faulted" ? "bg-rose-500/10 text-rose-400" : "bg-white/5 text-white/40"}`}>
-                                {dev.status}
-                              </span>
+                      <div className="flex flex-col gap-3 font-mono">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-white/5">
+                          <div className="flex items-start gap-3">
+                            <div className="bg-white/5 border border-white/10 p-2 rounded text-cyan-400 shrink-0">
+                              <Cpu size={16} />
                             </div>
-                            <p className="text-[10px] text-white/40 mt-1">
-                              {dev.model} • {dev.ipAddress}:{dev.port} • <span className="text-white/20">Cap: {dev.capacityKwh}kWh</span>
-                            </p>
+                            <div>
+                              <div className="flex items-center flex-wrap gap-2">
+                                <span className="font-bold text-white text-xs">{dev.name}</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dev.status === "Faulted" ? "bg-rose-500/10 text-rose-400" : "bg-white/5 text-white/40"}`}>
+                                  {dev.status}
+                                </span>
+
+                                {/* Polling method indicators */}
+                                {dev.isRealtimeEnabled ? (
+                                  dev.pollStatus === "connected" ? (
+                                    <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/10 rounded text-[9px] font-bold uppercase flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                      Live (Unit {dev.modbusUnitId})
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 bg-rose-500/15 text-rose-400 border border-rose-500/10 rounded text-[9px] font-bold uppercase flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                      TCP Error
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="px-1.5 py-0.5 bg-gray-500/15 text-white/50 border border-white/5 rounded text-[9px] font-bold uppercase">
+                                    ✦ Emulator
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-white/40 mt-1">
+                                {dev.model} • {dev.ipAddress}:{dev.port} • <span className="text-white/20">Cap: {dev.capacityKwh}kWh</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                            <button 
+                              onClick={() => startEditing(dev)}
+                              className="px-2.5 py-1 text-[10px] rounded text-[#22D3EE] border border-[#22D3EE]/20 hover:bg-[#22D3EE]/10 transition-all cursor-pointer flex items-center gap-1"
+                              title="Edit Modbus Map Details"
+                            >
+                              <Settings size={11} />
+                              <span>Setup</span>
+                            </button>
+                            <button 
+                              onClick={() => onDeleteDevice(dev.id)}
+                              className="p-1.5 rounded text-white/40 border border-white/10 hover:border-rose-500/20 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                              title="Remove registration"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                          <button 
-                            onClick={() => startEditing(dev)}
-                            className="p-1.5 rounded text-white/40 border border-white/10 hover:border-white/20 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-                            title="Edit details"
-                          >
-                            <Settings size={13} />
-                          </button>
-                          <button 
-                            onClick={() => onDeleteDevice(dev.id)}
-                            className="p-1.5 rounded text-white/40 border border-white/10 hover:border-rose-500/20 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-                            title="Remove registration"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
+                        {/* Modbus Error / Status Details readout when real polling fails */}
+                        {dev.isRealtimeEnabled && dev.pollStatus === "polling_error" && (
+                          <div className="p-2.5 rounded bg-rose-500/5 border border-rose-500/10 text-[10px] space-y-1">
+                            <div className="text-rose-400 font-bold uppercase flex items-center gap-1">
+                              ⚠️ Modbus Connection Exception
+                            </div>
+                            <p className="text-white/60 leading-relaxed max-w-xl">
+                              {dev.errorLog || "Establishing connection failed. The controller refused packet ingress on port 502, or host is unreachable."}
+                            </p>
+                            <p className="text-white/30 text-[9px]">
+                              Verify physical ethernet routing, virtual switches, or check local Modbus Daemon logs on controller at {dev.ipAddress}.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Modbus registers information when polling successfully */}
+                        {dev.isRealtimeEnabled && dev.pollStatus === "connected" && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] bg-emerald-500/5 border border-emerald-500/10 p-2 rounded text-white/70">
+                            <div>
+                              <span className="text-white/40 block">Active Metrics:</span>
+                              <span className="text-emerald-400 font-bold">Registers Polled OK</span>
+                            </div>
+                            <div>
+                              <span className="text-white/40 block">Telemetry Sync:</span>
+                              <span className="text-white">Every 3.0s</span>
+                            </div>
+                            <div>
+                              <span className="text-white/40 block">Link Status:</span>
+                              <span className="text-emerald-400">Stable socket</span>
+                            </div>
+                            <div>
+                              <span className="text-white/40 block">Response size:</span>
+                              <span className="text-white">12 bytes/reg</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

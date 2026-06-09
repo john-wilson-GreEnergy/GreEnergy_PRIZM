@@ -1,9 +1,11 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import net from "net";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { BessDevice, BessLog, ReportConfig, SmartDiagnosticResponse } from "./src/types";
+import { pollRealtimeDevice } from "./src/modbus-client";
 
 const app = express();
 const PORT = 3000;
@@ -250,35 +252,141 @@ export interface CloudTelemetryPacket {
 
 let cloudTelemetryPackets: CloudTelemetryPacket[] = [];
 let telemetryCalibrationAligned = false;
+let localCloudOutageActive = false;
+let softBalancingOverride = false;
+let systemWideIsolationTriggered = false;
 
 function generateTelemetryPacket() {
   const now = new Date();
   const packetId = "p_export_" + Math.random().toString(36).substring(2, 9);
   
-  // Downstream device values matching the active device states with simulated scale mismatch
-  const devStateList = devices.map(d => {
-    // scale factor discrepancies when not aligned
-    const currentScale = telemetryCalibrationAligned ? 1.0 : 10.0;
-    const powerScale = telemetryCalibrationAligned ? 1.0 : 100.0;
-    
-    return {
-      device_id: d.id,
-      name: d.name,
-      ip: d.ipAddress,
-      status: d.status,
-      soc: d.soc,
-      soh: d.soh,
-      voltage: d.voltage,
-      current: parseFloat((d.current * currentScale).toFixed(1)), // raw vs scaled current
-      power: parseFloat((d.power * powerScale).toFixed(2)), // raw watts vs scaled kW
-      temperature: d.temperature,
-      isOnline: d.isOnline,
-      cellVoltages: d.cellVoltages
-    };
-  });
+  // Imbalance simulation for Array 3 String 1 (Cell 13/14)
+  // If soft balancing override is active, cell 14 is balanced down and cell 13 is charged up.
+  const cell14Voltage = softBalancingOverride ? 3240 : 3510;
+  const cell13Voltage = softBalancingOverride ? 3230 : 3080;
+  const cell14Temp = softBalancingOverride ? 28.5 : 55.0;
+  const string3Status = systemWideIsolationTriggered ? "ISOLATED" : (softBalancingOverride ? "ONLINE" : "FAULTED");
+  const string3Contactor = systemWideIsolationTriggered ? "OPEN" : (softBalancingOverride ? "CLOSED" : "OPEN");
 
-  const rawActivePower = devices.reduce((sum, d) => sum + (d.isOnline ? d.power : 0), 0);
-  const powerMult = telemetryCalibrationAligned ? 1.0 : 100.0;
+  // Calibrating calculations for Wattage & Current SF
+  // If aligned: Watts are kW (value / 10), Amps are A (value / 10)
+  // If raw: Watts are pure raw W, Current is raw multiplier
+  const powerScale = telemetryCalibrationAligned ? 1.0 : 100.0;
+  const currentScale = telemetryCalibrationAligned ? 1.0 : 10.0;
+
+  // Real-time fluctuating BMS and String variables matching the 10.0.*.* subnets precisely!
+  const devStateList = [
+    {
+      device_id: "lineup-1-bms",
+      name: "Lineup 1 AC Cabinet BMS",
+      ip: "10.0.1.1",
+      role: "BMS / Phoenix Controller",
+      status: systemWideIsolationTriggered ? "Isolated" : "Charging",
+      soc: 42.5,
+      soh: 96.8,
+      voltage: 482.4,
+      current: parseFloat(((systemWideIsolationTriggered ? 0.0 : 45.0) * currentScale).toFixed(1)),
+      power_kw: parseFloat(((systemWideIsolationTriggered ? 0.0 : 124.2) * powerScale).toFixed(2)),
+      temperature: 34.6,
+      isOnline: true,
+      modbus_registers: {
+        raw_holding_84: systemWideIsolationTriggered ? 0 : 1242,   // Active Power Register
+        raw_holding_691: systemWideIsolationTriggered ? 0 : 450,   // Total DC Current
+        raw_holding_1163: 346, // Max Module Temp (34.6)
+        raw_holding_658: 425   // State of Charge
+      }
+    },
+    {
+      device_id: "array-1-string-1",
+      name: "Rack Node Array 1 String 1",
+      ip: "10.0.1.10",
+      role: "RCU String Monitor",
+      status: systemWideIsolationTriggered ? "OFFLINE" : "ONLINE",
+      soc: 42.5,
+      soh: 96.5,
+      voltage: 480.2,
+      current: parseFloat(((systemWideIsolationTriggered ? 0.0 : 12.4) * currentScale).toFixed(1)),
+      max_cell_voltage_mv: 3265,
+      max_cell_temperature_c: 25.5,
+      balancer_mode: 0,
+      contactor_state: systemWideIsolationTriggered ? "OPEN" : "CLOSED"
+    },
+    {
+      device_id: "array-1-string-2",
+      name: "Rack Node Array 1 String 2",
+      ip: "10.0.1.15",
+      role: "RCU String Monitor",
+      status: systemWideIsolationTriggered ? "OFFLINE" : "ONLINE",
+      soc: 55.4,
+      soh: 96.5,
+      voltage: 480.2,
+      current: parseFloat(((systemWideIsolationTriggered ? 0.0 : 12.4) * currentScale).toFixed(1)),
+      max_cell_voltage_mv: 3270,
+      max_cell_temperature_c: 24.8,
+      balancer_mode: 0,
+      contactor_state: systemWideIsolationTriggered ? "OPEN" : "CLOSED"
+    },
+    {
+      device_id: "lineup-3-bms",
+      name: "Lineup 3 AC Cabinet BMS",
+      ip: "10.0.3.1",
+      role: "BMS / Phoenix Controller",
+      status: systemWideIsolationTriggered ? "Isolated" : (softBalancingOverride ? "Charging" : "Faulted"),
+      soc: 18.4,
+      soh: 89.2,
+      voltage: 410.2,
+      current: parseFloat(((systemWideIsolationTriggered ? 0.0 : (softBalancingOverride ? 45.0 : 0.0)) * currentScale).toFixed(1)),
+      power_kw: parseFloat(((systemWideIsolationTriggered ? 0.0 : (softBalancingOverride ? 124.2 : 0.0)) * powerScale).toFixed(2)),
+      temperature: softBalancingOverride ? 29.4 : 52.4,
+      isOnline: true,
+      modbus_registers: {
+        raw_holding_84: (systemWideIsolationTriggered || !softBalancingOverride) ? 0 : 1242,
+        raw_holding_691: (systemWideIsolationTriggered || !softBalancingOverride) ? 0 : 450,
+        raw_holding_1163: softBalancingOverride ? 294 : 524,
+        raw_holding_658: 184
+      }
+    },
+    {
+      device_id: "array-3-string-1",
+      name: "Rack Node Array 3 String 1",
+      ip: "10.0.3.10",
+      role: "RCU String Monitor",
+      status: string3Status,
+      soc: 18.4,
+      soh: 89.2,
+      voltage: 410.2,
+      current: 0.0,
+      max_cell_voltage_mv: cell14Voltage,
+      max_cell_temperature_c: cell14Temp,
+      cell_13_voltage_mv: cell13Voltage,
+      balancer_mode: softBalancingOverride ? 0 : 2,
+      contactor_state: string3Contactor
+    },
+    {
+      device_id: "array-3-string-2",
+      name: "Rack Node Array 3 String 2",
+      ip: "10.0.3.15",
+      role: "RCU String Monitor",
+      status: systemWideIsolationTriggered ? "OFFLINE" : "ONLINE",
+      soc: 64.2,
+      soh: 89.2,
+      voltage: 480.2,
+      current: parseFloat(((systemWideIsolationTriggered ? 0.0 : 12.4) * currentScale).toFixed(1)),
+      max_cell_voltage_mv: 3255,
+      max_cell_temperature_c: 26.1,
+      balancer_mode: 0,
+      contactor_state: systemWideIsolationTriggered ? "OPEN" : "CLOSED"
+    }
+  ];
+
+  const rawActivePower = devStateList.reduce((sum, d) => {
+    const isCharging = d.status === "Charging" || d.status === "ONLINE";
+    return sum + (isCharging ? (d.power_kw ? d.power_kw : (d.voltage * Math.abs(d.current) / 1000.0)) : 0);
+  }, 0);
+
+  const meterWatts = systemWideIsolationTriggered 
+    ? 0 
+    : (telemetryCalibrationAligned ? 124.5 : 1245000);
 
   const payload = {
     meta: {
@@ -286,12 +394,22 @@ function generateTelemetryPacket() {
       ems_controller_ip: "10.0.0.3",
       controller_version: "v3.12.8-stable",
       timestamp_epoch: Math.floor(now.getTime() / 1000),
-      ingest_channel: "production-live-us-west"
+      ingest_channel: "production-live-us-west",
+      wan_tunnel_connection: localCloudOutageActive ? "DISCONNECTED" : "ESTABLISHED",
+      cloud_sync_state: localCloudOutageActive ? "FALLBACK_LOCAL_STORE" : "SYNCHRONIZED"
     },
     bms_summary: {
-      total_active_power_kw: parseFloat((rawActivePower * powerMult).toFixed(2)),
-      overall_isolation_status: "NOMINAL",
-      active_faults_count: devices.filter(d => d.status === "Faulted").length
+      total_active_power_kw: parseFloat(rawActivePower.toFixed(2)),
+      overall_isolation_status: systemWideIsolationTriggered ? "ISOLATED" : "NOMINAL",
+      active_faults_count: systemWideIsolationTriggered ? 0 : (softBalancingOverride ? 0 : 1),
+      three_phase_utility_meter: {
+        ip: "10.0.0.3",
+        meter_identifier_block: 203,
+        meter_amps: parseFloat(((systemWideIsolationTriggered ? 0.0 : 30.0) * currentScale).toFixed(1)),
+        meter_voltage_ln: 277,
+        meter_watts: meterWatts,
+        unit_power: telemetryCalibrationAligned ? "kW" : "Watts"
+      }
     },
     downstream_devices: devStateList
   };
@@ -304,7 +422,7 @@ function generateTelemetryPacket() {
     destinationCloudEndpoint: "https://bess-cloud-ingest.greenergycare.com/bess/v2/ingest",
     transmissionProtocol: "HTTPS POST",
     rawPayloadSize: `${(JSON.stringify(payload).length / 1024).toFixed(2)} KB`,
-    responseStatus: "202 ACCEPTED",
+    responseStatus: localCloudOutageActive ? "503 GATEWAY TIMEOUT (Internet Down)" : "202 ACCEPTED",
     payload
   };
 
@@ -325,55 +443,48 @@ for (let i = 15; i >= 0; i--) {
       ems_controller_ip: "10.0.0.3",
       controller_version: "v3.12.8-stable",
       timestamp_epoch: Math.floor(now.getTime() / 1000),
-      ingest_channel: "production-live-us-west"
+      ingest_channel: "production-live-us-west",
+      wan_tunnel_connection: "ESTABLISHED",
+      cloud_sync_state: "SYNCHRONIZED"
     },
     bms_summary: {
-      total_active_power_kw: telemetryCalibrationAligned ? -25.0 : -2500.0,
+      total_active_power_kw: telemetryCalibrationAligned ? 124.2 : 124200.0,
       overall_isolation_status: "NOMINAL",
-      active_faults_count: 1
+      active_faults_count: 1,
+      three_phase_utility_meter: {
+        ip: "10.0.0.3",
+        meter_identifier_block: 203,
+        meter_amps: telemetryCalibrationAligned ? 30.0 : 300.0,
+        meter_voltage_ln: 277,
+        meter_watts: telemetryCalibrationAligned ? 124.5 : 1245000,
+        unit_power: telemetryCalibrationAligned ? "kW" : "Watts"
+      }
     },
     downstream_devices: [
       {
-        device_id: "bess-01",
-        name: "Substation Alpha-1 Core",
-        ip: "192.168.1.101",
+        device_id: "lineup-1-bms",
+        name: "Lineup 1 AC Cabinet BMS",
+        ip: "10.0.1.1",
         status: "Charging",
-        soc: 38.5,
+        soc: 42.5,
         soh: 96.8,
         voltage: 482.4,
-        current: telemetryCalibrationAligned ? 207.3 : 2073,
-        power: telemetryCalibrationAligned ? 100.0 : 10000,
-        temperature: 34.2,
-        isOnline: true,
-        cellVoltages: [3.21, 3.22, 3.21, 3.23, 3.22, 3.21, 3.22, 3.23, 3.21, 3.21, 3.22, 3.22, 3.21, 3.23, 3.22, 3.21]
+        current: telemetryCalibrationAligned ? 45.0 : 450.0,
+        power_kw: telemetryCalibrationAligned ? 124.2 : 124200.0,
+        temperature: 34.6,
+        isOnline: true
       },
       {
-        device_id: "bess-02",
-        name: "Solar Array B Buffer",
-        ip: "192.168.1.102",
-        status: "Discharging",
-        soc: 82.1,
-        soh: 98.1,
-        voltage: 812.5,
-        current: telemetryCalibrationAligned ? -153.8 : -1538,
-        power: telemetryCalibrationAligned ? -125.0 : -12500,
-        temperature: 31.2,
-        isOnline: true,
-        cellVoltages: [3.31, 3.32, 3.31, 3.30, 3.31, 3.32, 3.32, 3.31, 3.31, 3.30, 3.31, 3.32, 3.31, 3.30, 3.32, 3.31]
-      },
-      {
-        device_id: "bess-03",
-        name: "Anode Storage Cluster C",
-        ip: "192.168.1.103",
-        status: "Faulted",
+        device_id: "array-3-string-1",
+        name: "Rack Node Array 3 String 1",
+        ip: "10.0.3.10",
+        status: "FAULTED",
         soc: 18.4,
         soh: 89.2,
         voltage: 410.2,
         current: 0.0,
-        power: 0.0,
-        temperature: 42.5,
-        isOnline: true,
-        cellVoltages: [3.12, 3.12, 3.13, 3.35, 3.12, 3.12, 3.13, 3.12, 3.12, 3.13, 3.12, 3.12, 3.12, 3.34, 3.12, 3.12]
+        max_cell_voltage_mv: 3510,
+        max_cell_temperature_c: 55.0
       }
     ]
   };
@@ -391,10 +502,52 @@ for (let i = 15; i >= 0; i--) {
   });
 }
 
-// SIMULATOR UPDATE INTERVAL (triggers every 3 seconds to keep real-time values fluctuating)
-setInterval(() => {
+// SIMULATOR & REAL-TIME POLL LOOP (triggers every 3 seconds to auto-refresh local EMS)
+setInterval(async () => {
   let changed = false;
-  devices = devices.map((dev) => {
+
+  const polledDevices = await Promise.all(devices.map(async (dev) => {
+    // If real-time querying is activated and device is configured for TCP Modbus
+    if (dev.isRealtimeEnabled) {
+      try {
+        const polledData = await pollRealtimeDevice(dev);
+        changed = true;
+        return {
+          ...dev,
+          ...polledData,
+          lastPing: new Date().toISOString()
+        };
+      } catch (err: any) {
+        console.error(`[Modbus TCP] Failed to poll actual EMS at ${dev.ipAddress}:${dev.port}:`, err.message || err);
+        
+        // Log Modbus connection issue in system logs
+        if (dev.pollStatus !== "polling_error") {
+          const errorLogMsg = `Modbus TCP Connection Error on ${dev.name} (${dev.ipAddress}:${dev.port}): ${err.message || "Timeout"}`;
+          const logMsg: BessLog = {
+            id: "log-" + Math.random().toString(36).substring(2, 9),
+            deviceId: dev.id,
+            deviceName: dev.name,
+            timestamp: new Date().toISOString(),
+            level: "ERROR",
+            message: errorLogMsg,
+            code: "MODBUS_POLL_ERROR"
+          };
+          logs.unshift(logMsg);
+          if (logs.length > 200) logs.pop();
+          writeJSONFile(LOGS_FILE, logs);
+        }
+
+        changed = true;
+        return {
+          ...dev,
+          isOnline: false,
+          pollStatus: "polling_error" as const,
+          errorLog: err.message || "Connection timed out, check physical link / server host offline."
+        };
+      }
+    }
+
+    // Otherwise, execute the classic robust charger/discharger built-in simulation model
     if (!dev.isOnline) return dev;
 
     changed = true;
@@ -402,18 +555,11 @@ setInterval(() => {
 
     // SoC updates
     if (dev.status === "Charging") {
-      // increase SoC
-      // capacity is in kWh. Power is in kW.
-      // 3 seconds tick is 3/3600 hour = 1/1200 hour.
-      // kWh charged in 1 tick = power * (3 / 3600)
       const chargedKwh = power * (3 / 3600);
       const addedSoc = (chargedKwh / dev.capacityKwh) * 100;
       soc = Math.min(100, parseFloat((soc + addedSoc).toFixed(3)));
 
-      // Temp rises based on power load
       temperature = parseFloat((temperature + 0.05 * (power / 100) + (Math.random() - 0.45) * 0.1).toFixed(2));
-      
-      // Voltage aligns with charge
       voltage = parseFloat((400 + (soc / 100) * 100 + (Math.random() - 0.5) * 0.5).toFixed(1));
       current = parseFloat((power * 1000 / voltage).toFixed(1));
 
@@ -434,15 +580,11 @@ setInterval(() => {
         writeJSONFile(LOGS_FILE, logs);
       }
     } else if (dev.status === "Discharging") {
-      // power is negative
       const dischargedKwh = Math.abs(power) * (3 / 3600);
       const subtractedSoc = (dischargedKwh / dev.capacityKwh) * 100;
       soc = Math.max(0, parseFloat((soc - subtractedSoc).toFixed(3)));
 
-      // Temp rises based on heat load
       temperature = parseFloat((temperature + 0.07 * (Math.abs(power) / 100) + (Math.random() - 0.45) * 0.1).toFixed(2));
-      
-      // Voltage sags with discharge
       voltage = parseFloat((400 + (soc / 100) * 100 - 15 + (Math.random() - 0.5) * 0.5).toFixed(1));
       current = parseFloat((power * 1000 / voltage).toFixed(1));
 
@@ -463,7 +605,6 @@ setInterval(() => {
         writeJSONFile(LOGS_FILE, logs);
       }
     } else if (dev.status === "Idle") {
-      // passive cool back to ambient (23C)
       if (temperature > 23.5) {
         temperature = parseFloat((temperature - 0.08).toFixed(2));
       } else if (temperature < 22.5) {
@@ -473,19 +614,15 @@ setInterval(() => {
       current = 0;
       power = 0;
     } else if (dev.status === "Faulted") {
-      // Critical overheat simulator BESS-03
       if (dev.id === "bess-03" && temperature > 42.0) {
-        // slowly cooling down since power was terminated
         temperature = parseFloat((temperature - 0.25).toFixed(2));
       }
       power = 0;
       current = 0;
     }
 
-    // Fluctuate cell voltages slightly for charging / discharging
     const updatedCellVoltages = dev.cellVoltages.map((cell, idx) => {
-      // Keep variance higher on faulted Bess-03, otherwise balanced
-      const baseCellVolts = dev.status === "Faulted" ? 3.12 : (voltage / 16 / 10); // nominal zoom
+      const baseCellVolts = dev.status === "Faulted" ? 3.12 : (voltage / 16 / 10);
       const multiplier = dev.id === "bess-03" && (idx === 13 || idx === 3) ? 1.05 : 1.0;
       const noise = (Math.random() - 0.5) * 0.004;
       return parseFloat((baseCellVolts * multiplier + noise).toFixed(3));
@@ -501,13 +638,14 @@ setInterval(() => {
       cellVoltages: updatedCellVoltages,
       lastPing: new Date().toISOString()
     };
-  });
+  }));
+
+  devices = polledDevices;
 
   if (changed) {
     writeJSONFile(DEVICES_FILE, devices);
   }
   
-  // Also push a live telemetry export packet from the controller
   if (typeof generateTelemetryPacket === "function") {
     generateTelemetryPacket();
   }
@@ -527,7 +665,10 @@ app.get("/api/devices/:id", (req, res) => {
 
 // API: Add device manually
 app.post("/api/devices", (req, res) => {
-  const { name, ipAddress, port, model, capacityKwh } = req.body;
+  const { 
+    name, ipAddress, port, model, capacityKwh,
+    isRealtimeEnabled, modbusUnitId, socReg, sohReg, voltageReg, currentReg, powerReg, tempReg, frequencyReg
+  } = req.body;
   if (!name || !ipAddress || !model || !capacityKwh) {
     return res.status(400).json({ error: "Missing required fields" });
   }
@@ -552,7 +693,19 @@ app.post("/api/devices", (req, res) => {
     isOnline: true,
     firmwareVersion: "v1.0.0",
     lastError: null,
-    cellVoltages: Array(16).fill(3.25)
+    cellVoltages: Array(16).fill(3.25),
+
+    // Real-time Modbus parameter configs if provided
+    isRealtimeEnabled: isRealtimeEnabled !== undefined ? Boolean(isRealtimeEnabled) : false,
+    modbusUnitId: modbusUnitId !== undefined ? Number(modbusUnitId) : 1,
+    socReg: socReg !== undefined ? Number(socReg) : 658,
+    sohReg: sohReg !== undefined ? Number(sohReg) : 660,
+    voltageReg: voltageReg !== undefined ? Number(voltageReg) : 80,
+    currentReg: currentReg !== undefined ? Number(currentReg) : 691,
+    powerReg: powerReg !== undefined ? Number(powerReg) : 84,
+    tempReg: tempReg !== undefined ? Number(tempReg) : 103,
+    frequencyReg: frequencyReg !== undefined ? Number(frequencyReg) : 86,
+    pollStatus: isRealtimeEnabled ? "disconnected" : undefined
   };
 
   devices.push(newDevice);
@@ -575,23 +728,43 @@ app.post("/api/devices", (req, res) => {
   res.status(201).json(newDevice);
 });
 
-// API: Edit IP / Port / Name
+// API: Edit IP / Port / Name / Modbus Config
 app.put("/api/devices/:id", (req, res) => {
-  const { name, ipAddress, port, model, capacityKwh, status, soh, cycleCount } = req.body;
+  const { 
+    name, ipAddress, port, model, capacityKwh, status, soh, cycleCount,
+    isRealtimeEnabled, modbusUnitId, socReg, sohReg, voltageReg, currentReg, powerReg, tempReg, frequencyReg
+  } = req.body;
   const idx = devices.findIndex((d) => d.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Device not found" });
 
   devices[idx] = {
     ...devices[idx],
-    name: name || devices[idx].name,
-    ipAddress: ipAddress || devices[idx].ipAddress,
-    port: port ? Number(port) : devices[idx].port,
-    model: model || devices[idx].model,
-    capacityKwh: capacityKwh ? Number(capacityKwh) : devices[idx].capacityKwh,
-    status: status || devices[idx].status,
-    soh: soh ? Number(soh) : devices[idx].soh,
-    cycleCount: cycleCount ? Number(cycleCount) : devices[idx].cycleCount,
+    name: name !== undefined ? name : devices[idx].name,
+    ipAddress: ipAddress !== undefined ? ipAddress : devices[idx].ipAddress,
+    port: port !== undefined ? Number(port) : devices[idx].port,
+    model: model !== undefined ? model : devices[idx].model,
+    capacityKwh: capacityKwh !== undefined ? Number(capacityKwh) : devices[idx].capacityKwh,
+    status: status !== undefined ? status : devices[idx].status,
+    soh: soh !== undefined ? Number(soh) : devices[idx].soh,
+    cycleCount: cycleCount !== undefined ? Number(cycleCount) : devices[idx].cycleCount,
+    
+    // Modbus dynamic parameters
+    isRealtimeEnabled: isRealtimeEnabled !== undefined ? Boolean(isRealtimeEnabled) : devices[idx].isRealtimeEnabled,
+    modbusUnitId: modbusUnitId !== undefined ? Number(modbusUnitId) : devices[idx].modbusUnitId,
+    socReg: socReg !== undefined ? Number(socReg) : devices[idx].socReg,
+    sohReg: sohReg !== undefined ? Number(sohReg) : devices[idx].sohReg,
+    voltageReg: voltageReg !== undefined ? Number(voltageReg) : devices[idx].voltageReg,
+    currentReg: currentReg !== undefined ? Number(currentReg) : devices[idx].currentReg,
+    powerReg: powerReg !== undefined ? Number(powerReg) : devices[idx].powerReg,
+    tempReg: tempReg !== undefined ? Number(tempReg) : devices[idx].tempReg,
+    frequencyReg: frequencyReg !== undefined ? Number(frequencyReg) : devices[idx].frequencyReg,
   };
+
+  // If modbus was just toggled on, clear existing polling_error to force retry
+  if (isRealtimeEnabled === true) {
+    devices[idx].pollStatus = "disconnected";
+    devices[idx].errorLog = null;
+  }
 
   writeJSONFile(DEVICES_FILE, devices);
   res.json(devices[idx]);
@@ -775,7 +948,165 @@ app.get("/api/curllogs", (req, res) => {
 app.get("/api/cloud-telemetry/packets", (req, res) => {
   res.json({
     packets: cloudTelemetryPackets,
-    calibrationAligned: telemetryCalibrationAligned
+    calibrationAligned: telemetryCalibrationAligned,
+    localCloudOutageActive,
+    softBalancingOverride,
+    systemWideIsolationTriggered
+  });
+});
+
+// API: Toggle WAN internet connection outage simulator
+app.post("/api/cloud-telemetry/outage", (req, res) => {
+  const { active } = req.body;
+  localCloudOutageActive = !!active;
+  generateTelemetryPacket();
+  
+  const logMsg: BessLog = {
+    id: "log-" + Math.random().toString(36).substring(2, 9),
+    deviceId: "ems-controller",
+    deviceName: "Primary EMS Controller",
+    timestamp: new Date().toISOString(),
+    level: localCloudOutageActive ? "WARNING" : "INFO",
+    message: localCloudOutageActive 
+      ? "WAN Internet interface connection is DOWN. Primary EMS controller switched to localized data storage buffer."
+      : "WAN Internet interface restored. Synchronizing packet buffers with cloud ingestion servers.",
+    code: localCloudOutageActive ? "WAN_CONNECTION_LOST" : "WAN_CONNECTION_RESTORED"
+  };
+  logs.unshift(logMsg);
+  
+  res.json({
+    success: true,
+    localCloudOutageActive,
+    cloudTelemetryPacket: cloudTelemetryPackets[0]
+  });
+});
+
+// API: Toggle localized cell self-balancing override command (bypasses fault limits)
+app.post("/api/cloud-telemetry/override-balancing", (req, res) => {
+  const { active } = req.body;
+  softBalancingOverride = !!active;
+  generateTelemetryPacket();
+
+  const logMsg: BessLog = {
+    id: "log-" + Math.random().toString(36).substring(2, 9),
+    deviceId: "array-3-string-1",
+    deviceName: "Anode Cluster Array 3 String 1",
+    timestamp: new Date().toISOString(),
+    level: "INFO",
+    message: softBalancingOverride
+      ? "Local manual override command: Forcing cell shunt-balancing cycle on String 1 (IP: 10.0.3.10) to mitigate Cell 14 voltage spike."
+      : "Localized self-balancing override command disabled. Reverting String 1 controls to automatic hardware interlocks.",
+    code: softBalancingOverride ? "LOCAL_OVERRIDE_SHUNTS_ON" : "LOCAL_OVERRIDE_SHUNTS_OFF"
+  };
+  logs.unshift(logMsg);
+
+  // also log a direct local Modbus cURL command
+  const dummyDevice = { id: "array-3-string-1", name: "Rack Node Array 3 String 1 (10.0.3.10)", ipAddress: "10.0.3.10" };
+  recordCurl(
+    dummyDevice as any, 
+    softBalancingOverride ? "write-coil?address=1180&val=1" : "write-coil?address=1180&val=0", 
+    "POST", 
+    softBalancingOverride ? "Force Active Cell Balancing Coil" : "Release Cell Balancing Coil", 
+    { balance_count: softBalancingOverride ? 2 : 0 }, 
+    200, 
+    JSON.stringify({ success: true, details: "Mating balancing shunts engaged." })
+  );
+
+  res.json({
+    success: true,
+    softBalancingOverride,
+    cloudTelemetryPacket: cloudTelemetryPackets[0]
+  });
+});
+
+// API: Toggle system-wide isolation cutoff (Emergency isolated State for local control tests)
+app.post("/api/cloud-telemetry/cutoff", (req, res) => {
+  const { active } = req.body;
+  systemWideIsolationTriggered = !!active;
+  generateTelemetryPacket();
+
+  const logMsg: BessLog = {
+    id: "log-" + Math.random().toString(36).substring(2, 9),
+    deviceId: "ems-controller",
+    deviceName: "Primary EMS Controller",
+    timestamp: new Date().toISOString(),
+    level: systemWideIsolationTriggered ? "CRITICAL" : "INFO",
+    message: systemWideIsolationTriggered
+      ? "EMERGENCY SAFETY STOP: Manual local override triggered system-wide contactor isolation. All DC loop relays disengaged!"
+      : "Emergency stop released. Re-engaging DC loop contactors with automated pre-charge steps.",
+    code: systemWideIsolationTriggered ? "EMS_EMERGENCY_ISOLATE" : "EMS_ISOLATE_RESET"
+  };
+  logs.unshift(logMsg);
+
+  // record a core modbus write action
+  const dummyEms = { id: "ems-10.0.0.3", name: "EMS Controller (10.0.0.3)", ipAddress: "10.0.0.3" };
+  recordCurl(
+    dummyEms as any,
+    systemWideIsolationTriggered ? "write-coil?address=664&val=9" : "write-coil?address=664&val=2",
+    "POST",
+    "Emergency System Cutoff Relay Trigger",
+    { isolation_command: systemWideIsolationTriggered ? "TRIP" : "CLOSE" },
+    200,
+    JSON.stringify({ success: true, state: systemWideIsolationTriggered ? "Isolated" : "Running" })
+  );
+
+  res.json({
+    success: true,
+    systemWideIsolationTriggered,
+    cloudTelemetryPacket: cloudTelemetryPackets[0]
+  });
+});
+
+// API: Simulate direct modbus register query (uncalibrated read of site devices)
+app.get("/api/cloud-telemetry/query", (req, res) => {
+  const { ip, register } = req.query;
+  const regNum = parseInt(register as string || "0");
+  
+  let val = 0;
+  let unit = "";
+  let name = "";
+  
+  if (ip === "10.0.0.3") {
+    if (regNum === 542) { val = systemWideIsolationTriggered ? 0 : 300; unit = "Amps (raw)"; name = "MeterAmps"; }
+    else if (regNum === 547) { val = 277; unit = "Volts LN"; name = "MeterVoltageLN"; }
+    else if (regNum === 558) { val = systemWideIsolationTriggered ? 0 : 1245000; unit = "Watts (raw)"; name = "MeterWatts"; }
+    else { val = 1; unit = "N/A"; name = "EMS Identifier"; }
+  } else if (ip === "10.0.1.1" || ip === "10.0.3.1") {
+    const isLineup3 = ip === "10.0.3.1";
+    if (regNum === 658) { val = isLineup3 ? 184 : 425; unit = "% (raw)"; name = "StateofCharge"; }
+    else if (regNum === 660) { val = isLineup3 ? 892 : 968; unit = "% (raw)"; name = "StateofHealth"; }
+    else if (regNum === 691) { val = (systemWideIsolationTriggered || (isLineup3 && !softBalancingOverride)) ? 0 : 450; unit = "Amps (raw)"; name = "TotalDCCurrent"; }
+    else if (regNum === 694) { val = (systemWideIsolationTriggered || (isLineup3 && !softBalancingOverride)) ? 0 : 1245; unit = "Watts (raw)"; name = "TotalPower"; }
+    else if (regNum === 1163) { val = isLineup3 ? (softBalancingOverride ? 294 : 524) : 346; unit = "°C (raw)"; name = "MaxModuleTemperature"; }
+    else { val = 802; unit = "N/A"; name = "Battery Identifier"; }
+  } else if (ip === "10.0.3.10") {
+    if (regNum === 1180) { val = softBalancingOverride ? 0 : 2; unit = "Count"; name = "BatteryCellBalancingCount"; }
+    else { val = systemWideIsolationTriggered ? 4102 : 4802; unit = "Volts (raw)"; name = "String Voltage"; }
+  } else {
+    val = Math.floor(Math.random() * 100);
+    unit = "Raw Integer";
+    name = "Simulated Register";
+  }
+
+  // Record mock curl log for this query
+  const mockDev = { id: `query-${ip}`, name: `Direct Query Point (${ip})`, ipAddress: ip as string };
+  recordCurl(
+    mockDev as any,
+    `read-register?address=${regNum}`,
+    "GET",
+    `Manual Register Query (${name})`,
+    { query_address: regNum },
+    200,
+    JSON.stringify({ address: regNum, raw_value: val, unit, register_name: name })
+  );
+
+  res.json({
+    ip,
+    register: regNum,
+    value: val,
+    unit,
+    name,
+    timestamp: new Date().toISOString()
   });
 });
 

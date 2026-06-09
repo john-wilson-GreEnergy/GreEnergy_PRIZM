@@ -19,6 +19,19 @@ export interface BessDevice {
   firmwareVersion: string;
   lastError: string | null;
   cellVoltages: number[]; // Array of cell voltages for detailed balances (e.g. 16 cells)
+  
+  // Real-time Modbus mapping configuration
+  isRealtimeEnabled?: boolean;
+  pollStatus?: 'connected' | 'disconnected' | 'polling_error';
+  modbusUnitId?: number;
+  socReg?: number;
+  sohReg?: number;
+  voltageReg?: number;
+  currentReg?: number;
+  powerReg?: number;
+  tempReg?: number;
+  frequencyReg?: number;
+  errorLog?: string | null;
 }
 
 export interface BessLog {
