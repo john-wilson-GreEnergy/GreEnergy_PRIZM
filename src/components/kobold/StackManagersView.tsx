@@ -9,8 +9,31 @@ import {
   RefreshCw
 } from "lucide-react";
 
-export default function StackManagersView() {
-  const managers = [
+interface StackManagersViewProps {
+  managers?: {
+    id: number;
+    active: boolean;
+    ip: string;
+    version: string;
+    hdTotal: string;
+    hdAvail: string;
+    memTotal: string;
+    memAvail: string;
+    memFree: string;
+    swapTotal: string;
+    swapAvail: string;
+    jvmTotal: string;
+    jvmAvail: string;
+    procs: number;
+    load1: string;
+    load5: string;
+    load15: string;
+    uptime: string;
+  }[];
+}
+
+export default function StackManagersView({ managers: propManagers }: StackManagersViewProps = {}) {
+  const managers = propManagers || [
     { id: 1, active: true, ip: "10.0.1.10", version: "2.73.42", hdTotal: "29.1 GB", hdAvail: "17.4 GB", memTotal: "7.7 GB", memAvail: "3.2 GB", memFree: "2.1 GB", swapTotal: "2.0 GB", swapAvail: "1.9 GB", jvmTotal: "1.9 GB", jvmAvail: "1.1 GB", procs: 4, load1: "0.14", load5: "0.19", load15: "0.15", uptime: "24 days, 14h" },
     { id: 2, active: true, ip: "10.0.1.15", version: "2.73.42", hdTotal: "29.1 GB", hdAvail: "17.8 GB", memTotal: "7.7 GB", memAvail: "3.5 GB", memFree: "2.3 GB", swapTotal: "2.0 GB", swapAvail: "2.0 GB", jvmTotal: "1.9 GB", jvmAvail: "1.2 GB", procs: 4, load1: "0.08", load5: "0.11", load15: "0.12", uptime: "24 days, 14h" },
     { id: 3, active: true, ip: "10.0.3.10", version: "2.73.42", hdTotal: "29.1 GB", hdAvail: "16.1 GB", memTotal: "7.7 GB", memAvail: "2.8 GB", memFree: "1.4 GB", swapTotal: "2.0 GB", swapAvail: "1.5 GB", jvmTotal: "1.9 GB", jvmAvail: "0.8 GB", procs: 4, load1: "0.45", load5: "0.38", load15: "0.29", uptime: "12 days, 03h" },
@@ -20,6 +43,7 @@ export default function StackManagersView() {
     { id: 7, active: true, ip: "10.0.7.10", version: "2.73.42", hdTotal: "29.1 GB", hdAvail: "17.6 GB", memTotal: "7.7 GB", memAvail: "3.4 GB", memFree: "2.2 GB", swapTotal: "2.0 GB", swapAvail: "2.0 GB", jvmTotal: "1.9 GB", jvmAvail: "1.1 GB", procs: 4, load1: "0.11", load5: "0.13", load15: "0.13", uptime: "24 days, 13h" },
     { id: 8, active: true, ip: "10.0.7.15", version: "2.73.42", hdTotal: "29.1 GB", hdAvail: "17.1 GB", memTotal: "7.7 GB", memAvail: "3.0 GB", memFree: "1.8 GB", swapTotal: "2.0 GB", swapAvail: "1.9 GB", jvmTotal: "1.9 GB", jvmAvail: "0.9 GB", procs: 4, load1: "0.20", load5: "0.24", load15: "0.19", uptime: "24 days, 13h" },
   ];
+
 
   return (
     <div className="flex flex-col md:flex-row gap-5 min-h-[600px] bg-[#08090C] text-slate-350 font-mono">

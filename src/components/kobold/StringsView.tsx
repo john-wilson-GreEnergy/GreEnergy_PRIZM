@@ -12,14 +12,28 @@ import {
   ChevronDown
 } from "lucide-react";
 
-export default function StringsView() {
+interface StringsViewProps {
+  strings?: any[];
+  sidebarStats?: {
+    communicating: number;
+    total: number;
+    onlineCount: number;
+    nearlineCount: number;
+    offlineCount: number;
+    offlineSoc: string;
+    offlineCap: string;
+    offlineAvail: string;
+  };
+}
+
+export default function StringsView({ strings: propStrings, sidebarStats: propSidebarStats }: StringsViewProps = {}) {
   const [arrayFilter, setArrayFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  const sidebarStats = {
+  const sidebarStats = propSidebarStats || {
     communicating: 320,
     total: 320,
     onlineCount: 0,
@@ -30,8 +44,11 @@ export default function StringsView() {
     offlineAvail: "34,062.2 kWh"
   };
 
-  // Generate mock entries matching Screenshot 3 values
+  // Generate mock entries matching Screenshot 3 values if not provided
   const stringTelemetryList = useMemo(() => {
+    if (propStrings && propStrings.length > 0) {
+      return propStrings;
+    }
     const list = [];
     let count = 1;
     // Arrays 1 through 8
@@ -43,6 +60,7 @@ export default function StringsView() {
         const segmentPos = str <= 20 ? 1 : 2;
         const segmentIdx = (arr - 1) * 2 + segmentPos;
         
+
         // Generate realistic offline parameters matching the screen capture:
         // Measured voltage ~ 1030-1045V when offline, bus voltage ~ 0V when contactor open, delta ~ 1030V
         const measVolt = 1045.2 - (Math.random() * 5);

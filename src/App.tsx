@@ -17,11 +17,12 @@ import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
 import SmartDiagnostics from "./components/SmartDiagnostics";
 import TerminalToolbox from "./components/TerminalToolbox";
+import ToolDashboards from "./components/ToolDashboards";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "devices" | "reports" | "diagnose" | "terminal">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "devices" | "reports" | "diagnose" | "terminal" | "tool-dashboards">("dashboard");
   const [devices, setDevices] = useState<BessDevice[]>([]);
   const [logs, setLogs] = useState<BessLog[]>([]);
   const [reports, setReports] = useState<ReportConfig[]>([]);
@@ -43,19 +44,34 @@ export default function App() {
     if (!silent) setLoading(true);
     try {
       const [devRes, logRes, repRes] = await Promise.all([
-        fetch("/api/devices"),
-        fetch("/api/logs"),
-        fetch("/api/reports")
+        fetch("/api/devices").catch(err => {
+          console.log("[App Telemetry Info] Devices endpoint standby:", err);
+          return null;
+        }),
+        fetch("/api/logs").catch(err => {
+          console.log("[App Telemetry Info] Logs endpoint standby:", err);
+          return null;
+        }),
+        fetch("/api/reports").catch(err => {
+          console.log("[App Telemetry Info] Reports endpoint standby:", err);
+          return null;
+        })
       ]);
-      const devs = await devRes.json();
-      const lg = await logRes.json();
-      const rep = await repRes.json();
-      
-      setDevices(devs);
-      setLogs(lg);
-      setReports(rep);
+
+      if (devRes && devRes.ok) {
+        const devs = await devRes.json().catch(() => null);
+        if (devs) setDevices(devs);
+      }
+      if (logRes && logRes.ok) {
+        const lg = await logRes.json().catch(() => null);
+        if (lg) setLogs(lg);
+      }
+      if (repRes && repRes.ok) {
+        const rep = await repRes.json().catch(() => null);
+        if (rep) setReports(rep);
+      }
     } catch (err) {
-      console.error("Connectivity issue reading telemetry gateway:", err);
+      console.log("[App Telemetry Info] Telemetry gateway offline standby:", err);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -278,6 +294,21 @@ export default function App() {
                 <Sliders size={12} className="text-cyan-400" />
                 EMS CONTROL CENTER
               </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab("tool-dashboards");
+                  setSelectedDeviceForDiagnose(null);
+                }}
+                className={`flex items-center gap-2 px-3.5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all ${
+                  activeTab === "tool-dashboards"
+                    ? "bg-cyan-500/10 border-b-2 border-cyan-500 text-cyan-400"
+                    : "text-white/40 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Sliders size={12} className="text-[#5CF2A5]" />
+                TOOL DASHBOARDS
+              </button>
             </div>
 
             {/* Quick inline online node counts indicator */}
@@ -342,6 +373,10 @@ export default function App() {
 
             {activeTab === "terminal" && (
               <TerminalToolbox devices={devices} />
+            )}
+
+            {activeTab === "tool-dashboards" && (
+              <ToolDashboards />
             )}
           </div>
         )}

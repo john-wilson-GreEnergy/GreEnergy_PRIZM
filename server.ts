@@ -6,6 +6,31 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { BessDevice, BessLog, ReportConfig, SmartDiagnosticResponse } from "./src/types";
 import { pollRealtimeDevice } from "./src/modbus-client";
+import {
+  pollEmsTurtle,
+  getEmsConnectionStatus,
+  getEmsCachedStatus,
+  getEmsCachedBlock,
+  getEmsCachedStatusCodes,
+  getEmsCachedFirstResponder,
+  getEmsCachedModbusMap,
+  getEmsCachedRawStrings,
+  getEmsSourcesDebugInfo,
+  getEmsIpMap,
+  getEmsStringIpMap,
+  getEmsMode,
+  setDemoMode,
+  isDemoActive,
+  getEmsCachedControllerStatistics,
+  getEmsCachedLastCall,
+  clearEmsTelemetryCache
+} from "./src/server/emsTurtleClient";
+import { ProfileStore } from "./src/server/profiles/profileStore";
+import { ProfileManager } from "./src/server/profiles/profileManager";
+import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
+import { getFeatherCache, clearFeatherCache, queryFeatherDevice } from "./src/server/feather/featherClient";
+import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
+
 
 const app = express();
 const PORT = 3000;
@@ -650,6 +675,585 @@ setInterval(async () => {
     generateTelemetryPacket();
   }
 }, 3000);
+
+// ==================== LOCAL EMS TURTLE INTEGRATION API ROUTES ====================
+// Setup background interval polling for EMS Turtle from configure interval
+const emsPollInterval = Number(process.env.EMS_POLL_INTERVAL_MS) || 3000;
+setInterval(async () => {
+  await pollEmsTurtle();
+}, emsPollInterval);
+
+// Kick off initial poll immediately on server start
+pollEmsTurtle().catch(err => {
+  console.log("[EMS LAN Info] Initial offline scan finished.");
+});
+
+// 1. GET /api/local/connection: Reports LAN connectivity telemetry
+app.get("/api/local/connection", (req, res) => {
+  res.json(getEmsConnectionStatus());
+});
+
+// 2. GET /api/local/status: Proxy to ems/status.json
+app.get("/api/local/status", (req, res) => {
+  res.json(getEmsCachedStatus());
+});
+
+// 3. GET /api/local/block: Primary source tools/monitor/ems/blockviewer/data
+app.get("/api/local/block", (req, res) => {
+  res.json(getEmsCachedBlock());
+});
+
+// 4. GET /api/local/arrays: Derived from blockviewer arrays
+app.get("/api/local/arrays", (req, res) => {
+  const block = getEmsCachedBlock();
+  res.json({
+    source: block.source,
+    staleData: block.staleData,
+    lastUpdated: block.lastUpdated,
+    activeEmsBaseUrl: block.activeEmsBaseUrl,
+    activeProfileName: block.activeProfileName,
+    activeProfileId: block.activeProfileId,
+    stationCode: block.stationCode,
+    blockIndex: block.blockIndex,
+    lastError: block.lastError,
+    cacheProfileId: block.cacheProfileId,
+    cacheEmsBaseUrl: block.cacheEmsBaseUrl,
+    cacheCreatedAt: block.cacheCreatedAt,
+    cacheLastUpdatedAt: block.cacheLastUpdatedAt,
+    data: block.data?.arrays || []
+  });
+});
+
+// 5. GET /api/local/strings: Derived from tools/report/ems/strings.csv or fallback to blockviewer
+app.get("/api/local/strings", (req, res) => {
+  const rawStrings = getEmsCachedRawStrings();
+  if (rawStrings.data && rawStrings.data.length > 0) {
+    res.json(rawStrings);
+  } else {
+    // Fallback/derive from blockviewer
+    const block = getEmsCachedBlock();
+    res.json({
+      source: block.source,
+      staleData: block.staleData,
+      lastUpdated: block.lastUpdated,
+      activeEmsBaseUrl: block.activeEmsBaseUrl,
+      activeProfileName: block.activeProfileName,
+      activeProfileId: block.activeProfileId,
+      stationCode: block.stationCode,
+      blockIndex: block.blockIndex,
+      lastError: block.lastError,
+      cacheProfileId: block.cacheProfileId,
+      cacheEmsBaseUrl: block.cacheEmsBaseUrl,
+      cacheCreatedAt: block.cacheCreatedAt,
+      cacheLastUpdatedAt: block.cacheLastUpdatedAt,
+      data: block.data?.strings || []
+    });
+  }
+});
+
+// 6. GET /api/local/pcses: Derived from blockviewer arrays/pcs data
+app.get("/api/local/pcses", (req, res) => {
+  const block = getEmsCachedBlock();
+  const arrays = block.data?.arrays || [];
+  const pcses: any[] = [];
+  arrays.forEach((arr: any) => {
+    if (arr.pcs && Array.isArray(arr.pcs)) {
+      pcses.push(...arr.pcs);
+    }
+  });
+  res.json({
+    source: block.source,
+    staleData: block.staleData,
+    lastUpdated: block.lastUpdated,
+    activeEmsBaseUrl: block.activeEmsBaseUrl,
+    activeProfileName: block.activeProfileName,
+    activeProfileId: block.activeProfileId,
+    stationCode: block.stationCode,
+    blockIndex: block.blockIndex,
+    lastError: block.lastError,
+    cacheProfileId: block.cacheProfileId,
+    cacheEmsBaseUrl: block.cacheEmsBaseUrl,
+    cacheCreatedAt: block.cacheCreatedAt,
+    cacheLastUpdatedAt: block.cacheLastUpdatedAt,
+    data: pcses
+  });
+});
+
+// 7. GET /api/local/topology: Derived from blockviewer topology
+app.get("/api/local/topology", (req, res) => {
+  const block = getEmsCachedBlock();
+  res.json({
+    source: block.source,
+    staleData: block.staleData,
+    lastUpdated: block.lastUpdated,
+    activeEmsBaseUrl: block.activeEmsBaseUrl,
+    activeProfileName: block.activeProfileName,
+    activeProfileId: block.activeProfileId,
+    stationCode: block.stationCode,
+    blockIndex: block.blockIndex,
+    lastError: block.lastError,
+    cacheProfileId: block.cacheProfileId,
+    cacheEmsBaseUrl: block.cacheEmsBaseUrl,
+    cacheCreatedAt: block.cacheCreatedAt,
+    cacheLastUpdatedAt: block.cacheLastUpdatedAt,
+    data: block.data?.topology || { lineups: [] }
+  });
+});
+
+// 8. GET /api/local/first-responder: Combine /firstresponder/data and /v2/firstresponder/data
+app.get("/api/local/first-responder", (req, res) => {
+  res.json(getEmsCachedFirstResponder());
+});
+
+// 9. GET /api/local/status-codes: Use /tools/report/ems/bessStatusCodes.json
+app.get("/api/local/status-codes", (req, res) => {
+  res.json(getEmsCachedStatusCodes());
+});
+
+// 10. GET /api/local/modbus-map: Use /modbus_map.csv
+app.get("/api/local/modbus-map", (req, res) => {
+  res.json(getEmsCachedModbusMap());
+});
+
+// 11. GET /api/local/debug/sources: Reports endpoint polling metrics
+app.get("/api/local/debug/sources", (req, res) => {
+  res.json(getEmsSourcesDebugInfo());
+});
+
+// 12. GET /api/local/ip-map: Reports site IP mapping
+app.get("/api/local/ip-map", (req, res) => {
+  res.json(getEmsIpMap());
+});
+
+// 13. GET /api/local/string-ip-map: Reports battery strings IP mapping
+app.get("/api/local/string-ip-map", (req, res) => {
+  res.json(getEmsStringIpMap());
+});
+
+// 14. GET /api/local/mode: Reports whether simulation fallback is active
+app.get("/api/local/mode", (req, res) => {
+  res.json(getEmsMode());
+});
+
+// 15. POST /api/local/demo-toggle: Toggle dynamic demo-mode state
+app.post("/api/local/demo-toggle", (req, res) => {
+  const { enabled } = req.body;
+  setDemoMode(!!enabled);
+  res.json(getEmsMode());
+});
+
+// 16. GET /api/local/controller-statistics: Use /tools/report/ems/controllerStatistics.json
+app.get("/api/local/controller-statistics", (req, res) => {
+  res.json(getEmsCachedControllerStatistics());
+});
+
+// 17. GET /api/local/last-call: Use /tools/report/ems/lastCall.json
+app.get("/api/local/last-call", (req, res) => {
+  res.json(getEmsCachedLastCall());
+});
+
+// --- EMS TARGET PROFILE MANAGEMENT API ROUTES ---
+app.get("/api/settings/profiles", (req, res) => {
+  try {
+    res.json(ProfileStore.getProfiles());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch profiles" });
+  }
+});
+
+app.get("/api/settings/active-profile", (req, res) => {
+  try {
+    res.json(ProfileStore.getActiveProfile());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch active profile" });
+  }
+});
+
+app.post("/api/settings/profiles", (req, res) => {
+  try {
+    const {
+      profileName, siteName, stationCode, blockIndex,
+      emsHost, emsPort, turtlePath, modbusHost, modbusPort,
+      arrayCount, stringsPerArray, notes, activate
+    } = req.body;
+
+    if (!profileName || !siteName || !stationCode || !emsHost || !emsPort || !turtlePath || !modbusHost || !modbusPort || !arrayCount || !stringsPerArray) {
+      return res.status(400).json({ error: "Missing required configuration fields" });
+    }
+
+    if (!turtlePath.startsWith("/")) {
+      return res.status(400).json({ error: "Turtle Path must start with '/'" });
+    }
+
+    const bIdx = parseInt(blockIndex, 10);
+    const ePort = parseInt(emsPort, 10);
+    const mPort = parseInt(modbusPort, 10);
+    const aCount = parseInt(arrayCount, 10);
+    const sPerArray = parseInt(stringsPerArray, 10);
+
+    if (isNaN(bIdx) || bIdx < 1) return res.status(400).json({ error: "Block Index must be a positive integer" });
+    if (isNaN(ePort) || ePort < 1 || ePort > 65535) return res.status(400).json({ error: "EMS Port must be between 1 and 65535" });
+    if (isNaN(mPort) || mPort < 1 || mPort > 65535) return res.status(400).json({ error: "Modbus Port must be between 1 and 65535" });
+    if (isNaN(aCount) || aCount < 1) return res.status(400).json({ error: "Array Count must be a positive integer" });
+    if (isNaN(sPerArray) || sPerArray < 1) return res.status(400).json({ error: "Strings per Array must be a positive integer" });
+
+    const newProfile = ProfileStore.createProfile({
+      profileName,
+      siteName,
+      stationCode,
+      blockIndex: bIdx,
+      emsHost: emsHost.trim(),
+      emsPort: ePort,
+      turtlePath: turtlePath.trim(),
+      modbusHost: modbusHost.trim(),
+      modbusPort: mPort,
+      arrayCount: aCount,
+      stringsPerArray: sPerArray,
+      notes: notes || ""
+    }, !!activate);
+
+    if (activate) {
+      clearEmsTelemetryCache();
+      pollEmsTurtle().catch(() => {});
+    }
+
+    res.status(201).json(newProfile);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to create profile" });
+  }
+});
+
+app.put("/api/settings/profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body;
+
+    const updates: any = {};
+    if (body.profileName !== undefined) updates.profileName = body.profileName;
+    if (body.siteName !== undefined) updates.siteName = body.siteName;
+    if (body.stationCode !== undefined) updates.stationCode = body.stationCode;
+    
+    if (body.blockIndex !== undefined) {
+      const bIdx = parseInt(body.blockIndex, 10);
+      if (isNaN(bIdx) || bIdx < 1) return res.status(400).json({ error: "Block Index must be a positive integer" });
+      updates.blockIndex = bIdx;
+    }
+
+    if (body.emsHost !== undefined) updates.emsHost = body.emsHost.trim();
+    if (body.emsPort !== undefined) {
+      const ePort = parseInt(body.emsPort, 10);
+      if (isNaN(ePort) || ePort < 1 || ePort > 65535) return res.status(400).json({ error: "EMS Port must be between 1 and 65535" });
+      updates.emsPort = ePort;
+    }
+
+    if (body.turtlePath !== undefined) {
+      if (!body.turtlePath.startsWith("/")) {
+        return res.status(400).json({ error: "Turtle Path must start with '/'" });
+      }
+      updates.turtlePath = body.turtlePath.trim();
+    }
+
+    if (body.modbusHost !== undefined) updates.modbusHost = body.modbusHost.trim();
+    if (body.modbusPort !== undefined) {
+      const mPort = parseInt(body.modbusPort, 10);
+      if (isNaN(mPort) || mPort < 1 || mPort > 65535) return res.status(400).json({ error: "Modbus Port must be between 1 and 65535" });
+      updates.modbusPort = mPort;
+    }
+
+    if (body.arrayCount !== undefined) {
+      const aCount = parseInt(body.arrayCount, 10);
+      if (isNaN(aCount) || aCount < 1) return res.status(400).json({ error: "Array Count must be a positive integer" });
+      updates.arrayCount = aCount;
+    }
+
+    if (body.stringsPerArray !== undefined) {
+      const sPerArray = parseInt(body.stringsPerArray, 10);
+      if (isNaN(sPerArray) || sPerArray < 1) return res.status(400).json({ error: "Strings per Array must be a positive integer" });
+      updates.stringsPerArray = sPerArray;
+    }
+
+    if (body.notes !== undefined) updates.notes = body.notes;
+    if (body.isActive !== undefined) updates.isActive = !!body.isActive;
+
+    const updated = ProfileStore.updateProfile(id, updates);
+
+    // If active profile updated, clear cache & trigger poll of new settings
+    const active = ProfileStore.getActiveProfile();
+    if (active.id === id) {
+      clearEmsTelemetryCache();
+      pollEmsTurtle().catch(() => {});
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to update profile" });
+  }
+});
+
+app.delete("/api/settings/profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const activeBefore = ProfileStore.getActiveProfile();
+    const list = ProfileStore.deleteProfile(id);
+    const activeAfter = ProfileStore.getActiveProfile();
+
+    if (activeBefore.id === id || activeBefore.id !== activeAfter.id) {
+      clearEmsTelemetryCache();
+      pollEmsTurtle().catch(() => {});
+    }
+
+    res.json({ success: true, profiles: list });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Failed to delete profile" });
+  }
+});
+
+app.post("/api/settings/profiles/:id/activate", (req, res) => {
+  try {
+    const { id } = req.params;
+    const activated = ProfileStore.activateProfile(id);
+    clearEmsTelemetryCache();
+    // Instantly poll new target in background
+    pollEmsTurtle().catch(() => {});
+    res.json({ success: true, activatedProfile: activated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Failed to activate profile" });
+  }
+});
+
+app.post("/api/settings/test-connection", async (req, res) => {
+  try {
+    let fields = req.body;
+    if (fields.id) {
+      const target = ProfileStore.getProfiles().find(p => p.id === fields.id);
+      if (target) {
+        fields = target;
+      }
+    }
+    const result = await ProfileManager.testProfileConnection(fields);
+    
+    // Save test results if ID exists
+    if (fields.id) {
+      try {
+        ProfileStore.updateProfile(fields.id, {
+          lastTestedAt: new Date().toISOString(),
+          lastTestResult: result
+        });
+      } catch (err) {
+        console.error("Could not write test results to disk profile", err);
+      }
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed during network tests" });
+  }
+});
+
+app.post("/api/settings/profiles/import", (req, res) => {
+  try {
+    const rawData = req.body;
+    let itemsToImport: any[] = [];
+    if (Array.isArray(rawData)) {
+      itemsToImport = rawData;
+    } else if (rawData && typeof rawData === "object") {
+      itemsToImport = [rawData];
+    } else {
+      return res.status(400).json({ error: "Invalid dynamic format. Provide single profile or array of profiles." });
+    }
+
+    const imported: any[] = [];
+    for (const item of itemsToImport) {
+      if (!item.profileName || typeof item.profileName !== "string" || !item.profileName.trim()) {
+        continue;
+      }
+      if (!item.emsHost || typeof item.emsHost !== "string" || !item.emsHost.trim()) {
+        continue;
+      }
+      
+      const ePort = parseInt(item.emsPort, 10);
+      if (isNaN(ePort) || ePort < 1 || ePort > 65535) {
+        continue;
+      }
+
+      const bIdx = parseInt(item.blockIndex, 10);
+      if (isNaN(bIdx) || bIdx < 1) {
+        continue;
+      }
+
+      const mPort = parseInt(item.modbusPort, 10) || 4502;
+      if (mPort < 1 || mPort > 65535) {
+        continue;
+      }
+
+      const aCount = parseInt(item.arrayCount, 10) || 8;
+      if (aCount < 1) {
+        continue;
+      }
+
+      const sPerArray = parseInt(item.stringsPerArray, 10) || 40;
+      if (sPerArray < 1) {
+        continue;
+      }
+
+      let turtlePath = "/turtle";
+      if (item.turtlePath && typeof item.turtlePath === "string" && item.turtlePath.startsWith("/")) {
+        turtlePath = item.turtlePath.trim();
+      }
+
+      const newP = ProfileStore.createProfile({
+        profileName: `${item.profileName.trim()} (Imported)`,
+        siteName: (item.siteName && typeof item.siteName === "string" ? item.siteName.trim() : "BESS Site Target"),
+        stationCode: (item.stationCode && typeof item.stationCode === "string" ? item.stationCode.trim() : "BHE0020"),
+        blockIndex: bIdx,
+        emsHost: item.emsHost.trim(),
+        emsPort: ePort,
+        turtlePath,
+        modbusHost: (item.modbusHost && typeof item.modbusHost === "string" ? item.modbusHost.trim() : item.emsHost.trim()),
+        modbusPort: mPort,
+        arrayCount: aCount,
+        stringsPerArray: sPerArray,
+        notes: (item.notes && typeof item.notes === "string" ? item.notes.trim() : "Imported Profile Target")
+      }, false); // activate is strictly false here, preventing duplicate active states
+      
+      imported.push(newP);
+    }
+
+    res.json({ success: true, count: imported.length, imported });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to import profiles" });
+  }
+});
+
+app.get("/api/settings/profiles/export", (req, res) => {
+  try {
+    const list = ProfileStore.getProfiles();
+    res.setHeader("Content-Disposition", "attachment; filename=prizm_connection_profiles.json");
+    res.setHeader("Content-Type", "application/json");
+    res.send(JSON.stringify(list, null, 2));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to export profiles" });
+  }
+});
+
+// --- FEATHER / HVAC DECTECTION AND SCANNER API ROUTES ---
+
+// 1. GET /api/feather/discovery/sources
+app.get("/api/feather/discovery/sources", (req, res) => {
+  try {
+    const activeProfile = ProfileStore.getActiveProfile();
+    const activeId = activeProfile ? activeProfile.id : "default-local-ems";
+    const activeName = activeProfile ? activeProfile.profileName : "PRIZM Core Hardware Bess Profile";
+    const activeUrl = activeProfile ? `${activeProfile.emsHost}:${activeProfile.emsPort}` : "10.0.0.3:8080";
+
+    const candidates = discoverTopologyCandidates();
+    res.json({
+      success: true,
+      activeProfileId: activeId,
+      activeProfileName: activeName,
+      activeEmsBaseUrl: activeUrl,
+      candidates
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to retrieve topology sources" });
+  }
+});
+
+// 2. POST /api/feather/discover
+app.post("/api/feather/discover", async (req, res) => {
+  try {
+    const candidates = discoverTopologyCandidates();
+    const concurrency = Number(process.env.FEATHER_SCAN_CONCURRENCY) || 16;
+    const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
+
+    const ips = candidates.map(c => c.deviceIp);
+    const results = await executeFeatherScan(ips, concurrency, timeout);
+    res.json({
+      success: true,
+      count: results.length,
+      devices: results
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Topology discovery execution failed" });
+  }
+});
+
+// 3. POST /api/feather/scan
+app.post("/api/feather/scan", async (req, res) => {
+  try {
+    const config = req.body;
+    // Resolve candidates & handle CIDR, IP range, or array shorthand expansions
+    const { ips, warnings } = resolveScanCandidates(config);
+
+    const concurrency = Number(process.env.FEATHER_SCAN_CONCURRENCY) || 16;
+    const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
+
+    const results = await executeFeatherScan(ips, concurrency, timeout);
+
+    res.json({
+      success: true,
+      warnings,
+      count: results.length,
+      devices: results
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Manual scan range execution failed" });
+  }
+});
+
+// 4. GET /api/feather/devices
+app.get("/api/feather/devices", (req, res) => {
+  try {
+    const cache = getFeatherCache();
+    res.json(cache);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch Feather cache" });
+  }
+});
+
+// 5. GET /api/feather/devices/:deviceIp/status
+app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
+  try {
+    const { deviceIp } = req.params;
+    const { source } = req.query;
+    const sourceMethod = (source && typeof source === "string") ? (source as any) : "manual";
+
+    const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
+    const result = await queryFeatherDevice(deviceIp, sourceMethod, timeout);
+
+    res.json({ success: true, device: result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to query device status" });
+  }
+});
+
+// 6. POST /api/feather/devices/bulk-status
+app.post("/api/feather/devices/bulk-status", async (req, res) => {
+  try {
+    const { deviceIps } = req.body;
+    if (!Array.isArray(deviceIps)) {
+      return res.status(400).json({ error: "deviceIps must be an array of IP strings" });
+    }
+
+    const concurrency = Number(process.env.FEATHER_SCAN_CONCURRENCY) || 16;
+    const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
+
+    const results = await executeFeatherScan(deviceIps, concurrency, timeout);
+    res.json({ success: true, count: results.length, devices: results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Bulk status query execution failed" });
+  }
+});
+
+// 7. POST /api/feather/clear-cache
+app.post("/api/feather/clear-cache", (req, res) => {
+  try {
+    clearFeatherCache();
+    res.json({ success: true, message: "Cleared active profile Feather cache" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to clear Feather cache" });
+  }
+});
 
 // API: List BESS devices
 app.get("/api/devices", (req, res) => {

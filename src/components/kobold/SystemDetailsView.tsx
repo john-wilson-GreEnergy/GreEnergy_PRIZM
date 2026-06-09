@@ -20,11 +20,62 @@ import {
 interface SystemDetailsViewProps {
   onSelectCategory: (category: string) => void;
   pollCounter: number;
+  telemetry?: {
+    chargePower: string;
+    dischargePower: string;
+    chargeEnergy: string;
+    dischargeEnergy: string;
+    dcOnline: string;
+    dcNearline: string;
+    acOnline: string;
+    realPowerMeasured: string;
+    realPowerCommanded: string;
+    reactivePowerMeasured: string;
+    reactivePowerCommanded: string;
+  };
+  electricalDevices?: {
+    name: string;
+    total: number;
+    healthy: number;
+    unhealthy: number;
+    statusText: string;
+    categoryLink: string;
+    alerts: string;
+  }[];
+  environmentalDevices?: {
+    name: string;
+    total: number;
+    healthy: number;
+    unhealthy: number;
+    statusText: string;
+    categoryLink?: string;
+  }[];
+  stackApps?: {
+    priority: number;
+    checked: boolean;
+    name: string;
+    config: string;
+    status: string;
+  }[];
+  plugins?: {
+    actions: string;
+    active: boolean;
+    name: string;
+    status: string;
+  }[];
 }
 
-export default function SystemDetailsView({ onSelectCategory, pollCounter }: SystemDetailsViewProps) {
-  // Mock live values matching the screenshots
-  const telemetry = {
+export default function SystemDetailsView({ 
+  onSelectCategory, 
+  pollCounter,
+  telemetry: propTelemetry,
+  electricalDevices: propElectricalDevices,
+  environmentalDevices: propEnvironmentalDevices,
+  stackApps: propStackApps,
+  plugins: propPlugins
+}: SystemDetailsViewProps) {
+  // Mock live values matching the screenshots if props not provided
+  const telemetry = propTelemetry || {
     chargePower: "0.0 kW",
     dischargePower: "0.0 kW",
     chargeEnergy: "0.0 kWh",
@@ -38,7 +89,7 @@ export default function SystemDetailsView({ onSelectCategory, pollCounter }: Sys
     reactivePowerCommanded: "0.0 kVAR"
   };
 
-  const electricalDevices = [
+  const electricalDevices = propElectricalDevices || [
     { name: "Block Meters", total: 1, healthy: 0, unhealthy: 1, statusText: "0 Healthy | 1 Unhealthy", categoryLink: "Summary", alerts: "" },
     { name: "AC Batteries", total: 8, healthy: 8, unhealthy: 0, statusText: "8 Healthy | 0 Unhealthy", categoryLink: "Arrays", alerts: "" },
     { name: "PCSes", total: 8, healthy: 8, unhealthy: 0, statusText: "8 Healthy | 0 Unhealthy", categoryLink: "PCS List", alerts: "" },
@@ -46,7 +97,7 @@ export default function SystemDetailsView({ onSelectCategory, pollCounter }: Sys
     { name: "Strings", total: 320, healthy: 0, standby: 0, unhealthy: 320, statusText: "0 On | 0 Near | 320 Off | 0 NC", categoryLink: "String List", alerts: "" },
   ];
 
-  const environmentalDevices = [
+  const environmentalDevices = propEnvironmentalDevices || [
     { name: "Centipede Lineups", total: 8, healthy: 0, unhealthy: 8, statusText: "0 Healthy | 8 Unhealthy" },
     { name: "Collection Segments", total: 8, healthy: 1, unhealthy: 7, statusText: "1 Healthy | 7 Unhealthy" },
     { name: "Energy Segments", total: 160, healthy: 77, unhealthy: 83, statusText: "77 Healthy | 83 Unhealthy", categoryLink: "Energy Segments" },
@@ -60,7 +111,7 @@ export default function SystemDetailsView({ onSelectCategory, pollCounter }: Sys
     { name: "UPSes", total: 32, healthy: 24, unhealthy: 8, statusText: "24 Healthy | 8 Unhealthy", categoryLink: "UPSes" },
   ];
 
-  const stackApps = [
+  const stackApps = propStackApps || [
     { priority: 0, checked: true, name: "E-Stop Response v1.0", config: "default / 0", status: "ACBattery BHE0020:1:3: 20 trips; ACBattery BHE0020:1:4: 39 trips; ACBattery BHE0020:1:5: 23 trips..." },
     { priority: 1, checked: true, name: "Battery Safety v1.0", config: "default / 0", status: "ACBattery BHE0020:1:1 - NOTREADY / Codes : NRACBattery BHE0020:1:2 - NOTREADY..." },
     { priority: 2, checked: true, name: "High Current Protection App v1.0", config: "default / 0", status: "No derates." },
@@ -69,12 +120,13 @@ export default function SystemDetailsView({ onSelectCategory, pollCounter }: Sys
     { priority: 999, checked: true, name: "Backstop v1.0", config: "default / 0", status: "Set to Standby (ZP) : ACBattery BHE0020:1:1 ACBattery BHE0020:1:2..." }
   ];
 
-  const plugins = [
+  const plugins = propPlugins || [
     { actions: "•••", active: false, name: "Sitewide Balancer Manager", status: "Not Enabled" },
     { actions: "•••", active: false, name: "Battery Pack Level Balancer Manager", status: "Not Enabled" },
     { actions: "•••", active: false, name: "Auto Balancer", status: "Not Enabled" },
     { actions: "•••", active: false, name: "Auto Contactor Management", status: "Not Enabled" }
   ];
+
 
   // Renders a high-fidelity BESS diagonal health striped bar matching the layout
   const renderHealthBar = (healthy: number, unhealthy: number, total: number, specialType?: string) => {

@@ -12,11 +12,38 @@ import {
   ExternalLink
 } from "lucide-react";
 
-export default function ArraysView() {
+interface ArraysViewProps {
+  arrays?: {
+    id: number;
+    online: boolean;
+    onlineEnergy: string;
+    nearlineEnergy: string;
+    offlineEnergy: string;
+    capacity: string;
+    chargeLimit: string;
+    dcPower: string;
+    dcVoltage: string;
+    dcCurrent: string;
+    maxCharge: string;
+    maxDischarge: string;
+    stringStatus: string;
+  }[];
+  sidebarStats?: {
+    communicating: number;
+    total: number;
+    onlineEnergy: string;
+    energyCapacity: string;
+    onlineSoc: string;
+    dcChargeLimit: string;
+    dcDischargeLimit: string;
+  };
+}
+
+export default function ArraysView({ arrays: propArrays, sidebarStats: propSidebarStats }: ArraysViewProps = {}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "active" | "standby">("all");
 
-  const sidebarStats = {
+  const sidebarStats = propSidebarStats || {
     communicating: 8,
     total: 8,
     onlineEnergy: "0.0 kWh",
@@ -27,7 +54,7 @@ export default function ArraysView() {
   };
 
   // 8 physical arrays with precise telemetry from screenshot 2
-  const arrays = [
+  const arrays = propArrays || [
     { id: 1, online: false, onlineEnergy: "0", nearlineEnergy: "0", offlineEnergy: "14,850", capacity: "14,850.00", chargeLimit: "Manager Disabled", dcPower: "0.00", dcVoltage: "0.00", dcCurrent: "0.00", maxCharge: "0", maxDischarge: "0", stringStatus: "offline" },
     { id: 2, online: false, onlineEnergy: "0", nearlineEnergy: "0", offlineEnergy: "14,850", capacity: "14,850.00", chargeLimit: "Manager Disabled", dcPower: "0.00", dcVoltage: "0.00", dcCurrent: "0.00", maxCharge: "0", maxDischarge: "0", stringStatus: "offline" },
     { id: 3, online: false, onlineEnergy: "0", nearlineEnergy: "0", offlineEnergy: "14,850", capacity: "14,850.00", chargeLimit: "Manager Disabled", dcPower: "0.00", dcVoltage: "0.00", dcCurrent: "0.00", maxCharge: "0", maxDischarge: "0", stringStatus: "offline" },
@@ -37,6 +64,7 @@ export default function ArraysView() {
     { id: 7, online: false, onlineEnergy: "0", nearlineEnergy: "0", offlineEnergy: "14,850", capacity: "14,850.00", chargeLimit: "Manager Disabled", dcPower: "0.00", dcVoltage: "0.00", dcCurrent: "0.00", maxCharge: "0", maxDischarge: "0", stringStatus: "offline" },
     { id: 8, online: false, onlineEnergy: "0", nearlineEnergy: "0", offlineEnergy: "14,850", capacity: "14,850.00", chargeLimit: "Manager Disabled", dcPower: "0.00", dcVoltage: "0.00", dcCurrent: "0.00", maxCharge: "0", maxDischarge: "0", stringStatus: "offline" },
   ];
+
 
   const filteredArrays = arrays.filter(arr => {
     if (searchQuery) {

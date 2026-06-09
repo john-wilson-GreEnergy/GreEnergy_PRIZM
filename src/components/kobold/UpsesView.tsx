@@ -11,16 +11,36 @@ import {
   Search
 } from "lucide-react";
 
-export default function UpsesView() {
+interface UpsesViewProps {
+  upses?: {
+    id: number;
+    isOnline: boolean;
+    lineup: string;
+    pos: string;
+    array: number;
+    soc: number;
+    statusState: string;
+    cause: string;
+    hasFault: boolean;
+    desc: string;
+  }[];
+  sidebarStats?: {
+    online: number;
+    off: number;
+    total: number;
+  };
+}
+
+export default function UpsesView({ upses: propUpses, sidebarStats: propSidebarStats }: UpsesViewProps = {}) {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const sidebarStats = {
+  const sidebarStats = propSidebarStats || {
     online: 24,
     off: 1, // one offline/fail
     total: 32
   };
 
-  const upses = [
+  const upses = propUpses || [
     { id: 101, isOnline: true, lineup: "Lineup 1", pos: "Cabinet 1", array: 1, soc: 100, statusState: "OnLineMode", cause: "AcceptableInput", hasFault: false, desc: "Normal Sequence" },
     { id: 102, isOnline: true, lineup: "Lineup 1", pos: "Cabinet 2", array: 1, soc: 100, statusState: "OnLineMode", cause: "AcceptableInput", hasFault: false, desc: "Normal Sequence" },
     { id: 103, isOnline: true, lineup: "Lineup 2", pos: "Cabinet 1", array: 2, soc: 100, statusState: "OnLineMode", cause: "AcceptableInput", hasFault: false, desc: "Normal Sequence" },

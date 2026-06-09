@@ -11,10 +11,32 @@ import {
   Search
 } from "lucide-react";
 
-export default function SensorsView() {
+interface SensorsViewProps {
+  lateralSensors?: {
+    name: string;
+    status: string;
+    color: string;
+  }[];
+  sensorRows?: {
+    segment: number;
+    lineup: string;
+    pos: string;
+    array: number;
+    moisture: string;
+    ioCom: string;
+    acDoors: string;
+    dcDoors: string;
+    topCap: string;
+    batteryDoors: string;
+    eStop: string;
+    hasAlarm?: boolean;
+  }[];
+}
+
+export default function SensorsView({ lateralSensors: propLateralSensors, sensorRows: propSensorRows }: SensorsViewProps = {}) {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const lateralSensors = [
+  const lateralSensors = propLateralSensors || [
     { name: "Fire Sensor Panel", status: "Untripped", color: "text-emerald-400" },
     { name: "Smoke Optical Matrix", status: "Untripped", color: "text-emerald-400" },
     { name: "Heat Thermistors", status: "Untripped", color: "text-emerald-400" },
@@ -28,7 +50,7 @@ export default function SensorsView() {
     { name: "Manual Ventilation Stage", status: "Resting", color: "text-slate-400" }
   ];
 
-  const sensorRows = [
+  const sensorRows = propSensorRows || [
     { segment: 12, lineup: "Lineup 1", pos: "P1", array: 1, moisture: "Untripped", ioCom: "Online", acDoors: "Closed", dcDoors: "Closed", topCap: "Closed", batteryDoors: "Closed", eStop: "Untripped" },
     { segment: 38, lineup: "Lineup 1", pos: "P2", array: 1, moisture: "Untripped", ioCom: "Online", acDoors: "Closed", dcDoors: "Closed", topCap: "Closed", batteryDoors: "Closed", eStop: "Untripped" },
     { segment: 41, lineup: "Lineup 2", pos: "P1", array: 2, moisture: "Untripped", ioCom: "Online", acDoors: "Closed", dcDoors: "Closed", topCap: "Closed", batteryDoors: "Closed", eStop: "Untripped" },

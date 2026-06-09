@@ -9,16 +9,38 @@ import {
   RefreshCw
 } from "lucide-react";
 
-export default function HvacsView() {
+interface HvacsViewProps {
+  hvacs?: {
+    index: number;
+    healthy: boolean;
+    segment: number;
+    humidity: number;
+    airTemp: number;
+    cellTemp: number;
+    coolTo: number;
+    heatTo: number;
+    respondTo: string;
+    stage: string;
+    signals: string;
+    unit1: string;
+    unit2: string;
+  }[];
+  sidebarStats?: {
+    healthy: number;
+    total: number;
+  };
+}
+
+export default function HvacsView({ hvacs: propHvacs, sidebarStats: propSidebarStats }: HvacsViewProps = {}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("ALL");
 
-  const sidebarStats = {
+  const sidebarStats = propSidebarStats || {
     healthy: 167,
     total: 168
   };
 
-  const hvacs = [
+  const hvacs = propHvacs || [
     { index: 1, healthy: true, segment: 1, humidity: 36, airTemp: 21.2, cellTemp: 23.0, coolTo: 22.0, heatTo: 18.0, respondTo: "Air Temp", stage: "Lead Cooling", signals: "cool1_on | fan1_high", unit1: "Operational", unit2: "Standby" },
     { index: 2, healthy: true, segment: 2, humidity: 35, airTemp: 20.9, cellTemp: 22.5, coolTo: 22.0, heatTo: 18.0, respondTo: "Air Temp", stage: "Idle", signals: "fan1_low", unit1: "Standby", unit2: "Standby" },
     { index: 3, healthy: true, segment: 3, humidity: 38, airTemp: 21.0, cellTemp: 23.4, coolTo: 22.0, heatTo: 18.0, respondTo: "Air Temp", stage: "Lead Cooling", signals: "cool1_on | fan1_high", unit1: "Operational", unit2: "Standby" },
@@ -28,6 +50,7 @@ export default function HvacsView() {
     { index: 7, healthy: true, segment: 7, humidity: 39, airTemp: 21.5, cellTemp: 24.1, coolTo: 22.0, heatTo: 18.0, respondTo: "Air Temp", stage: "Lead Cooling", signals: "cool1_on | fan1_high", unit1: "Operational", unit2: "Standby" },
     { index: 8, healthy: false, segment: 8, humidity: 45, airTemp: 25.4, cellTemp: 29.8, coolTo: 22.0, heatTo: 18.0, respondTo: "Cell Temp", stage: "Stage 2 Lag Cooling", signals: "cool1_on | cool2_on | fan1_high | fan2_high", unit1: "Operational", unit2: "Operational" },
   ];
+
 
   const filteredHvacs = hvacs.filter(h => {
     if (searchQuery && h.index.toString() !== searchQuery && h.segment.toString() !== searchQuery) {

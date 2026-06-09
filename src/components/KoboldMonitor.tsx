@@ -26,7 +26,8 @@ import {
   Info,
   Radio,
   Wifi,
-  Terminal
+  Terminal,
+  Server
 } from "lucide-react";
 
 import SystemDetailsView from "./kobold/SystemDetailsView";
@@ -37,6 +38,7 @@ import SensorsView from "./kobold/SensorsView";
 import HvacsView from "./kobold/HvacsView";
 import StackManagersView from "./kobold/StackManagersView";
 import UpsesView from "./kobold/UpsesView";
+import ConnectionSettings from "./ConnectionSettings";
 
 interface ModbusRegister {
   register: number;
@@ -205,6 +207,14 @@ const renderJsonHighlight = (obj: any) => {
 };
 
 export default function KoboldMonitor({ initialDevices }: { initialDevices: any[] }) {
+  // --- REAL-TIME LOCAL EMS TURTLE CLIENT POLLING STATES ---
+  const [emsConnection, setEmsConnection] = useState<any>(null);
+  const [emsStatus, setEmsStatus] = useState<any>(null);
+  const [emsBlock, setEmsBlock] = useState<any>(null);
+  const [emsStrings, setEmsStrings] = useState<any[]>([]);
+  const [emsStatusCodes, setEmsStatusCodes] = useState<any>(null);
+  const [emsSources, setEmsSources] = useState<any[]>([]);
+
   // --- COMMISSIONING / UPLOAD STATES ---
   const [isCommissioned, setIsCommissioned] = useState<boolean>(() => {
     return localStorage.getItem("bess_kobold_commissioned") === "true";
@@ -540,12 +550,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   // Load Modbus Map CSV from local storage or server
   const loadActiveModbusMap = async () => {
     try {
-      const res = await fetch("/turtle/tools/report/ems/modbus_map.csv");
+      const res = await fetch("/api/local/modbus-map");
       if (res.ok) {
-        const text = await res.text();
+        const wrapper = await res.json();
+        if (wrapper && wrapper.data) {
+          parseAndSetModbusMap(wrapper.data);
+          return;
+        }
+      }
+      const resFallback = await fetch("/turtle/tools/report/ems/modbus_map.csv");
+      if (resFallback.ok) {
+        const text = await resFallback.text();
         parseAndSetModbusMap(text);
       } else {
-        // Safe fallback
         setActiveRegisters(INITIAL_REGISTERS);
       }
     } catch (err) {
@@ -557,20 +574,40 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   // Load IP Map CSV files from server
   const loadActiveIPMaps = async () => {
     try {
-      const resString = await fetch("/turtle/tools/report/ems/stringIPMap.csv");
+      const resString = await fetch("/api/local/string-ip-map");
       if (resString.ok) {
-        const text = await resString.text();
-        parseAndSetStringIPMap(text);
+        const wrapper = await resString.json();
+        if (wrapper && Array.isArray(wrapper.data)) {
+          setStringIPMap(wrapper.data);
+        } else if (wrapper && typeof wrapper.data === "string") {
+          parseAndSetStringIPMap(wrapper.data);
+        }
+      } else {
+        const resStringFallback = await fetch("/turtle/tools/report/ems/stringIPMap.csv");
+        if (resStringFallback.ok) {
+          const text = await resStringFallback.text();
+          parseAndSetStringIPMap(text);
+        }
       }
     } catch (err) {
       console.error("Error loading string IP map:", err);
     }
 
     try {
-      const resSite = await fetch("/turtle/tools/report/ems/ipMap.csv");
+      const resSite = await fetch("/api/local/ip-map");
       if (resSite.ok) {
-        const text = await resSite.text();
-        parseAndSetSiteIPMap(text);
+        const wrapper = await resSite.json();
+        if (wrapper && Array.isArray(wrapper.data)) {
+          setSiteIPMap(wrapper.data);
+        } else if (wrapper && typeof wrapper.data === "string") {
+          parseAndSetSiteIPMap(wrapper.data);
+        }
+      } else {
+        const resSiteFallback = await fetch("/turtle/tools/report/ems/ipMap.csv");
+        if (resSiteFallback.ok) {
+          const text = await resSiteFallback.text();
+          parseAndSetSiteIPMap(text);
+        }
       }
     } catch (err) {
       console.error("Error loading site IP map:", err);
@@ -776,6 +813,165 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     } finally {
       setPingingIP(null);
     }
+  };
+
+  const safeJsonFetch = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        return null;
+      }
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const pollLocalEmsData = async () => {
+    try {
+      // 1. Connection status
+      const connData = await safeJsonFetch("/api/local/connection");
+      if (connData) {
+        setEmsConnection(connData);
+      }
+
+      // 2. Main Blockviewer data
+      const blockWrapper = await safeJsonFetch("/api/local/block");
+      if (blockWrapper) {
+        setEmsBlock(blockWrapper);
+        
+        // Propagate down to local states so legacy charts or lists also stay updated!
+        if (blockWrapper.data) {
+          const sys = blockWrapper.data.system;
+          if (blockWrapper.data.pcses) {
+            setPcses(blockWrapper.data.pcses);
+          }
+          if (blockWrapper.data.hvacs) {
+            setHvacs(blockWrapper.data.hvacs);
+          }
+        }
+      }
+
+      // 3. Status JSON data
+      const statusWrapper = await safeJsonFetch("/api/local/status");
+      if (statusWrapper) {
+        setEmsStatus(statusWrapper);
+      }
+
+      // 4. Strings
+      const stringsWrapper = await safeJsonFetch("/api/local/strings");
+      if (stringsWrapper) {
+        setEmsStrings(stringsWrapper.data || []);
+      }
+
+      // 5. Status Codes
+      const codesWrapper = await safeJsonFetch("/api/local/status-codes");
+      if (codesWrapper) {
+        setEmsStatusCodes(codesWrapper);
+      }
+
+      // 6. EMS Sources Diagnostics
+      const debugSources = await safeJsonFetch("/api/local/debug/sources");
+      if (debugSources && Array.isArray(debugSources)) {
+        setEmsSources(debugSources);
+      }
+    } catch (err) {
+      console.error("Error polling local EMS API endpoints in browser:", err);
+    }
+  };
+
+  useEffect(() => {
+    pollLocalEmsData();
+    const interval = setInterval(pollLocalEmsData, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const renderConnectionBanner = () => {
+    if (!emsConnection) return null;
+
+    const {
+      source = "offline",
+      staleData = false,
+      lastUpdated = null,
+      activeEmsBaseUrl = "",
+      activeProfileName = "PRIZM Core Hardware Bess Profile",
+      pollIntervalMs = 3000
+    } = emsConnection;
+
+    let bannerBg = "bg-[#2D0F1B]/95 text-[#F87171] border-red-900/30";
+    let statusClass = "bg-red-500 animate-pulse";
+    let statusText = "EMS HARDWARE HARD OFFLINE :: No Cached Live Telemetry Found";
+
+    if (source === "live") {
+      bannerBg = "bg-[#0A2619]/90 text-[#34D399] border-emerald-900/40";
+      statusClass = "bg-emerald-400 animate-pulse";
+      statusText = "PRODUCTION LIVE :: Connected via direct Ethernet backplane";
+    } else if (source === "cached") {
+      bannerBg = "bg-[#251A07]/90 text-[#FBBF24] border-yellow-800/30";
+      statusClass = "bg-amber-500 animate-pulse";
+      statusText = "LAN DISCONNECTED :: Displaying cached offline hardware state";
+    } else if (source === "demo") {
+      bannerBg = "bg-[#0D1F3D]/90 text-[#38BDF8] border-cyan-800/30";
+      statusClass = "bg-cyan-400 animate-pulse";
+      statusText = "DEVELOPMENT DEMO INSTANCE :: Serving Hand-Crafted Simulation Datasets";
+    }
+
+    return (
+      <div className={`w-full py-2.5 px-4 border-b text-[11px] font-mono select-none flex flex-col md:flex-row justify-between items-center gap-2 ${bannerBg}`}>
+        <div className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ${statusClass}`} />
+          <span className="font-bold uppercase tracking-wider">
+            {statusText}
+          </span>
+          <span className="text-white/20">|</span>
+          <button 
+            type="button"
+            onClick={() => {
+              setSelectedCategory("EMS LAN Diagnostics");
+              setSelectedString(null);
+            }}
+            className="hover:text-cyan-300 hover:underline flex items-center gap-0.5 cursor-pointer transition-all focus:outline-none text-[11px] font-mono"
+            title="Click to switch or manage target profiles"
+          >
+            <span>PROFILE: <span className="text-cyan-400 font-bold border-b border-dashed border-cyan-400/50">{activeProfileName} [Switch & Preset Config]</span></span>
+          </button>
+          <span className="text-white/20">|</span>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedCategory("EMS LAN Diagnostics");
+              setSelectedString(null);
+            }}
+            className="hover:text-cyan-300 hover:underline flex items-center gap-0.5 cursor-pointer transition-all focus:outline-none text-[11px] font-mono"
+            title="Click to view EMS diagnostics & settings"
+          >
+            <span>LAN BASE_URL: <span className="text-white font-bold">{activeEmsBaseUrl || emsConnection?.emsHost || "Loading..."}</span></span>
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          {source === "demo" && (
+            <span className="bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse">
+              DEMO STATE
+            </span>
+          )}
+          {source === "cached" && (
+            <span className="bg-amber-500/15 border border-yellow-500/30 text-yellow-500 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse font-mono">
+              AMBER CACHE
+            </span>
+          )}
+          {source === "offline" && (
+            <span className="bg-red-500/15 border border-red-500/30 text-red-300 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse font-mono">
+              OFFLINE PROTECTION ACTIVE
+            </span>
+          )}
+          <span>LAST FLUSH: <span className="text-white">{lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "NEVER"}</span></span>
+          <span className="text-white/20">|</span>
+          <span>HEARTBEAT: <span className="text-white">{pollIntervalMs}ms</span></span>
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -1248,6 +1444,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
         // 2. KOBOLD ACTIVE SYSTEM LAYOUT
         <div className="flex flex-col min-h-[680px]">
+          {renderConnectionBanner()}
           
           {/* A. PRIZM HEADER */}
           <div className="bg-[#10121A] border-b border-white/10 p-4">
@@ -1422,6 +1619,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 {[
                   { name: "Modbus Map Registers", icon: Database },
                   { name: "Site IP Topology Map", icon: Sliders },
+                  { name: "EMS LAN Diagnostics", icon: Server },
                   { name: "Cloud Telemetry Interceptor", icon: Radio },
                   { name: "System Event logs", icon: FileText }
                 ].map((item) => {
@@ -1462,12 +1660,36 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             <div className="flex-1 bg-[#0A0B0E] p-4 overflow-x-auto min-w-0">
               
               {/* BRAND NEW KOBOLD SUB-VIEWS REPLICA */}
-              {selectedCategory === "System Details" && (
-                <SystemDetailsView onSelectCategory={setSelectedCategory} pollCounter={pollCounter} />
-              )}
+              {selectedCategory === "System Details" && (() => {
+                const sys = emsBlock?.data?.system;
+                const telemetryObj = sys ? {
+                  chargePower: sys.chargePower || "0.0 kW",
+                  dischargePower: sys.dischargePower || "0.0 kW",
+                  chargeEnergy: sys.chargeEnergy || "0.0 kWh",
+                  dischargeEnergy: sys.dischargeEnergy || "0.0 kWh",
+                  dcOnline: sys.dcOnline || "0.0 kWh",
+                  dcNearline: sys.dcNearline || "0.0 kWh",
+                  acOnline: sys.acOnline || "0.0 kWh",
+                  realPowerMeasured: sys.realPowerMeasured || "0.0 kW",
+                  realPowerCommanded: sys.realPowerCommanded || "0.0 kW",
+                  reactivePowerMeasured: sys.reactivePowerMeasured || "0.0 kVAR",
+                  reactivePowerCommanded: sys.reactivePowerCommanded || "0.0 kVAR"
+                } : undefined;
+                return (
+                  <SystemDetailsView 
+                    onSelectCategory={setSelectedCategory} 
+                    pollCounter={pollCounter} 
+                    telemetry={telemetryObj}
+                  />
+                );
+              })()}
 
               {selectedCategory === "Arrays" && (
-                <ArraysView />
+                <ArraysView arrays={emsBlock?.data?.arrays} />
+              )}
+
+              {selectedCategory === "String List" && (
+                <StringsView strings={emsStrings} />
               )}
 
               {selectedCategory === "Energy Segments" && (
@@ -1475,19 +1697,22 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               )}
 
               {selectedCategory === "Sensors" && (
-                <SensorsView />
+                <SensorsView 
+                  lateralSensors={emsBlock?.data?.sensors?.lateralSensors} 
+                  sensorRows={emsBlock?.data?.sensors?.sensorRows} 
+                />
               )}
 
               {selectedCategory === "HVACs" && (
-                <HvacsView />
+                <HvacsView hvacs={emsBlock?.data?.hvacs} />
               )}
 
               {selectedCategory === "Stack Managers" && (
-                <StackManagersView />
+                <StackManagersView managers={emsBlock?.data?.stackManagers} />
               )}
 
               {selectedCategory === "UPSes" && (
-                <UpsesView />
+                <UpsesView upses={emsBlock?.data?.upses} />
               )}
 
               {/* CATEGORY VIEW 1: SUMMARY (EMS APPS, TOPOLOGY, METERS, PCSES, HVAC_PLC) */}
@@ -3315,6 +3540,173 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                     </div>
                   )}
 
+                </div>
+              )}
+
+              {/* CATEGORY VIEW: EMS LAN DIAGNOSTICS */}
+              {selectedCategory === "EMS LAN Diagnostics" && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-mono font-bold text-white tracking-widest uppercase mb-1 border-l-2 border-cyan-500 pl-2">
+                      EMS LAN Connectivity & Poll Diagnostics
+                    </h3>
+                    <p className="text-xs text-white/40 font-mono">
+                      Real-time live checks for the 12 primary EMS hardware telemetry sources mapped via local LAN ethernet backplane.
+                    </p>
+                  </div>
+
+                  {/* Dynamic connection profiles management panel */}
+                  <ConnectionSettings onProfileChanged={() => pollLocalEmsData()} />
+
+                  {/* Demo Mode Manual Override Deck */}
+                  <div className="bg-[#161925]/80 border border-white/5 rounded-lg p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 font-mono shadow-lg">
+                    <div className="space-y-1">
+                      <div className="text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                        <Sliders size={14} className="text-cyan-400 animate-pulse" />
+                        DEMO MODE MANUAL OVERRIDE DECK
+                      </div>
+                      <div className="text-[11px] text-white/40 max-w-xl">
+                        Manually trigger the high-fidelity PRIZM simulation database block schemas. If deactivated, production connectivity will seek direct hardware LAN polling first, gracefully dropping back to stale cached records or offline protection state.
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const nextState = !emsConnection?.isDemoFallback;
+                        try {
+                          const res = await fetch("/api/local/demo-toggle", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ enabled: nextState })
+                          });
+                          const updated = await res.json();
+                          setEmsConnection(updated);
+                          pollLocalEmsData();
+                        } catch (err) {
+                          console.error("Failed to toggle demo status:", err);
+                        }
+                      }}
+                      className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-all cursor-pointer border select-none ${
+                        emsConnection?.isDemoFallback
+                          ? "bg-amber-500/10 text-yellow-400 border-yellow-500/30 hover:bg-amber-500/20"
+                          : "bg-white/5 text-white/40 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      {emsConnection?.isDemoFallback ? "DEMO ACTIVE [CLICK TO DISABLE]" : "DEMO OFF [CLICK TO ENABLE]"}
+                    </button>
+                  </div>
+
+                  {/* Mode Card */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
+                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-white/40 uppercase font-bold">LAN TARGET HOST</div>
+                      <div className="text-sm text-cyan-400 font-bold">{emsConnection?.activeEmsBaseUrl || emsConnection?.emsHost || "N/A"}</div>
+                    </div>
+                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-white/40 uppercase font-bold">STATE DETECTED</div>
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2.5 w-2.5 rounded-full ${
+                          emsConnection?.source === "live"
+                            ? "bg-emerald-400 animate-pulse"
+                            : emsConnection?.source === "cached"
+                              ? "bg-amber-500 animate-pulse"
+                              : emsConnection?.source === "demo"
+                                ? "bg-cyan-500 animate-pulse"
+                                : "bg-red-500"
+                        }`} />
+                        <span className="text-sm font-bold text-white uppercase">
+                          {emsConnection?.source === "live" && "HARDWARE ACTIVE"}
+                          {emsConnection?.source === "cached" && "STALE CACHED LOCAL"}
+                          {emsConnection?.source === "offline" && "HARD OFFLINE STATE"}
+                          {emsConnection?.source === "demo" && "DEMO STREAM"}
+                          {!emsConnection?.source && "N/A"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-white/40 uppercase font-bold">POLL FREQUENCY</div>
+                      <div className="text-sm text-white font-bold">{emsConnection?.pollIntervalMs || 3000} ms</div>
+                    </div>
+                  </div>
+
+                  {/* Connection Detail Reason Banner */}
+                  <div className={`p-4 rounded-lg font-mono text-xs border ${
+                    emsConnection?.source === "demo"
+                      ? "bg-cyan-500/5 text-cyan-300 border-cyan-500/20"
+                      : emsConnection?.source === "live"
+                        ? "bg-emerald-500/5 text-emerald-300 border-emerald-500/20"
+                        : emsConnection?.source === "cached"
+                          ? "bg-amber-500/5 text-yellow-300 border-yellow-500/20"
+                          : "bg-red-500/5 text-red-300 border-red-500/20"
+                  }`}>
+                    <div className="font-bold uppercase mb-1 text-[10px] tracking-wider">
+                      {emsConnection?.source === "demo" && "DEMO STREAM ACTIVE"}
+                      {emsConnection?.source === "live" && "PRODUCTION LIVE LINE"}
+                      {emsConnection?.source === "cached" && "AMBER DATA RETENTION CAPTURE"}
+                      {emsConnection?.source === "offline" && "CRITICAL LINK CRASH DETECTED"}
+                    </div>
+                    <div>{emsConnection?.reason || "State logic initializing..."}</div>
+                  </div>
+
+                  {/* Sources Grid Table */}
+                  <div className="bg-[#12141C] border border-white/5 rounded-lg overflow-hidden">
+                    <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#161925]">
+                      <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">EMS Turtle Endpoints (12/12 Polled)</span>
+                      <button 
+                        onClick={() => pollLocalEmsData()}
+                        className="bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 px-2.5 py-1 text-[10px] uppercase font-mono rounded cursor-pointer flex items-center gap-1"
+                      >
+                        <RefreshCw size={10} />
+                        Force Retry Poll
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left font-mono text-xs select-none">
+                        <thead>
+                          <tr className="bg-white/[0.02] border-b border-white/5 text-[10px] text-white/40 uppercase tracking-wider">
+                            <th className="p-3">Endpoint Route</th>
+                            <th className="p-3">State</th>
+                            <th className="p-3 text-right font-bold">Status</th>
+                            <th className="p-3 text-right">Rountrip Time</th>
+                            <th className="p-3">Last Attemped</th>
+                            <th className="p-3 max-w-[200px] truncate">Last Exception/Diagnostic</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.03]">
+                          {emsSources && emsSources.length > 0 ? (
+                            emsSources.map((s, idx) => (
+                              <tr key={idx} className="hover:bg-white/[0.01]">
+                                <td className="p-3 text-white/90 font-medium font-mono text-cyan-400">{s.endpoint}</td>
+                                <td className="p-3">
+                                  {s.success ? (
+                                    <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-2 py-0.5 rounded text-[10px] font-bold">
+                                      SUCCESS
+                                    </span>
+                                  ) : (
+                                    <span className="bg-rose-500/10 text-rose-400 border border-rose-500/25 px-2 py-0.5 rounded text-[10px] font-bold">
+                                      OFFLINE
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right font-bold text-white">{s.statusCode || "N/A"}</td>
+                                <td className="p-3 text-right text-white/60">{s.durationMs ? `${s.durationMs}ms` : "0ms"}</td>
+                                <td className="p-3 text-white/40">{s.lastPollTime ? new Date(s.lastPollTime).toLocaleTimeString() : "PENDING"}</td>
+                                <td className="p-3 max-w-[200px] truncate text-white/40 font-mono" title={s.lastError || "NONE"}>
+                                  {s.lastError || "NONE"}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-white/20">
+                                Retrieving live LAN diagnostic source metrics (3.0s ticker interval in flight)...
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 
