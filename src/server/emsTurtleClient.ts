@@ -33,7 +33,7 @@ export function getNormalizedBaseUrl(): string {
 const REQUEST_TIMEOUT_MS = Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 10000;
 
 // Dynamic Demo Mode Toggle state
-let isDemoModeActive = process.env.DEMO_MODE === "true" || process.env.EMS_MODE === "demo";
+let isDemoModeActive = false;
 
 // Cache ownership metadata tracking
 export let cacheProfileId: string | null = null;

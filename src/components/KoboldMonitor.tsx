@@ -520,17 +520,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   ]);
 
   // --- SITE IP MAP STATES & CONFIGS ---
-  const [stringIPMap, setStringIPMap] = useState<{ array: number; string: number; ip: string }[]>([
-    { array: 1, string: 1, ip: "10.0.1.10" },
-    { array: 1, string: 2, ip: "10.0.1.15" },
-    { array: 3, string: 1, ip: "10.0.3.10" },
-    { array: 3, string: 2, ip: "10.0.3.15" },
-  ]);
+  const [stringIPMap, setStringIPMap] = useState<{ array: number; string: number; ip: string }[]>([]);
 
-  const [siteIPMap, setSiteIPMap] = useState<{ target: string; ipAddress: string; model: string }[]>([
-    { target: "Substation A1", ipAddress: "10.0.1.101", model: "BESS-Mega" },
-    { target: "Solar Array B", ipAddress: "10.0.1.102", model: "Megapack" },
-  ]);
+  const [siteIPMap, setSiteIPMap] = useState<{ target: string; ipAddress: string; model: string }[]>([]);
 
   const [auxFilter, setAuxFilter] = useState<string>("");
   const [stringArrayFilter, setStringArrayFilter] = useState<string>("All");
@@ -575,14 +567,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const loadActiveIPMaps = async () => {
     try {
       const resString = await fetch("/api/local/string-ip-map");
+      let loadedStringMap = false;
       if (resString.ok) {
         const wrapper = await resString.json();
-        if (wrapper && Array.isArray(wrapper.data)) {
+        if (wrapper && Array.isArray(wrapper.data) && wrapper.data.length > 0) {
           setStringIPMap(wrapper.data);
-        } else if (wrapper && typeof wrapper.data === "string") {
+          loadedStringMap = true;
+        } else if (wrapper && typeof wrapper.data === "string" && wrapper.data.length > 0) {
           parseAndSetStringIPMap(wrapper.data);
+          loadedStringMap = true;
         }
-      } else {
+      }
+      
+      if (!loadedStringMap) {
         const resStringFallback = await fetch("/turtle/tools/report/ems/stringIPMap.csv");
         if (resStringFallback.ok) {
           const text = await resStringFallback.text();
@@ -595,14 +592,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
     try {
       const resSite = await fetch("/api/local/ip-map");
+      let loadedSiteMap = false;
       if (resSite.ok) {
         const wrapper = await resSite.json();
-        if (wrapper && Array.isArray(wrapper.data)) {
+        if (wrapper && Array.isArray(wrapper.data) && wrapper.data.length > 0) {
           setSiteIPMap(wrapper.data);
-        } else if (wrapper && typeof wrapper.data === "string") {
+          loadedSiteMap = true;
+        } else if (wrapper && typeof wrapper.data === "string" && wrapper.data.length > 0) {
           parseAndSetSiteIPMap(wrapper.data);
+          loadedSiteMap = true;
         }
-      } else {
+      }
+      
+      if (!loadedSiteMap) {
         const resSiteFallback = await fetch("/turtle/tools/report/ems/ipMap.csv");
         if (resSiteFallback.ok) {
           const text = await resSiteFallback.text();

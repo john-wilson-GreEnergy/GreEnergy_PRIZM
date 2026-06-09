@@ -13,7 +13,8 @@ export function buildEmsBaseUrl(p: { emsHost: string; emsPort: number; turtlePat
 }
 
 // Perform test fetch on target url
-async function testEndpoint(url: string, timeoutMs = 4000): Promise<{ success: boolean; duration: number; data?: any; error?: string }> {
+async function testEndpoint(url: string, timeoutMsEnv?: number): Promise<{ success: boolean; duration: number; data?: any; error?: string }> {
+  const timeoutMs = timeoutMsEnv || Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 10000;
   const startTime = Date.now();
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);

@@ -77,6 +77,8 @@ fi
 # 2. INSTALL DEPENDENCIES
 echo
 echo "[STEP 2/4] Installing project dependencies..."
+echo "[INFO] Cleaning cross-platform artifact locks to ensure correct native binaries..."
+rm -rf node_modules package-lock.json
 npm install
 echo "[SUCCESS] Dependencies installed successfully."
 

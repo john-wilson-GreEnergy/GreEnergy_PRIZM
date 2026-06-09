@@ -86,6 +86,9 @@ if defined NODE_MAJOR (
 :: Step 2: Install Dependencies
 echo.
 echo [STEP 2/4] Installing Node library dependencies...
+echo [INFO] Cleaning up cross-platform artifact locks (node_modules/package-lock)
+if exist "node_modules\" rmdir /s /q "node_modules\"
+if exist "package-lock.json" del /q "package-lock.json"
 call npm install
 if !errorlevel! neq 0 (
     echo [ERROR] NPM installations failed! Please check your network connection.

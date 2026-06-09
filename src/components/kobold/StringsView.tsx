@@ -44,86 +44,13 @@ export default function StringsView({ strings: propStrings, sidebarStats: propSi
     offlineAvail: "34,062.2 kWh"
   };
 
-  // Generate mock entries matching Screenshot 3 values if not provided
+  // Return empty if no propStrings provided
   const stringTelemetryList = useMemo(() => {
     if (propStrings && propStrings.length > 0) {
       return propStrings;
     }
-    const list = [];
-    let count = 1;
-    // Arrays 1 through 8
-    for (let arr = 1; arr <= 8; arr++) {
-      // 40 strings per Array
-      for (let str = 1; str <= 40; str++) {
-        // e.g. lineup ID, segment position
-        const lineup = `L${arr}`;
-        const segmentPos = str <= 20 ? 1 : 2;
-        const segmentIdx = (arr - 1) * 2 + segmentPos;
-        
-
-        // Generate realistic offline parameters matching the screen capture:
-        // Measured voltage ~ 1030-1045V when offline, bus voltage ~ 0V when contactor open, delta ~ 1030V
-        const measVolt = 1045.2 - (Math.random() * 5);
-        const calcVolt = measVolt;
-        const busVolt = 0.0;
-        const deltaVolt = measVolt;
-        const current = 0.0;
-        const kw = 0.0;
-        const soc = parseFloat((23.5 + Math.sin(count / 10) * 4).toFixed(1));
-        const kwh = parseFloat((14850 * (soc / 100) / 40).toFixed(1)); // capacity is 14850 per array, so ~ 371 kWh per string
-
-        // Cell voltages ~ 3240mV min, 3270mV max, avg 3255mV, delta ~ 30mV
-        const cellMin = Math.round(3235 + Math.sin(count / 5) * 12);
-        const cellMax = Math.round(3268 + Math.cos(count / 4) * 8);
-        const cellAvg = Math.round((cellMin + cellMax) / 2);
-        const cellDelta = cellMax - cellMin;
-
-        // Temperatures in Celsius ~ 19.5 to 22.8
-        const tempMin = parseFloat((19.5 + Math.sin(count / 15) * 1.5).toFixed(1));
-        const tempMax = parseFloat((22.0 + Math.cos(count / 12) * 1.2).toFixed(1));
-        const tempAvg = parseFloat(((tempMin + tempMax) / 2).toFixed(1));
-        const tempDelta = parseFloat((tempMax - tempMin).toFixed(1));
-
-        const balanceMode = count % 7 === 0 ? "Passive" : "Idle";
-        const chargeDb = 35;
-
-        list.push({
-          id: `${arr}::${str}`,
-          array: arr,
-          string: str,
-          eyeStatus: "closed", // all off/contactor open
-          communicating: true,
-          contact: "open", // off
-          inRot: "ok", // normal
-          recloseCount: 1, // standard
-          segmentIdx,
-          lineupId: lineup,
-          segmentPos,
-          measVolt: measVolt.toFixed(2),
-          calcVolt: calcVolt.toFixed(2),
-          busVolt: busVolt.toFixed(2),
-          deltaVolt: deltaVolt.toFixed(2),
-          current: current.toFixed(2),
-          kw: kw.toFixed(2),
-          soc,
-          kwh,
-          cellMin,
-          cellMax,
-          cellAvg,
-          cellDelta,
-          tempMin,
-          tempMax,
-          tempAvg,
-          tempDelta,
-          balanceMode,
-          chargeDb,
-          timestamp: "2026-05-29 17:28:44"
-        });
-        count++;
-      }
-    }
-    return list;
-  }, []);
+    return [];
+  }, [propStrings]);
 
   // Filter list
   const filteredStrings = useMemo(() => {

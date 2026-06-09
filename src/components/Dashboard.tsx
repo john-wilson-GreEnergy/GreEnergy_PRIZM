@@ -37,19 +37,9 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
   const [viewMode, setViewMode] = useState<"kobold" | "legacy">("kobold");
   const [historyData, setHistoryData] = useState<any[]>([]);
 
-  // Initialize historic mock timeline
   useEffect(() => {
-    const data = [];
-    const now = new Date();
-    for (let i = 12; i >= 0; i--) {
-      const time = new Date(now.getTime() - i * 5000);
-      data.push({
-        time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        "Net Charge (kW)": parseFloat((Math.sin(i / 2) * 80 + 100).toFixed(1)),
-        "Avg SoC (%)": parseFloat((60 + Math.cos(i / 3) * 10).toFixed(1)),
-      });
-    }
-    setHistoryData(data);
+    // Only accumulate history data from live polling, not mock data.
+    setHistoryData([]);
   }, []);
 
   // Update chart when devices change
