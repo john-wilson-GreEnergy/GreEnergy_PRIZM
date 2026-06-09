@@ -164,18 +164,18 @@ const renderValueHighlight = (valStr: string) => {
     return <span className="text-emerald-400"> {trimmed}</span>;
   }
   if (trimmed.startsWith('true') || trimmed.startsWith('false')) {
-    return <span className="text-amber-400 font-bold"> {trimmed}</span>;
+    return <span className="text-prizm-warning font-bold"> {trimmed}</span>;
   }
   if (!isNaN(parseFloat(trimmed))) {
     return <span className="text-yellow-300 font-mono"> {trimmed}</span>;
   }
-  return <span className="text-white/80"> {valStr}</span>;
+  return <span className="text-prizm-text-muted"> {valStr}</span>;
 };
 
 const renderJsonHighlight = (obj: any) => {
   const code = JSON.stringify(obj, null, 2);
   return (
-    <pre className="font-mono text-xs text-white/90 overflow-x-auto whitespace-pre p-3 bg-[#0B0D13] border border-white/5 rounded-md leading-relaxed selection:bg-cyan-500/20 max-h-[450px] overflow-y-auto w-full">
+    <pre className="font-mono text-xs text-prizm-text-muted overflow-x-auto whitespace-pre p-3 bg-prizm-surface-strong border border-prizm-border rounded-md leading-relaxed selection:bg-prizm-info/10 max-h-[450px] overflow-y-auto w-full">
       {code.split('\n').map((line, idx) => {
         let content: React.ReactNode = line;
         const keyMatch = line.match(/^(\s*)"([^"]+)":/);
@@ -188,12 +188,12 @@ const renderJsonHighlight = (obj: any) => {
           content = (
             <span>
               {indent}
-              <span className="text-cyan-400 font-bold">"{key}"</span>:
+              <span className="text-prizm-primary font-bold">"{key}"</span>:
               {renderValueHighlight(rest)}
             </span>
           );
         } else {
-          content = <span className="text-white/50">{line}</span>;
+          content = <span className="text-prizm-text-muted">{line}</span>;
         }
         
         return (
@@ -242,7 +242,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [pollCounter, setPollCounter] = useState<number>(3);
   const [selectedString, setSelectedString] = useState<StringRow | null>(null);
 
-  // --- CLOUD TELEMETRY PACKET INTERCEPTOR STATES ---
+  // --- DEMO TELEMETRY PACKET INTERCEPTOR STATES ---
   const [telemetryPackets, setTelemetryPackets] = useState<any[]>([]);
   const [isTelemetryAligned, setIsTelemetryAligned] = useState<boolean>(false);
   const [selectedPacketId, setSelectedPacketId] = useState<string | null>(null);
@@ -258,7 +258,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [queryLoading, setQueryLoading] = useState<boolean>(false);
   const [telemetrySubTab, setTelemetrySubTab] = useState<string>("sniffer");
 
-  // --- CLOUD TELEMETRY ACTIONS ---
+  // --- DEMO TELEMETRY ACTIONS ---
   const handleToggleAlignment = async (nowAligned: boolean) => {
     setIsAligningScale(true);
     try {
@@ -902,20 +902,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       pollIntervalMs = 3000
     } = emsConnection;
 
-    let bannerBg = "bg-[#2D0F1B]/95 text-[#F87171] border-red-900/30";
+    let bannerBg = "bg-prizm-surface-strong text-[#F87171] border-red-900/30";
     let statusClass = "bg-red-500 animate-pulse";
     let statusText = "EMS HARDWARE HARD OFFLINE :: No Cached Live Telemetry Found";
 
     if (source === "live") {
-      bannerBg = "bg-[#0A2619]/90 text-[#34D399] border-emerald-900/40";
+      bannerBg = "bg-prizm-surface-strong text-[#34D399] border-emerald-900/40";
       statusClass = "bg-emerald-400 animate-pulse";
       statusText = "PRODUCTION LIVE :: Connected via direct Ethernet backplane";
     } else if (source === "cached") {
-      bannerBg = "bg-[#251A07]/90 text-[#FBBF24] border-yellow-800/30";
-      statusClass = "bg-amber-500 animate-pulse";
+      bannerBg = "bg-prizm-surface-strong text-[#FBBF24] border-yellow-800/30";
+      statusClass = "bg-prizm-warning animate-pulse";
       statusText = "LAN DISCONNECTED :: Displaying cached offline hardware state";
     } else if (source === "demo") {
-      bannerBg = "bg-[#0D1F3D]/90 text-[#38BDF8] border-cyan-800/30";
+      bannerBg = "bg-prizm-surface-strong text-[#38BDF8] border-prizm-primary";
       statusClass = "bg-cyan-400 animate-pulse";
       statusText = "DEVELOPMENT DEMO INSTANCE :: Serving Hand-Crafted Simulation Datasets";
     }
@@ -927,7 +927,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           <span className="font-bold uppercase tracking-wider">
             {statusText}
           </span>
-          <span className="text-white/20">|</span>
+          <span className="text-prizm-text-muted">|</span>
           <button 
             type="button"
             onClick={() => {
@@ -937,9 +937,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             className="hover:text-cyan-300 hover:underline flex items-center gap-0.5 cursor-pointer transition-all focus:outline-none text-[11px] font-mono"
             title="Click to switch or manage target profiles"
           >
-            <span>PROFILE: <span className="text-cyan-400 font-bold border-b border-dashed border-cyan-400/50">{activeProfileName} [Switch & Preset Config]</span></span>
+            <span>PROFILE: <span className="text-prizm-primary font-bold border-b border-dashed border-prizm-primary">{activeProfileName} [Switch & Preset Config]</span></span>
           </button>
-          <span className="text-white/20">|</span>
+          <span className="text-prizm-text-muted">|</span>
           <button
             type="button"
             onClick={() => {
@@ -949,17 +949,17 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             className="hover:text-cyan-300 hover:underline flex items-center gap-0.5 cursor-pointer transition-all focus:outline-none text-[11px] font-mono"
             title="Click to view EMS diagnostics & settings"
           >
-            <span>LAN BASE_URL: <span className="text-white font-bold">{activeEmsBaseUrl || emsConnection?.emsHost || "Loading..."}</span></span>
+            <span>LAN BASE_URL: <span className="text-prizm-text font-bold">{activeEmsBaseUrl || emsConnection?.emsHost || "Loading..."}</span></span>
           </button>
         </div>
         <div className="flex items-center gap-3">
           {source === "demo" && (
-            <span className="bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse">
+            <span className="bg-prizm-info/10 border border-prizm-primary text-prizm-primary px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse">
               DEMO STATE
             </span>
           )}
           {source === "cached" && (
-            <span className="bg-amber-500/15 border border-yellow-500/30 text-yellow-500 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse font-mono">
+            <span className="bg-prizm-warning/10 border border-yellow-500/30 text-yellow-500 px-1.5 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider animate-pulse font-mono">
               AMBER CACHE
             </span>
           )}
@@ -968,9 +968,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               OFFLINE PROTECTION ACTIVE
             </span>
           )}
-          <span>LAST FLUSH: <span className="text-white">{lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "NEVER"}</span></span>
-          <span className="text-white/20">|</span>
-          <span>HEARTBEAT: <span className="text-white">{pollIntervalMs}ms</span></span>
+          <span>LAST FLUSH: <span className="text-prizm-text">{lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "NEVER"}</span></span>
+          <span className="text-prizm-text-muted">|</span>
+          <span>HEARTBEAT: <span className="text-prizm-text">{pollIntervalMs}ms</span></span>
         </div>
       </div>
     );
@@ -1001,7 +1001,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   // Intercepted telemetry stream polling
   useEffect(() => {
-    if (selectedCategory !== "Cloud Telemetry Interceptor" || !isInterceptorLive) return;
+    if (selectedCategory !== "Demo Telemetry Interceptor" || !isInterceptorLive) return;
 
     const fetchTelemetry = async () => {
       try {
@@ -1365,20 +1365,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   });
 
   return (
-    <div className="w-full bg-[#08090C] rounded-lg border border-white/10 overflow-hidden shadow-2xl transition-all font-sans">
+    <div className="w-full bg-prizm-surface-strong rounded-lg border border-prizm-border overflow-hidden shadow-2xl transition-all font-sans">
       
       {/* 1. COMMISSIONING SCREEN (STARTING POINT FOR NEW SITE) */}
       {!isCommissioned ? (
         <div className="p-8 max-w-2xl mx-auto flex flex-col justify-center min-h-[500px]">
           <div className="text-center mb-8">
-            <div className="inline-flex p-4 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 mb-4 animate-pulse">
+            <div className="inline-flex p-4 rounded-full bg-prizm-info/10 border border-prizm-primary text-prizm-primary mb-4 animate-pulse">
               <Database size={40} />
             </div>
-            <h2 className="text-2xl font-light text-white tracking-widest uppercase">SITE COMMISSIONING GATEWAY</h2>
-            <p className="text-xs text-white/50 font-mono mt-2">
+            <h2 className="text-2xl font-light text-prizm-text tracking-widest uppercase">SITE COMMISSIONING GATEWAY</h2>
+            <p className="text-xs text-prizm-text-muted font-mono mt-2">
               Technician Workspace :: Solar Star 3 & Block Substations
             </p>
-            <p className="text-xs text-cyan-400 font-mono font-bold mt-1 uppercase">
+            <p className="text-xs text-prizm-primary font-mono font-bold mt-1 uppercase">
               PLUG IN TO SYSTEM & DOWNLOAD OR UPLOAD ACTIVE RESOURCE CONFIGURATION
             </p>
           </div>
@@ -1391,8 +1391,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
               isDragging 
-                ? "bg-cyan-500/15 border-cyan-400 border-solid" 
-                : "bg-[#11131A] border-white/15 hover:border-cyan-500/50 hover:bg-white/[0.02]"
+                ? "bg-prizm-info/10 border-prizm-primary border-solid" 
+                : "bg-prizm-surface-strong border-prizm-border hover:border-prizm-primary hover:bg-white/[0.02]"
             }`}
           >
             <input 
@@ -1403,26 +1403,26 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               className="hidden" 
             />
             <div className="flex flex-col items-center">
-              <Upload size={36} className={`${isDragging ? "text-cyan-400 animate-bounce" : "text-white/40"} mb-3`} />
-              <p className="text-sm text-white font-medium">Drag & Drop site Modbus map CSV here</p>
-              <p className="text-xs text-white/40 mt-1 mb-4 font-mono">or click to browse local files manually</p>
+              <Upload size={36} className={`${isDragging ? "text-prizm-primary animate-bounce" : "text-prizm-text-muted"} mb-3`} />
+              <p className="text-sm text-prizm-text font-medium">Drag & Drop site Modbus map CSV here</p>
+              <p className="text-xs text-prizm-text-muted mt-1 mb-4 font-mono">or click to browse local files manually</p>
               
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/5 border border-white/5 rounded text-[10px] font-mono text-cyan-300">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/5 border border-prizm-border rounded text-[10px] font-mono text-cyan-300">
                 <span>Expected structure: FIELDTYPE, MODBUSADDRESS, FIELDNAME, TYPE, R/W, UNIT</span>
               </div>
             </div>
           </div>
 
           {uploadError && (
-            <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded flex items-start gap-2 text-rose-300 font-mono text-xs">
+            <div className="mt-4 p-3 bg-prizm-danger/10 border border-prizm-danger/20 rounded flex items-start gap-2 text-prizm-danger font-mono text-xs">
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <span>{uploadError}</span>
             </div>
           )}
 
           <div className="relative my-6 flex items-center justify-center">
-            <hr className="w-full border-white/5" />
-            <span className="absolute px-3 bg-[#08090C] text-[10px] font-mono tracking-widest text-white/30 uppercase">
+            <hr className="w-full border-prizm-border" />
+            <span className="absolute px-3 bg-prizm-surface-strong text-[10px] font-mono tracking-widest text-prizm-text-muted uppercase">
               OR START WITH STATIC SIMULATION
             </span>
           </div>
@@ -1436,7 +1436,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             Initialize Default Powin Solar Star BESS Map
           </button>
 
-          <div className="mt-6 flex gap-4 text-center justify-center text-[10px] text-white/45 font-mono">
+          <div className="mt-6 flex gap-4 text-center justify-center text-[10px] text-prizm-text-muted font-mono">
             <span>PLATFORM: COBALT KOBOLD_BESS</span>
             <span>PORT: 502 (RTU_TCP)</span>
             <span>DEFAULT UNIT_ID: 1</span>
@@ -1449,19 +1449,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           {renderConnectionBanner()}
           
           {/* A. PRIZM HEADER */}
-          <div className="bg-[#10121A] border-b border-white/10 p-4">
+          <div className="bg-prizm-surface-strong border-b border-prizm-border p-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 {/* Logo representation */}
-                <div className="p-1.5 bg-[#0F1A15] border border-[#5CF2A5]/30 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(92,242,165,0.15)] select-none">
+                <div className="p-1.5 bg-prizm-surface-strong border border-prizm-primary rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(92,242,165,0.15)] select-none">
                   <GreEnergyLogo className="w-9 h-9" strokeWidth={8} />
                 </div>
                 <div>
-                  <h1 className="text-lg font-black text-white tracking-widest">
-                    <span className="text-[#5CF2A5]">GreEnergy</span> PRIZM
+                  <h1 className="text-lg font-black text-prizm-text tracking-widest">
+                    <span className="text-prizm-primary">GreEnergy</span> PRIZM
                   </h1>
                   <p className="text-[10px] font-mono text-emerald-400 flex items-center gap-1.5 uppercase">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#5CF2A5] animate-ping"></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-prizm-surface-strong animate-ping"></span>
                     Prizm :: Solar Star 3 (BHE0020) :: Block 1 :: {selectedCategory}
                   </p>
                 </div>
@@ -1469,14 +1469,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
               {/* Status Header Block */}
               <div className="flex flex-wrap items-center gap-3 md:text-right font-mono text-[11px]">
-                <div className="bg-white/5 border border-white/5 rounded px-2.5 py-1">
-                  <span className="text-white/40 uppercase">StackOS Contact: </span>
+                <div className="bg-white/5 border border-prizm-border rounded px-2.5 py-1">
+                  <span className="text-prizm-text-muted uppercase">StackOS Contact: </span>
                   <span className="text-emerald-400 font-bold">Fri, 29 May 2026 15:06:39 GMT</span>
                 </div>
                 <button
                   type="button"
                   onClick={handleDecommission}
-                  className="px-2.5 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white rounded uppercase text-[10px] font-bold transition-all"
+                  className="px-2.5 py-1 bg-prizm-danger/10 border border-prizm-danger/20 text-prizm-danger hover:bg-rose-500 hover:text-prizm-text rounded uppercase text-[10px] font-bold transition-all"
                 >
                   Commission Out
                 </button>
@@ -1484,25 +1484,25 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             </div>
 
             {/* B. COMMAND ACTIONS BAR FROM SCREENSHOT 1 */}
-            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-prizm-border">
               <button 
                 type="button"
                 onClick={() => alert("Broadcasting contactor safety close commands sequence across active loops...")}
-                className="bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-white/90 rounded transition-all cursor-pointer"
+                className="bg-white/5 hover:bg-white/10 border border-prizm-border px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-prizm-text-muted rounded transition-all cursor-pointer"
               >
                 Set Contactors
               </button>
               <button 
                 type="button"
                 onClick={() => alert("Broadcasting passive cell balancing setpoint sequence to 3260mV...")}
-                className="bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-white/90 rounded transition-all cursor-pointer"
+                className="bg-white/5 hover:bg-white/10 border border-prizm-border px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-prizm-text-muted rounded transition-all cursor-pointer"
               >
                 Set Balancing
               </button>
               <button 
                 type="button"
                 onClick={() => alert("Initiating phase alignment string rotations sequence...")}
-                className="bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-white/90 rounded transition-all cursor-pointer"
+                className="bg-white/5 hover:bg-white/10 border border-prizm-border px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-prizm-text-muted rounded transition-all cursor-pointer"
               >
                 Set Rotation
               </button>
@@ -1512,17 +1512,17 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   const name = prompt("Enter custom location block descriptor (e.g., Container-A):");
                   if (name) alert(`Location block changed to: ${name}`);
                 }}
-                className="bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-white/90 rounded transition-all cursor-pointer"
+                className="bg-white/5 hover:bg-white/10 border border-prizm-border px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-prizm-text-muted rounded transition-all cursor-pointer"
               >
                 Set Container
               </button>
 
               <div className="ml-auto flex items-center gap-3">
-                <div className="flex items-center gap-1.5 bg-cyan-500/5 px-2.5 py-1 rounded border border-cyan-500/10 text-[10px] font-mono text-cyan-300">
-                  <Clock size={11} className="animate-spin text-cyan-400" />
+                <div className="flex items-center gap-1.5 bg-prizm-info/10 px-2.5 py-1 rounded border border-prizm-primary text-[10px] font-mono text-cyan-300">
+                  <Clock size={11} className="animate-spin text-prizm-primary" />
                   <span>POLL IN <strong>{pollCounter}s</strong></span>
                 </div>
-                <div className="hidden lg:flex items-center gap-4 text-[10px] text-white/35 font-mono">
+                <div className="hidden lg:flex items-center gap-4 text-[10px] text-prizm-text-muted font-mono">
                   <span>ENCLOSURES: <strong>{arrayCount}</strong></span>
                   <span>STRINGS: <strong>{stringCount}</strong></span>
                   <span>PCS INVERTERS: <strong>{pcsCount}</strong></span>
@@ -1535,8 +1535,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           <div className="flex flex-col lg:flex-row flex-1">
             
             {/* LEFT COLUMN: DROPDOWN NAVIGATION MENU (SCREENSHOT 3 REPLICATED) */}
-            <div className="w-full lg:w-60 bg-[#0E1017] p-3 border-r border-white/10 shrink-0">
-              <div className="text-[10px] font-mono text-white/45 tracking-widest uppercase mb-3 px-2 border-b border-white/5 pb-1">
+            <div className="w-full lg:w-60 bg-prizm-surface-strong p-3 border-r border-prizm-border shrink-0">
+              <div className="text-[10px] font-mono text-prizm-text-muted tracking-widest uppercase mb-3 px-2 border-b border-prizm-border pb-1">
                 Prizm Explorer
               </div>
 
@@ -1567,15 +1567,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       }}
                       className={`w-full flex items-center justify-between text-left px-3 py-1.5 rounded transition-all text-xs font-mono select-none ${
                         selectedCategory === item.name 
-                          ? "bg-cyan-500/15 border-l-2 border-cyan-400 text-cyan-300 font-bold" 
-                          : "text-white/60 hover:text-white hover:bg-white/5"
+                          ? "bg-prizm-info/10 border-l-2 border-prizm-primary text-cyan-300 font-bold" 
+                          : "text-prizm-text-muted hover:text-prizm-text hover:bg-white/5"
                       }`}
                     >
                       <span className="flex items-center gap-2">
-                        <Icon size={12} className={selectedCategory === item.name ? "text-cyan-400" : "text-white/30"} />
+                        <Icon size={12} className={selectedCategory === item.name ? "text-prizm-primary" : "text-prizm-text-muted"} />
                         {item.name}
                       </span>
-                      {selectedCategory === item.name && <ChevronRight size={10} className="text-cyan-400" />}
+                      {selectedCategory === item.name && <ChevronRight size={10} className="text-prizm-primary" />}
                     </button>
                   );
                 })}
@@ -1599,15 +1599,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       }}
                       className={`w-full flex items-center justify-between text-left px-3 py-1.5 rounded transition-all text-xs font-mono select-none ${
                         selectedCategory === item.name 
-                          ? "bg-cyan-500/15 border-l-2 border-cyan-400 text-cyan-300 font-bold" 
-                          : "text-white/60 hover:text-white hover:bg-white/5"
+                          ? "bg-prizm-info/10 border-l-2 border-prizm-primary text-cyan-300 font-bold" 
+                          : "text-prizm-text-muted hover:text-prizm-text hover:bg-white/5"
                       }`}
                     >
                       <span className="flex items-center gap-2">
-                        <Gauge size={12} className={selectedCategory === item.name ? "text-cyan-400" : "text-white/30"} />
+                        <Gauge size={12} className={selectedCategory === item.name ? "text-prizm-primary" : "text-prizm-text-muted"} />
                         {item.name}
                       </span>
-                      {selectedCategory === item.name && <ChevronRight size={10} className="text-cyan-400" />}
+                      {selectedCategory === item.name && <ChevronRight size={10} className="text-prizm-primary" />}
                     </button>
                   );
                 })}
@@ -1622,9 +1622,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   { name: "Modbus Map Registers", icon: Database },
                   { name: "Site IP Topology Map", icon: Sliders },
                   { name: "EMS LAN Diagnostics", icon: Server },
-                  { name: "Cloud Telemetry Interceptor", icon: Radio },
+                  { name: "Demo Telemetry Interceptor", icon: Radio, demoOnly: true },
                   { name: "System Event logs", icon: FileText }
-                ].map((item) => {
+                ].filter(item => !item.demoOnly || emsConnection?.enableDemoToggle).map((item) => {
                   const Icon = item.icon;
                   return (
                     <button
@@ -1635,23 +1635,23 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       }}
                       className={`w-full flex items-center justify-between text-left px-3 py-1.5 rounded transition-all text-xs font-mono select-none ${
                         selectedCategory === item.name 
-                          ? "bg-cyan-500/15 border-l-2 border-cyan-400 text-cyan-300 font-bold" 
-                          : "text-white/60 hover:text-white hover:bg-white/5"
+                          ? "bg-prizm-info/10 border-l-2 border-prizm-primary text-cyan-300 font-bold" 
+                          : "text-prizm-text-muted hover:text-prizm-text hover:bg-white/5"
                       }`}
                     >
                       <span className="flex items-center gap-2">
-                        <Icon size={12} className={selectedCategory === item.name ? "text-cyan-400" : "text-white/30"} />
+                        <Icon size={12} className={selectedCategory === item.name ? "text-prizm-primary" : "text-prizm-text-muted"} />
                         {item.name}
                       </span>
-                      {selectedCategory === item.name && <ChevronRight size={10} className="text-cyan-400" />}
+                      {selectedCategory === item.name && <ChevronRight size={10} className="text-prizm-primary" />}
                     </button>
                   );
                 })}
               </div>
 
               {/* Config Details Overlay Box info */}
-              <div className="mt-8 p-3 rounded bg-white/[0.02] border border-white/5 font-mono text-[10px] space-y-1 text-white/40 select-none">
-                <div className="text-white/80 font-bold text-[9px] uppercase tracking-wider text-cyan-400">active site link</div>
+              <div className="mt-8 p-3 rounded bg-white/[0.02] border border-prizm-border font-mono text-[10px] space-y-1 text-prizm-text-muted select-none">
+                <div className="text-prizm-text-muted font-bold text-[9px] uppercase tracking-wider text-prizm-primary">active site link</div>
                 <div className="truncate">MAP: {csvFileName}</div>
                 <div>NODES: {uploadedRecordsCount} registers</div>
                 <div>STATE: POLLING ACTIVE</div>
@@ -1659,7 +1659,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             </div>
 
             {/* RIGHT COLUMN: DETAIL MAIN PANEL FRAMES */}
-            <div className="flex-1 bg-[#0A0B0E] p-4 overflow-x-auto min-w-0">
+            <div className="flex-1 bg-prizm-surface-strong p-4 overflow-x-auto min-w-0">
               
               {/* BRAND NEW KOBOLD SUB-VIEWS REPLICA */}
               {selectedCategory === "System Details" && (() => {
@@ -1722,13 +1722,13 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 <div className="space-y-6">
                   {/* EMS APPS TABLE FROM SCREENSHOT 2 */}
                   <div>
-                    <h3 className="text-xs font-mono font-bold text-white/70 tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
+                    <h3 className="text-xs font-mono font-bold text-prizm-text-muted tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
                       EMS App Stack Services
                     </h3>
-                    <div className="border border-white/5 rounded overflow-hidden">
+                    <div className="border border-prizm-border rounded overflow-hidden">
                       <table className="w-full text-left font-mono text-xs border-collapse">
                         <thead>
-                          <tr className="bg-[#12141C] text-white/40 uppercase text-[10px] border-b border-white/5">
+                          <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[10px] border-b border-prizm-border">
                             <th className="p-2.5 text-center">Priority</th>
                             <th className="p-2.5">Code</th>
                             <th className="p-2.5">Application Name</th>
@@ -1736,30 +1736,30 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             <th className="p-2.5">Running Status Message</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5 text-white/90">
+                        <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                           {emsApps.map((app) => (
                             <tr key={app.priority} className="hover:bg-white/[0.01]">
-                              <td className="p-2 text-center font-bold text-cyan-400">{app.priority}</td>
+                              <td className="p-2 text-center font-bold text-prizm-primary">{app.priority}</td>
                               <td className="p-2 font-bold">{app.appCode}</td>
-                              <td className="p-2 font-semibold text-white">{app.appName}</td>
-                              <td className="p-2 text-white/55">{app.configuration}</td>
+                              <td className="p-2 font-semibold text-prizm-text">{app.appName}</td>
+                              <td className="p-2 text-prizm-text-muted">{app.configuration}</td>
                               <td className="p-2">
                                 <div className="flex flex-col gap-1 whitespace-pre-wrap max-w-xl text-[10px] leading-relaxed">
                                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded leading-none w-fit font-bold uppercase text-[9px] tracking-tight ${
-                                    app.statusType === "danger" ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
-                                    app.statusType === "warning" ? "bg-amber-500/10 text-amber-300 border border-amber-500/20" :
+                                    app.statusType === "danger" ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20" :
+                                    app.statusType === "warning" ? "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20" :
                                     app.statusType === "error" ? "bg-red-500/15 text-red-400" :
-                                    app.statusType === "disabled" ? "bg-white/5 text-white/40" :
+                                    app.statusType === "disabled" ? "bg-white/5 text-prizm-text-muted" :
                                     "bg-emerald-500/10 text-emerald-400 border border-emerald-500/10"
                                   }`}>
                                     <span className={`h-1.5 w-1.5 rounded-full ${
                                       app.statusType === "danger" ? "bg-rose-400 animate-ping" :
-                                      app.statusType === "warning" ? "bg-amber-400" :
+                                      app.statusType === "warning" ? "bg-prizm-warning" :
                                       "bg-emerald-400"
                                     }`}></span>
                                     {app.statusType === "danger" ? "TRIPPED / FAILSAFE" : app.statusType === "warning" ? "NOTREADY" : "OK"}
                                   </span>
-                                  <span className="text-white/70">{app.status}</span>
+                                  <span className="text-prizm-text-muted">{app.status}</span>
                                 </div>
                               </td>
                             </tr>
@@ -1771,13 +1771,13 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                   {/* BLOCK TOPO TABLE FROM SCREENSHOT 2 */}
                   <div>
-                    <h3 className="text-xs font-mono font-bold text-white/70 tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
+                    <h3 className="text-xs font-mono font-bold text-prizm-text-muted tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
                       Block Topology State Mapping
                     </h3>
-                    <div className="border border-white/5 rounded overflow-hidden">
+                    <div className="border border-prizm-border rounded overflow-hidden">
                       <table className="w-full text-left font-mono text-xs border-collapse">
                         <thead>
-                          <tr className="bg-[#12141C] text-white/40 uppercase text-[10px] border-b border-white/5">
+                          <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[10px] border-b border-prizm-border">
                             <th className="p-2.5">Device Descriptor</th>
                             <th className="p-2.5 text-center">Health Indicator</th>
                             <th className="p-2.5">Device Class Subtype</th>
@@ -1785,7 +1785,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             <th className="p-2.5">FReset Status Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5 text-white/90">
+                        <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                           {[
                             { name: "Array 1 String 1 Controller", status: "ONLINE", sub: "BESS Rack Node", ip: "10.0.1.10", msg: "Heartbeat sync stable" },
                             { name: "Array 1 String 2 Controller", status: "ONLINE", sub: "BESS Rack Node", ip: "10.0.1.15", msg: "Heartbeat sync stable" },
@@ -1793,23 +1793,23 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             { name: "Main Block Interface HVAC", status: "ONLINE", sub: "HVAC Thermostat Controller", ip: "10.0.3.3", msg: "PID thermal correction loop acting" }
                           ].map((dev, idx) => (
                             <tr key={idx} className="hover:bg-white/[0.01]">
-                              <td className="p-2 font-bold text-white">{dev.name}</td>
+                              <td className="p-2 font-bold text-prizm-text">{dev.name}</td>
                               <td className="p-2 text-center">
                                 <span className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded ${
-                                  dev.status === "FAULTED" ? "bg-rose-500/10 text-rose-400 border border-rose-500/15" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/15"
+                                  dev.status === "FAULTED" ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/15"
                                 }`}>
                                   {dev.status}
                                 </span>
                               </td>
-                              <td className="p-2 text-white/75">{dev.sub}</td>
+                              <td className="p-2 text-prizm-text-muted">{dev.sub}</td>
                               <td className="p-2 font-bold text-cyan-300">{dev.ip}</td>
                               <td className="p-2">
                                 <div className="flex gap-1.5 items-center">
-                                  <span className="text-[10px] text-white/50">{dev.msg}</span>
+                                  <span className="text-[10px] text-prizm-text-muted">{dev.msg}</span>
                                   <button
                                     type="button"
                                     onClick={() => alert(`Sent reset sequence to IP: ${dev.ip}`)}
-                                    className="ml-auto px-2 py-0.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 rounded uppercase text-[9px] hover:bg-cyan-500 hover:text-black font-bold transition-all text-xs"
+                                    className="ml-auto px-2 py-0.5 bg-prizm-info/10 text-cyan-300 border border-prizm-primary rounded uppercase text-[9px] hover:bg-cyan-500 hover:text-black font-bold transition-all text-xs"
                                   >
                                     Reset
                                   </button>
@@ -1824,18 +1824,18 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                   {/* CONNECTED EQUIPMENT SECTIONS: BLOCK METERS, PCSES, HVAC */}
                   <div>
-                    <h3 className="text-sm font-black text-white uppercase tracking-widest mb-4 border-b border-white/10 pb-1 text-cyan-400 flex items-center gap-1.5">
+                    <h3 className="text-sm font-black text-prizm-text uppercase tracking-widest mb-4 border-b border-prizm-border pb-1 text-prizm-primary flex items-center gap-1.5">
                       <Zap size={15} />
                       Connected Equipment Gateway Ports
                     </h3>
 
                     {/* Block Meters table */}
                     <div className="mb-4">
-                      <div className="text-[10px] uppercase font-bold text-white/50 tracking-wider mb-1">Block Meters</div>
-                      <div className="border border-white/5 rounded overflow-hidden">
+                      <div className="text-[10px] uppercase font-bold text-prizm-text-muted tracking-wider mb-1">Block Meters</div>
+                      <div className="border border-prizm-border rounded overflow-hidden">
                         <table className="w-full text-left font-mono text-xs border-collapse">
                           <thead>
-                            <tr className="bg-[#12141C] text-white/40 uppercase text-[9px] border-b border-white/5">
+                            <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[9px] border-b border-prizm-border">
                               <th className="p-2">Meter Index</th>
                               <th className="p-2 text-right">Real Power (kW)</th>
                               <th className="p-2 text-right">Reactive Power (kVAr)</th>
@@ -1845,16 +1845,16 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               <th className="p-2 text-right">Power Factor</th>
                             </tr>
                           </thead>
-                          <tbody className="text-white/90">
+                          <tbody className="text-prizm-text-muted">
                             {blockMeters.map(m => (
                               <tr key={m.index} className="hover:bg-white/[0.01]">
-                                <td className="p-2 font-bold text-white text-center">{m.index}</td>
+                                <td className="p-2 font-bold text-prizm-text text-center">{m.index}</td>
                                 <td className="p-2 text-right text-emerald-400 font-bold">{m.realPower}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]/80">{m.reactivePower}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]/80">{m.voltageLN}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]/80">{m.voltageLL}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]/80">{m.current}</td>
-                                <td className="p-2 text-right text-cyan-400 font-bold">{m.powerFactor}</td>
+                                <td className="p-2 text-right text-prizm-primary font-bold">{m.powerFactor}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1864,11 +1864,11 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                     {/* PCSes Grid table */}
                     <div className="mb-4">
-                      <div className="text-[10px] uppercase font-bold text-white/50 tracking-wider mb-1">Power Control Systems (PCSes) Inverters</div>
-                      <div className="border border-white/5 rounded overflow-hidden">
+                      <div className="text-[10px] uppercase font-bold text-prizm-text-muted tracking-wider mb-1">Power Control Systems (PCSes) Inverters</div>
+                      <div className="border border-prizm-border rounded overflow-hidden">
                         <table className="w-full text-left font-mono text-xs border-collapse">
                           <thead>
-                            <tr className="bg-[#12141C] text-white/40 uppercase text-[9px] border-b border-white/5">
+                            <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[9px] border-b border-prizm-border">
                               <th className="p-2">Array Index</th>
                               <th className="p-2">PCS Index</th>
                               <th className="p-2 text-right">DC Volt (VDC)</th>
@@ -1881,19 +1881,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               <th className="p-2 text-center">Rotation</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-white/5 text-white/90">
+                          <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                             {pcses.map((p, idx) => (
                               <tr key={idx} className="hover:bg-white/[0.01]">
-                                <td className="p-2 font-bold text-cyan-400 text-center">{p.arrayIndex}</td>
-                                <td className="p-2 font-bold text-white text-center">{p.pcsIndex}</td>
-                                <td className="p-2 text-right text-white font-semibold">{p.dcVolt}</td>
-                                <td className={`p-2 text-right font-bold ${p.dcCurr < 0 ? "text-amber-400" : "text-[#D1D5DB]/60"}`}>{p.dcCurr}</td>
-                                <td className="p-2 text-white/80 font-mono text-[11px]">{p.acVolt}</td>
-                                <td className="p-2 text-white/80 font-mono text-[11px]">{p.acCurr}</td>
+                                <td className="p-2 font-bold text-prizm-primary text-center">{p.arrayIndex}</td>
+                                <td className="p-2 font-bold text-prizm-text text-center">{p.pcsIndex}</td>
+                                <td className="p-2 text-right text-prizm-text font-semibold">{p.dcVolt}</td>
+                                <td className={`p-2 text-right font-bold ${p.dcCurr < 0 ? "text-prizm-warning" : "text-[#D1D5DB]/60"}`}>{p.dcCurr}</td>
+                                <td className="p-2 text-prizm-text-muted font-mono text-[11px]">{p.acVolt}</td>
+                                <td className="p-2 text-prizm-text-muted font-mono text-[11px]">{p.acCurr}</td>
                                 <td className="p-2 text-right font-bold text-emerald-400">{p.acRealPower}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]/60">{p.acReactPower}</td>
                                 <td className="p-2 text-right text-cyan-300 font-medium">{p.freq}</td>
-                                <td className="p-2 text-center text-amber-500 font-bold tracking-tight text-sm select-none">{p.rotation}</td>
+                                <td className="p-2 text-center text-prizm-warning font-bold tracking-tight text-sm select-none">{p.rotation}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1903,11 +1903,11 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                     {/* HVAC Controller table */}
                     <div>
-                      <div className="text-[10px] uppercase font-bold text-white/50 tracking-wider mb-1">Centipede / PLC Block HVAC Thermostats</div>
-                      <div className="border border-white/5 rounded overflow-hidden">
+                      <div className="text-[10px] uppercase font-bold text-prizm-text-muted tracking-wider mb-1">Centipede / PLC Block HVAC Thermostats</div>
+                      <div className="border border-prizm-border rounded overflow-hidden">
                         <table className="w-full text-left font-mono text-xs border-collapse">
                           <thead>
-                            <tr className="bg-[#12141C] text-white/40 uppercase text-[9px] border-b border-white/5">
+                            <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[9px] border-b border-prizm-border">
                               <th className="p-2">HVAC Index</th>
                               <th className="p-2 text-right">Humidity (%)</th>
                               <th className="p-2 text-right">Air Temp (°C)</th>
@@ -1921,20 +1921,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               <th className="p-2">Unit 2</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-white/5 text-white/90">
+                          <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                             {hvacs.map((h, idx) => {
                               const isUnusual = h.cellTemp > 50;
                               return (
                                 <tr key={idx} className={`hover:bg-white/[0.01] ${isUnusual ? "bg-rose-500/[0.04]" : ""}`}>
-                                  <td className="p-2 font-bold text-cyan-400 text-center">{h.hvacIndex}</td>
-                                  <td className="p-2 text-right text-white/80">{h.humidity}%</td>
-                                  <td className="p-2 text-right text-white font-semibold">{h.airTemp}</td>
-                                  <td className={`p-2 text-right font-black ${isUnusual ? "text-rose-400 animate-pulse" : "text-emerald-400"}`}>{h.cellTemp}°C</td>
+                                  <td className="p-2 font-bold text-prizm-primary text-center">{h.hvacIndex}</td>
+                                  <td className="p-2 text-right text-prizm-text-muted">{h.humidity}%</td>
+                                  <td className="p-2 text-right text-prizm-text font-semibold">{h.airTemp}</td>
+                                  <td className={`p-2 text-right font-black ${isUnusual ? "text-prizm-danger animate-pulse" : "text-emerald-400"}`}>{h.cellTemp}°C</td>
                                   <td className="p-2 text-right text-cyan-300">{h.coolTo}</td>
-                                  <td className="p-2 text-right text-rose-300">{h.heatTo}</td>
-                                  <td className="p-2 text-white/70 text-[10px]">{h.setpointsRespondingTo}</td>
-                                  <td className={`p-2 text-[10px] font-bold ${h.stage.includes("Heating") ? "text-amber-400" : "text-white/40"}`}>{h.stage}</td>
-                                  <td className="p-2 text-white/40 font-mono text-[9px]">{h.signals}</td>
+                                  <td className="p-2 text-right text-prizm-danger">{h.heatTo}</td>
+                                  <td className="p-2 text-prizm-text-muted text-[10px]">{h.setpointsRespondingTo}</td>
+                                  <td className={`p-2 text-[10px] font-bold ${h.stage.includes("Heating") ? "text-prizm-warning" : "text-prizm-text-muted"}`}>{h.stage}</td>
+                                  <td className="p-2 text-prizm-text-muted font-mono text-[9px]">{h.signals}</td>
                                   <td className="p-2 text-[10px] text-emerald-400 font-bold">{h.unit1}</td>
                                   <td className="p-2 text-[10px] text-emerald-400 font-bold">{h.unit2}</td>
                                 </tr>
@@ -1952,14 +1952,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 2: STRING LIST (DEEP PAGINATED KOBOLD GRID FROM SCREENSHOT 1) */}
               {selectedCategory === "Legacy String List" && (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#131520] p-3 rounded border border-white/5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-prizm-surface-strong p-3 rounded border border-prizm-border">
                     <div className="flex items-center gap-2">
-                      <Filter size={14} className="text-cyan-400" />
-                      <span className="text-xs uppercase font-mono text-white/60 font-bold">Filters</span>
+                      <Filter size={14} className="text-prizm-primary" />
+                      <span className="text-xs uppercase font-mono text-prizm-text-muted font-bold">Filters</span>
                       <select 
                         value={arrayFilter} 
                         onChange={(e) => setArrayFilter(e.target.value)}
-                        className="bg-black border border-white/10 text-white font-mono text-xs p-1.5 rounded uppercase cursor-pointer"
+                        className="bg-prizm-surface-strong border border-prizm-border text-prizm-text font-mono text-xs p-1.5 rounded uppercase cursor-pointer"
                       >
                         <option value="ALL">All Enclosures</option>
                         <option value="1">Enclosure 1 (A1)</option>
@@ -1969,7 +1969,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <select 
                         value={statusFilter} 
                         onChange={(e) => setStatusFilter(e.target.value)}
-                        className="bg-black border border-white/10 text-white font-mono text-xs p-1.5 rounded uppercase cursor-pointer"
+                        className="bg-prizm-surface-strong border border-prizm-border text-prizm-text font-mono text-xs p-1.5 rounded uppercase cursor-pointer"
                       >
                         <option value="ALL">All Statuses</option>
                         <option value="OK">Healthy Packs</option>
@@ -1979,21 +1979,21 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                     {/* Symmetrical Search box */}
                     <div className="relative">
-                      <Search size={12} className="absolute left-2.5 top-2.5 text-white/40" />
+                      <Search size={12} className="absolute left-2.5 top-2.5 text-prizm-text-muted" />
                       <input 
                         type="search" 
                         placeholder="Search locator, e.g. 001B0..." 
                         value={searchStringQuery}
                         onChange={(e) => setSearchStringQuery(e.target.value)}
-                        className="bg-black border border-white/10 text-white font-mono text-xs pl-8 pr-3 py-1.5 min-w-[200px] rounded focus:outline-none focus:border-cyan-500"
+                        className="bg-prizm-surface-strong border border-prizm-border text-prizm-text font-mono text-xs pl-8 pr-3 py-1.5 min-w-[200px] rounded focus:outline-none focus:border-prizm-primary"
                       />
                     </div>
                   </div>
 
-                  <div className="border border-white/10 rounded-lg overflow-x-auto">
+                  <div className="border border-prizm-border rounded-lg overflow-x-auto">
                     <table className="w-full text-left font-mono text-[10px] border-collapse leading-normal tracking-tight min-w-[1200px]">
                       <thead>
-                        <tr className="bg-[#12141C] text-white/40 uppercase border-b border-white/10">
+                        <tr className="bg-prizm-surface text-prizm-text-muted uppercase border-b border-prizm-border">
                           <th className="p-2 sm:p-3 text-center">Array</th>
                           <th className="p-2 sm:p-3 text-center">String</th>
                           <th className="p-2 sm:p-3 text-center">Contact.</th>
@@ -2016,10 +2016,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           <th className="p-2 sm:p-3">Timestamp Logged</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/5 text-white/95">
+                      <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                         {filteredStrings.length === 0 ? (
                           <tr>
-                            <td colSpan={20} className="text-center p-8 text-white/30 text-xs">
+                            <td colSpan={20} className="text-center p-8 text-prizm-text-muted text-xs">
                               No strings match filters. Use other filters above.
                             </td>
                           </tr>
@@ -2031,11 +2031,11 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 key={idx} 
                                 onClick={() => setSelectedString(s)}
                                 className={`hover:bg-white/[0.02] cursor-pointer transition-colors ${
-                                  isWarning ? "bg-rose-500/[0.03] text-rose-100" : ""
+                                  isWarning ? "bg-rose-500/[0.03] text-prizm-danger" : ""
                                 }`}
                               >
-                                <td className="p-2 text-center text-cyan-400 font-bold">{s.array}</td>
-                                <td className="p-2 text-center font-bold text-white">{s.string}</td>
+                                <td className="p-2 text-center text-prizm-primary font-bold">{s.array}</td>
+                                <td className="p-2 text-center font-bold text-prizm-text">{s.string}</td>
                                 
                                 {/* Contactor status LED dots */}
                                 <td className="p-2 text-center">
@@ -2064,30 +2064,30 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 </td>
 
                                 <td className="p-2 text-right">{s.voltageMeas}</td>
-                                <td className="p-2 text-right text-white/60">{s.voltageCalc}</td>
-                                <td className={`p-2 text-right font-bold ${isWarning ? "text-rose-400" : "text-white/40"}`}>{s.voltageDelta}</td>
+                                <td className="p-2 text-right text-prizm-text-muted">{s.voltageCalc}</td>
+                                <td className={`p-2 text-right font-bold ${isWarning ? "text-prizm-danger" : "text-prizm-text-muted"}`}>{s.voltageDelta}</td>
                                 <td className="p-2 text-right text-[#D1D5DB]">{s.powerA}</td>
                                 <td className="p-2 text-right text-emerald-400 font-semibold">{s.powerkW}</td>
-                                <td className="p-2 text-right text-cyan-400 font-bold">{s.powerSoc}%</td>
-                                <td className="p-2 text-right text-white/70">{s.powerKwh}</td>
+                                <td className="p-2 text-right text-prizm-primary font-bold">{s.powerSoc}%</td>
+                                <td className="p-2 text-right text-prizm-text-muted">{s.powerKwh}</td>
                                 
                                 <td className="p-2 text-right text-[#D1D5DB]">{s.cellVoltsMin}</td>
-                                <td className="p-2 text-right text-white">{s.cellVoltsMax}</td>
-                                <td className={`p-2 text-right font-black ${s.cellVoltsDelta > 40 ? "text-rose-400 animate-pulse" : "text-cyan-400"}`}>{s.cellVoltsDelta}</td>
+                                <td className="p-2 text-right text-prizm-text">{s.cellVoltsMax}</td>
+                                <td className={`p-2 text-right font-black ${s.cellVoltsDelta > 40 ? "text-prizm-danger animate-pulse" : "text-prizm-primary"}`}>{s.cellVoltsDelta}</td>
                                 
                                 <td className="p-2 text-right text-emerald-400">{s.cellTempMin}</td>
-                                <td className={`p-2 text-right ${s.cellTempMax > 40 ? "text-rose-400 font-extrabold" : "text-emerald-400"}`}>{s.cellTempMax}</td>
-                                <td className="p-2 text-right text-white/50">{s.balanceCount} ({s.balanceMode})</td>
+                                <td className={`p-2 text-right ${s.cellTempMax > 40 ? "text-prizm-danger font-extrabold" : "text-emerald-400"}`}>{s.cellTempMax}</td>
+                                <td className="p-2 text-right text-prizm-text-muted">{s.balanceCount} ({s.balanceMode})</td>
                                 <td className="p-2 text-center text-cyan-300 font-medium">{s.loc}</td>
                                 <td className="p-2 text-center">
                                   <span className={`inline-flex items-center gap-1 px-1 rounded text-[9px] font-bold ${
-                                    s.fans === "OFF" ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400"
+                                    s.fans === "OFF" ? "bg-prizm-danger/10 text-prizm-danger" : "bg-emerald-500/10 text-emerald-400"
                                   }`}>
                                     <span className={`h-1.5 w-1.5 rounded-full ${s.fans === "OFF" ? "bg-rose-400" : "bg-emerald-400 animate-spin"}`}></span>
                                     {s.fans}
                                   </span>
                                 </td>
-                                <td className="p-2 text-white/40">{s.timestamp}</td>
+                                <td className="p-2 text-prizm-text-muted">{s.timestamp}</td>
                               </tr>
                             );
                           })
@@ -2098,33 +2098,33 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                   {/* MINI STRING DETAILED REPORT ONCLICK OVERLAY */}
                   {selectedString && (
-                    <div className="bg-[#12141F] border border-cyan-500/30 rounded p-4 mt-2 shadow-2xl relative animate-fade-in text-xs">
+                    <div className="bg-prizm-surface-strong border border-prizm-primary rounded p-4 mt-2 shadow-2xl relative animate-fade-in text-xs">
                       <button 
                         onClick={() => setSelectedString(null)}
-                        className="absolute right-2.5 top-2.5 text-white/40 hover:text-white"
+                        className="absolute right-2.5 top-2.5 text-prizm-text-muted hover:text-prizm-text"
                       >
                         <X size={16} />
                       </button>
-                      <h4 className="text-cyan-400 font-bold uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+                      <h4 className="text-prizm-primary font-bold uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
                         <Info size={14} />
                         Enclosure {selectedString.array} :: String {selectedString.string} Quick Report (Locator {selectedString.loc})
                       </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-white/80">
-                        <div className="bg-black/40 p-2 rounded">
-                          <span className="text-white/40 block text-[9px] uppercase">measured voltage</span>
-                          <span className="text-sm font-bold text-white">{selectedString.voltageMeas} VDC</span>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-prizm-text-muted">
+                        <div className="bg-prizm-surface-strong p-2 rounded">
+                          <span className="text-prizm-text-muted block text-[9px] uppercase">measured voltage</span>
+                          <span className="text-sm font-bold text-prizm-text">{selectedString.voltageMeas} VDC</span>
                         </div>
-                        <div className="bg-black/40 p-2 rounded">
-                          <span className="text-white/40 block text-[9px] uppercase">cell imbalance delta</span>
-                          <span className={`text-sm font-bold ${selectedString.cellVoltsDelta > 50 ? "text-rose-400" : "text-cyan-300"}`}>{selectedString.cellVoltsDelta} mV</span>
+                        <div className="bg-prizm-surface-strong p-2 rounded">
+                          <span className="text-prizm-text-muted block text-[9px] uppercase">cell imbalance delta</span>
+                          <span className={`text-sm font-bold ${selectedString.cellVoltsDelta > 50 ? "text-prizm-danger" : "text-cyan-300"}`}>{selectedString.cellVoltsDelta} mV</span>
                         </div>
-                        <div className="bg-black/40 p-2 rounded">
-                          <span className="text-white/40 block text-[9px] uppercase">maximum cell temperature</span>
-                          <span className={`text-sm font-bold ${selectedString.cellTempMax > 40 ? "text-rose-400" : "text-emerald-300"}`}>{selectedString.cellTempMax} °C</span>
+                        <div className="bg-prizm-surface-strong p-2 rounded">
+                          <span className="text-prizm-text-muted block text-[9px] uppercase">maximum cell temperature</span>
+                          <span className={`text-sm font-bold ${selectedString.cellTempMax > 40 ? "text-prizm-danger" : "text-emerald-300"}`}>{selectedString.cellTempMax} °C</span>
                         </div>
-                        <div className="bg-black/40 p-2 rounded">
-                          <span className="text-white/40 block text-[9px] uppercase">safety status</span>
-                          <span className={`text-sm font-bold ${selectedString.contact === "fault" ? "text-rose-400" : "text-emerald-400"}`}>
+                        <div className="bg-prizm-surface-strong p-2 rounded">
+                          <span className="text-prizm-text-muted block text-[9px] uppercase">safety status</span>
+                          <span className={`text-sm font-bold ${selectedString.contact === "fault" ? "text-prizm-danger" : "text-emerald-400"}`}>
                             {selectedString.contact === "fault" ? "CRITICAL LOCKOUT" : "LINE CLOSED - ACTIVE"}
                           </span>
                         </div>
@@ -2137,16 +2137,16 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 3: PCS LIST VIEW */}
               {selectedCategory === "PCS List" && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-mono font-bold text-white/70 tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
+                  <h3 className="text-xs font-mono font-bold text-prizm-text-muted tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
                     Power Control Systems (PCS) Extended Diagnostic
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {pcses.map((p, idx) => (
-                      <div key={idx} className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-3">
-                        <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                      <div key={idx} className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3">
+                        <div className="flex justify-between items-center border-b border-prizm-border pb-2">
                           <div>
-                            <span className="text-[10px] text-white/40 font-mono">INVERTER MATRIX</span>
-                            <h4 className="text-sm font-bold text-white">Array {p.arrayIndex} :: PCS {p.pcsIndex}</h4>
+                            <span className="text-[10px] text-prizm-text-muted font-mono">INVERTER MATRIX</span>
+                            <h4 className="text-sm font-bold text-prizm-text">Array {p.arrayIndex} :: PCS {p.pcsIndex}</h4>
                           </div>
                           <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
                             {p.status}
@@ -2154,24 +2154,24 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-xs font-mono">
                           <div>
-                            <span className="text-white/40 text-[9px] block">DC VOLTAGE</span>
-                            <span className="text-cyan-400 font-bold">{p.dcVolt} VDC</span>
+                            <span className="text-prizm-text-muted text-[9px] block">DC VOLTAGE</span>
+                            <span className="text-prizm-primary font-bold">{p.dcVolt} VDC</span>
                           </div>
                           <div>
-                            <span className="text-white/40 text-[9px] block">DC CURRENT</span>
-                            <span className="text-white font-bold">{p.dcCurr} ADC</span>
+                            <span className="text-prizm-text-muted text-[9px] block">DC CURRENT</span>
+                            <span className="text-prizm-text font-bold">{p.dcCurr} ADC</span>
                           </div>
                           <div className="col-span-2">
-                            <span className="text-white/40 text-[9px] block">AC LINE VOLTAGE (A/B/C)</span>
-                            <span className="text-white font-semibold">{p.acVolt} VAC</span>
+                            <span className="text-prizm-text-muted text-[9px] block">AC LINE VOLTAGE (A/B/C)</span>
+                            <span className="text-prizm-text font-semibold">{p.acVolt} VAC</span>
                           </div>
                           <div className="col-span-2">
-                            <span className="text-white/40 text-[9px] block">AC AC-AMPS CURRENT</span>
-                            <span className="text-white font-semibold">{p.acCurr} AAC</span>
+                            <span className="text-prizm-text-muted text-[9px] block">AC AC-AMPS CURRENT</span>
+                            <span className="text-prizm-text font-semibold">{p.acCurr} AAC</span>
                           </div>
                         </div>
-                        <div className="pt-2 border-t border-white/5 text-[10px] text-white/40 font-mono flex justify-between items-center">
-                          <span>ROTATION ANGLE: <strong className="text-amber-500">{p.rotation}</strong></span>
+                        <div className="pt-2 border-t border-prizm-border text-[10px] text-prizm-text-muted font-mono flex justify-between items-center">
+                          <span>ROTATION ANGLE: <strong className="text-prizm-warning">{p.rotation}</strong></span>
                           <span>FREQ: <strong>{p.freq} Hz</strong></span>
                         </div>
                       </div>
@@ -2183,14 +2183,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 4: STRING DETAILS */}
               {selectedCategory === "String Details" && (
                 <div className="space-y-4">
-                  <h3 className="text-sm font-mono font-bold text-white/70 uppercase mb-2 border-l-2 border-emerald-500 pl-2">
+                  <h3 className="text-sm font-mono font-bold text-prizm-text-muted uppercase mb-2 border-l-2 border-emerald-500 pl-2">
                     String Detailed Analytics
                   </h3>
-                  <div className="p-6 bg-[#12141C] border border-white/5 rounded text-center text-white/50 space-y-2">
-                    <Activity size={32} className="mx-auto text-cyan-400 animate-pulse" />
-                    <p className="text-white font-bold">Detailed String Controller Log Stream</p>
+                  <div className="p-6 bg-prizm-surface border border-prizm-border rounded text-center text-prizm-text-muted space-y-2">
+                    <Activity size={32} className="mx-auto text-prizm-primary animate-pulse" />
+                    <p className="text-prizm-text font-bold">Detailed String Controller Log Stream</p>
                     <p className="text-xs max-w-md mx-auto">
-                      Select any row in the <strong className="text-white">String List</strong> category to run the specific diagnostics. Click the "String List" tab on the left dashboard selection pane.
+                      Select any row in the <strong className="text-prizm-text">String List</strong> category to run the specific diagnostics. Click the "String List" tab on the left dashboard selection pane.
                     </p>
                   </div>
                 </div>
@@ -2199,19 +2199,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 5: CELL MAP VOLTAGE HEATMAP */}
               {selectedCategory === "Cell Map :: Voltage" && (
                 <div className="space-y-4">
-                  <div className="p-3 bg-[#131520] rounded border border-white/5 flex flex-wrap justify-between items-center gap-3 text-xs font-mono">
+                  <div className="p-3 bg-prizm-surface-strong rounded border border-prizm-border flex flex-wrap justify-between items-center gap-3 text-xs font-mono">
                     <div>
-                      <h4 className="font-bold text-white uppercase text-cyan-400">Cell Voltages Grid (Series Block Matrixes)</h4>
-                      <p className="text-[10px] text-white/40 mt-1">Live voltages listed in mV. Green (standard), Amber/Red (imbalances/threshold warnings)</p>
+                      <h4 className="font-bold text-prizm-text uppercase text-prizm-primary">Cell Voltages Grid (Series Block Matrixes)</h4>
+                      <p className="text-[10px] text-prizm-text-muted mt-1">Live voltages listed in mV. Green (standard), Amber/Red (imbalances/threshold warnings)</p>
                     </div>
                     {/* Map thresholds legend */}
                     <div className="flex gap-4">
                       <div className="flex items-center gap-1.5 text-[10px]">
-                        <span className="h-2 w-2 rounded bg-[#059669]"></span>
+                        <span className="h-2 w-2 rounded bg-prizm-surface-strong"></span>
                         <span>Nominal (&lt; 3300)</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px]">
-                        <span className="h-2 w-2 rounded bg-amber-500 animate-pulse"></span>
+                        <span className="h-2 w-2 rounded bg-prizm-warning animate-pulse"></span>
                         <span>Flag Spike (3300-3450)</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px]">
@@ -2226,8 +2226,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       const packNum = pIdx + 1;
                       const packCells = cellVoltGrid.filter(c => c.pack === packNum);
                       return (
-                        <div key={packNum} className="bg-[#12141C] border border-white/5 p-2 rounded">
-                          <div className="text-[10px] font-bold text-white/50 border-b border-white/5 pb-1 mb-1.5 uppercase font-mono tracking-wider">
+                        <div key={packNum} className="bg-prizm-surface border border-prizm-border p-2 rounded">
+                          <div className="text-[10px] font-bold text-prizm-text-muted border-b border-prizm-border pb-1 mb-1.5 uppercase font-mono tracking-wider">
                             Pack {packNum.toString().padStart(2, "0")}
                           </div>
                           <div className="grid grid-cols-4 gap-1">
@@ -2239,8 +2239,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   key={idx}
                                   title={`Pack ${packNum}, Cell ${c.cell}: ${c.volt} mV`}
                                   className={`p-1 text-center font-mono text-[9px] rounded font-bold cursor-help transition-all ${
-                                    isImb ? "bg-rose-600 text-white animate-pulse font-black" :
-                                    isMed ? "bg-amber-500 text-black font-semibold" :
+                                    isImb ? "bg-rose-600 text-prizm-text animate-pulse font-black" :
+                                    isMed ? "bg-prizm-warning text-black font-semibold" :
                                     "bg-emerald-950 text-emerald-300 hover:bg-emerald-800"
                                   }`}
                                 >
@@ -2259,18 +2259,18 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 6: CELL TEMP HEATMAP */}
               {selectedCategory === "Cell Map :: Temperature" && (
                 <div className="space-y-4">
-                  <div className="p-4 bg-[#12141C] border border-white/5 rounded-lg space-y-3">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
-                      <Fan className="text-cyan-400 animate-spin" size={14} />
+                  <div className="p-4 bg-prizm-surface border border-prizm-border rounded-lg space-y-3">
+                    <h3 className="text-sm font-bold text-prizm-text uppercase tracking-wider font-mono flex items-center gap-1.5">
+                      <Fan className="text-prizm-primary animate-spin" size={14} />
                       Blocked Thermal Cell Enclosure Graph
                     </h3>
-                    <p className="text-xs text-white/50 leading-relaxed font-mono">
+                    <p className="text-xs text-prizm-text-muted leading-relaxed font-mono">
                       Visualizing temperature distribution arrays over thermocouple segments. High active coolers operate automatic heat-soak termination protocols when maximum cell temperature spikes above 45°C.
                     </p>
-                    <div className="border border-white/5 rounded overflow-hidden">
+                    <div className="border border-prizm-border rounded overflow-hidden">
                       <table className="w-full text-left font-mono text-xs">
                         <thead>
-                          <tr className="bg-black/50 text-white/40 uppercase text-[9px]">
+                          <tr className="bg-prizm-surface-strong text-prizm-text-muted uppercase text-[9px]">
                             <th className="p-2.5">Thermocouple Segment No.</th>
                             <th className="p-2.5 text-right">Avg Cell Temp</th>
                             <th className="p-2.5 text-right">Ambient Air Temp</th>
@@ -2279,7 +2279,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             <th className="p-2.5 text-center">Safety Lock Status</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5 text-white/95">
+                        <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                           {[
                             { index: "Thermopack-01 (Segment A)", avg: "24.6°C", air: "19.5°C", stage: "Low Fan Mode", fan: "SP: 500 RPM", status: "OK" },
                             { index: "Thermopack-02 (Segment B)", avg: "28.3°C", air: "20.3°C", stage: "Low Fan Mode", fan: "SP: 500 RPM", status: "OK" },
@@ -2287,14 +2287,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             { index: "Thermopack-04 (Segment D)", avg: "19.5°C", air: "19.5°C", stage: "Idle Mode", fan: "OFF", status: "OK" }
                           ].map((t, idx) => (
                             <tr key={idx} className={t.status !== "OK" ? "bg-rose-500/[0.03]" : ""}>
-                              <td className="p-2.5 font-bold text-white">{t.index}</td>
-                              <td className={`p-2.5 text-right font-black ${t.status !== "OK" ? "text-rose-450 animate-pulse text-sm" : "text-emerald-400"}`}>{t.avg}</td>
+                              <td className="p-2.5 font-bold text-prizm-text">{t.index}</td>
+                              <td className={`p-2.5 text-right font-black ${t.status !== "OK" ? "text-prizm-danger animate-pulse text-sm" : "text-emerald-400"}`}>{t.avg}</td>
                               <td className="p-2.5 text-right text-slate-300">{t.air}</td>
-                              <td className="p-2.5 text-white/70">{t.stage}</td>
+                              <td className="p-2.5 text-prizm-text-muted">{t.stage}</td>
                               <td className="p-2.5 font-bold text-cyan-300">{t.fan}</td>
                               <td className="p-2.5 text-center">
                                 <span className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
-                                  t.status === "OK" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400 animate-bounce"
+                                  t.status === "OK" ? "bg-emerald-500/10 text-emerald-400" : "bg-prizm-danger/10 text-prizm-danger animate-bounce"
                                 }`}>
                                   {t.status}
                                 </span>
@@ -2313,23 +2313,23 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <div>
-                      <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Modbus Mapping Schema Inspector</h3>
-                      <p className="text-[10px] font-mono text-white/40 mt-1">Live register details parsed from the uploaded CSV map configurations</p>
+                      <h3 className="text-sm font-bold text-prizm-text uppercase tracking-wider font-mono">Modbus Mapping Schema Inspector</h3>
+                      <p className="text-[10px] font-mono text-prizm-text-muted mt-1">Live register details parsed from the uploaded CSV map configurations</p>
                     </div>
                     <button
                       type="button"
                       onClick={loadActiveModbusMap}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550 rounded font-bold text-xs font-mono tracking-tight"
+                      className="flex items-center gap-1.5 px-3 py-1 bg-prizm-info/10 text-cyan-300 border border-prizm-primary hover:bg-cyan-550 rounded font-bold text-xs font-mono tracking-tight"
                     >
                       <RefreshCw size={11} />
                       Reload Mapping Modbus
                     </button>
                   </div>
 
-                  <div className="border border-white/5 rounded overflow-hidden">
+                  <div className="border border-prizm-border rounded overflow-hidden">
                     <table className="w-full text-left font-mono text-xs border-collapse">
                       <thead>
-                        <tr className="bg-[#12141C] text-white/40 uppercase text-[10px] border-b border-white/5">
+                        <tr className="bg-prizm-surface text-prizm-text-muted uppercase text-[10px] border-b border-prizm-border">
                           <th className="p-2.5">Register</th>
                           <th className="p-2.5">Field Type</th>
                           <th className="p-2.5">Description Name</th>
@@ -2339,20 +2339,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           <th className="p-2.5 text-center">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/5 text-white/95">
+                      <tbody className="divide-y divide-white/5 text-prizm-text-muted">
                         {activeRegisters.map((reg) => (
                           <tr key={reg.register} className="hover:bg-white/[0.01]">
-                            <td className="p-2 font-bold text-cyan-400">{reg.register}</td>
+                            <td className="p-2 font-bold text-prizm-primary">{reg.register}</td>
                             <td className="p-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-white ${
-                                reg.fieldType === "Header" ? "bg-amber-600/30 text-amber-300" : "bg-white/10 text-white/70"
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-prizm-text ${
+                                reg.fieldType === "Header" ? "bg-prizm-warning text-prizm-warning" : "bg-white/10 text-prizm-text-muted"
                               }`}>
                                 {reg.fieldType}
                               </span>
                             </td>
-                            <td className="p-2 font-semibold text-white">{reg.description}</td>
-                            <td className="p-2 text-white/55">{reg.type}</td>
-                            <td className="p-2 text-center text-amber-500 font-bold">{reg.rw}</td>
+                            <td className="p-2 font-semibold text-prizm-text">{reg.description}</td>
+                            <td className="p-2 text-prizm-text-muted">{reg.type}</td>
+                            <td className="p-2 text-center text-prizm-warning font-bold">{reg.rw}</td>
                             <td className="p-2 text-right font-black text-cyan-300">{reg.liveValue} {reg.unit}</td>
                             <td className="p-2 text-center">
                               <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/10 px-1.5 py-0.5 rounded text-[9px] font-bold">
@@ -2371,10 +2371,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {selectedCategory === "Site IP Topology Map" && (
                 <div className="space-y-6">
                   {/* UPPER CONFIGURATION SUMMARY & ACTIONS */}
-                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/5 pb-4">
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-prizm-border pb-4">
                     <div>
-                      <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Site Layout Network IP Map & Topology</h3>
-                      <p className="text-[10px] font-mono text-white/40 mt-1">
+                      <h3 className="text-sm font-bold text-prizm-text uppercase tracking-wider font-mono">Site Layout Network IP Map & Topology</h3>
+                      <p className="text-[10px] font-mono text-prizm-text-muted mt-1">
                         Commission physical subnets, query controller socket addresses, and upload custom IP maps to verify loop topologies.
                       </p>
                     </div>
@@ -2382,7 +2382,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <a 
                         href="/turtle/tools/report/ems/ip_modbus_associations.csv" 
                         target="_blank" 
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#059669]/15 border border-[#059669]/30 hover:bg-[#059669]/25 text-[#34d399] rounded font-bold"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-prizm-surface-strong border border-[#059669]/30 hover:bg-prizm-surface-strong text-[#34d399] rounded font-bold"
                         rel="noreferrer"
                       >
                         <ExternalLink size={11} />
@@ -2391,7 +2391,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <a 
                         href="/turtle/tools/report/ems/ipMap.csv" 
                         target="_blank" 
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-white/80 rounded font-bold"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-prizm-border hover:bg-white/10 text-prizm-text-muted rounded font-bold"
                         rel="noreferrer"
                       >
                         <ExternalLink size={11} />
@@ -2400,7 +2400,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <a 
                         href="/turtle/tools/report/ems/stringIPMap.csv" 
                         target="_blank" 
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-white/80 rounded font-bold"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-prizm-border hover:bg-white/10 text-prizm-text-muted rounded font-bold"
                         rel="noreferrer"
                       >
                         <ExternalLink size={11} />
@@ -2409,7 +2409,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <button
                         type="button"
                         onClick={loadActiveIPMaps}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550/20 rounded font-bold"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-prizm-info/10 text-cyan-300 border border-prizm-primary hover:bg-cyan-550/20 rounded font-bold"
                       >
                         <RefreshCw size={11} className="animate-spin-slow" />
                         Repoll Statuses
@@ -2422,13 +2422,13 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                     
                     {/* LEFT PANEL (5 COLS): SITE & COILS CONTROLLERS */}
                     <div className="lg:col-span-5 space-y-4">
-                      <div className="bg-[#11131A] border border-white/5 rounded-lg p-4 flex flex-col h-[650px]">
+                      <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-4 flex flex-col h-[650px]">
                         <div className="flex justify-between items-center mb-3">
                           <h4 className="text-xs font-bold text-[#059669] uppercase font-mono tracking-wider flex items-center gap-1.5">
-                            <span className="h-2 w-2 rounded-full bg-[#059669]"></span>
+                            <span className="h-2 w-2 rounded-full bg-prizm-surface-strong"></span>
                             Aux/Substation IP Nodes
                           </h4>
-                          <span className="text-[9px] font-mono text-white/40">
+                          <span className="text-[9px] font-mono text-prizm-text-muted">
                             {siteIPMap.filter(n => 
                               n.target.toLowerCase().includes(auxFilter.toLowerCase()) ||
                               n.ipAddress.includes(auxFilter) ||
@@ -2444,7 +2444,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             placeholder="Search Aux devices (e.g., HVAC, SW, Fire)..."
                             value={auxFilter}
                             onChange={(e) => setAuxFilter(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded px-2.5 py-1.5 text-xs font-mono text-white placeholder-white/20 focus:outline-none focus:border-cyan-500 transition-all"
+                            className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-2.5 py-1.5 text-xs font-mono text-prizm-text placeholder-white/20 focus:outline-none focus:border-prizm-primary transition-all"
                           />
                         </div>
 
@@ -2456,11 +2456,11 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               node.model.toLowerCase().includes(auxFilter.toLowerCase())
                             )
                             .map((node, i) => (
-                              <div key={i} className="bg-black/45 border border-white/5 rounded-md p-3 flex flex-col justify-between gap-2 text-xs font-mono relative hover:border-white/10 transition-all">
+                              <div key={i} className="bg-prizm-surface-strong border border-prizm-border rounded-md p-3 flex flex-col justify-between gap-2 text-xs font-mono relative hover:border-prizm-border transition-all">
                                 <div className="flex justify-between items-start">
                                   <div>
-                                    <div className="font-bold text-white mb-0.5">{node.target}</div>
-                                    <div className="text-[10px] text-white/40 uppercase">{node.model}</div>
+                                    <div className="font-bold text-prizm-text mb-0.5">{node.target}</div>
+                                    <div className="text-[10px] text-prizm-text-muted uppercase">{node.model}</div>
                                   </div>
                                   <span className="bg-indigo-500/15 text-indigo-300 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
                                     SUBNET
@@ -2468,12 +2468,12 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 </div>
                                 
                                 <div className="flex justify-between items-center pt-2 border-t border-white/[0.03]">
-                                  <code className="text-cyan-400 font-bold">{node.ipAddress}</code>
+                                  <code className="text-prizm-primary font-bold">{node.ipAddress}</code>
                                   <button
                                     type="button"
                                     onClick={() => testIPConnection(node.ipAddress)}
                                     disabled={!!pingingIP}
-                                    className="text-[10px] uppercase font-bold text-black bg-cyan-400 hover:bg-cyan-300 disabled:bg-white/10 disabled:text-white/30 px-2.5 py-1 rounded transition-all flex items-center gap-1"
+                                    className="text-[10px] uppercase font-bold text-black bg-cyan-400 hover:bg-cyan-300 disabled:bg-white/10 disabled:text-prizm-text-muted px-2.5 py-1 rounded transition-all flex items-center gap-1"
                                   >
                                     {pingingIP === node.ipAddress ? (
                                       <>
@@ -2488,7 +2488,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   <div className={`mt-2 p-2 rounded text-[10px] border leading-tight ${
                                     pingResults[node.ipAddress].status === "success" 
                                       ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
-                                      : "bg-rose-500/10 border-rose-500/20 text-rose-300"
+                                      : "bg-prizm-danger/10 border-prizm-danger/20 text-prizm-danger"
                                   }`}>
                                     <span className="font-bold underline block mb-0.5">
                                       Result ({pingResults[node.ipAddress].latency}ms):
@@ -2504,20 +2504,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                     {/* RIGHT PANEL (7 COLS): BESS CELL-RACK STRINGS CONTROLLERS */}
                     <div className="lg:col-span-7 space-y-4">
-                      <div className="bg-[#11131A] border border-white/5 rounded-lg p-4 flex flex-col h-[650px]">
+                      <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-4 flex flex-col h-[650px]">
                         <div className="flex justify-between items-center mb-3">
                           <h4 className="text-xs font-bold text-[#059669] uppercase font-mono tracking-wider flex items-center gap-1.5">
-                            <span className="h-2 w-2 rounded-full bg-[#059669]"></span>
+                            <span className="h-2 w-2 rounded-full bg-prizm-surface-strong"></span>
                             Direct BESS IP String Maps
                           </h4>
-                          <span className="text-[9px] font-mono text-white/40">
+                          <span className="text-[9px] font-mono text-prizm-text-muted">
                             {stringIPMap.filter(n => stringArrayFilter === "All" || n.array === parseInt(stringArrayFilter, 10)).length} / {stringIPMap.length} RCU Strings
                           </span>
                         </div>
 
                         {/* Array Selector Filters */}
-                        <div className="flex flex-wrap gap-1.5 mb-3 border-b border-white/5 pb-3">
-                          <span className="text-[10px] font-mono uppercase text-white/40 self-center mr-1">Filter Array:</span>
+                        <div className="flex flex-wrap gap-1.5 mb-3 border-b border-prizm-border pb-3">
+                          <span className="text-[10px] font-mono uppercase text-prizm-text-muted self-center mr-1">Filter Array:</span>
                           {["All", "1", "2", "3", "4", "5", "6", "7", "8"].map((arr) => (
                             <button
                               key={arr}
@@ -2526,7 +2526,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${
                                 stringArrayFilter === arr
                                   ? "bg-cyan-500 text-black"
-                                  : "bg-white/5 hover:bg-white/10 text-white/60"
+                                  : "bg-white/5 hover:bg-white/10 text-prizm-text-muted"
                               }`}
                             >
                               {arr === "All" ? "ALL" : `ARR ${arr}`}
@@ -2539,9 +2539,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           {stringIPMap
                             .filter(node => stringArrayFilter === "All" || node.array === parseInt(stringArrayFilter, 10))
                             .map((node, i) => (
-                              <div key={i} className="bg-black/30 border border-white/5 hover:border-white/10 rounded p-3 font-mono text-xs flex flex-col justify-between gap-1.5 h-[105px]">
+                              <div key={i} className="bg-prizm-surface-strong border border-prizm-border hover:border-prizm-border rounded p-3 font-mono text-xs flex flex-col justify-between gap-1.5 h-[105px]">
                                 <div className="flex justify-between items-center">
-                                  <span className="font-bold text-white text-[11px]">
+                                  <span className="font-bold text-prizm-text text-[11px]">
                                     Array {node.array} :: String {node.string}
                                   </span>
                                   <span className="text-[9px] px-1 bg-cyan-400/15 text-cyan-300 rounded font-bold uppercase">
@@ -2555,7 +2555,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                     type="button"
                                     onClick={() => testIPConnection(node.ip)}
                                     disabled={!!pingingIP}
-                                    className="text-[9px] font-bold text-cyan-300 hover:text-white px-2 py-0.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded"
+                                    className="text-[9px] font-bold text-cyan-300 hover:text-prizm-text px-2 py-0.5 bg-white/5 hover:bg-white/10 border border-prizm-border rounded"
                                   >
                                     {pingingIP === node.ip ? "POLLING..." : "TEST"}
                                   </button>
@@ -2565,12 +2565,12 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   <div className={`p-1 mt-1 rounded text-[9px] leading-tight border ${
                                     pingResults[node.ip].status === "success"
                                       ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                                      : "bg-rose-500/10 border-rose-500/20 text-rose-450"
+                                      : "bg-prizm-danger/10 border-prizm-danger/20 text-prizm-danger"
                                   }`}>
                                     {pingResults[node.ip].msg.length > 40 ? pingResults[node.ip].msg.slice(0, 40) + "..." : pingResults[node.ip].msg}
                                   </div>
                                 ) : (
-                                  <span className="text-[9px] text-white/20 uppercase tracking-tighter">Link State Not Queried</span>
+                                  <span className="text-[9px] text-prizm-text-muted uppercase tracking-tighter">Link State Not Queried</span>
                                 )}
                               </div>
                             ))}
@@ -2581,14 +2581,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   </div>
 
                   {/* ACTIVE COMMISSIONING FILE UPLOADING CENTRE */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-[#0E1017] border border-white/5 p-5 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-prizm-surface-strong border border-prizm-border p-5 rounded-lg">
                     
                     {/* DROPZONE 1: SITE IP MAP CSV */}
                     <div className="space-y-2">
-                      <h4 className="text-xs font-mono font-bold uppercase text-white/70">
+                      <h4 className="text-xs font-mono font-bold uppercase text-prizm-text-muted">
                         Commission Site Layout IP Map
                       </h4>
-                      <p className="text-[10px] text-white/40 font-mono">
+                      <p className="text-[10px] text-prizm-text-muted font-mono">
                         Provides absolute subnet IP descriptors for auxiliary devices.
                       </p>
 
@@ -2635,8 +2635,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         onClick={() => siteIPInputRef.current?.click()}
                         className={`border border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${
                           isDraggingSiteIP 
-                            ? "bg-cyan-500/10 border-cyan-400" 
-                            : "bg-[#12141C] border-white/10 hover:border-cyan-500/40"
+                            ? "bg-prizm-info/10 border-prizm-primary" 
+                            : "bg-prizm-surface border-prizm-border hover:border-prizm-primary"
                         }`}
                       >
                         <input
@@ -2679,8 +2679,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           accept=".csv"
                           className="hidden"
                         />
-                        <Upload size={20} className="mx-auto text-white/40 mb-2" />
-                        <span className="text-xs block font-mono text-white font-semibold">
+                        <Upload size={20} className="mx-auto text-prizm-text-muted mb-2" />
+                        <span className="text-xs block font-mono text-prizm-text font-semibold">
                           Upload ipMap.csv Asset Map
                         </span>
                         <span className="text-[10px] block text-cyan-300 font-mono mt-1">
@@ -2691,10 +2691,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                     {/* DROPZONE 2: BESS DIRECT STRING MAP CSV */}
                     <div className="space-y-2">
-                      <h4 className="text-xs font-mono font-bold uppercase text-white/70">
+                      <h4 className="text-xs font-mono font-bold uppercase text-prizm-text-muted">
                         Commission Direct String IP Map
                       </h4>
-                      <p className="text-[10px] text-white/40 font-mono">
+                      <p className="text-[10px] text-prizm-text-muted font-mono">
                         Provides specific BESS String Array IP mapped routes to RCU modules.
                       </p>
 
@@ -2740,8 +2740,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         onClick={() => stringIPInputRef.current?.click()}
                         className={`border border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${
                           isDraggingStringIP 
-                            ? "bg-cyan-500/10 border-cyan-400" 
-                            : "bg-[#12141C] border-white/10 hover:border-cyan-500/40"
+                            ? "bg-prizm-info/10 border-prizm-primary" 
+                            : "bg-prizm-surface border-prizm-border hover:border-prizm-primary"
                         }`}
                       >
                         <input
@@ -2784,8 +2784,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           accept=".csv"
                           className="hidden"
                         />
-                        <Upload size={20} className="mx-auto text-white/40 mb-2" />
-                        <span className="text-xs block font-mono text-white font-semibold">
+                        <Upload size={20} className="mx-auto text-prizm-text-muted mb-2" />
+                        <span className="text-xs block font-mono text-prizm-text font-semibold">
                           Upload stringIPMap.csv Asset Map
                         </span>
                         <span className="text-[10px] block text-cyan-300 font-mono mt-1">
@@ -2799,14 +2799,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 </div>
               )}
 
-              {/* CATEGORY VIEW: CLOUD TELEMETRY INTERCEPTOR */}
-              {selectedCategory === "Cloud Telemetry Interceptor" && (
+              {/* CATEGORY VIEW: DEMO TELEMETRY INTERCEPTOR */}
+              {selectedCategory === "Demo Telemetry Interceptor" && (
                 <div className="space-y-6">
                   {/* HEADER SECTION */}
-                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/5 pb-4">
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-prizm-border pb-4">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Cloud Telemetry Stream Interceptor & Sniffer</h3>
+                        <h3 className="text-sm font-bold text-prizm-text uppercase tracking-wider font-mono">Demo Telemetry Stream Interceptor & Sniffer</h3>
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
                           isInterceptorLive ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20" : "bg-zinc-500/15 text-zinc-400 border border-zinc-500/20"
                         }`}>
@@ -2814,8 +2814,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           {isInterceptorLive ? "LISTENING (10.0.*.*)" : "PAUSED"}
                         </span>
                       </div>
-                      <p className="text-[10px] font-mono text-white/40 mt-1">
-                        The primary EMS site-level controller (<strong className="text-white">10.0.0.3</strong>) exports granulated BMS and downstream device telemetry to the cloud platform via encrypted egress POSTs. This utility intercepts and visualizes these payload packets in real-time.
+                      <p className="text-[10px] font-mono text-prizm-text-muted mt-1">
+                        The primary EMS site-level controller (<strong className="text-prizm-text">10.0.0.3</strong>) exports granulated BMS and downstream device telemetry to the demo platform via encrypted egress POSTs. This utility intercepts and visualizes these payload packets in real-time.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs font-mono">
@@ -2824,7 +2824,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         onClick={() => setIsInterceptorLive(!isInterceptorLive)}
                         className={`px-3 py-1.5 border rounded font-bold transition-all ${
                           isInterceptorLive 
-                            ? "bg-amber-500/15 text-amber-300 border-amber-500/20 hover:bg-amber-500/25" 
+                            ? "bg-prizm-warning/10 text-prizm-warning border-prizm-warning/20 hover:bg-prizm-warning/10" 
                             : "bg-emerald-500/15 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/25"
                         }`}
                       >
@@ -2833,7 +2833,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <button
                         type="button"
                         onClick={handleForceExport}
-                        className="px-3 py-1.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/10 hover:bg-cyan-550/20 rounded font-bold"
+                        className="px-3 py-1.5 bg-prizm-info/10 text-cyan-300 border border-prizm-primary hover:bg-cyan-550/20 rounded font-bold"
                       >
                         Force Export Packet
                       </button>
@@ -2841,7 +2841,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         type="button"
                         onClick={handleDownloadPackets}
                         disabled={telemetryPackets.length === 0}
-                        className="px-3 py-1.5 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 disabled:opacity-40 rounded font-bold transition-all"
+                        className="px-3 py-1.5 bg-white/5 text-prizm-text-muted border border-prizm-border hover:bg-white/10 disabled:opacity-40 rounded font-bold transition-all"
                       >
                         Export Packet Log (.json)
                       </button>
@@ -2849,14 +2849,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   </div>
 
                   {/* SUB SECTIONS TABS NAVIGATION */}
-                  <div className="flex border-b border-white/5 gap-2 -mt-2">
+                  <div className="flex border-b border-prizm-border gap-2 -mt-2">
                     <button
                       type="button"
                       onClick={() => setTelemetrySubTab("sniffer")}
                       className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
                         telemetrySubTab === "sniffer" 
-                          ? "border-cyan-400 text-white bg-white/[0.02]" 
-                          : "border-transparent text-white/50 hover:text-white/80"
+                          ? "border-prizm-primary text-prizm-text bg-white/[0.02]" 
+                          : "border-transparent text-prizm-text-muted hover:text-prizm-text-muted"
                       }`}
                     >
                       📡 Telemetry Packet Sniffer
@@ -2866,19 +2866,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       onClick={() => setTelemetrySubTab("replica")}
                       className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
                         telemetrySubTab === "replica" 
-                          ? "border-cyan-400 text-white bg-white/[0.02]" 
-                          : "border-transparent text-white/50 hover:text-white/80"
+                          ? "border-prizm-primary text-prizm-text bg-white/[0.02]" 
+                          : "border-transparent text-prizm-text-muted hover:text-prizm-text-muted"
                       }`}
                     >
-                      🖥️ Local Control Center (Cloud Replica)
+                      🖥️ Local Control Center (Demo Replica)
                     </button>
                     <button
                       type="button"
                       onClick={() => setTelemetrySubTab("modbus")}
                       className={`px-4 py-2 font-mono text-xs font-bold border-b-2 transition-all ${
                         telemetrySubTab === "modbus" 
-                          ? "border-cyan-400 text-white bg-white/[0.02]" 
-                          : "border-transparent text-white/50 hover:text-white/80"
+                          ? "border-prizm-primary text-prizm-text bg-white/[0.02]" 
+                          : "border-transparent text-prizm-text-muted hover:text-prizm-text-muted"
                       }`}
                     >
                       🔌 Point Registry Tester (Modbus)
@@ -2889,7 +2889,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   {telemetrySubTab === "sniffer" && (
                     <div className="space-y-6">
                       {/* MISMATCH DIAGNOSIS AND CALIBRATION CONTROLLER */}
-                      <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4">
+                      <div className="p-4 rounded-lg bg-white/[0.02] border border-prizm-border space-y-4">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div>
                             {isTelemetryAligned ? (
@@ -2898,12 +2898,12 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 REGISTER SCALING MULTIPLIERS ALIGNED & SYNCHRONIZED
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2 text-rose-400 font-bold text-sm font-mono">
+                              <div className="flex items-center gap-2 text-prizm-danger font-bold text-sm font-mono">
                                 <AlertTriangle className="animate-bounce" size={16} />
                                 BMS TELEMETRY MULTIPLIER DISCONNECT DETECTED (Mismatched Scales)
                               </div>
                             )}
-                            <p className="text-[10px] font-mono text-white/50 mt-1 max-w-4xl">
+                            <p className="text-[10px] font-mono text-prizm-text-muted mt-1 max-w-4xl">
                               {isTelemetryAligned 
                                 ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the Cloud stream targets."
                                 : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the Cloud requires applying the standard Powin scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the Cloud dashboard!"
@@ -2917,7 +2917,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             disabled={isAligningScale}
                             className={`shrink-0 px-4 py-2 text-xs font-mono font-black uppercase tracking-wider rounded-md border shadow-lg transition-all ${
                               isTelemetryAligned
-                                ? "bg-rose-500/10 text-rose-300 border-rose-500/20 hover:bg-rose-500/20"
+                                ? "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20 hover:bg-prizm-danger/10"
                                 : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25 animate-pulse"
                             }`}
                           >
@@ -2926,10 +2926,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         </div>
 
                         {/* COMPARISON METRICS TABLE */}
-                        <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
+                        <div className="border border-prizm-border rounded-lg overflow-hidden bg-prizm-surface-strong">
                           <table className="w-full text-left border-collapse text-xs font-mono">
                             <thead>
-                              <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
+                              <tr className="bg-white/5 text-prizm-text-muted font-bold border-b border-prizm-border">
                                 <th className="p-2.5">Telemetry Parameter</th>
                                 <th className="p-2.5">Uncalibrated Local App View</th>
                                 <th className="p-2.5">Calibrated Cloud Stream Payload</th>
@@ -2939,56 +2939,56 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             </thead>
                             <tbody className="divide-y divide-white/[0.03]">
                               <tr>
-                                <td className="p-2.5 font-bold text-white">Lineup Active Power</td>
-                                <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-white/30 font-normal block">Raw holding register 84 value</span></td>
+                                <td className="p-2.5 font-bold text-prizm-text">Lineup Active Power</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-prizm-text-muted font-normal block">Raw holding register 84 value</span></td>
                                 <td className="p-2.5 text-emerald-400 font-bold">
                                   {isTelemetryAligned ? "124.2 kW" : "124,200.0 kW"}
-                                  <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span>
                                 </td>
-                                <td className="p-2.5 text-white/60">W_SF = 2 (Multiplier: 10^2)</td>
+                                <td className="p-2.5 text-prizm-text-muted">W_SF = 2 (Multiplier: 10^2)</td>
                                 <td className="p-2.5 text-center">
                                   {isTelemetryAligned ? (
                                     <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
                                   ) : (
-                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">MISMATCH (100x)</span>
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 animate-pulse">MISMATCH (100x)</span>
                                   )}
                                 </td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">BESS Direct Current</td>
-                                <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-white/30 font-normal block">Raw register 691 integer</span></td>
+                                <td className="p-2.5 font-bold text-prizm-text">BESS Direct Current</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-prizm-text-muted font-normal block">Raw register 691 integer</span></td>
                                 <td className="p-2.5 text-emerald-400 font-bold">
                                   {isTelemetryAligned ? "45.0 A" : "450.0 A"}
-                                  <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span>
+                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span>
                                 </td>
-                                <td className="p-2.5 text-white/60">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
+                                <td className="p-2.5 text-prizm-text-muted">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
                                 <td className="p-2.5 text-center">
                                   {isTelemetryAligned ? (
                                     <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
                                   ) : (
-                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">MISMATCH (10x)</span>
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20">MISMATCH (10x)</span>
                                   )}
                                 </td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">Anode Cluster C (10.0.1.10) Temperature</td>
-                                <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Module temp register 1163</span></td>
-                                <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-white/30 font-normal block">Parsed from cloud ingest packet</span></td>
-                                <td className="p-2.5 text-white/60">No offset (10^0 = 1)</td>
+                                <td className="p-2.5 font-bold text-prizm-text">Anode Cluster C (10.0.1.10) Temperature</td>
+                                <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-prizm-text-muted font-normal block">Module temp register 1163</span></td>
+                                <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span></td>
+                                <td className="p-2.5 text-prizm-text-muted">No offset (10^0 = 1)</td>
                                 <td className="p-2.5 text-center">
                                   <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
                                 </td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">Rack Node 10.0.3.10 Status</td>
+                                <td className="p-2.5 font-bold text-prizm-text">Rack Node 10.0.3.10 Status</td>
                                 <td className="p-2.5 text-zinc-400 font-bold">STALE / NO POLL <span className="text-[9px] text-zinc-500 font-normal block">Omitted from raw site map cache</span></td>
-                                <td className="p-2.5 text-rose-400 font-bold">FAULTED <span className="text-[9px] text-rose-400/50 font-normal block">Logged in telemetry payload stream</span></td>
-                                <td className="p-2.5 text-white/60">N/A (Status Code alignment)</td>
+                                <td className="p-2.5 text-prizm-danger font-bold">FAULTED <span className="text-[9px] text-prizm-danger/50 font-normal block">Logged in telemetry payload stream</span></td>
+                                <td className="p-2.5 text-prizm-text-muted">N/A (Status Code alignment)</td>
                                 <td className="p-2.5 text-center">
                                   {isTelemetryAligned ? (
                                     <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">RESOLVED</span>
                                   ) : (
-                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">IP FILTER WARN</span>
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20">IP FILTER WARN</span>
                                   )}
                                 </td>
                               </tr>
@@ -3000,21 +3000,21 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       {/* SNIPER WORKSPACE GRID */}
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                         {/* LEFT WORKSPACE PANEL: CAPTURED TELEMETRY PACKET STREAM */}
-                        <div className="lg:col-span-5 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px]">
-                          <div className="flex justify-between items-center bg-white/[0.02] border border-white/5 rounded p-2 text-[10px] font-mono">
-                            <span className="text-white/40 font-bold uppercase">INTERCEPTED STREAM BUFFER</span>
-                            <span className="text-cyan-400 font-black">{telemetryPackets.length} PACKETS CAPTURED</span>
+                        <div className="lg:col-span-5 bg-prizm-surface border border-prizm-border rounded-lg p-3 space-y-3 flex flex-col h-[550px]">
+                          <div className="flex justify-between items-center bg-white/[0.02] border border-prizm-border rounded p-2 text-[10px] font-mono">
+                            <span className="text-prizm-text-muted font-bold uppercase">INTERCEPTED STREAM BUFFER</span>
+                            <span className="text-prizm-primary font-black">{telemetryPackets.length} PACKETS CAPTURED</span>
                           </div>
 
                           {/* SEARCH INPUT */}
                           <div className="relative">
-                            <Search size={12} className="absolute left-2.5 top-2.5 text-white/30" />
+                            <Search size={12} className="absolute left-2.5 top-2.5 text-prizm-text-muted" />
                             <input
                               type="text"
                               placeholder="Filter intercepted stream by ID, status, payload key..."
                               value={packetSearchQuery}
                               onChange={(e) => setPacketSearchQuery(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 pl-8 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                              className="w-full bg-white/5 border border-prizm-border rounded px-2.5 py-1.5 pl-8 text-xs text-prizm-text placeholder-white/20 font-mono focus:border-prizm-primary focus:outline-none"
                             />
                           </div>
 
@@ -3040,26 +3040,26 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   onClick={() => setSelectedPacketId(packet.id)}
                                   className={`p-2.5 rounded-md border text-xs font-mono transition-all cursor-pointer ${
                                     isSelected 
-                                      ? "bg-cyan-500/10 border-cyan-500/40 text-white" 
-                                      : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5"
+                                      ? "bg-prizm-info/10 border-prizm-primary text-prizm-text" 
+                                      : "bg-white/[0.02] border-prizm-border text-prizm-text-muted hover:bg-white/5"
                                   }`}
                                 >
                                   <div className="flex justify-between items-start">
-                                    <span className={`font-bold mt-0.5 text-[10px] ${isSelected ? "text-cyan-300" : "text-white/70"}`}>
+                                    <span className={`font-bold mt-0.5 text-[10px] ${isSelected ? "text-cyan-300" : "text-prizm-text-muted"}`}>
                                       {packet.id}
                                     </span>
-                                    <span className="text-[10px] text-white/30">{timeStr}</span>
+                                    <span className="text-[10px] text-prizm-text-muted">{timeStr}</span>
                                   </div>
-                                  <div className="flex items-center gap-2 mt-1 text-[10px] text-white/40">
-                                    <span className="text-white/30 font-medium">Protocol:</span> <span className="text-[#059669] font-bold">{packet.transmissionProtocol}</span>
+                                  <div className="flex items-center gap-2 mt-1 text-[10px] text-prizm-text-muted">
+                                    <span className="text-prizm-text-muted font-medium">Protocol:</span> <span className="text-[#059669] font-bold">{packet.transmissionProtocol}</span>
                                     <span>•</span>
-                                    <span className="text-white/30 font-medium">Size:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span>
+                                    <span className="text-prizm-text-muted font-medium">Size:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span>
                                   </div>
                                   <div className="flex justify-between items-center mt-2 pt-1 border-t border-white/[0.03]">
-                                    <span className={`text-[9px] shrink-0 font-bold ${isErr ? "text-rose-400" : "text-[#059669]"}`}>
+                                    <span className={`text-[9px] shrink-0 font-bold ${isErr ? "text-prizm-danger" : "text-[#059669]"}`}>
                                       {packet.responseStatus}
                                     </span>
-                                    <span className="text-[9px] text-white/30 truncate max-w-[150px]">{packet.payload?.meta?.ingest_channel || "local-sync"}</span>
+                                    <span className="text-[9px] text-prizm-text-muted truncate max-w-[150px]">{packet.payload?.meta?.ingest_channel || "local-sync"}</span>
                                   </div>
                                 </div>
                               );
@@ -3068,14 +3068,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         </div>
 
                         {/* RIGHT WORKSPACE PANEL: INTERACT PAYLOAD INSPECTOR */}
-                        <div className="lg:col-span-7 bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-3 flex flex-col h-[550px] overflow-hidden">
+                        <div className="lg:col-span-7 bg-prizm-surface border border-prizm-border rounded-lg p-3 space-y-3 flex flex-col h-[550px] overflow-hidden">
                           {(() => {
                             const packet = telemetryPackets.find(p => p.id === selectedPacketId);
                             if (!packet) {
                               return (
-                                <div className="flex-1 flex flex-col items-center justify-center text-center text-white/30 font-mono text-xs">
-                                  <Radio size={32} className="text-white/10 animate-pulse mb-3" />
-                                  Select an intercepted cloud telemetry packet on the left to inspect its granulated payload stream.
+                                <div className="flex-1 flex flex-col items-center justify-center text-center text-prizm-text-muted font-mono text-xs">
+                                  <Radio size={32} className="text-prizm-text-muted animate-pulse mb-3" />
+                                  Select an intercepted demo telemetry packet on the left to inspect its granulated payload stream.
                                 </div>
                               );
                             }
@@ -3085,15 +3085,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             return (
                               <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
                                 {/* PACKET SUMMARY BAR */}
-                                <div className="bg-white/5 rounded-lg p-3 border border-white/5 space-y-2 text-xs font-mono">
-                                  <div className="flex justify-between items-start border-b border-white/5 pb-2">
+                                <div className="bg-white/5 rounded-lg p-3 border border-prizm-border space-y-2 text-xs font-mono">
+                                  <div className="flex justify-between items-start border-b border-prizm-border pb-2">
                                     <div>
-                                      <div className="text-white font-bold text-[13px]">{packet.id}</div>
-                                      <div className="text-[10px] text-white/40 mt-0.5">{packet.timestamp}</div>
+                                      <div className="text-prizm-text font-bold text-[13px]">{packet.id}</div>
+                                      <div className="text-[10px] text-prizm-text-muted mt-0.5">{packet.timestamp}</div>
                                     </div>
                                     <span className={`px-2 py-0.5 border rounded font-black uppercase text-[10px] ${
                                       isErr 
-                                        ? "bg-rose-500/15 text-rose-400 border-rose-500/20" 
+                                        ? "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20" 
                                         : "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
                                     }`}>
                                       {packet.responseStatus}
@@ -3101,20 +3101,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   </div>
 
                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] pt-1">
-                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Egress IP:</span> <span className="text-white/80 font-bold">{packet.sourceIp}</span></div>
-                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Source Component:</span> <span className="text-white/80 font-bold">{packet.sourceComponent}</span></div>
-                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Target Cloud:</span> <span className="text-white/80 font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
-                                    <div className="flex justify-between"><span className="text-white/30 font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
+                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Egress IP:</span> <span className="text-prizm-text-muted font-bold">{packet.sourceIp}</span></div>
+                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Source Component:</span> <span className="text-prizm-text-muted font-bold">{packet.sourceComponent}</span></div>
+                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Target Cloud:</span> <span className="text-prizm-text-muted font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
+                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
                                   </div>
                                 </div>
 
                                 {/* RAW JSON VIEW */}
                                 <div className="flex-1 flex flex-col min-h-0">
-                                  <div className="text-[10px] font-mono tracking-wider font-bold text-[#059669] uppercase border-b border-white/5 pb-1 mb-2 flex justify-between items-center">
+                                  <div className="text-[10px] font-mono tracking-wider font-bold text-[#059669] uppercase border-b border-prizm-border pb-1 mb-2 flex justify-between items-center">
                                     <span>GRANULATED INTERCEPTED PAYLOAD JSON</span>
-                                    <span className="text-white/30 text-[9px] lowercase font-normal">JSON viewer with code highlighting</span>
+                                    <span className="text-prizm-text-muted text-[9px] lowercase font-normal">JSON viewer with code highlighting</span>
                                   </div>
-                                  <div className="flex-1 overflow-auto bg-[#090b10] rounded-md border border-white/5 relative flex">
+                                  <div className="flex-1 overflow-auto bg-prizm-surface-strong rounded-md border border-prizm-border relative flex">
                                     {renderJsonHighlight(packet.payload)}
                                   </div>
                                 </div>
@@ -3126,30 +3126,30 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                     </div>
                   )}
 
-                  {/* TAB CONTENT: LOCAL REPLICA DASHBOARD (REPLICATING CLOUD CONTROL CAPABILITIES LOCALLY) */}
+                  {/* TAB CONTENT: LOCAL REPLICA DASHBOARD (REPLICATING DEMO CONTROL CAPABILITIES LOCALLY) */}
                   {telemetrySubTab === "replica" && (
                     <div className="space-y-6">
                       {/* INTERACTIVE CONTROLLER TILES */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* TILE 1: CLOUD SYSTEM WAN CONNECTION */}
+                        {/* TILE 1: DEMO SYSTEM WAN CONNECTION */}
                         <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
                           localCloudOutage 
-                            ? "bg-rose-500/5 border-rose-500/25 text-rose-300"
+                            ? "bg-prizm-danger/10 border-prizm-danger/20 text-prizm-danger"
                             : "bg-emerald-500/5 border-emerald-500/15 text-emerald-300"
                         }`}>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold uppercase tracking-wider">WAN Cloud Sync Connection</span>
-                            {localCloudOutage ? <Wifi size={16} className="text-rose-400 animate-pulse" /> : <Wifi size={16} className="text-emerald-400" />}
+                            <span className="text-xs font-bold uppercase tracking-wider">WAN Demo Sync Connection</span>
+                            {localCloudOutage ? <Wifi size={16} className="text-prizm-danger animate-pulse" /> : <Wifi size={16} className="text-emerald-400" />}
                           </div>
 
                           <div className="text-2xl font-black">
                             {localCloudOutage ? "OUTAGEFALLBACK" : "CONNECTED"}
                           </div>
                           
-                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                          <p className="text-[10px] text-prizm-text-muted leading-relaxed font-sans">
                             {localCloudOutage 
                               ? "CRITICAL: Internet Connection DOWN. Localized database backup store is recording all high-frequency Modbus registers with zero data loss."
-                              : "STATUS NORMAL: Local BESS site registers are automatically synchronized with central Cloud servers every 3000ms. All systems normal."
+                              : "STATUS NORMAL: Local BESS site registers are automatically synchronized with demo platform servers every 3000ms. All systems normal."
                             }
                           </p>
 
@@ -3159,7 +3159,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             className={`w-full py-1.5 rounded font-black text-xs uppercase tracking-wide border transition-all ${
                               localCloudOutage 
                                 ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
-                                : "bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30"
+                                : "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20 hover:bg-prizm-danger/10"
                             }`}
                           >
                             {localCloudOutage ? "🔌 Reconnect WAN Bridge" : "⚠️ Cut WAN Bridge (Simulate Outage)"}
@@ -3169,19 +3169,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         {/* TILE 2: CELL VOLTAGE OVERRIDE & SHUNT CONTROLLER */}
                         <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
                           softBalancingOverride 
-                            ? "bg-cyan-500/5 border-cyan-500/25 text-cyan-300"
-                            : (systemWideIsolation ? "bg-zinc-500/5 border-white/5 text-zinc-400" : "bg-zinc-500/5 border-amber-500/20 text-amber-300")
+                            ? "bg-prizm-info/10 border-prizm-primary text-cyan-300"
+                            : (systemWideIsolation ? "bg-zinc-500/5 border-prizm-border text-zinc-400" : "bg-zinc-500/5 border-prizm-warning/20 text-prizm-warning")
                         }`}>
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold uppercase tracking-wider">Latching Shunt Override</span>
-                            <Sliders size={16} className={softBalancingOverride ? "text-cyan-400 animate-spin" : "text-amber-400"} />
+                            <Sliders size={16} className={softBalancingOverride ? "text-prizm-primary animate-spin" : "text-prizm-warning"} />
                           </div>
 
                           <div className="text-2xl font-black">
                             {softBalancingOverride ? "SHUNT ACTIVE" : "AUTO INTERLOCK"}
                           </div>
 
-                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                          <p className="text-[10px] text-prizm-text-muted leading-relaxed font-sans">
                             {softBalancingOverride 
                               ? "OVERRIDE ENGAGED: Forcing dynamic cell shunts on 10.0.3.10. Cell 14 voltage successfully balanced down to 3.24V. String ONLINE."
                               : "AUTO CONTROLLER: String 1 is currently faulted on over-voltage (Cell 14: 3.51V). Bypassing automated latch loops requires manual shunt balancing."
@@ -3192,7 +3192,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             type="button"
                             disabled={systemWideIsolation}
                             onClick={() => handleToggleBalancing(!softBalancingOverride)}
-                            className="w-full py-1.5 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 disabled:opacity-30 rounded font-black text-xs uppercase tracking-wide transition-all"
+                            className="w-full py-1.5 bg-prizm-info/10 text-cyan-300 hover:bg-prizm-info/10 border border-prizm-primary disabled:opacity-30 rounded font-black text-xs uppercase tracking-wide transition-all"
                           >
                             {softBalancingOverride ? "Release Balancing Shunts" : "⚡ Force Cell Balancing Overrides"}
                           </button>
@@ -3201,19 +3201,19 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         {/* TILE 3: EMERGENCY SYSTEM CUTOFF */}
                         <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
                           systemWideIsolation 
-                            ? "bg-rose-950/20 border-rose-500/40 text-rose-300 animate-pulse"
-                            : "bg-[#161313] border-white/5 text-white/50"
+                            ? "bg-rose-950/20 border-prizm-danger/20 text-prizm-danger animate-pulse"
+                            : "bg-prizm-surface-strong border-prizm-border text-prizm-text-muted"
                         }`}>
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold uppercase tracking-wider">Emergency DC Isolation Relay</span>
-                            <AlertTriangle size={16} className={systemWideIsolation ? "text-rose-400" : "text-white/20"} />
+                            <AlertTriangle size={16} className={systemWideIsolation ? "text-prizm-danger" : "text-prizm-text-muted"} />
                           </div>
 
-                          <div className={`text-2xl font-black ${systemWideIsolation ? "text-rose-400 font-bold" : "text-white/40"}`}>
+                          <div className={`text-2xl font-black ${systemWideIsolation ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}>
                             {systemWideIsolation ? "ISOLATION TRIP ACTIVE" : "NOMINAL ENERGIZE"}
                           </div>
 
-                          <p className="text-[10px] text-white/50 leading-relaxed font-sans">
+                          <p className="text-[10px] text-prizm-text-muted leading-relaxed font-sans">
                             {systemWideIsolation 
                               ? "E-STOP ENGAGED: Local manual safety stop coil tripped. Main substations isolated. Grid power flow completely shut down."
                               : "NORMAL RUNNING: All contactor logic is active. Safety loop coils energized. Control room holds master safety intervention authority."
@@ -3226,7 +3226,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             className={`w-full py-1.5 rounded font-black text-xs uppercase tracking-wide border transition-all ${
                               systemWideIsolation 
                                 ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
-                                : "bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30"
+                                : "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20 hover:bg-prizm-danger/10"
                             }`}
                           >
                             {systemWideIsolation ? "Clear Safety Cutoff Trigger" : "🛑 Trigger Emergency Cutoff (Local)"}
@@ -3235,58 +3235,58 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       </div>
 
                       {/* LIVE FLOW POWER VISUALIZER DIAGRAM */}
-                      <div className="p-5 rounded-lg bg-[#0C0E17] border border-white/5 space-y-4 font-mono">
-                        <div className="flex justify-between items-start border-b border-white/5 pb-3">
+                      <div className="p-5 rounded-lg bg-prizm-surface-strong border border-prizm-border space-y-4 font-mono">
+                        <div className="flex justify-between items-start border-b border-prizm-border pb-3">
                           <div>
-                            <h4 className="text-xs font-bold uppercase text-white tracking-wider flex items-center gap-2">
-                              <Activity size={14} className="text-cyan-400" />
+                            <h4 className="text-xs font-bold uppercase text-prizm-text tracking-wider flex items-center gap-2">
+                              <Activity size={14} className="text-prizm-primary" />
                               REPLICATED SITE ACTIVE POWER-FLOW SCHEMATIC
                             </h4>
-                            <p className="text-[10px] text-white/40 mt-1">
+                            <p className="text-[10px] text-prizm-text-muted mt-1">
                               Real-time interactive diagram representing Modbus voltage lines, cells, and isolated nodes mapped across local subnets.
                             </p>
                           </div>
-                          <span className="text-[11px] bg-cyan-500/10 text-cyan-300 px-2 py-0.5 rounded font-bold">
+                          <span className="text-[11px] bg-prizm-info/10 text-cyan-300 px-2 py-0.5 rounded font-bold">
                             Active Load: {systemWideIsolation ? "0.0 kW" : (softBalancingOverride ? "248.4 kW" : "124.2 kW")}
                           </span>
                         </div>
 
                         {/* RENDER DYNAMIC SVG LINEUP MATRICES */}
-                        <div className="flex flex-col lg:flex-row justify-around items-center gap-6 py-6 bg-black/40 rounded-lg border border-white/[0.02]">
+                        <div className="flex flex-col lg:flex-row justify-around items-center gap-6 py-6 bg-prizm-surface-strong rounded-lg border border-white/[0.02]">
                           
                           {/* LINEUP 1 ELEMENT */}
-                          <div className="bg-[#12141F] rounded-lg border border-white/5 p-3.5 w-64 space-y-3 relative text-xs">
-                            <div className="absolute -top-2.5 left-3 bg-cyan-600/20 border border-cyan-500/30 rounded px-1.5 py-0.5 text-[9px] text-cyan-300 font-bold font-mono">
+                          <div className="bg-prizm-surface-strong rounded-lg border border-prizm-border p-3.5 w-64 space-y-3 relative text-xs">
+                            <div className="absolute -top-2.5 left-3 bg-cyan-600/20 border border-prizm-primary rounded px-1.5 py-0.5 text-[9px] text-cyan-300 font-bold font-mono">
                               LINEUP 1 (10.0.1.1)
                             </div>
                             <div className="flex justify-between font-bold pt-1">
-                              <span className="text-white/60">BMS Core Mode:</span>
+                              <span className="text-prizm-text-muted">BMS Core Mode:</span>
                               <span className={systemWideIsolation ? "text-zinc-500" : "text-emerald-400"}>
                                 {systemWideIsolation ? "Isolated" : "Charging"}
                               </span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-white/50 pt-1">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-prizm-text-muted pt-1">
                               <div className="bg-white/[0.01] p-1.5 rounded">
-                                <span className="block text-[9px] text-white/30">Active registers</span>
+                                <span className="block text-[9px] text-prizm-text-muted">Active registers</span>
                                 <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : 124.2).toFixed(1)} kW</strong>
                               </div>
                               <div className="bg-white/[0.01] p-1.5 rounded">
-                                <span className="block text-[9px] text-white/30">Total Current</span>
+                                <span className="block text-[9px] text-prizm-text-muted">Total Current</span>
                                 <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : 45.0).toFixed(1)} A</strong>
                               </div>
                             </div>
 
                             {/* SUB-NODES STRING GRID */}
-                            <div className="space-y-1.5 border-t border-white/5 pt-2.5">
+                            <div className="space-y-1.5 border-t border-prizm-border pt-2.5">
                               <div className="flex justify-between items-center text-[10px]">
-                                <span className="text-white/40">S1 (10.0.1.10)</span>
-                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-white/30" : "bg-emerald-500/10 text-emerald-400"}`}>
+                                <span className="text-prizm-text-muted">S1 (10.0.1.10)</span>
+                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-prizm-text-muted" : "bg-emerald-500/10 text-emerald-400"}`}>
                                   {systemWideIsolation ? "CLOSED" : "CLOSED"}
                                 </span>
                               </div>
                               <div className="flex justify-between items-center text-[10px]">
-                                <span className="text-white/40">S2 (10.0.1.15)</span>
-                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-white/30" : "bg-emerald-500/10 text-emerald-400"}`}>
+                                <span className="text-prizm-text-muted">S2 (10.0.1.15)</span>
+                                <span className={`px-1 rounded text-[9px] font-bold ${systemWideIsolation ? "bg-white/5 text-prizm-text-muted" : "bg-emerald-500/10 text-emerald-400"}`}>
                                   {systemWideIsolation ? "CLOSED" : "CLOSED"}
                                 </span>
                               </div>
@@ -3294,10 +3294,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           </div>
 
                           {/* SYSTEM WYE METER CENTER PIN (FLOWING LINES) */}
-                          <div className="flex flex-col items-center justify-center text-center p-3 relative bg-white/[0.01] rounded-full border border-white/5 w-24 h-24">
-                            <Zap size={24} className={`${systemWideIsolation ? "text-white/15" : "text-yellow-400 animate-pulse"}`} />
-                            <span className="text-[9px] text-white/30 font-bold block mt-1 uppercase">Main Meter</span>
-                            <span className="text-[10px] text-white/80 font-black font-semibold mt-0.5">
+                          <div className="flex flex-col items-center justify-center text-center p-3 relative bg-white/[0.01] rounded-full border border-prizm-border w-24 h-24">
+                            <Zap size={24} className={`${systemWideIsolation ? "text-prizm-text-muted" : "text-yellow-400 animate-pulse"}`} />
+                            <span className="text-[9px] text-prizm-text-muted font-bold block mt-1 uppercase">Main Meter</span>
+                            <span className="text-[10px] text-prizm-text-muted font-black font-semibold mt-0.5">
                               {systemWideIsolation ? "0.0 W" : "12.45 kW"}
                             </span>
                           </div>
@@ -3305,57 +3305,57 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           {/* LINEUP 3 STORAGE CABINET (ANODE CLUSTER) */}
                           <div className={`rounded-lg border p-3.5 w-64 space-y-3 relative text-xs transition-all ${
                             softBalancingOverride 
-                              ? "bg-[#121E23] border-cyan-500/20 text-cyan-200" 
-                              : (systemWideIsolation ? "bg-[#121212] border-white/5 text-white/30" : "bg-[#1F1212] border-rose-500/20 text-rose-200")
+                              ? "bg-prizm-surface-strong border-prizm-primary text-cyan-200" 
+                              : (systemWideIsolation ? "bg-prizm-surface-strong border-prizm-border text-prizm-text-muted" : "bg-prizm-surface-strong border-prizm-danger/20 text-prizm-danger")
                           }`}>
                             <div className={`absolute -top-2.5 left-3 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
                               softBalancingOverride 
-                                ? "bg-cyan-600/20 border-cyan-500/30 text-cyan-300"
-                                : (systemWideIsolation ? "bg-white/5 border-white/10 text-white/40" : "bg-rose-600/20 border-rose-500/30 text-rose-300")
+                                ? "bg-cyan-600/20 border-prizm-primary text-cyan-300"
+                                : (systemWideIsolation ? "bg-white/5 border-prizm-border text-prizm-text-muted" : "bg-rose-600/20 border-prizm-danger/20 text-prizm-danger")
                             }`}>
                               LINEUP 3 (10.0.3.1)
                             </div>
                             <div className="flex justify-between font-bold pt-1">
-                              <span className="text-white/60">BMS Core Mode:</span>
-                              <span className={systemWideIsolation ? "text-zinc-500" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-rose-400 font-bold animate-pulse")}>
+                              <span className="text-prizm-text-muted">BMS Core Mode:</span>
+                              <span className={systemWideIsolation ? "text-zinc-500" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold animate-pulse")}>
                                 {systemWideIsolation ? "Isolated" : (softBalancingOverride ? "Charging" : "FAULTED")}
                               </span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-white/50 pt-1">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-prizm-text-muted pt-1">
                               <div className="bg-white/[0.01] p-1.5 rounded">
-                                <span className="block text-[9px] text-white/30">Active Power</span>
+                                <span className="block text-[9px] text-prizm-text-muted">Active Power</span>
                                 <strong className="text-cyan-300 block text-xs mt-0.5">{(systemWideIsolation ? 0 : (softBalancingOverride ? 124.2 : 0)).toFixed(1)} kW</strong>
                               </div>
                               <div className="bg-white/[0.01] p-1.5 rounded">
-                                <span className="block text-[9px] text-white/30">Max Cell Temp</span>
-                                <strong className={`block text-xs mt-0.5 ${softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}`}>
+                                <span className="block text-[9px] text-prizm-text-muted">Max Cell Temp</span>
+                                <strong className={`block text-xs mt-0.5 ${softBalancingOverride ? "text-emerald-400" : "text-prizm-danger font-bold"}`}>
                                   {softBalancingOverride ? "28.5 °C" : "55.0 °C"}
                                 </strong>
                               </div>
                             </div>
 
                             {/* SUB-NODES STRING GRID MATCHING HARDWARE STRINGS */}
-                            <div className="space-y-1.5 border-t border-white/5 pt-2.5 text-[10px]">
+                            <div className="space-y-1.5 border-t border-prizm-border pt-2.5 text-[10px]">
                               {/* STRING 1 MONITORED AREA */}
-                              <div className="flex justify-between items-center bg-black/20 p-1.5 rounded mt-1">
-                                <span className="text-white/60 font-bold">S1 (10.0.3.10)</span>
+                              <div className="flex justify-between items-center bg-prizm-surface-strong p-1.5 rounded mt-1">
+                                <span className="text-prizm-text-muted font-bold">S1 (10.0.3.10)</span>
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
-                                  systemWideIsolation ? "bg-white/5 text-white/30" : (softBalancingOverride ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/15 text-rose-400 animate-pulse")
+                                  systemWideIsolation ? "bg-white/5 text-prizm-text-muted" : (softBalancingOverride ? "bg-emerald-500/10 text-emerald-400" : "bg-prizm-danger/10 text-prizm-danger animate-pulse")
                                 }`}>
                                   {systemWideIsolation ? "CLOSED" : (softBalancingOverride ? "CLOSED" : "BALANCING_TRIP_OPEN")}
                                 </span>
                               </div>
                               {/* STRINGCELL VOLTAGE HIGH DISCOVERY */}
-                              <div className="text-[9px] text-white/40 leading-relaxed px-1 space-y-0.5">
+                              <div className="text-[9px] text-prizm-text-muted leading-relaxed px-1 space-y-0.5">
                                 <div className="flex justify-between">
                                   <span>Cell 14 (OverVolt):</span> 
-                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}>
+                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-prizm-danger font-bold"}>
                                     {softBalancingOverride ? "3.24 V" : "3.51 V [OverTrip]"}
                                   </strong>
                                 </div>
                                 <div className="flex justify-between">
                                   <span>Cell 13 (UnderVolt):</span> 
-                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-rose-300/60"}>
+                                  <strong className={softBalancingOverride ? "text-emerald-400" : "text-prizm-danger/60"}>
                                     {softBalancingOverride ? "3.23 V" : "3.08 V"}
                                   </strong>
                                 </div>
@@ -3366,15 +3366,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       </div>
 
                       {/* GRANULATED SITE CONTROLLER INGEST GRID */}
-                      <div className="border border-white/5 rounded-lg p-4 bg-white/[0.01] space-y-3 font-mono">
+                      <div className="border border-prizm-border rounded-lg p-4 bg-white/[0.01] space-y-3 font-mono">
                         <div className="flex justify-between items-center">
-                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Localized Modbus Device Registry State Matrix</h4>
-                          <span className="text-[10px] text-white/30 lowercase">Local DB live-query outputs</span>
+                          <h4 className="text-xs font-bold text-prizm-text uppercase tracking-wider">Localized Modbus Device Registry State Matrix</h4>
+                          <span className="text-[10px] text-prizm-text-muted lowercase">Local DB live-query outputs</span>
                         </div>
-                        <div className="border border-white/5 rounded-lg overflow-hidden bg-[#0A0D14]/80">
+                        <div className="border border-prizm-border rounded-lg overflow-hidden bg-prizm-surface-strong">
                           <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                              <tr className="bg-white/5 text-white/50 font-bold border-b border-white/5">
+                              <tr className="bg-white/5 text-prizm-text-muted font-bold border-b border-prizm-border">
                                 <th className="p-2.5">Endpoint IP</th>
                                 <th className="p-2.5">Component Role</th>
                                 <th className="p-2.5">Register State Values (Raw)</th>
@@ -3382,51 +3382,51 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 <th className="p-2.5">Local Relays</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-white/[0.03] text-white/80">
+                            <tbody className="divide-y divide-white/[0.03] text-prizm-text-muted">
                               <tr>
-                                <td className="p-2.5 font-bold text-white">10.0.1.1</td>
+                                <td className="p-2.5 font-bold text-prizm-text">10.0.1.1</td>
                                 <td className="p-2.5">Lineup 1 BMS Core</td>
-                                <td className="p-2.5 text-zinc-400">Power: <strong className="text-white">{systemWideIsolation ? 0 : 1242}</strong> (Watts Register 84), SoC: <strong className="text-white">425</strong> (Reg 658)</td>
+                                <td className="p-2.5 text-zinc-400">Power: <strong className="text-prizm-text">{systemWideIsolation ? 0 : 1242}</strong> (Watts Register 84), SoC: <strong className="text-prizm-text">425</strong> (Reg 658)</td>
                                 <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "0.0" : "124.2"} kW / 42.5% SoC</td>
                                 <td className="p-2.5"><span className="text-emerald-400">NOMINAL_CHARGE</span></td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">10.0.1.10</td>
+                                <td className="p-2.5 font-bold text-prizm-text">10.0.1.10</td>
                                 <td className="p-2.5">Array 1 Node String 1</td>
-                                <td className="p-2.5 text-zinc-400">Voltage: <strong className="text-white">{systemWideIsolation ? 4102 : 4802}</strong> (Reg 691)</td>
+                                <td className="p-2.5 text-zinc-400">Voltage: <strong className="text-prizm-text">{systemWideIsolation ? 4102 : 4802}</strong> (Reg 691)</td>
                                 <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "410.2" : "480.2"} V (DC String)</td>
                                 <td className="p-2.5"><span className="text-emerald-400">CLOSED</span></td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">10.0.3.1</td>
-                                <td className="p-2.5 text-rose-300">Lineup 3 BMS Core</td>
+                                <td className="p-2.5 font-bold text-prizm-text">10.0.3.1</td>
+                                <td className="p-2.5 text-prizm-danger">Lineup 3 BMS Core</td>
                                 <td className="p-2.5 text-zinc-400">
-                                  Power: <strong className="text-white">{(systemWideIsolation || !softBalancingOverride) ? 0 : 1242}</strong> (Reg 84), MaxTemp: <strong className={`font-bold ${softBalancingOverride ? "text-white" : "text-rose-400 animate-pulse"}`}>{softBalancingOverride ? 294 : 524}</strong> (Reg 1163)
+                                  Power: <strong className="text-prizm-text">{(systemWideIsolation || !softBalancingOverride) ? 0 : 1242}</strong> (Reg 84), MaxTemp: <strong className={`font-bold ${softBalancingOverride ? "text-prizm-text" : "text-prizm-danger animate-pulse"}`}>{softBalancingOverride ? 294 : 524}</strong> (Reg 1163)
                                 </td>
                                 <td className="p-2.5 text-cyan-300 font-bold">
                                   {systemWideIsolation ? "0.0 kW / Stale" : (softBalancingOverride ? "124.2 kW / 29.4 °C" : "0.0 kW / 52.4 °C")}
                                 </td>
                                 <td className="p-2.5">
-                                  <span className={systemWideIsolation ? "text-white/30" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-rose-400 font-bold animate-pulse")}>
+                                  <span className={systemWideIsolation ? "text-prizm-text-muted" : (softBalancingOverride ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold animate-pulse")}>
                                     {systemWideIsolation ? "CLOSED" : (softBalancingOverride ? "CLOSED_BYPASS" : "FAULT_OPEN")}
                                   </span>
                                 </td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">10.0.3.10</td>
-                                <td className="p-2.5 text-rose-300">Array 3 Node String 1</td>
-                                <td className="p-2.5 text-zinc-400">MaxCellVolt: <strong className={`font-bold ${softBalancingOverride ? "text-white" : "text-rose-400"}`}>{softBalancingOverride ? 3240 : 3510}</strong> mV (Reg 1159)</td>
+                                <td className="p-2.5 font-bold text-prizm-text">10.0.3.10</td>
+                                <td className="p-2.5 text-prizm-danger">Array 3 Node String 1</td>
+                                <td className="p-2.5 text-zinc-400">MaxCellVolt: <strong className={`font-bold ${softBalancingOverride ? "text-prizm-text" : "text-prizm-danger"}`}>{softBalancingOverride ? 3240 : 3510}</strong> mV (Reg 1159)</td>
                                 <td className="p-2.5 text-cyan-300 font-bold">{softBalancingOverride ? "3.24 V" : "3.51 V (High Spike)"}</td>
                                 <td className="p-2.5">
-                                  <span className={softBalancingOverride ? "text-emerald-400" : "text-rose-400 font-bold"}>
+                                  <span className={softBalancingOverride ? "text-emerald-400" : "text-prizm-danger font-bold"}>
                                     {softBalancingOverride ? "CLOSED" : "TRIPPED_OPEN"}
                                   </span>
                                 </td>
                               </tr>
                               <tr>
-                                <td className="p-2.5 font-bold text-white">10.0.0.3</td>
+                                <td className="p-2.5 font-bold text-prizm-text">10.0.0.3</td>
                                 <td className="p-2.5">EMS Master Wye Meter</td>
-                                <td className="p-2.5 text-zinc-400">MeterWatts: <strong className="text-white">{systemWideIsolation ? 0 : 1245000}</strong> (W Wye Reg 558)</td>
+                                <td className="p-2.5 text-zinc-400">MeterWatts: <strong className="text-prizm-text">{systemWideIsolation ? 0 : 1245000}</strong> (W Wye Reg 558)</td>
                                 <td className="p-2.5 text-cyan-300 font-bold">{systemWideIsolation ? "0.0" : "124.5"} kW / 30.0 A Current</td>
                                 <td className="p-2.5"><span className="text-zinc-500">N/A (Utility Line AC)</span></td>
                               </tr>
@@ -3440,22 +3440,22 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   {/* TAB CONTENT: MODBUS POINT TESTER (RUNNING LOCAL QUERIES FOR GRANTED VISIBILITY) */}
                   {telemetrySubTab === "modbus" && (
                     <div className="space-y-6">
-                      <div className="p-4 rounded-lg bg-white/[0.02] border border-white/5 space-y-4 font-mono text-xs">
-                        <div className="border-b border-white/5 pb-2">
-                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Point Registry Modbus Simulation Terminal</h4>
-                          <p className="text-[10px] text-white/40 mt-1">
-                            Simulate sending a local GET Modbus query across the private lineup subnet. This demonstrates how local systems can communicate directly with the underlying registers bypassing any cloud layer.
+                      <div className="p-4 rounded-lg bg-white/[0.02] border border-prizm-border space-y-4 font-mono text-xs">
+                        <div className="border-b border-prizm-border pb-2">
+                          <h4 className="text-xs font-bold text-prizm-text uppercase tracking-wider">Point Registry Modbus Simulation Terminal</h4>
+                          <p className="text-[10px] text-prizm-text-muted mt-1">
+                            Simulate sending a local GET Modbus query across the private lineup subnet. This demonstrates how local systems can communicate directly with the underlying registers bypassing any demo layer.
                           </p>
                         </div>
 
                         {/* HOST / REGISTER SELECTOR BOX */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white/[0.01] p-3 rounded-lg border border-white/[0.02] items-end">
                           <div>
-                            <label className="block text-[10px] font-bold uppercase text-white/50 mb-1.5">Target IP address</label>
+                            <label className="block text-[10px] font-bold uppercase text-prizm-text-muted mb-1.5">Target IP address</label>
                             <select
                               value={simulatedIp}
                               onChange={(e) => setSimulatedIp(e.target.value)}
-                              className="w-full bg-[#12141C] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                              className="w-full bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-text placeholder-white/20 font-mono focus:border-prizm-primary focus:outline-none"
                             >
                               <option value="10.0.0.3">10.0.0.3 (EMS Master Utility Meter)</option>
                               <option value="10.0.1.1">10.0.1.1 (Lineup 1 AC BMS)</option>
@@ -3465,11 +3465,11 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           </div>
 
                           <div>
-                            <label className="block text-[10px] font-bold uppercase text-white/50 mb-1.5">Holding register address</label>
+                            <label className="block text-[10px] font-bold uppercase text-prizm-text-muted mb-1.5">Holding register address</label>
                             <select
                               value={simulatedRegister}
                               onChange={(e) => setSimulatedRegister(e.target.value)}
-                              className="w-full bg-[#12141C] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/20 font-mono focus:border-cyan-500 focus:outline-none"
+                              className="w-full bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-text placeholder-white/20 font-mono focus:border-prizm-primary focus:outline-none"
                             >
                               <option value="84">84 (Watts / Power Active)</option>
                               <option value="542">542 (MeterAmps / Main Grid AC Current)</option>
@@ -3486,7 +3486,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               type="button"
                               onClick={handleRunDiagnosticQuery}
                               disabled={queryLoading}
-                              className="w-full py-1.5 bg-cyan-500/25 text-cyan-300 hover:bg-cyan-500/35 active:scale-95 disabled:opacity-40 border border-cyan-500/30 rounded font-bold uppercase tracking-wider tracking-widest text-xs transition-all"
+                              className="w-full py-1.5 bg-prizm-info/10 text-cyan-300 hover:bg-prizm-info/10 active:scale-95 disabled:opacity-40 border border-prizm-primary rounded font-bold uppercase tracking-wider tracking-widest text-xs transition-all"
                             >
                               {queryLoading ? "Querying Subnet IP register..." : "⚡ Execute Direct modbus GET Query"}
                             </button>
@@ -3495,30 +3495,30 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                         {/* TERMINAL INTERACTIVE TERMINAL LOG BOX */}
                         <div className="space-y-2">
-                          <div className="flex justify-between items-center text-[10px] text-white/40 uppercase font-black">
+                          <div className="flex justify-between items-center text-[10px] text-prizm-text-muted uppercase font-black">
                             <span>Interactive Terminal stdout</span>
                             <span>Direct loop polling status: ONLINE</span>
                           </div>
 
-                          <div className="relative bg-[#05060A] rounded-lg p-4 border border-white/5 font-mono text-xs text-cyan-400 overflow-x-auto min-h-[160px] max-h-[300px]">
+                          <div className="relative bg-prizm-surface-strong rounded-lg p-4 border border-prizm-border font-mono text-xs text-prizm-primary overflow-x-auto min-h-[160px] max-h-[300px]">
                             {queryLoading ? (
-                              <div className="flex items-center gap-2 text-white/50 italic animate-pulse">
+                              <div className="flex items-center gap-2 text-prizm-text-muted italic animate-pulse">
                                 <RefreshCw className="animate-spin" size={14} />
                                 [HOST_INFO] dispatching Modbus TCP Request packet to {simulatedIp}...
                               </div>
                             ) : simulatedQueryResult ? (
                               <div className="space-y-1.5 select-all leading-relaxed text-[11px] text-emerald-400">
-                                <div><span className="text-white/40">[10.0.0.2 Gateway ~]#</span> modbus_read_reg --host={simulatedQueryResult.ip} --register={simulatedQueryResult.register} --timeout=1500</div>
-                                <div className="text-white/30">---------------------------------------------------------</div>
-                                <div className="text-white font-bold">[RESPONSE RECEIVED: 200 OK]</div>
-                                <div><span className="text-white/40">&gt; Target Subnet IP:</span> <strong className="text-white font-black">{simulatedQueryResult.ip}</strong></div>
-                                <div><span className="text-white/40">&gt; Target Register:</span> <strong className="text-white font-black">Holding {simulatedQueryResult.register}</strong></div>
-                                <div><span className="text-white/40">&gt; Decoded Point Name:</span> <strong className="text-cyan-300 font-bold">{simulatedQueryResult.name}</strong></div>
-                                <div><span className="text-white/40">&gt; Raw Modbus Integer:</span> <strong className="text-yellow-400 font-bold">{simulatedQueryResult.value}</strong> <span className="text-white/20">({simulatedQueryResult.unit})</span></div>
-                                <div className="text-white/30">---------------------------------------------------------</div>
+                                <div><span className="text-prizm-text-muted">[10.0.0.2 Gateway ~]#</span> modbus_read_reg --host={simulatedQueryResult.ip} --register={simulatedQueryResult.register} --timeout=1500</div>
+                                <div className="text-prizm-text-muted">---------------------------------------------------------</div>
+                                <div className="text-prizm-text font-bold">[RESPONSE RECEIVED: 200 OK]</div>
+                                <div><span className="text-prizm-text-muted">&gt; Target Subnet IP:</span> <strong className="text-prizm-text font-black">{simulatedQueryResult.ip}</strong></div>
+                                <div><span className="text-prizm-text-muted">&gt; Target Register:</span> <strong className="text-prizm-text font-black">Holding {simulatedQueryResult.register}</strong></div>
+                                <div><span className="text-prizm-text-muted">&gt; Decoded Point Name:</span> <strong className="text-cyan-300 font-bold">{simulatedQueryResult.name}</strong></div>
+                                <div><span className="text-prizm-text-muted">&gt; Raw Modbus Integer:</span> <strong className="text-yellow-400 font-bold">{simulatedQueryResult.value}</strong> <span className="text-prizm-text-muted">({simulatedQueryResult.unit})</span></div>
+                                <div className="text-prizm-text-muted">---------------------------------------------------------</div>
                                 <div>
-                                  <span className="text-white/40">&gt; Scaling multiplier translation:</span>{" "}
-                                  <strong className="text-white">
+                                  <span className="text-prizm-text-muted">&gt; Scaling multiplier translation:</span>{" "}
+                                  <strong className="text-prizm-text">
                                     {simulatedQueryResult.register === 84 ? "Scale target is kW (multiply raw value by 10^1 to obtain Watts, or read raw as 1.242 kW)" : 
                                      simulatedQueryResult.register === 542 ? "Scale (A_SF) = -1. Output is raw 300 (represents 30.0 A)" : 
                                      simulatedQueryResult.register === 558 ? "Scale (W_SF) = 2. Output is raw 1245000 (represents 12.45 kW)" : 
@@ -3531,8 +3531,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 </div>
                               </div>
                             ) : (
-                              <div className="text-white/20 italic text-center p-6 flex flex-col items-center justify-center space-y-2 h-[140px]">
-                                <Terminal size={24} className="text-white/5" />
+                              <div className="text-prizm-text-muted italic text-center p-6 flex flex-col items-center justify-center space-y-2 h-[140px]">
+                                <Terminal size={24} className="text-prizm-text-muted" />
                                 <span>No direct queries dispatched in this session. Configure host parameters above and click Execute to query local registers instantly.</span>
                               </div>
                             )}
@@ -3549,10 +3549,10 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {selectedCategory === "EMS LAN Diagnostics" && (
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-sm font-mono font-bold text-white tracking-widest uppercase mb-1 border-l-2 border-cyan-500 pl-2">
+                    <h3 className="text-sm font-mono font-bold text-prizm-text tracking-widest uppercase mb-1 border-l-2 border-prizm-primary pl-2">
                       EMS LAN Connectivity & Poll Diagnostics
                     </h3>
-                    <p className="text-xs text-white/40 font-mono">
+                    <p className="text-xs text-prizm-text-muted font-mono">
                       Real-time live checks for the 12 primary EMS hardware telemetry sources mapped via local LAN ethernet backplane.
                     </p>
                   </div>
@@ -3561,61 +3561,63 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   <ConnectionSettings onProfileChanged={() => pollLocalEmsData()} />
 
                   {/* Demo Mode Manual Override Deck */}
-                  <div className="bg-[#161925]/80 border border-white/5 rounded-lg p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 font-mono shadow-lg">
-                    <div className="space-y-1">
-                      <div className="text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-                        <Sliders size={14} className="text-cyan-400 animate-pulse" />
-                        DEMO MODE MANUAL OVERRIDE DECK
+                  {emsConnection?.enableDemoToggle && (
+                    <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 font-mono shadow-lg">
+                      <div className="space-y-1">
+                        <div className="text-prizm-text text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                          <Sliders size={14} className="text-prizm-primary animate-pulse" />
+                          DEMO MODE MANUAL OVERRIDE DECK
+                        </div>
+                        <div className="text-[11px] text-prizm-text-muted max-w-xl">
+                          Manually trigger the high-fidelity PRIZM simulation database block schemas. If deactivated, production connectivity will seek direct hardware LAN polling first, gracefully dropping back to stale cached records or offline protection state.
+                        </div>
                       </div>
-                      <div className="text-[11px] text-white/40 max-w-xl">
-                        Manually trigger the high-fidelity PRIZM simulation database block schemas. If deactivated, production connectivity will seek direct hardware LAN polling first, gracefully dropping back to stale cached records or offline protection state.
-                      </div>
+                      <button
+                        onClick={async () => {
+                          const nextState = !emsConnection?.isDemoFallback;
+                          try {
+                            const res = await fetch("/api/local/demo-toggle", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ enabled: nextState })
+                            });
+                            const updated = await res.json();
+                            setEmsConnection(updated);
+                            pollLocalEmsData();
+                          } catch (err) {
+                            console.error("Failed to toggle demo status:", err);
+                          }
+                        }}
+                        className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-all cursor-pointer border select-none ${
+                          emsConnection?.isDemoFallback
+                            ? "bg-prizm-warning/10 text-yellow-400 border-yellow-500/30 hover:bg-prizm-warning/10"
+                            : "bg-white/5 text-prizm-text-muted border-prizm-border hover:bg-white/10"
+                        }`}
+                      >
+                        {emsConnection?.isDemoFallback ? "DEMO ACTIVE [CLICK TO DISABLE]" : "DEMO OFF [CLICK TO ENABLE]"}
+                      </button>
                     </div>
-                    <button
-                      onClick={async () => {
-                        const nextState = !emsConnection?.isDemoFallback;
-                        try {
-                          const res = await fetch("/api/local/demo-toggle", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ enabled: nextState })
-                          });
-                          const updated = await res.json();
-                          setEmsConnection(updated);
-                          pollLocalEmsData();
-                        } catch (err) {
-                          console.error("Failed to toggle demo status:", err);
-                        }
-                      }}
-                      className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-all cursor-pointer border select-none ${
-                        emsConnection?.isDemoFallback
-                          ? "bg-amber-500/10 text-yellow-400 border-yellow-500/30 hover:bg-amber-500/20"
-                          : "bg-white/5 text-white/40 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      {emsConnection?.isDemoFallback ? "DEMO ACTIVE [CLICK TO DISABLE]" : "DEMO OFF [CLICK TO ENABLE]"}
-                    </button>
-                  </div>
+                  )}
 
                   {/* Mode Card */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
-                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
-                      <div className="text-[10px] text-white/40 uppercase font-bold">LAN TARGET HOST</div>
-                      <div className="text-sm text-cyan-400 font-bold">{emsConnection?.activeEmsBaseUrl || emsConnection?.emsHost || "N/A"}</div>
+                    <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-prizm-text-muted uppercase font-bold">LAN TARGET HOST</div>
+                      <div className="text-sm text-prizm-primary font-bold">{emsConnection?.activeEmsBaseUrl || emsConnection?.emsHost || "N/A"}</div>
                     </div>
-                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
-                      <div className="text-[10px] text-white/40 uppercase font-bold">STATE DETECTED</div>
+                    <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-prizm-text-muted uppercase font-bold">STATE DETECTED</div>
                       <div className="flex items-center gap-2">
                         <span className={`h-2.5 w-2.5 rounded-full ${
                           emsConnection?.source === "live"
                             ? "bg-emerald-400 animate-pulse"
                             : emsConnection?.source === "cached"
-                              ? "bg-amber-500 animate-pulse"
+                              ? "bg-prizm-warning animate-pulse"
                               : emsConnection?.source === "demo"
                                 ? "bg-cyan-500 animate-pulse"
                                 : "bg-red-500"
                         }`} />
-                        <span className="text-sm font-bold text-white uppercase">
+                        <span className="text-sm font-bold text-prizm-text uppercase">
                           {emsConnection?.source === "live" && "HARDWARE ACTIVE"}
                           {emsConnection?.source === "cached" && "STALE CACHED LOCAL"}
                           {emsConnection?.source === "offline" && "HARD OFFLINE STATE"}
@@ -3624,20 +3626,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                         </span>
                       </div>
                     </div>
-                    <div className="bg-[#12141C] border border-white/5 rounded-lg p-4 space-y-2">
-                      <div className="text-[10px] text-white/40 uppercase font-bold">POLL FREQUENCY</div>
-                      <div className="text-sm text-white font-bold">{emsConnection?.pollIntervalMs || 3000} ms</div>
+                    <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-2">
+                      <div className="text-[10px] text-prizm-text-muted uppercase font-bold">POLL FREQUENCY</div>
+                      <div className="text-sm text-prizm-text font-bold">{emsConnection?.pollIntervalMs || 3000} ms</div>
                     </div>
                   </div>
 
                   {/* Connection Detail Reason Banner */}
                   <div className={`p-4 rounded-lg font-mono text-xs border ${
                     emsConnection?.source === "demo"
-                      ? "bg-cyan-500/5 text-cyan-300 border-cyan-500/20"
+                      ? "bg-prizm-info/10 text-cyan-300 border-prizm-primary"
                       : emsConnection?.source === "live"
                         ? "bg-emerald-500/5 text-emerald-300 border-emerald-500/20"
                         : emsConnection?.source === "cached"
-                          ? "bg-amber-500/5 text-yellow-300 border-yellow-500/20"
+                          ? "bg-prizm-warning/10 text-yellow-300 border-yellow-500/20"
                           : "bg-red-500/5 text-red-300 border-red-500/20"
                   }`}>
                     <div className="font-bold uppercase mb-1 text-[10px] tracking-wider">
@@ -3650,12 +3652,12 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                   </div>
 
                   {/* Sources Grid Table */}
-                  <div className="bg-[#12141C] border border-white/5 rounded-lg overflow-hidden">
-                    <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#161925]">
-                      <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">EMS Turtle Endpoints (12/12 Polled)</span>
+                  <div className="bg-prizm-surface border border-prizm-border rounded-lg overflow-hidden">
+                    <div className="p-4 border-b border-prizm-border flex justify-between items-center bg-prizm-surface-strong">
+                      <span className="text-xs font-mono font-bold text-prizm-text uppercase tracking-wider">EMS Turtle Endpoints (12/12 Polled)</span>
                       <button 
                         onClick={() => pollLocalEmsData()}
-                        className="bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 px-2.5 py-1 text-[10px] uppercase font-mono rounded cursor-pointer flex items-center gap-1"
+                        className="bg-white/5 hover:bg-white/10 text-prizm-text-muted border border-prizm-border px-2.5 py-1 text-[10px] uppercase font-mono rounded cursor-pointer flex items-center gap-1"
                       >
                         <RefreshCw size={10} />
                         Force Retry Poll
@@ -3665,7 +3667,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                     <div className="overflow-x-auto">
                       <table className="w-full text-left font-mono text-xs select-none">
                         <thead>
-                          <tr className="bg-white/[0.02] border-b border-white/5 text-[10px] text-white/40 uppercase tracking-wider">
+                          <tr className="bg-white/[0.02] border-b border-prizm-border text-[10px] text-prizm-text-muted uppercase tracking-wider">
                             <th className="p-3">Endpoint Route</th>
                             <th className="p-3">State</th>
                             <th className="p-3 text-right font-bold">Status</th>
@@ -3678,29 +3680,29 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                           {emsSources && emsSources.length > 0 ? (
                             emsSources.map((s, idx) => (
                               <tr key={idx} className="hover:bg-white/[0.01]">
-                                <td className="p-3 text-white/90 font-medium font-mono text-cyan-400">{s.endpoint}</td>
+                                <td className="p-3 text-prizm-text-muted font-medium font-mono text-prizm-primary">{s.endpoint}</td>
                                 <td className="p-3">
                                   {s.success ? (
                                     <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-2 py-0.5 rounded text-[10px] font-bold">
                                       SUCCESS
                                     </span>
                                   ) : (
-                                    <span className="bg-rose-500/10 text-rose-400 border border-rose-500/25 px-2 py-0.5 rounded text-[10px] font-bold">
+                                    <span className="bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 px-2 py-0.5 rounded text-[10px] font-bold">
                                       OFFLINE
                                     </span>
                                   )}
                                 </td>
-                                <td className="p-3 text-right font-bold text-white">{s.statusCode || "N/A"}</td>
-                                <td className="p-3 text-right text-white/60">{s.durationMs ? `${s.durationMs}ms` : "0ms"}</td>
-                                <td className="p-3 text-white/40">{s.lastPollTime ? new Date(s.lastPollTime).toLocaleTimeString() : "PENDING"}</td>
-                                <td className="p-3 max-w-[200px] truncate text-white/40 font-mono" title={s.lastError || "NONE"}>
+                                <td className="p-3 text-right font-bold text-prizm-text">{s.statusCode || "N/A"}</td>
+                                <td className="p-3 text-right text-prizm-text-muted">{s.durationMs ? `${s.durationMs}ms` : "0ms"}</td>
+                                <td className="p-3 text-prizm-text-muted">{s.lastPollTime ? new Date(s.lastPollTime).toLocaleTimeString() : "PENDING"}</td>
+                                <td className="p-3 max-w-[200px] truncate text-prizm-text-muted font-mono" title={s.lastError || "NONE"}>
                                   {s.lastError || "NONE"}
                                 </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={6} className="p-8 text-center text-white/20">
+                              <td colSpan={6} className="p-8 text-center text-prizm-text-muted">
                                 Retrieving live LAN diagnostic source metrics (3.0s ticker interval in flight)...
                               </td>
                             </tr>
@@ -3715,21 +3717,21 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
               {/* CATEGORY VIEW 8: SYSTEM EVENT LOGS */}
               {selectedCategory === "System Event logs" && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-mono font-bold text-white/70 tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
+                  <h3 className="text-xs font-mono font-bold text-prizm-text-muted tracking-widest uppercase mb-2 border-l-2 border-emerald-500 pl-2">
                     Active System Gateway Logs
                   </h3>
-                  <div className="bg-[#12141C] border border-white/5 rounded-lg p-3 space-y-2 font-mono text-xs max-h-[400px] overflow-y-auto">
+                  <div className="bg-prizm-surface border border-prizm-border rounded-lg p-3 space-y-2 font-mono text-xs max-h-[400px] overflow-y-auto">
                     {notifications.map((n, idx) => (
                       <div key={idx} className="flex gap-4 p-2 border-b border-white/[0.02] hover:bg-white/[0.01] items-start">
-                        <span className="text-white/30 shrink-0 select-none">{n.time}</span>
+                        <span className="text-prizm-text-muted shrink-0 select-none">{n.time}</span>
                         <span className={`px-1 rounded text-[9px] font-bold uppercase shrink-0 ${
-                          n.type === "critical" ? "bg-rose-500/15 text-rose-400 border border-rose-500/10" :
-                          n.type === "warning" ? "bg-amber-500/15 text-amber-300 border border-amber-500/10" :
+                          n.type === "critical" ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20" :
+                          n.type === "warning" ? "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20" :
                           "bg-emerald-500/15 text-emerald-400 border border-emerald-500/10"
                         }`}>
                           {n.source}
                         </span>
-                        <p className={`flex-1 ${n.type === "critical" ? "text-rose-300" : "text-[#D1D5DB]"}`}>{n.message}</p>
+                        <p className={`flex-1 ${n.type === "critical" ? "text-prizm-danger" : "text-[#D1D5DB]"}`}>{n.message}</p>
                       </div>
                     ))}
                   </div>

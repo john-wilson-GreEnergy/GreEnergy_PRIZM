@@ -33,7 +33,7 @@ export function getNormalizedBaseUrl(): string {
 const REQUEST_TIMEOUT_MS = Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 10000;
 
 // Dynamic Demo Mode Toggle state
-let isDemoModeActive = false;
+let isDemoModeActive = process.env.DEMO_MODE === "true";
 
 // Cache ownership metadata tracking
 export let cacheProfileId: string | null = null;
@@ -46,8 +46,11 @@ export function isDemoActive(): boolean {
 }
 
 export function setDemoMode(active: boolean) {
-  isDemoModeActive = active;
+  if (process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true") {
+    isDemoModeActive = active;
+  }
 }
+
 
 interface EmsCache {
   status: any;
@@ -493,6 +496,7 @@ export function getEmsMode() {
     configuredMode: process.env.EMS_MODE || "production",
     activeMode: source,
     isDemoFallback: isDemo,
+    enableDemoToggle: process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true",
     reason: isDemo 
       ? "Demo mode manual toggle is enabled. Hosting full-scale local telemetry datasets." 
       : (source === "live"
@@ -661,18 +665,38 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     // Optional endpoint
   }
 
-  // 8. /tools/report/ems/ipMap.json
+  // 8. /tools/report/ems/ipMap
   try {
-    const res = await fetchAndRecord("/tools/report/ems/ipMap.json");
-    emsCache.ipMap = await res.json();
+    let res = await fetchAndRecord("/tools/report/ems/ipMap.json").catch(() => null);
+    if (!res || !res.ok) {
+      res = await fetchAndRecord("/tools/report/ems/ipMap.csv").catch(() => null);
+    }
+    if (res && res.ok) {
+        const text = await res.text();
+        try {
+            emsCache.ipMap = JSON.parse(text);
+        } catch {
+            emsCache.ipMap = text as any;
+        }
+    }
   } catch (err: any) {
     // Optional endpoint
   }
 
-  // 9. /tools/report/ems/stringIPMap.json
+  // 9. /tools/report/ems/stringIPMap
   try {
-    const res = await fetchAndRecord("/tools/report/ems/stringIPMap.json");
-    emsCache.stringIPMap = await res.json();
+    let res = await fetchAndRecord("/tools/report/ems/stringIPMap.json").catch(() => null);
+    if (!res || !res.ok) {
+        res = await fetchAndRecord("/tools/report/ems/stringIPMap.csv").catch(() => null);
+    }
+    if (res && res.ok) {
+        const text = await res.text();
+        try {
+            emsCache.stringIPMap = JSON.parse(text);
+        } catch {
+            emsCache.stringIPMap = text as any;
+        }
+    }
   } catch (err: any) {
     // Optional endpoint
   }
@@ -793,6 +817,7 @@ export function getEmsConnectionStatus() {
     configuredMode: process.env.EMS_MODE || "production",
     activeMode: source,
     isDemoFallback: isDemo,
+    enableDemoToggle: process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true",
     reason: isDemo 
       ? "Demo mode manual toggle is enabled. Hosting full-scale local telemetry datasets." 
       : (source === "live"

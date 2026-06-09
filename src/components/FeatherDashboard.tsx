@@ -443,32 +443,32 @@ export default function FeatherDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* DISCOVERY CONTROL CENTER */}
-        <div className="lg:col-span-5 bg-[#12141C] border border-white/10 rounded-lg p-5 flex flex-col justify-between">
+        <div className="lg:col-span-5 bg-prizm-surface border border-prizm-border rounded-lg p-5 flex flex-col justify-between">
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-              <Sliders className="text-cyan-400" size={16} />
-              <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+            <div className="flex items-center gap-2 border-b border-prizm-border pb-2">
+              <Sliders className="text-prizm-primary" size={16} />
+              <span className="font-mono text-xs font-bold text-prizm-text uppercase tracking-wider">
                 LAN Discovery Controls & Target Profile
               </span>
             </div>
 
             {/* Target profile metadata dashboard block */}
-            <div className="bg-[#1C1F2B] rounded p-3 text-[10px] font-mono grid grid-cols-2 gap-2 border border-white/5">
+            <div className="bg-prizm-surface-strong rounded p-3 text-[10px] font-mono grid grid-cols-2 gap-2 border border-prizm-border">
               <div>
-                <span className="text-white/40 block">ACTIVE PROFILE</span>
-                <span className="text-[#5CF2A5] font-black truncate block block max-w-44">
+                <span className="text-prizm-text-muted block">ACTIVE PROFILE</span>
+                <span className="text-prizm-primary font-black truncate block block max-w-44">
                   {cacheDetails.activeProfileName || "PRIZM Core Hardware Bess Profile"}
                 </span>
               </div>
               <div>
-                <span className="text-white/40 block">IP BASE TARGET</span>
-                <span className="text-white font-medium block">
+                <span className="text-prizm-text-muted block">IP BASE TARGET</span>
+                <span className="text-prizm-text font-medium block">
                   {cacheDetails.activeEmsBaseUrl || "10.0.0.3:8080"}
                 </span>
               </div>
-              <div className="col-span-2 border-t border-white/5 pt-2 mt-1 flex justify-between items-center text-[9px]">
-                <span className="text-white/30 text-[9px]">CACHE OWNERSHIP ATTACHMENT</span>
-                <span className={`px-1.5 py-0.2 rounded font-bold uppercase text-[8px] ${cacheDetails.isStale ? "bg-amber-400/10 text-amber-300" : "bg-emerald-400/10 text-emerald-300"}`}>
+              <div className="col-span-2 border-t border-prizm-border pt-2 mt-1 flex justify-between items-center text-[9px]">
+                <span className="text-prizm-text-muted text-[9px]">CACHE OWNERSHIP ATTACHMENT</span>
+                <span className={`px-1.5 py-0.2 rounded font-bold uppercase text-[8px] ${cacheDetails.isStale ? "bg-prizm-warning text-prizm-warning" : "bg-emerald-400/10 text-emerald-300"}`}>
                   {cacheDetails.isStale ? "PROFILE SWITCH REQUIRED RESCAN" : "CACHE LOCKED NOMINAL"}
                 </span>
               </div>
@@ -476,8 +476,8 @@ export default function FeatherDashboard() {
 
             {/* Discovery source toggler */}
             <div className="space-y-1.5 font-mono text-[11px]">
-              <label className="text-white/40 font-bold block uppercase tracking-wider text-[9px]">Discovery Mode Filter</label>
-              <div className="grid grid-cols-3 gap-2 bg-[#0A0B0E] p-1 rounded border border-white/5">
+              <label className="text-prizm-text-muted font-bold block uppercase tracking-wider text-[9px]">Discovery Mode Filter</label>
+              <div className="grid grid-cols-3 gap-2 bg-prizm-surface-strong p-1 rounded border border-prizm-border">
                 {[
                   { value: "topology", label: "Topology" },
                   { value: "manual", label: "Manual Scan" },
@@ -488,8 +488,8 @@ export default function FeatherDashboard() {
                     onClick={() => setDiscoverySource(item.value as any)}
                     className={`py-1 text-[10px] font-bold rounded cursor-pointer transition-all uppercase ${
                       discoverySource === item.value 
-                        ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/15" 
-                        : "text-white/40 hover:text-white"
+                        ? "bg-prizm-info/10 text-prizm-primary border border-prizm-primary" 
+                        : "text-prizm-text-muted hover:text-prizm-text"
                     }`}
                   >
                     {item.label}
@@ -499,24 +499,24 @@ export default function FeatherDashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 mt-5 pt-3 border-t border-white/5">
+          <div className="grid grid-cols-2 gap-2 mt-5 pt-3 border-t border-prizm-border">
             <button
               onClick={() => runTopologyDiscovery(false)}
               disabled={loading}
-              className="px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-white font-mono text-[10px] font-black rounded uppercase tracking-wider text-center shadow-md shadow-cyan-950/40 cursor-pointer disabled:opacity-40 transition-all"
+              className="px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-prizm-text font-mono text-[10px] font-black rounded uppercase tracking-wider text-center shadow-md shadow-cyan-950/40 cursor-pointer disabled:opacity-40 transition-all"
             >
               Discover Topology
             </button>
             <button
               onClick={() => refreshSelectedTable(filteredDevices.map(d => d.deviceIp))}
               disabled={loading || filteredDevices.length === 0}
-              className="px-3 py-2 border border-white/15 hover:border-white/35 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] font-bold rounded uppercase tracking-wider text-center cursor-pointer transition-all"
+              className="px-3 py-2 border border-prizm-border hover:border-prizm-border bg-white/5 hover:bg-white/10 text-prizm-text font-mono text-[10px] font-bold rounded uppercase tracking-wider text-center cursor-pointer transition-all"
             >
               Refresh Filtered ({filteredDevices.length})
             </button>
             <button
               onClick={triggerClearCache}
-              className="col-span-2 mt-1 px-3 py-1.5 border border-rose-500/20 hover:border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 font-mono text-[9px] font-bold rounded uppercase tracking-widest text-center cursor-pointer transition-all"
+              className="col-span-2 mt-1 px-3 py-1.5 border border-prizm-danger/20 hover:border-prizm-danger/20 bg-prizm-danger/10 hover:bg-prizm-danger/10 text-prizm-danger font-mono text-[9px] font-bold rounded uppercase tracking-widest text-center cursor-pointer transition-all"
             >
               Clear Cache for active profile
             </button>
@@ -524,17 +524,17 @@ export default function FeatherDashboard() {
         </div>
 
         {/* MANUAL SCAN FORM */}
-        <div className="lg:col-span-7 bg-[#12141C] border border-white/10 rounded-lg p-5 flex flex-col justify-between">
+        <div className="lg:col-span-7 bg-prizm-surface border border-prizm-border rounded-lg p-5 flex flex-col justify-between">
           <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+            <div className="flex items-center justify-between border-b border-prizm-border pb-2">
               <div className="flex items-center gap-2">
-                <Settings className="text-amber-400" size={16} />
-                <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+                <Settings className="text-prizm-warning" size={16} />
+                <span className="font-mono text-xs font-bold text-prizm-text uppercase tracking-wider">
                   Manual Scan Address Shorthands
                 </span>
               </div>
               {/* Scan input selector */}
-              <div className="flex bg-[#0A0B0E] p-1 rounded font-mono text-[9px] border border-white/5">
+              <div className="flex bg-prizm-surface-strong p-1 rounded font-mono text-[9px] border border-prizm-border">
                 {[
                   { value: "cidr", label: "CIDR" },
                   { value: "range", label: "IP Bounds" },
@@ -544,7 +544,7 @@ export default function FeatherDashboard() {
                     key={item.value}
                     onClick={() => setScanMode(item.value as any)}
                     className={`px-2 py-0.5 rounded uppercase font-bold transition-all cursor-pointer ${
-                      scanMode === item.value ? "bg-amber-400/20 text-amber-300" : "text-white/30"
+                      scanMode === item.value ? "bg-prizm-warning text-prizm-warning" : "text-prizm-text-muted"
                     }`}
                   >
                     {item.label}
@@ -554,41 +554,41 @@ export default function FeatherDashboard() {
             </div>
 
             {/* INPUT SWITCH CONTAINER */}
-            <div className="bg-[#0A0B0E]/60 p-4 rounded-lg border border-white/5 font-mono text-[11px] min-h-[95px] flex items-center">
+            <div className="bg-prizm-surface-strong p-4 rounded-lg border border-prizm-border font-mono text-[11px] min-h-[95px] flex items-center">
               
               {scanMode === "cidr" && (
                 <div className="w-full space-y-1.5">
-                  <span className="text-white/40 block text-[9px] uppercase tracking-wider">CIDR RANGE INPUT</span>
+                  <span className="text-prizm-text-muted block text-[9px] uppercase tracking-wider">CIDR RANGE INPUT</span>
                   <input
                     type="text"
                     value={cidrInput}
                     onChange={e => setCidrInput(e.target.value)}
-                    className="w-full bg-[#161924] border border-white/10 rounded px-3 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-400/40"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-amber-400/40"
                     placeholder="e.g. 10.0.1.0/24"
                   />
-                  <span className="text-[10px] text-white/30 block">Scans sub-block range. Default laptop ethernet LAN fallback bounds apply.</span>
+                  <span className="text-[10px] text-prizm-text-muted block">Scans sub-block range. Default laptop ethernet LAN fallback bounds apply.</span>
                 </div>
               )}
 
               {scanMode === "range" && (
                 <div className="w-full grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <span className="text-white/40 block text-[9px] uppercase tracking-wider">START IP RANGE BOUND</span>
+                    <span className="text-prizm-text-muted block text-[9px] uppercase tracking-wider">START IP RANGE BOUND</span>
                     <input
                       type="text"
                       value={startIpInput}
                       onChange={e => setStartIpInput(e.target.value)}
-                      className="w-full bg-[#161924] border border-white/10 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-400/40"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-2.5 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-amber-400/40"
                       placeholder="e.g. 10.0.1.3"
                     />
                   </div>
                   <div className="space-y-1">
-                    <span className="text-white/40 block text-[9px] uppercase tracking-wider">END IP RANGE BOUND</span>
+                    <span className="text-prizm-text-muted block text-[9px] uppercase tracking-wider">END IP RANGE BOUND</span>
                     <input
                       type="text"
                       value={endIpInput}
                       onChange={e => setEndIpInput(e.target.value)}
-                      className="w-full bg-[#161924] border border-white/10 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-400/40"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-2.5 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-amber-400/40"
                       placeholder="e.g. 10.0.1.75"
                     />
                   </div>
@@ -598,22 +598,22 @@ export default function FeatherDashboard() {
               {scanMode === "shorthand" && (
                 <div className="w-full grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <span className="text-white/40 block text-[9px] uppercase tracking-wider">ARRAY RANGES (eg: 1-8)</span>
+                    <span className="text-prizm-text-muted block text-[9px] uppercase tracking-wider">ARRAY RANGES (eg: 1-8)</span>
                     <input
                       type="text"
                       value={arrayRangeInput}
                       onChange={e => setArrayRangeInput(e.target.value)}
-                      className="w-full bg-[#161924] border border-white/10 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-400/40"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-2.5 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-amber-400/40"
                       placeholder="e.g. 1-4"
                     />
                   </div>
                   <div className="space-y-1">
-                    <span className="text-white/40 block text-[9px] uppercase tracking-wider">HOST RANGES (eg: 3,10,15)</span>
+                    <span className="text-prizm-text-muted block text-[9px] uppercase tracking-wider">HOST RANGES (eg: 3,10,15)</span>
                     <input
                       type="text"
                       value={hostRangeInput}
                       onChange={e => setHostRangeInput(e.target.value)}
-                      className="w-full bg-[#161924] border border-white/10 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-400/40"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-2.5 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-amber-400/40"
                       placeholder="e.g. 3,10,15,20,30-40"
                     />
                   </div>
@@ -622,17 +622,17 @@ export default function FeatherDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4 pt-3 border-t border-white/5 font-mono text-[10px]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4 pt-3 border-t border-prizm-border font-mono text-[10px]">
             {/* Range validation tracker preview */}
             <div className="text-[11px] space-y-1">
               <div className="flex gap-1.5 items-center">
-                <span className="text-white/40 uppercase">Pre-scan Size:</span>
-                <span className={`font-bold ${preview.isValid ? "text-cyan-400" : "text-rose-400"}`}>
+                <span className="text-prizm-text-muted uppercase">Pre-scan Size:</span>
+                <span className={`font-bold ${preview.isValid ? "text-prizm-primary" : "text-prizm-danger"}`}>
                   {preview.count} sequence targets
                 </span>
               </div>
               {preview.warningMsg && (
-                <span className="text-rose-400 font-bold block text-[9px] uppercase tracking-tighter">
+                <span className="text-prizm-danger font-bold block text-[9px] uppercase tracking-tighter">
                   ⚠ {preview.warningMsg}
                 </span>
               )}
@@ -656,12 +656,12 @@ export default function FeatherDashboard() {
 
       {/* LOADING STATUS OR ALERTS NOTIFIER */}
       {loading && (
-        <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4 flex items-center justify-between animate-pulse">
-          <div className="flex items-center gap-3 font-mono text-xs text-[#5CF2A5]">
-            <RefreshCw className="animate-spin text-[#5CF2A5]" size={16} />
+        <div className="bg-prizm-info/10 border border-prizm-primary rounded-lg p-4 flex items-center justify-between animate-pulse">
+          <div className="flex items-center gap-3 font-mono text-xs text-prizm-primary">
+            <RefreshCw className="animate-spin text-prizm-primary" size={16} />
             <div>
               <span className="font-bold uppercase tracking-wider block">Scanning Network Subnets</span>
-              <p className="text-[11px] text-white/50">{loadingStatus}</p>
+              <p className="text-[11px] text-prizm-text-muted">{loadingStatus}</p>
             </div>
           </div>
         </div>
@@ -670,10 +670,10 @@ export default function FeatherDashboard() {
       {alertMessage && (
         <div className={`border rounded-lg p-4 flex items-center justify-between ${
           alertMessage.type === "success" 
-            ? "bg-green-500/10 border-green-500/25 text-[#5CF2A5]" 
+            ? "bg-green-500/10 border-green-500/25 text-prizm-primary" 
             : alertMessage.type === "error" 
-            ? "bg-rose-500/10 border-rose-500/25 text-rose-400" 
-            : "bg-amber-500/10 border-amber-500/25 text-amber-400"
+            ? "bg-prizm-danger/10 border-prizm-danger/20 text-prizm-danger" 
+            : "bg-prizm-warning/10 border-prizm-warning/20 text-prizm-warning"
         }`}>
           <div className="flex items-center gap-2.5 font-mono text-xs">
             {alertMessage.type === "success" ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
@@ -686,51 +686,51 @@ export default function FeatherDashboard() {
       {/* 2. SUMMARY TELEMETRY CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 font-mono text-[11px]">
         {[
-          { label: "IP Candidates", val: stats.total, color: "text-white" },
-          { label: "Reachable Nodes", val: stats.reachable, color: "text-[#5CF2A5]" , extra: `${stats.unreachable} offline` },
-          { label: "Avg Latency", val: stats.avgDuration > 0 ? `${stats.avgDuration.toFixed(0)} ms` : "0 ms", color: "text-cyan-400" },
-          { label: "Warnings Active", val: stats.warnings, color: stats.warnings > 0 ? "text-amber-400 font-black bg-amber-500/10 rounded px-1.5 inline-block py-0.2" : "text-white/40" },
-          { label: "TRIPS / ALARMS", val: stats.alarms, color: stats.alarms > 0 ? "text-rose-400 font-extrabold bg-rose-500/15 rounded px-1.5 inline-block py-0.5 animate-pulse" : "text-white/40" },
-          { label: "Last Scan Log", val: cacheDetails.lastUpdatedAt ? cacheDetails.lastUpdatedAt.slice(11, 19) : "Never", color: "text-white/60", extra: "UTC Telemetry" }
+          { label: "IP Candidates", val: stats.total, color: "text-prizm-text" },
+          { label: "Reachable Nodes", val: stats.reachable, color: "text-prizm-primary" , extra: `${stats.unreachable} offline` },
+          { label: "Avg Latency", val: stats.avgDuration > 0 ? `${stats.avgDuration.toFixed(0)} ms` : "0 ms", color: "text-prizm-primary" },
+          { label: "Warnings Active", val: stats.warnings, color: stats.warnings > 0 ? "text-prizm-warning font-black bg-prizm-warning/10 rounded px-1.5 inline-block py-0.2" : "text-prizm-text-muted" },
+          { label: "TRIPS / ALARMS", val: stats.alarms, color: stats.alarms > 0 ? "text-prizm-danger font-extrabold bg-prizm-danger/10 rounded px-1.5 inline-block py-0.5 animate-pulse" : "text-prizm-text-muted" },
+          { label: "Last Scan Log", val: cacheDetails.lastUpdatedAt ? cacheDetails.lastUpdatedAt.slice(11, 19) : "Never", color: "text-prizm-text-muted", extra: "UTC Telemetry" }
         ].map((c, i) => (
-          <div key={i} className="bg-[#12141C] border border-white/10 p-3.5 rounded-lg flex flex-col justify-between">
-            <span className="text-white/35 uppercase text-[9px] tracking-widest">{c.label}</span>
+          <div key={i} className="bg-prizm-surface border border-prizm-border p-3.5 rounded-lg flex flex-col justify-between">
+            <span className="text-prizm-text-muted uppercase text-[9px] tracking-widest">{c.label}</span>
             <div className="mt-2 flex items-baseline gap-2">
               <span className={`text-xl font-light ${c.color}`}>{c.val}</span>
-              {c.extra && <span className="text-[8px] text-white/30 block font-normal">{c.extra}</span>}
+              {c.extra && <span className="text-[8px] text-prizm-text-muted block font-normal">{c.extra}</span>}
             </div>
           </div>
         ))}
       </div>
 
       {/* 3. DEVICE GRID TABLE & FILTER ROW */}
-      <div className="bg-[#12141C] border border-white/10 rounded-lg p-5 space-y-4">
+      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
         
         {/* Sub-Filters Grid */}
-        <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center justify-between border-b border-white/5 pb-4">
+        <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center justify-between border-b border-prizm-border pb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 w-full font-mono text-[10px]">
             
             {/* IP search */}
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 text-white/20 w-3 h-3" />
+              <Search className="absolute left-2.5 top-2.5 text-prizm-text-muted w-3 h-3" />
               <input
                 type="text"
                 placeholder="Search IP address..."
                 value={ipSearchParams}
                 onChange={e => setIpSearchParams(e.target.value)}
-                className="w-full bg-[#0A0B0E] border border-white/10 rounded px-7 py-1.5 text-xs text-white focus:outline-none"
+                className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-7 py-1.5 text-xs text-prizm-text focus:outline-none"
               />
             </div>
 
             {/* Entity/Fw search */}
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 text-white/20 w-3 h-3" />
+              <Search className="absolute left-2.5 top-2.5 text-prizm-text-muted w-3 h-3" />
               <input
                 type="text"
                 value={entitySearchParams}
                 onChange={e => setEntitySearchParams(e.target.value)}
                 placeholder="Search name or firmware..."
-                className="w-full bg-[#0A0B0E] border border-white/10 rounded px-7 py-1.5 text-xs text-white focus:outline-none"
+                className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-7 py-1.5 text-xs text-prizm-text focus:outline-none"
               />
             </div>
 
@@ -738,7 +738,7 @@ export default function FeatherDashboard() {
             <select
               value={reachabilityFilter}
               onChange={e => setReachabilityFilter(e.target.value as any)}
-              className="bg-[#0A0B0E] border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none"
+              className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-text focus:outline-none"
             >
               <option value="all">Status: All</option>
               <option value="reachable">Reachable (Live)</option>
@@ -749,7 +749,7 @@ export default function FeatherDashboard() {
             <select
               value={methodFilter}
               onChange={e => setMethodFilter(e.target.value as any)}
-              className="bg-[#0A0B0E] border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none"
+              className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-text focus:outline-none"
             >
               <option value="all">Discovery: All</option>
               <option value="string-ip-map">String IP Map</option>
@@ -762,7 +762,7 @@ export default function FeatherDashboard() {
             <select
               value={arrayFilter}
               onChange={e => setArrayFilter(e.target.value)}
-              className="bg-[#0A0B0E] border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none"
+              className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-text focus:outline-none"
             >
               <option value="all">Array: All</option>
               {[1, 2, 3, 4, 5, 6, 7, 8].map(a => (
@@ -773,11 +773,11 @@ export default function FeatherDashboard() {
             <select
               value={issueFilter}
               onChange={e => setIssueFilter(e.target.value as any)}
-              className="bg-[#0A0B0E] border border-white/10 rounded px-2 py-1.5 text-xs text-amber-400 focus:outline-none"
+              className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-warning focus:outline-none"
             >
-              <option value="all" className="text-white">Issues: All</option>
-              <option value="warnings" className="text-amber-400">Warnings Active</option>
-              <option value="alarms" className="text-rose-400">TRIPS / Alarms Active</option>
+              <option value="all" className="text-prizm-text">Issues: All</option>
+              <option value="warnings" className="text-prizm-warning">Warnings Active</option>
+              <option value="alarms" className="text-prizm-danger">TRIPS / Alarms Active</option>
               <option value="any" className="text-orange-400">Any Faults Present</option>
             </select>
 
@@ -786,14 +786,14 @@ export default function FeatherDashboard() {
           <div className="flex gap-2 shrink-0">
             <button
               onClick={exportNormalizedCSV}
-              className="px-3 py-1.5 border border-white/15 hover:border-white/25 hover:bg-white/5 rounded text-white font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-white/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
             >
               <Download size={11} />
               Export CSV
             </button>
             <button
               onClick={exportFullJSON}
-              className="px-3 py-1.5 border border-white/15 hover:border-white/25 hover:bg-white/5 rounded text-white font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-white/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
             >
               <Database size={11} />
               Export Full JSON
@@ -802,10 +802,10 @@ export default function FeatherDashboard() {
         </div>
 
         {/* HIGH DENSITY RESPONSIVE DEVICE TELEMETRY TABLE */}
-        <div className="border border-white/10 rounded-lg overflow-hidden font-mono text-[11px] shadow-sm">
+        <div className="border border-prizm-border rounded-lg overflow-hidden font-mono text-[11px] shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[1200px]">
-              <thead className="bg-[#0D0E15] border-b border-white/10 text-white/50 uppercase tracking-widest text-[8px]">
+              <thead className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted uppercase tracking-widest text-[8px]">
                 <tr>
                   <th className="p-3 w-10 text-center">Status</th>
                   <th className="p-3">Device IP</th>
@@ -821,7 +821,7 @@ export default function FeatherDashboard() {
                   <th className="p-3">Last Checked success</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 bg-[#07080C]/40">
+              <tbody className="divide-y divide-white/5 bg-prizm-surface-strong">
                 {filteredDevices.map((d, index) => {
                   const isTripped = d.alarmCount > 0;
                   const isWarned = d.warningCount > 0;
@@ -833,7 +833,7 @@ export default function FeatherDashboard() {
                         setSelectedDevice(d);
                         setAdvancedDrawerShowJson(false);
                       }}
-                      className="hover:bg-[#1C1F2B]/50 transition-colors cursor-pointer"
+                      className="hover:bg-prizm-surface-strong transition-colors cursor-pointer"
                     >
                       {/* Reachable status node indicator */}
                       <td className="p-3 text-center">
@@ -842,28 +842,28 @@ export default function FeatherDashboard() {
                         }`} />
                       </td>
 
-                      <td className="p-3 text-white font-bold">{d.deviceIp}</td>
+                      <td className="p-3 text-prizm-text font-bold">{d.deviceIp}</td>
 
                       <td className="p-3">
-                        <span className="px-2 py-0.5 rounded bg-white/5 text-white/60 text-[9px] uppercase">
+                        <span className="px-2 py-0.5 rounded bg-white/5 text-prizm-text-muted text-[9px] uppercase">
                           {d.sourceDiscoveryMethod}
                         </span>
                       </td>
 
-                      <td className="p-3 text-white/70">
+                      <td className="p-3 text-prizm-text-muted">
                         {d.arrayIndex !== null ? `A-${d.arrayIndex}` : "N/A"} 
                         {d.stringIndex !== null ? ` / S-${d.stringIndex}` : ""}
                       </td>
 
-                      <td className="p-3 text-white/80 max-w-44 truncate font-medium">
+                      <td className="p-3 text-prizm-text-muted max-w-44 truncate font-medium">
                         {d.entityName || "Unknown Ethernet Node"}
                       </td>
 
-                      <td className="p-3 text-cyan-400">
+                      <td className="p-3 text-prizm-primary">
                         {d.reachable ? `${d.responseDurationMs} ms` : "n/a"}
                       </td>
 
-                      <td className="p-3 font-semibold text-white/60">
+                      <td className="p-3 font-semibold text-prizm-text-muted">
                         {d.reachable ? (d.firmwareVersion || "Unknown") : "n/a"}
                       </td>
 
@@ -872,7 +872,7 @@ export default function FeatherDashboard() {
                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
                           d.operationalState === "NORMAL" 
                             ? "bg-green-500/5 text-green-400 border border-green-500/10" 
-                            : "bg-rose-500/10 text-rose-400 border border-rose-500/10"
+                            : "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20"
                         }`}>
                           {d.operationalState || "OFFLINE"}
                         </span>
@@ -880,51 +880,51 @@ export default function FeatherDashboard() {
 
                       <td className="p-3 text-center">
                         {isWarned ? (
-                          <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded font-black text-[9px]">
+                          <span className="px-2 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px]">
                             {d.warningCount} WARN
                           </span>
                         ) : (
-                          <span className="text-white/20">-</span>
+                          <span className="text-prizm-text-muted">-</span>
                         )}
                       </td>
 
                       <td className="p-3 text-center">
                         {isTripped ? (
-                          <span className="px-2 py-0.5 bg-rose-500/15 text-rose-400 border border-rose-500/20 rounded font-extrabold text-[9px] animate-pulse">
+                          <span className="px-2 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse">
                             {d.alarmCount} TRIP
                           </span>
                         ) : (
-                          <span className="text-white/20">-</span>
+                          <span className="text-prizm-text-muted">-</span>
                         )}
                       </td>
 
                       {/* HVAC/MIO inputs Summary */}
-                      <td className="p-3 text-white/70 max-w-[280px] truncate leading-normal">
+                      <td className="p-3 text-prizm-text-muted max-w-[280px] truncate leading-normal">
                         {d.reachable ? (
                           <div className="flex gap-2 items-center text-[10px]">
                             {d.spaceTemperature !== null && (
-                              <span className="flex items-center gap-0.5 text-white/50">
-                                <Thermometer size={10} className="text-cyan-400" />
+                              <span className="flex items-center gap-0.5 text-prizm-text-muted">
+                                <Thermometer size={10} className="text-prizm-primary" />
                                 {d.spaceTemperature}°C
                               </span>
                             )}
                             {d.avgCellTemperature !== null && (
-                              <span className="text-amber-400">Cell: {d.avgCellTemperature}°C</span>
+                              <span className="text-prizm-warning">Cell: {d.avgCellTemperature}°C</span>
                             )}
                             {d.thermostatStage && d.thermostatStage !== "Idle" && (
-                              <span className="text-[#5CF2A5] font-black">{d.thermostatStage}</span>
+                              <span className="text-prizm-primary font-black">{d.thermostatStage}</span>
                             )}
                             {d.batteryDoorsClosed === false && (
-                              <span className="text-rose-400 font-bold border-rose-500/20 border bg-rose-500/10 px-1 py-0.2 rounded text-[8px]">DoorOpen</span>
+                              <span className="text-prizm-danger font-bold border-prizm-danger/20 border bg-prizm-danger/10 px-1 py-0.2 rounded text-[8px]">DoorOpen</span>
                             )}
                             {d.spaceTemperature === null && d.avgCellTemperature === null && "MIO Signals Nominal"}
                           </div>
                         ) : (
-                          <span className="text-rose-400/60 font-semibold italic">Unreachable</span>
+                          <span className="text-prizm-danger/60 font-semibold italic">Unreachable</span>
                         )}
                       </td>
 
-                      <td className="p-3 text-white/40">
+                      <td className="p-3 text-prizm-text-muted">
                         {d.lastSuccessAt ? d.lastSuccessAt.slice(11, 19) + " UTC" : "N/A"}
                       </td>
                     </tr>
@@ -934,7 +934,7 @@ export default function FeatherDashboard() {
             </table>
           </div>
           {filteredDevices.length === 0 && (
-            <div className="p-8 text-center text-white/30 italic font-mono">
+            <div className="p-8 text-center text-prizm-text-muted italic font-mono">
               No matching Feather device logs discovered. Make sure dynamic demo toggle is on, or run "Discover Topology" above.
             </div>
           )}
@@ -943,26 +943,26 @@ export default function FeatherDashboard() {
 
       {/* 4. DETAIL DRAWER SIDE VIEW DIALOG */}
       {selectedDevice && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex justify-end animate-fade-in font-mono">
-          <div className="w-full max-w-lg bg-[#12141C] border-l border-white/10 h-full p-6 flex flex-col justify-between overflow-y-auto shadow-2xl relative">
+        <div className="fixed inset-0 bg-prizm-surface-strong backdrop-blur-xs z-50 flex justify-end animate-fade-in font-mono">
+          <div className="w-full max-w-lg bg-prizm-surface border-l border-prizm-border h-full p-6 flex flex-col justify-between overflow-y-auto shadow-2xl relative">
             
             <div className="space-y-6">
               {/* Drawer header */}
-              <div className="flex justify-between items-start border-b border-white/5 pb-4">
+              <div className="flex justify-between items-start border-b border-prizm-border pb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className={`inline-block w-2.5 h-2.5 rounded-full ${
                       selectedDevice.reachable ? "bg-emerald-400" : "bg-rose-500"
                     }`} />
-                    <h3 className="text-white font-mono text-sm font-black uppercase tracking-wider">{selectedDevice.deviceIp}</h3>
+                    <h3 className="text-prizm-text font-mono text-sm font-black uppercase tracking-wider">{selectedDevice.deviceIp}</h3>
                   </div>
-                  <p className="text-[10px] text-[#5CF2A5] font-black uppercase tracking-wide mt-1">
+                  <p className="text-[10px] text-prizm-primary font-black uppercase tracking-wide mt-1">
                     {selectedDevice.entityName || "Array Controller Hardware Module"}
                   </p>
                 </div>
                 <button
                   onClick={() => setSelectedDevice(null)}
-                  className="px-2.5 py-1 border border-white/10 hover:bg-white/5 text-white/60 hover:text-white rounded text-[10px]"
+                  className="px-2.5 py-1 border border-prizm-border hover:bg-white/5 text-prizm-text-muted hover:text-prizm-text rounded text-[10px]"
                 >
                   ✕ Close Drawer
                 </button>
@@ -970,16 +970,16 @@ export default function FeatherDashboard() {
 
               {/* Status checklist alerts block */}
               {(selectedDevice.alarmCount > 0 || selectedDevice.warningCount > 0) && (
-                <div className="bg-rose-500/10 border border-rose-500/15 rounded p-3 text-[10px] space-y-2">
-                  <span className="text-rose-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                <div className="bg-prizm-danger/10 border border-prizm-danger/20 rounded p-3 text-[10px] space-y-2">
+                  <span className="text-prizm-danger font-bold uppercase tracking-wider flex items-center gap-1">
                     <AlertTriangle size={12} /> Active Faults Decoded:
                   </span>
-                  <ul className="list-disc pl-4 space-y-1 text-white/80 leading-normal">
+                  <ul className="list-disc pl-4 space-y-1 text-prizm-text-muted leading-normal">
                     {selectedDevice.activeAlarms.map((a, i) => (
-                      <li key={i} className="text-rose-300 font-bold">{a}</li>
+                      <li key={i} className="text-prizm-danger font-bold">{a}</li>
                     ))}
                     {selectedDevice.activeWarnings.map((w, i) => (
-                      <li key={i} className="text-amber-300">{w}</li>
+                      <li key={i} className="text-prizm-warning">{w}</li>
                     ))}
                   </ul>
                 </div>
@@ -988,60 +988,60 @@ export default function FeatherDashboard() {
               {/* Diagnostics Grid cards */}
               <div className="grid grid-cols-2 gap-3 text-[11px] leading-tight">
                 {/* Space & Cell Temp */}
-                <div className="bg-[#0A0B0E] border border-white/5 p-3 rounded">
-                  <span className="text-white/40 uppercase text-[8px] block mb-1">Thermal Overlook</span>
+                <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded">
+                  <span className="text-prizm-text-muted uppercase text-[8px] block mb-1">Thermal Overlook</span>
                   <div className="space-y-1">
                     <div className="flex justify-between">
-                      <span className="text-white/60">Space Temp:</span>
-                      <span className="text-white font-bold">{selectedDevice.spaceTemperature !== null ? `${selectedDevice.spaceTemperature}°C` : "N/A"}</span>
+                      <span className="text-prizm-text-muted">Space Temp:</span>
+                      <span className="text-prizm-text font-bold">{selectedDevice.spaceTemperature !== null ? `${selectedDevice.spaceTemperature}°C` : "N/A"}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/60">Cell Temp:</span>
-                      <span className="text-[#5CF2A5] font-bold">{selectedDevice.avgCellTemperature !== null ? `${selectedDevice.avgCellTemperature}°C` : "N/A"}</span>
+                      <span className="text-prizm-text-muted">Cell Temp:</span>
+                      <span className="text-prizm-primary font-bold">{selectedDevice.avgCellTemperature !== null ? `${selectedDevice.avgCellTemperature}°C` : "N/A"}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Supply Air */}
-                <div className="bg-[#0A0B0E] border border-white/5 p-3 rounded">
-                  <span className="text-white/40 uppercase text-[8px] block mb-1">HVAC Environmental</span>
+                <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded">
+                  <span className="text-prizm-text-muted uppercase text-[8px] block mb-1">HVAC Environmental</span>
                   <div className="space-y-1">
                     <div className="flex justify-between">
-                      <span className="text-white/60">Supply Temp:</span>
-                      <span className="text-white font-bold">{selectedDevice.supplyAirTemp !== null ? `${selectedDevice.supplyAirTemp}°C` : "N/A"}</span>
+                      <span className="text-prizm-text-muted">Supply Temp:</span>
+                      <span className="text-prizm-text font-bold">{selectedDevice.supplyAirTemp !== null ? `${selectedDevice.supplyAirTemp}°C` : "N/A"}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/60">Stage:</span>
-                      <span className="text-cyan-400 font-bold">{selectedDevice.thermostatStage || "Idle"}</span>
+                      <span className="text-prizm-text-muted">Stage:</span>
+                      <span className="text-prizm-primary font-bold">{selectedDevice.thermostatStage || "Idle"}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Doors Validity block */}
-                <div className="bg-[#0A0B0E] border border-white/5 p-3 rounded col-span-2 space-y-2">
-                  <span className="text-white/40 uppercase text-[8px] block">MIO Enclosure Door Interlocks</span>
+                <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded col-span-2 space-y-2">
+                  <span className="text-prizm-text-muted uppercase text-[8px] block">MIO Enclosure Door Interlocks</span>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
-                    <div className="flex justify-between border-b border-white/5 pb-1">
-                      <span className="text-white/50">Battery doors:</span>
-                      <span className={`font-semibold ${selectedDevice.batteryDoorsClosed === false ? "text-rose-400" : selectedDevice.batteryDoorsClosed === true ? "text-emerald-400" : "text-white/20"}`}>
+                    <div className="flex justify-between border-b border-prizm-border pb-1">
+                      <span className="text-prizm-text-muted">Battery doors:</span>
+                      <span className={`font-semibold ${selectedDevice.batteryDoorsClosed === false ? "text-prizm-danger" : selectedDevice.batteryDoorsClosed === true ? "text-emerald-400" : "text-prizm-text-muted"}`}>
                         {selectedDevice.batteryDoorsClosed === false ? "Open / Fault" : selectedDevice.batteryDoorsClosed === true ? "Closed" : "N/A"}
                       </span>
                     </div>
-                    <div className="flex justify-between border-b border-white/5 pb-1">
-                      <span className="text-white/50">Topcap Closed:</span>
-                      <span className={`font-semibold ${selectedDevice.lowerTopcapClosed === false ? "text-rose-400" : selectedDevice.lowerTopcapClosed === true ? "text-emerald-400" : "text-white/20"}`}>
+                    <div className="flex justify-between border-b border-prizm-border pb-1">
+                      <span className="text-prizm-text-muted">Topcap Closed:</span>
+                      <span className={`font-semibold ${selectedDevice.lowerTopcapClosed === false ? "text-prizm-danger" : selectedDevice.lowerTopcapClosed === true ? "text-emerald-400" : "text-prizm-text-muted"}`}>
                         {selectedDevice.lowerTopcapClosed === false ? "Open" : selectedDevice.lowerTopcapClosed === true ? "Closed" : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/50">DC Cabinet:</span>
-                      <span className={`font-semibold ${selectedDevice.dcDoorsClosed === false ? "text-rose-400" : selectedDevice.dcDoorsClosed === true ? "text-emerald-400" : "text-white/20"}`}>
+                      <span className="text-prizm-text-muted">DC Cabinet:</span>
+                      <span className={`font-semibold ${selectedDevice.dcDoorsClosed === false ? "text-prizm-danger" : selectedDevice.dcDoorsClosed === true ? "text-emerald-400" : "text-prizm-text-muted"}`}>
                         {selectedDevice.dcDoorsClosed === false ? "Open" : selectedDevice.dcDoorsClosed === true ? "Closed" : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/50">AC Cabinet:</span>
-                      <span className={`font-semibold ${selectedDevice.acDoorsClosed === false ? "text-rose-400" : selectedDevice.acDoorsClosed === true ? "text-emerald-400" : "text-white/20"}`}>
+                      <span className="text-prizm-text-muted">AC Cabinet:</span>
+                      <span className={`font-semibold ${selectedDevice.acDoorsClosed === false ? "text-prizm-danger" : selectedDevice.acDoorsClosed === true ? "text-emerald-400" : "text-prizm-text-muted"}`}>
                         {selectedDevice.acDoorsClosed === false ? "Open" : selectedDevice.acDoorsClosed === true ? "Closed" : "N/A"}
                       </span>
                     </div>
@@ -1049,31 +1049,31 @@ export default function FeatherDashboard() {
                 </div>
 
                 {/* Fire & Gas Sensors */}
-                <div className="bg-[#0A0B0E] border border-white/5 p-3 rounded col-span-2 space-y-1 text-[10px]">
-                  <span className="text-white/40 uppercase text-[8px] block mb-1">Safety Sensors telemetry</span>
-                  <div className="flex justify-between border-b border-white/5 pb-1">
-                    <span className="text-white/50">Hydrogen gas PPM:</span>
-                    <span className={`font-bold ${selectedDevice.hydrogen1PPM && selectedDevice.hydrogen1PPM > 50 ? "text-rose-400" : "text-emerald-400"}`}>
+                <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded col-span-2 space-y-1 text-[10px]">
+                  <span className="text-prizm-text-muted uppercase text-[8px] block mb-1">Safety Sensors telemetry</span>
+                  <div className="flex justify-between border-b border-prizm-border pb-1">
+                    <span className="text-prizm-text-muted">Hydrogen gas PPM:</span>
+                    <span className={`font-bold ${selectedDevice.hydrogen1PPM && selectedDevice.hydrogen1PPM > 50 ? "text-prizm-danger" : "text-emerald-400"}`}>
                       {selectedDevice.hydrogen1PPM !== null ? `${selectedDevice.hydrogen1PPM} PPM` : "N/A"}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-white/50">FSS Status validity:</span>
-                    <span className={`font-bold ${selectedDevice.fssValid ? "text-emerald-400" : "text-white/30"}`}>
+                    <span className="text-prizm-text-muted">FSS Status validity:</span>
+                    <span className={`font-bold ${selectedDevice.fssValid ? "text-emerald-400" : "text-prizm-text-muted"}`}>
                       {selectedDevice.fssValid ? "Valid" : "N/A"}
                     </span>
                   </div>
                 </div>
 
                 {/* HVAC Detailed current readouts */}
-                <div className="bg-[#0A0B0E] border border-white/5 p-3 rounded col-span-2 space-y-1.5 text-[10px]">
-                  <span className="text-white/40 uppercase text-[8px] block mb-1">HVAC Compressor Current & Fans</span>
+                <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded col-span-2 space-y-1.5 text-[10px]">
+                  <span className="text-prizm-text-muted uppercase text-[8px] block mb-1">HVAC Compressor Current & Fans</span>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1 border-r border-white/5 pr-2">
-                      <span className="text-cyan-400 font-bold block border-b border-white/5 pb-0.5 uppercase text-[9px]">HVAC Unit #1</span>
+                    <div className="space-y-1 border-r border-prizm-border pr-2">
+                      <span className="text-prizm-primary font-bold block border-b border-prizm-border pb-0.5 uppercase text-[9px]">HVAC Unit #1</span>
                       <div className="flex justify-between">
                         <span>Current:</span>
-                        <span className="text-white font-medium">{selectedDevice.hvacCurrent1 !== null ? `${selectedDevice.hvacCurrent1} A` : "N/A"}</span>
+                        <span className="text-prizm-text font-medium">{selectedDevice.hvacCurrent1 !== null ? `${selectedDevice.hvacCurrent1} A` : "N/A"}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Low fan:</span>
@@ -1085,15 +1085,15 @@ export default function FeatherDashboard() {
                       </div>
                       <div className="flex justify-between">
                         <span>Compressor:</span>
-                        <span className={selectedDevice.YCompressorOn1 ? "text-[#5CF2A5] font-black" : ""}>{selectedDevice.YCompressorOn1 ? "ON" : "OFF"}</span>
+                        <span className={selectedDevice.YCompressorOn1 ? "text-prizm-primary font-black" : ""}>{selectedDevice.YCompressorOn1 ? "ON" : "OFF"}</span>
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <span className="text-cyan-400 font-bold block border-b border-white/5 pb-0.5 uppercase text-[9px]">HVAC Unit #2</span>
+                      <span className="text-prizm-primary font-bold block border-b border-prizm-border pb-0.5 uppercase text-[9px]">HVAC Unit #2</span>
                       <div className="flex justify-between">
                         <span>Current:</span>
-                        <span className="text-white font-medium">{selectedDevice.hvacCurrent2 !== null ? `${selectedDevice.hvacCurrent2} A` : "N/A"}</span>
+                        <span className="text-prizm-text font-medium">{selectedDevice.hvacCurrent2 !== null ? `${selectedDevice.hvacCurrent2} A` : "N/A"}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Low fan:</span>
@@ -1105,7 +1105,7 @@ export default function FeatherDashboard() {
                       </div>
                       <div className="flex justify-between">
                         <span>Compressor:</span>
-                        <span className={selectedDevice.YCompressorOn2 ? "text-[#5CF2A5] font-black" : ""}>{selectedDevice.YCompressorOn2 ? "ON" : "OFF"}</span>
+                        <span className={selectedDevice.YCompressorOn2 ? "text-prizm-primary font-black" : ""}>{selectedDevice.YCompressorOn2 ? "ON" : "OFF"}</span>
                       </div>
                     </div>
                   </div>
@@ -1113,59 +1113,59 @@ export default function FeatherDashboard() {
               </div>
 
               {/* Endpoint response metadata */}
-              <div className="space-y-1 text-[10px] bg-[#1C1F2B] p-3 rounded border border-white/5 leading-normal">
-                <span className="text-white/40 block text-[8px] uppercase tracking-wider mb-2">Diagnostic Network packet metadata</span>
+              <div className="space-y-1 text-[10px] bg-prizm-surface-strong p-3 rounded border border-prizm-border leading-normal">
+                <span className="text-prizm-text-muted block text-[8px] uppercase tracking-wider mb-2">Diagnostic Network packet metadata</span>
                 <div className="flex justify-between">
-                  <span className="text-white/40">Request endpoint URL:</span>
-                  <span className="text-white select-all">http://{selectedDevice.deviceIp}:8080/feather/status/report.json</span>
+                  <span className="text-prizm-text-muted">Request endpoint URL:</span>
+                  <span className="text-prizm-text select-all">http://{selectedDevice.deviceIp}:8080/feather/status/report.json</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-white/40">Ping Response duration:</span>
-                  <span className="text-cyan-400">{selectedDevice.responseDurationMs} ms</span>
+                  <span className="text-prizm-text-muted">Ping Response duration:</span>
+                  <span className="text-prizm-primary">{selectedDevice.responseDurationMs} ms</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-white/40">Discovery mapping:</span>
-                  <span className="text-[#5CF2A5] capitalize">{selectedDevice.sourceDiscoveryMethod} mapping</span>
+                  <span className="text-prizm-text-muted">Discovery mapping:</span>
+                  <span className="text-prizm-primary capitalize">{selectedDevice.sourceDiscoveryMethod} mapping</span>
                 </div>
                 {selectedDevice.lastError && (
-                  <div className="text-rose-400 border-t border-white/5 pt-2 mt-2 font-bold leading-normal">
+                  <div className="text-prizm-danger border-t border-prizm-border pt-2 mt-2 font-bold leading-normal">
                     Last Transport Error: {selectedDevice.lastError}
                   </div>
                 )}
               </div>
 
               {/* Advanced toggle for raw json */}
-              <div className="space-y-2 border-t border-white/5 pt-4">
+              <div className="space-y-2 border-t border-prizm-border pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-white/40 text-[10px] uppercase">Advanced direct output debug</span>
+                  <span className="text-prizm-text-muted text-[10px] uppercase">Advanced direct output debug</span>
                   <button
                     onClick={() => setAdvancedDrawerShowJson(!advancedDrawerShowJson)}
-                    className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-bold text-[9px] text-white cursor-pointer"
+                    className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-bold text-[9px] text-prizm-text cursor-pointer"
                   >
                     {advancedDrawerShowJson ? "Hide Raw report JSON" : "Show Raw report JSON"}
                   </button>
                 </div>
 
                 {advancedDrawerShowJson && (
-                  <pre className="text-[10px] p-3.5 bg-black/50 border border-white/5 rounded text-[#22D3EE] leading-loose max-h-[220px] overflow-y-auto select-all">
+                  <pre className="text-[10px] p-3.5 bg-prizm-surface-strong border border-prizm-border rounded text-[#22D3EE] leading-loose max-h-[220px] overflow-y-auto select-all">
                     {JSON.stringify(selectedDevice.rawResponse || { info: "No raw payload response registered." }, null, 2)}
                   </pre>
                 )}
               </div>
             </div>
 
-            <div className="border-t border-white/10 pt-4 mt-6 flex justify-between gap-3">
+            <div className="border-t border-prizm-border pt-4 mt-6 flex justify-between gap-3">
               <button
                 _id="refresh-btn-drawer"
                 onClick={() => refreshSingleDevice(selectedDevice.deviceIp, selectedDevice.sourceDiscoveryMethod)}
                 disabled={loading}
-                className="flex-1 py-2 text-center text-xs font-black font-mono border border-cyan-500/20 hover:border-cyan-500/40 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-400 rounded cursor-pointer transition-all uppercase"
+                className="flex-1 py-2 text-center text-xs font-black font-mono border border-prizm-primary hover:border-prizm-primary bg-prizm-info/10 hover:bg-prizm-info/10 text-prizm-primary rounded cursor-pointer transition-all uppercase"
               >
                 Re-Ping Node
               </button>
               <button
                 onClick={() => setSelectedDevice(null)}
-                className="px-6 py-2 text-center text-xs font-bold font-mono bg-white/5 hover:bg-white/10 text-white rounded cursor-pointer transition-all uppercase"
+                className="px-6 py-2 text-center text-xs font-bold font-mono bg-white/5 hover:bg-white/10 text-prizm-text rounded cursor-pointer transition-all uppercase"
               >
                 Dismiss
               </button>

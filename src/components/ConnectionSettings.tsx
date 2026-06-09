@@ -386,23 +386,23 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   };
 
   return (
-    <div className="bg-[#12141C] border border-white/5 rounded-lg p-5 font-mono shadow-xl space-y-6">
+    <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6">
       
       {/* Top action header and labels */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-white/5">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-prizm-border">
         <div>
           <div className="flex items-center gap-2">
-            <Server className="text-cyan-400" size={16} />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">EMS Base Target Profile Manager</span>
+            <Server className="text-prizm-primary" size={16} />
+            <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">EMS Base Target Profile Manager</span>
           </div>
-          <div className="text-[11px] text-white/40 mt-1 max-w-xl">
+          <div className="text-[11px] text-prizm-text-muted mt-1 max-w-xl">
             Configure local LAN gateways and site-specific Modbus layouts. Switch site connectivity instantly without manual `.env` refactoring.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleImportClick}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/80 text-[10px] uppercase font-bold rounded border border-white/10 cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
           >
             <Upload size={11} />
             Import (.json)
@@ -416,7 +416,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
           />
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/80 text-[10px] uppercase font-bold rounded border border-white/10 cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
           >
             <Download size={11} />
             Export (.json)
@@ -432,8 +432,8 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
       </div>
 
       {loading ? (
-        <div className="h-24 flex items-center justify-center text-white/20 text-xs">
-          <RefreshCw size={18} className="animate-spin text-cyan-500 mr-2" />
+        <div className="h-24 flex items-center justify-center text-prizm-text-muted text-xs">
+          <RefreshCw size={18} className="animate-spin text-prizm-primary-strong mr-2" />
           Synchronizing configuration targets...
         </div>
       ) : (
@@ -448,8 +448,8 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                   key={p.id}
                   className={`border rounded-lg p-4 transition-all relative overflow-hidden flex flex-col justify-between ${
                     active 
-                      ? "bg-cyan-500/[0.04] border-cyan-500 text-white shadow-cyan-950/20 shadow-md" 
-                      : "bg-[#161a25]/60 border-white/5 hover:border-white/15 text-white/80"
+                      ? "bg-cyan-500/[0.04] border-prizm-primary text-prizm-text shadow-cyan-950/20 shadow-md" 
+                      : "bg-prizm-surface-strong border-prizm-border hover:border-prizm-border text-prizm-text-muted"
                   }`}
                 >
                   
@@ -462,57 +462,57 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <div className="text-white text-xs font-extrabold tracking-wider flex items-center gap-1.5">
-                        <Wifi size={12} className={active ? "text-cyan-400" : "text-white/30"} />
+                      <div className="text-prizm-text text-xs font-extrabold tracking-wider flex items-center gap-1.5">
+                        <Wifi size={12} className={active ? "text-prizm-primary" : "text-prizm-text-muted"} />
                         {p.profileName}
                       </div>
-                      <div className="text-[10px] text-white/40 uppercase font-medium flex items-center gap-2">
-                        <span>SITE: <span className="font-bold text-white/90">{p.siteName}</span></span>
+                      <div className="text-[10px] text-prizm-text-muted uppercase font-medium flex items-center gap-2">
+                        <span>SITE: <span className="font-bold text-prizm-text-muted">{p.siteName}</span></span>
                         <span>•</span>
-                        <span>CODE: <span className="font-bold text-white/90">{p.stationCode}</span></span>
+                        <span>CODE: <span className="font-bold text-prizm-text-muted">{p.stationCode}</span></span>
                         <span>•</span>
-                        <span>BLOCK: <span className="font-bold text-[#5CF2A5]">{p.blockIndex}</span></span>
+                        <span>BLOCK: <span className="font-bold text-prizm-primary">{p.blockIndex}</span></span>
                       </div>
                     </div>
 
                     {/* Network settings matrix */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 bg-black/30 rounded p-2.5 text-[10px] border border-white/[0.02]">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 bg-prizm-surface-strong rounded p-2.5 text-[10px] border border-white/[0.02]">
                       <div className="flex justify-between">
-                        <span className="text-white/30">EMS Host:</span>
-                        <span className="text-cyan-400 font-bold max-w-[124px] truncate">{p.emsHost}</span>
+                        <span className="text-prizm-text-muted">EMS Host:</span>
+                        <span className="text-prizm-primary font-bold max-w-[124px] truncate">{p.emsHost}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/30">EMS Port:</span>
-                        <span className="text-white">{p.emsPort}</span>
+                        <span className="text-prizm-text-muted">EMS Port:</span>
+                        <span className="text-prizm-text">{p.emsPort}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/30">Modbus Host:</span>
-                        <span className="text-cyan-400 font-bold max-w-[124px] truncate">{p.modbusHost}</span>
+                        <span className="text-prizm-text-muted">Modbus Host:</span>
+                        <span className="text-prizm-primary font-bold max-w-[124px] truncate">{p.modbusHost}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/30">Modbus Port:</span>
-                        <span className="text-white">{p.modbusPort}</span>
+                        <span className="text-prizm-text-muted">Modbus Port:</span>
+                        <span className="text-prizm-text">{p.modbusPort}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/30">Base Path:</span>
-                        <span className="text-white/70">{p.turtlePath}</span>
+                        <span className="text-prizm-text-muted">Base Path:</span>
+                        <span className="text-prizm-text-muted">{p.turtlePath}</span>
                       </div>
-                      <div className="flex justify-between col-span-2 border-t border-white/5 pt-1 mt-1 text-[9px] text-white/50 italic">
+                      <div className="flex justify-between col-span-2 border-t border-prizm-border pt-1 mt-1 text-[9px] text-prizm-text-muted italic">
                         <span>Arrays: {p.arrayCount} (Strings/Array: {p.stringsPerArray})</span>
                       </div>
                     </div>
 
                     {p.notes && (
-                      <p className="text-[10px] text-white/30 italic max-h-8 truncate">
+                      <p className="text-[10px] text-prizm-text-muted italic max-h-8 truncate">
                         Note: {p.notes}
                       </p>
                     )}
 
                     {p.lastTestedAt && (
-                      <div className="flex items-center justify-between text-[9px] text-white/40 border-t border-white/[0.04] pt-2">
+                      <div className="flex items-center justify-between text-[9px] text-prizm-text-muted border-t border-white/[0.04] pt-2">
                         <span>Last connection audit: {new Date(p.lastTestedAt).toLocaleTimeString()}</span>
                         {p.lastTestResult?.success ? (
-                          <span className="text-[#5CF2A5] font-bold flex items-center gap-1">
+                          <span className="text-prizm-primary font-bold flex items-center gap-1">
                             <CheckCircle size={10} /> ACCESS SUCCESS
                           </span>
                         ) : (
@@ -529,14 +529,14 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                     <div className="flex gap-1">
                       <button
                         onClick={() => handleOpenEditForm(p)}
-                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5 text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Edit config"
                       >
                         <Edit size={10} className="inline mr-1" /> Edit
                       </button>
                       <button
                         onClick={() => handleDuplicate(p)}
-                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5 text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Duplicate configuration"
                       >
                         <Copy size={10} className="inline mr-1" /> Dup
@@ -554,7 +554,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                       <button
                         onClick={() => handleTestConnectedProfile(p.id)}
                         disabled={testingId === p.id}
-                        className="px-2.5 py-1 text-[10px] uppercase font-bold bg-[#1d2235] hover:bg-[#2c334d] text-cyan-400 hover:text-cyan-300 border border-cyan-500/20 rounded cursor-pointer transition-all flex items-center gap-1"
+                        className="px-2.5 py-1 text-[10px] uppercase font-bold bg-prizm-surface-strong hover:bg-prizm-surface-strong text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1"
                       >
                         {testingId === p.id ? (
                           <>
@@ -570,7 +570,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                       {!active && (
                         <button
                           onClick={() => handleActivate(p.id)}
-                          className="px-3 py-1 text-[10px] uppercase font-extrabold bg-cyan-500/10 hover:bg-cyan-500 text-cyan-400 hover:text-black border border-cyan-500/40 rounded cursor-pointer transition-all"
+                          className="px-3 py-1 text-[10px] uppercase font-extrabold bg-prizm-info/10 hover:bg-cyan-500 text-prizm-primary hover:text-black border border-prizm-primary rounded cursor-pointer transition-all"
                         >
                           Activate
                         </button>
@@ -589,16 +589,16 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
       {/* Profile Create/Edit Modal Form */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#12141C] border border-white/10 rounded-lg w-full max-w-2xl font-mono text-xs overflow-hidden shadow-2xl animate-scale-in">
+        <div className="fixed inset-0 bg-prizm-surface-strong backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg w-full max-w-2xl font-mono text-xs overflow-hidden shadow-2xl animate-scale-in">
             
-            <div className="bg-[#161a25] p-4 border-b border-white/5 flex justify-between items-center">
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
+            <div className="bg-prizm-surface-strong p-4 border-b border-prizm-border flex justify-between items-center">
+              <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">
                 {formIsNew ? "Create New Site Connection Profile" : `Modify Site Profile: ${formProfile.profileName}`}
               </span>
               <button 
                 onClick={() => setShowForm(false)}
-                className="text-white/40 hover:text-white cursor-pointer"
+                className="text-prizm-text-muted hover:text-prizm-text cursor-pointer"
               >
                 <X size={14} />
               </button>
@@ -617,49 +617,49 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                 
                 {/* Basic Attributes Group */}
                 <div className="space-y-3 md:col-span-2">
-                  <div className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wide border-b border-white/5 pb-1">Primary Identifiers</div>
+                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">Primary Identifiers</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">Profile Name *</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Profile Name *</label>
                   <input 
                     type="text" 
                     value={formProfile.profileName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, profileName: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-white font-bold placeholder-white/10 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text font-bold placeholder-white/10 focus:border-prizm-primary outline-none"
                     placeholder="PRIZM Site Core"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">BESS Site Name *</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">BESS Site Name *</label>
                   <input 
                     type="text" 
                     value={formProfile.siteName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, siteName: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/10 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
                     placeholder="BHE substation site"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 md:col-span-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">Station Code *</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Station Code *</label>
                     <input 
                       type="text" 
                       value={formProfile.stationCode || ""}
                       onChange={e => setFormProfile(prev => ({ ...prev, stationCode: e.target.value }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/10 focus:border-cyan-500 outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
                       placeholder="BHE0020"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">Block Index *</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Block Index *</label>
                     <input 
                       type="number" 
                       value={formProfile.blockIndex || 1}
                       onChange={e => setFormProfile(prev => ({ ...prev, blockIndex: Number(e.target.value) }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/10 focus:border-cyan-500 outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
                       min={1}
                     />
                   </div>
@@ -667,39 +667,39 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
                 {/* Direct LAN target parameters option */}
                 <div className="space-y-3 md:col-span-2 pt-2">
-                  <div className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wide border-b border-white/5 pb-1">EMS LAN Ethernet Settings</div>
+                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">EMS LAN Ethernet Settings</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">EMS Host / IP Address *</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">EMS Host / IP Address *</label>
                   <input 
                     type="text" 
                     value={formProfile.emsHost || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, emsHost: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-cyan-400 font-bold placeholder-white/20 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-primary font-bold placeholder-white/20 focus:border-prizm-primary outline-none"
                     placeholder="10.0.0.3"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">EMS Port *</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">EMS Port *</label>
                     <input 
                       type="number" 
                       value={formProfile.emsPort || 8080}
                       onChange={e => setFormProfile(prev => ({ ...prev, emsPort: Number(e.target.value) }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/20 focus:border-cyan-500 outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none"
                       min={1}
                       max={65535}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">Turtle Path *</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Turtle Path *</label>
                     <input 
                       type="text" 
                       value={formProfile.turtlePath || "/turtle"}
                       onChange={e => setFormProfile(prev => ({ ...prev, turtlePath: e.target.value }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/20 focus:border-cyan-500 outline-none animate-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none animate-none"
                       placeholder="/turtle"
                     />
                   </div>
@@ -707,50 +707,50 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
                 {/* Modbus Map properties */}
                 <div className="space-y-3 md:col-span-2 pt-2">
-                  <div className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wide border-b border-white/5 pb-1">Modbus Hardware Settings</div>
+                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">Modbus Hardware Settings</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">Modbus Host IP *</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Modbus Host IP *</label>
                   <input 
                     type="text" 
                     value={formProfile.modbusHost || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, modbusHost: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-cyan-400 font-bold placeholder-white/20 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-primary font-bold placeholder-white/20 focus:border-prizm-primary outline-none"
                     placeholder="10.0.0.3"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">Modbus Port *</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Modbus Port *</label>
                   <input 
                     type="number" 
                     value={formProfile.modbusPort || 4502}
                     onChange={e => setFormProfile(prev => ({ ...prev, modbusPort: Number(e.target.value) }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-white placeholder-white/20 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none"
                     min={1}
                     max={65535}
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 md:col-span-2 bg-black/20 p-3 rounded border border-white/[0.02]">
+                <div className="grid grid-cols-2 gap-2 md:col-span-2 bg-prizm-surface-strong p-3 rounded border border-white/[0.02]">
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">Array Count</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Array Count</label>
                     <input 
                       type="number" 
                       value={formProfile.arrayCount || 8}
                       onChange={e => setFormProfile(prev => ({ ...prev, arrayCount: Number(e.target.value) }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text focus:border-prizm-primary outline-none"
                       min={1}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-white/40 uppercase font-bold">Strings Per Array</label>
+                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Strings Per Array</label>
                     <input 
                       type="number" 
                       value={formProfile.stringsPerArray || 40}
                       onChange={e => setFormProfile(prev => ({ ...prev, stringsPerArray: Number(e.target.value) }))}
-                      className="w-full bg-black/40 border border-white/10 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text focus:border-prizm-primary outline-none"
                       min={1}
                     />
                   </div>
@@ -758,11 +758,11 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
                 {/* Additional instructions/Notes */}
                 <div className="space-y-1 md:col-span-2">
-                  <label className="block text-[10px] text-white/40 uppercase font-bold">Notes / Site Description</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Notes / Site Description</label>
                   <textarea 
                     value={formProfile.notes || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, notes: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded p-2 text-white text-xs placeholder-white/10 h-16 focus:border-cyan-500 outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text text-xs placeholder-white/10 h-16 focus:border-prizm-primary outline-none"
                     placeholder="e.g., Local backup substation configuration"
                   />
                 </div>
@@ -771,11 +771,11 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
             </div>
 
-            <div className="bg-[#12141C] p-4 border-t border-white/5 flex justify-between items-center bg-black/40">
+            <div className="bg-prizm-surface p-4 border-t border-prizm-border flex justify-between items-center bg-prizm-surface-strong">
               <button
                 onClick={handleTestInForm}
                 disabled={customTestLoading}
-                className="px-3.5 py-2 text-xs uppercase font-extrabold bg-white/5 hover:bg-white/10 text-cyan-400 hover:text-cyan-300 border border-cyan-500/10 rounded cursor-pointer transition-all flex items-center gap-1.5"
+                className="px-3.5 py-2 text-xs uppercase font-extrabold bg-white/5 hover:bg-white/10 text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1.5"
               >
                 {customTestLoading ? (
                   <>
@@ -791,7 +791,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-xs uppercase font-bold bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/10 rounded cursor-pointer transition-all"
+                  className="px-4 py-2 text-xs uppercase font-bold bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border rounded cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
@@ -810,17 +810,17 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
       {/* Audit Connection Results Diagnostic Modal */}
       {showTestResultModal && testResult && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-55 flex items-center justify-center p-4">
-          <div className="bg-[#12141C] border border-white/10 rounded-lg w-full max-w-lg font-mono text-xs overflow-hidden shadow-2xl animate-scale-in">
+        <div className="fixed inset-0 bg-prizm-surface-strong backdrop-blur-sm z-55 flex items-center justify-center p-4">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg w-full max-w-lg font-mono text-xs overflow-hidden shadow-2xl animate-scale-in">
             
-            <div className="bg-[#161a25] p-4 border-b border-white/5 flex justify-between items-center">
-              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Wifi className={testResult.success ? "text-[#5CF2A5]" : "text-red-400"} size={14} />
+            <div className="bg-prizm-surface-strong p-4 border-b border-prizm-border flex justify-between items-center">
+              <span className="text-xs font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
+                <Wifi className={testResult.success ? "text-prizm-primary" : "text-red-400"} size={14} />
                 BESS Connection Audit Report
               </span>
               <button 
                 onClick={() => setShowTestResultModal(false)}
-                className="text-white/40 hover:text-white cursor-pointer"
+                className="text-prizm-text-muted hover:text-prizm-text cursor-pointer"
               >
                 <X size={14} />
               </button>
@@ -828,9 +828,9 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
             <div className="p-5 space-y-4">
               
-              <div className="flex flex-col items-center justify-center text-center py-4 bg-black/40 rounded-lg border border-white/[0.03]">
+              <div className="flex flex-col items-center justify-center text-center py-4 bg-prizm-surface-strong rounded-lg border border-white/[0.03]">
                 {testResult.success ? (
-                  <div className="h-12 w-12 rounded-full bg-emerald-500/10 border border-[#5CF2A5]/30 flex items-center justify-center text-[#5CF2A5] mb-2 animate-pulse">
+                  <div className="h-12 w-12 rounded-full bg-emerald-500/10 border border-prizm-primary flex items-center justify-center text-prizm-primary mb-2 animate-pulse">
                     <CheckCircle size={28} />
                   </div>
                 ) : (
@@ -838,33 +838,33 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                     <AlertTriangle size={28} />
                   </div>
                 )}
-                <div className="text-sm font-bold text-white">
+                <div className="text-sm font-bold text-prizm-text">
                   {testResult.success ? "CONNECTIVITY SECURE" : "COMMUNICATION FAILURE"}
                 </div>
-                <p className="text-[10px] text-white/50 mt-1 uppercase tracking-wider max-w-[280px] truncate">
+                <p className="text-[10px] text-prizm-text-muted mt-1 uppercase tracking-wider max-w-[280px] truncate">
                   {testResult.emsUrlTested}
                 </p>
               </div>
 
               {/* Timing metrics */}
               <div className="space-y-2">
-                <div className="text-[10px] text-white/40 uppercase font-bold">Response Timings Matrix</div>
+                <div className="text-[10px] text-prizm-text-muted uppercase font-bold">Response Timings Matrix</div>
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-black/30 border border-white/5 p-2 rounded text-center">
-                    <div className="text-[9px] text-white/40 uppercase">/status</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-white" : "text-white/20"}`}>
+                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
+                    <div className="text-[9px] text-prizm-text-muted uppercase">/status</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
                       {testResult.durations?.status ? `${testResult.durations.status}ms` : "N/A"}
                     </div>
                   </div>
-                  <div className="bg-black/30 border border-white/5 p-2 rounded text-center">
-                    <div className="text-[9px] text-white/40 uppercase">report.json</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-white" : "text-white/20"}`}>
+                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
+                    <div className="text-[9px] text-prizm-text-muted uppercase">report.json</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
                       {testResult.durations?.reportStatus ? `${testResult.durations.reportStatus}ms` : "N/A"}
                     </div>
                   </div>
-                  <div className="bg-black/30 border border-white/5 p-2 rounded text-center">
-                    <div className="text-[9px] text-white/40 uppercase">blockviewer</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-white" : "text-white/20"}`}>
+                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
+                    <div className="text-[9px] text-prizm-text-muted uppercase">blockviewer</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
                       {testResult.durations?.blockviewer ? `${testResult.durations.blockviewer}ms` : "N/A"}
                     </div>
                   </div>
@@ -872,22 +872,22 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
               </div>
 
               {/* Decoded Firmware details */}
-              <div className="bg-[#161a25]/60 border border-white/5 p-3 rounded space-y-2">
+              <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded space-y-2">
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-white/30">Detected Host:</span>
-                  <span className="text-white font-bold">{testResult.emsUrlTested}</span>
+                  <span className="text-prizm-text-muted">Detected Host:</span>
+                  <span className="text-prizm-text font-bold">{testResult.emsUrlTested}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-white/30">Turtle Version:</span>
-                  <span className="text-cyan-400 font-bold">{testResult.turtleVersion || "Unknown"}</span>
+                  <span className="text-prizm-text-muted">Turtle Version:</span>
+                  <span className="text-prizm-primary font-bold">{testResult.turtleVersion || "Unknown"}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-white/30">Substation Code:</span>
-                  <span className="text-white">{testResult.stationCode || "BHE0020"}</span>
+                  <span className="text-prizm-text-muted">Substation Code:</span>
+                  <span className="text-prizm-text">{testResult.stationCode || "BHE0020"}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-white/30">EMS Block Index:</span>
-                  <span className="text-[#5CF2A5] font-bold">{testResult.blockIndex || 1}</span>
+                  <span className="text-prizm-text-muted">EMS Block Index:</span>
+                  <span className="text-prizm-primary font-bold">{testResult.blockIndex || 1}</span>
                 </div>
               </div>
 
@@ -900,7 +900,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
             </div>
 
-            <div className="bg-[#12141C] p-4 border-t border-white/5 flex justify-end bg-black/40">
+            <div className="bg-prizm-surface p-4 border-t border-prizm-border flex justify-end bg-prizm-surface-strong">
               <button
                 onClick={() => setShowTestResultModal(false)}
                 className="px-5 py-2 text-xs uppercase font-extrabold bg-cyan-500 hover:bg-cyan-600 text-black rounded cursor-pointer transition-all shadow-md active:translate-y-px"

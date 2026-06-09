@@ -341,12 +341,12 @@ export default function ToolDashboards() {
             parsedSite = rawSiteData;
           } else if (typeof rawSiteData === "string") {
             // Parse CSV directly
-            const lines = rawSiteData.split("\n").map(l => l.trim()).filter(Boolean);
+            const lines = rawSiteData.split("\n").map((l: string) => l.trim()).filter(Boolean);
             if (lines.length > 1) {
-              const header = lines[0].split(",").map(c => c.trim().toLowerCase());
-              const entityIdx = header.indexOf("entitykeytype");
-              const ipIdx = header.indexOf("ipaddress");
-              const portIdx = header.indexOf("tcpport");
+              const header = lines[0].split(",").map((c: string) => c.trim().toLowerCase());
+              const entityIdx = header.findIndex((h: string) => h.includes("entity") || h.includes("type") || h.includes("name"));
+              const ipIdx = header.findIndex((h: string) => h === "ipaddress" || h === "ip address" || h.includes("ip"));
+              const portIdx = header.findIndex((h: string) => h.includes("port"));
               if (entityIdx !== -1 && ipIdx !== -1) {
                 for (let i = 1; i < lines.length; i++) {
                   const parts = lines[i].split(",").map(p => p.trim());
@@ -519,9 +519,9 @@ export default function ToolDashboards() {
 
   // JSON helper layout renderer
   const renderJSONTree = (obj: any) => {
-    if (!obj) return <p className="text-white/40 italic">No data structure recorded.</p>;
+    if (!obj) return <p className="text-prizm-text-muted italic">No data structure recorded.</p>;
     return (
-      <pre className="text-[11px] font-mono p-4 bg-black/40 border border-white/5 rounded text-[#81FBC1] overflow-x-auto max-h-[450px]">
+      <pre className="text-[11px] font-mono p-4 bg-prizm-surface-strong border border-prizm-border rounded text-prizm-primary overflow-x-auto max-h-[450px]">
         {JSON.stringify(obj, null, 2)}
       </pre>
     );
@@ -530,13 +530,13 @@ export default function ToolDashboards() {
   const getSourceBadgeColor = (src: string) => {
     switch (src) {
       case "live":
-        return "bg-green-500/15 text-[#5CF2A5] border border-green-500/25";
+        return "bg-green-500/15 text-prizm-primary border border-green-500/25";
       case "cached":
-        return "bg-amber-500/15 text-amber-400 border border-amber-500/25";
+        return "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20";
       case "demo":
-        return "bg-cyan-500/15 text-cyan-400 border border-cyan-500/25";
+        return "bg-prizm-info/10 text-prizm-primary border border-prizm-primary";
       default:
-        return "bg-rose-500/15 text-rose-400 border border-rose-500/25";
+        return "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20";
     }
   };
 
@@ -546,10 +546,10 @@ export default function ToolDashboards() {
       {/* 1. LEFT NAVIGATION RAIL / SIDEBAR WITHIN COMPONENT */}
       <aside className="w-full xl:w-76 shrink-0 flex flex-col gap-4">
         {/* SIDEBAR NAVIGATION CARD */}
-        <div className="bg-[#12141C] border border-white/10 rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-4 border-b border-white/5 pb-3">
-            <Sliders className="text-[#5CF2A5]" size={16} />
-            <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-4 border-b border-prizm-border pb-3">
+            <Sliders className="text-prizm-primary" size={16} />
+            <span className="font-mono text-xs font-bold text-prizm-text uppercase tracking-wider">
               Tool Dashboards
             </span>
           </div>
@@ -577,12 +577,12 @@ export default function ToolDashboards() {
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2 text-[11px] rounded transition-all cursor-pointer ${
                     isActive
-                      ? "bg-cyan-500/15 border-l-3 border-[#5CF2A5] text-[#5CF2A5] font-bold"
-                      : "text-white/55 hover:text-white hover:bg-white/5"
+                      ? "bg-prizm-info/10 border-l-3 border-prizm-primary text-prizm-primary font-bold"
+                      : "text-prizm-text-muted hover:text-prizm-text hover:bg-white/5"
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Icon size={12} className={isActive ? "text-[#5CF2A5]" : "text-white/40"} />
+                    <Icon size={12} className={isActive ? "text-prizm-primary" : "text-prizm-text-muted"} />
                     <span>{item.label}</span>
                   </div>
                   <ChevronRight size={10} className="opacity-40" />
@@ -593,32 +593,32 @@ export default function ToolDashboards() {
         </div>
 
         {/* SYSTEM CONNECTIVITY AND TELEMETRY METADATA CARD */}
-        <div className="bg-[#12141C] border border-white/10 rounded-lg p-4 font-mono text-[10px]">
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 font-mono text-[10px]">
           <div className="flex justify-between items-center mb-3">
-            <span className="text-white/40 uppercase font-semibold">Telemetry Feed</span>
+            <span className="text-prizm-text-muted uppercase font-semibold">Telemetry Feed</span>
             <span className={`px-2 py-0.5 rounded text-[8px] uppercase font-bold tracking-widest ${getSourceBadgeColor(metadata.source)}`}>
               {metadata.source}
             </span>
           </div>
 
-          <div className="space-y-2 text-white/75">
-            <div className="flex justify-between border-b border-white/5 pb-1">
-              <span className="text-white/30">EMS Core Target:</span>
-              <span className="text-white/90 truncate max-w-44">{metadata.activeEmsBaseUrl}</span>
+          <div className="space-y-2 text-prizm-text-muted">
+            <div className="flex justify-between border-b border-prizm-border pb-1">
+              <span className="text-prizm-text-muted">EMS Core Target:</span>
+              <span className="text-prizm-text-muted truncate max-w-44">{metadata.activeEmsBaseUrl}</span>
             </div>
-            <div className="flex justify-between border-b border-white/5 pb-1">
-              <span className="text-white/30">Stale Data Status:</span>
-              <span className={metadata.staleData ? "text-amber-400 font-bold" : "text-[#5CF2A5]"}>
+            <div className="flex justify-between border-b border-prizm-border pb-1">
+              <span className="text-prizm-text-muted">Stale Data Status:</span>
+              <span className={metadata.staleData ? "text-prizm-warning font-bold" : "text-prizm-primary"}>
                 {metadata.staleData ? "STALE / OFFLINE CACHE" : "NOMINAL / LIVE"}
               </span>
             </div>
-            <div className="flex justify-between border-b border-white/5 pb-1">
-              <span className="text-white/30">Active Profile:</span>
-              <span className="text-cyan-400 font-medium truncate max-w-40">{metadata.activeProfileName}</span>
+            <div className="flex justify-between border-b border-prizm-border pb-1">
+              <span className="text-prizm-text-muted">Active Profile:</span>
+              <span className="text-prizm-primary font-medium truncate max-w-40">{metadata.activeProfileName}</span>
             </div>
-            <div className="flex justify-between border-b border-white/5 pb-1">
-              <span className="text-white/30">Last Updated At:</span>
-              <span className="text-white">{metadata.lastUpdated ? metadata.lastUpdated.slice(11, 19) : "N/A"} UTC</span>
+            <div className="flex justify-between border-b border-prizm-border pb-1">
+              <span className="text-prizm-text-muted">Last Updated At:</span>
+              <span className="text-prizm-text">{metadata.lastUpdated ? metadata.lastUpdated.slice(11, 19) : "N/A"} UTC</span>
             </div>
           </div>
 
@@ -626,22 +626,22 @@ export default function ToolDashboards() {
             type="button"
             onClick={() => handleFetchData()}
             disabled={loading}
-            className="w-full mt-4 flex items-center justify-center gap-2 py-1.5 border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 transition rounded text-white text-[10px] font-bold cursor-pointer"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-1.5 border border-prizm-border hover:border-prizm-border bg-white/5 hover:bg-white/10 transition rounded text-prizm-text text-[10px] font-bold cursor-pointer"
           >
-            <RefreshCw size={10} className={loading ? "animate-spin text-cyan-400" : ""} />
+            <RefreshCw size={10} className={loading ? "animate-spin text-prizm-primary" : ""} />
             REFRESH TELEMETRY FEED
           </button>
         </div>
       </aside>
 
       {/* 2. MAIN TOOL PANEL / RENDERING CORE */}
-      <section className="flex-1 min-w-0 bg-[#12141C] border border-white/10 rounded-lg p-5 flex flex-col gap-5 relative">
+      <section className="flex-1 min-w-0 bg-prizm-surface border border-prizm-border rounded-lg p-5 flex flex-col gap-5 relative">
         
         {/* HEADER INFORMATION LINE */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-prizm-border pb-4">
           <div>
-            <h2 className="text-white font-mono text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#5CF2A5]"></span>
+            <h2 className="text-prizm-text font-mono text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-prizm-surface-strong"></span>
               {activeSubTab === "stats" && "EMS Controller Hardware Statistics"}
               {activeSubTab === "status-codes" && "Alarms Register & Codes Interpreter"}
               {activeSubTab === "strings" && "High-Density Cell String Diagnostics Grid"}
@@ -651,7 +651,7 @@ export default function ToolDashboards() {
               {activeSubTab === "feather" && "Feather / HVAC Devices Controller Diagnostics"}
               {activeSubTab === "locked-controls" && "Guarded High-Voltage Commands Terminal"}
             </h2>
-            <p className="text-[11px] text-white/50 mt-1">
+            <p className="text-[11px] text-prizm-text-muted mt-1">
               {activeSubTab === "stats" && "Real-time CPU diagnostics, JVM storage partitions, and LAN loop performance counters."}
               {activeSubTab === "status-codes" && "Active hardware faults decoded directly to descriptive alarms log indices."}
               {activeSubTab === "strings" && "Granulated DC line voltages, measured currents, and thermistor telemetry groupings."}
@@ -666,7 +666,7 @@ export default function ToolDashboards() {
           <div className="flex items-center gap-2 font-mono text-[10px]">
             <button
               onClick={() => setAdvancedDebugOpen(!advancedDebugOpen)}
-              className="px-3 py-1.5 border border-white/10 hover:border-[#5CF2A5]/30 hover:bg-[#5CF2A5]/5 rounded text-white transition cursor-pointer"
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-primary hover:bg-prizm-surface-strong rounded text-prizm-text transition cursor-pointer"
             >
               ADVANCED DEBUG DRAWER
             </button>
@@ -678,22 +678,22 @@ export default function ToolDashboards() {
           <div className="space-y-6">
             {/* Bento-style summary telemetry tiles */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-[11px]">
-              <div className="bg-[#0A120F]/50 border border-white/10 p-4 rounded-lg">
-                <span className="text-white/40 block mb-1">JVM MEMORY ASSIGNMENT</span>
-                <div className="text-lg text-[#5CF2A5] font-light">
+              <div className="bg-prizm-surface-strong border border-prizm-border p-4 rounded-lg">
+                <span className="text-prizm-text-muted block mb-1">JVM MEMORY ASSIGNMENT</span>
+                <div className="text-lg text-prizm-primary font-light">
                   {statsData.jvmAvailableMemoryBytes 
                     ? `${(statsData.jvmAvailableMemoryBytes / 1024 / 1024).toFixed(1)} MB Free` 
                     : "135.2 MB Available"}
                 </div>
                 <div className="mt-3 bg-white/5 h-1.5 w-full rounded overflow-hidden">
-                  <div className="bg-[#5CF2A5] h-full" style={{ width: "68%" }}></div>
+                  <div className="bg-prizm-surface-strong h-full" style={{ width: "68%" }}></div>
                 </div>
-                <span className="text-[9px] text-white/30 block mt-1">Allocation Limit: 512.0 MB Max</span>
+                <span className="text-[9px] text-prizm-text-muted block mt-1">Allocation Limit: 512.0 MB Max</span>
               </div>
 
-              <div className="bg-[#0A120F]/50 border border-white/10 p-4 rounded-lg">
-                <span className="text-white/40 block mb-1">DIAGNOSTIC SSD MOUNT</span>
-                <div className="text-lg text-[#5CF2A5] font-light">
+              <div className="bg-prizm-surface-strong border border-prizm-border p-4 rounded-lg">
+                <span className="text-prizm-text-muted block mb-1">DIAGNOSTIC SSD MOUNT</span>
+                <div className="text-lg text-prizm-primary font-light">
                   {statsData.freeDiskSpaceBytes 
                     ? `${(statsData.freeDiskSpaceBytes / 1024 / 1024 / 1024).toFixed(1)} GB Available` 
                     : "14.2 GB Free space"}
@@ -701,27 +701,27 @@ export default function ToolDashboards() {
                 <div className="mt-3 bg-white/5 h-1.5 w-full rounded overflow-hidden">
                   <div className="bg-cyan-400 h-full" style={{ width: "34%" }}></div>
                 </div>
-                <span className="text-[9px] text-white/30 block mt-1">Total capacity: 32.0 GB Partition</span>
+                <span className="text-[9px] text-prizm-text-muted block mt-1">Total capacity: 32.0 GB Partition</span>
               </div>
 
-              <div className="bg-[#0A120F]/50 border border-white/10 p-4 rounded-lg">
-                <span className="text-white/40 block mb-1">TURTLE SHELL FIRMWARE</span>
-                <div className="text-lg text-white font-light mt-1">
+              <div className="bg-prizm-surface-strong border border-prizm-border p-4 rounded-lg">
+                <span className="text-prizm-text-muted block mb-1">TURTLE SHELL FIRMWARE</span>
+                <div className="text-lg text-prizm-text font-light mt-1">
                   {statsData.firmwareVersion || "v3.2.0-Production-BESS"}
                 </div>
-                <div className="mt-2 text-[9px] text-[#5CF2A5] font-bold">
+                <div className="mt-2 text-[9px] text-prizm-primary font-bold">
                   ● ACTIVE DAEMON ONLINE
                 </div>
-                <span className="text-[9px] text-white/30 block mt-1">BESS Master RTU Protocol</span>
+                <span className="text-[9px] text-prizm-text-muted block mt-1">BESS Master RTU Protocol</span>
               </div>
             </div>
 
             {/* Comprehensive Detail Metrics Table */}
-            <div className="border border-white/15 rounded-lg overflow-hidden font-mono text-[11px]">
-              <div className="bg-[#0A120F] px-4 py-3 border-b border-white/15 text-white/80 font-bold uppercase tracking-wider">
+            <div className="border border-prizm-border rounded-lg overflow-hidden font-mono text-[11px]">
+              <div className="bg-prizm-surface-strong px-4 py-3 border-b border-prizm-border text-prizm-text-muted font-bold uppercase tracking-wider">
                 System Statistics and Internal Counters
               </div>
-              <div className="divide-y divide-white/5 bg-[#050A08]/40">
+              <div className="divide-y divide-white/5 bg-prizm-surface-strong">
                 {[
                   { name: "Active IO Pool Threads", value: statsData.counters?.activeIoThreads || "16 active workers" },
                   { name: "Modbus Queue Backplane Latency", value: statsData.counters?.modbusQueueLatencyMs ? `${statsData.counters.modbusQueueLatencyMs} ms` : "4.2 ms avg" },
@@ -732,8 +732,8 @@ export default function ToolDashboards() {
                   { name: "System Watchdog Status Register", value: "0x000F (Heartbeat loop secured)" }
                 ].map((row, idx) => (
                   <div key={idx} className="flex px-4 py-2.5 justify-between">
-                    <span className="text-white/40">{row.name}</span>
-                    <span className="text-white text-right font-medium">{row.value}</span>
+                    <span className="text-prizm-text-muted">{row.name}</span>
+                    <span className="text-prizm-text text-right font-medium">{row.value}</span>
                   </div>
                 ))}
               </div>
@@ -746,20 +746,20 @@ export default function ToolDashboards() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-2.5 text-white/35" />
+                <Search size={14} className="absolute left-3 top-2.5 text-prizm-text-muted" />
                 <input
                   type="text"
                   placeholder="Filter alarms list by code or description..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#050A08] border border-white/10 rounded px-8 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#5CF2A5]/30 focus:bg-[#0A120F]"
+                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-8 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-prizm-primary focus:bg-prizm-surface-strong"
                 />
               </div>
               <div className="flex gap-2">
                 <select
                   value={severityFilter}
                   onChange={e => setSeverityFilter(e.target.value)}
-                  className="bg-[#050A08] border border-white/10 rounded px-3 py-1 text-xs text-white font-mono"
+                  className="bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1 text-xs text-prizm-text font-mono"
                 >
                   <option value="all">Severity: All</option>
                   <option value="Warning">Warning Only</option>
@@ -771,30 +771,30 @@ export default function ToolDashboards() {
 
             {/* Alarm summary totals cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-[11px] mb-2">
-              <div className="bg-rose-500/10 border border-rose-500/15 p-3 rounded flex items-center gap-3">
-                <AlertOctagon size={24} className="text-rose-400 animate-pulse shrink-0" />
+              <div className="bg-prizm-danger/10 border border-prizm-danger/20 p-3 rounded flex items-center gap-3">
+                <AlertOctagon size={24} className="text-prizm-danger animate-pulse shrink-0" />
                 <div>
-                  <span className="text-rose-400 font-bold block text-sm">
+                  <span className="text-prizm-danger font-bold block text-sm">
                     {statusCodes.filter(c => c.severity === "Critical").length} CRITICAL TRIPS ACTIVE
                   </span>
-                  <span className="text-white/40 text-[9px]">Emergency manual inspection and electrical lockouts advised.</span>
+                  <span className="text-prizm-text-muted text-[9px]">Emergency manual inspection and electrical lockouts advised.</span>
                 </div>
               </div>
-              <div className="bg-amber-500/10 border border-amber-500/15 p-3 rounded flex items-center gap-3">
-                <AlertTriangle size={24} className="text-amber-400 shrink-0" />
+              <div className="bg-prizm-warning/10 border border-prizm-warning/20 p-3 rounded flex items-center gap-3">
+                <AlertTriangle size={24} className="text-prizm-warning shrink-0" />
                 <div>
-                  <span className="text-amber-400 font-bold block text-sm">
+                  <span className="text-prizm-warning font-bold block text-sm">
                     {statusCodes.filter(c => c.severity === "Warning").length} COMPONENT WARNINGS
                   </span>
-                  <span className="text-white/40 text-[9px]">Maintenance sweeps and state balanced routines suggested.</span>
+                  <span className="text-prizm-text-muted text-[9px]">Maintenance sweeps and state balanced routines suggested.</span>
                 </div>
               </div>
             </div>
 
             {/* Codes Table Grid */}
-            <div className="border border-white/15 rounded-lg overflow-hidden font-mono text-[11px]">
+            <div className="border border-prizm-border rounded-lg overflow-hidden font-mono text-[11px]">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-[#0A120F] border-b border-white/15 text-white/50 uppercase tracking-widest text-[9px]">
+                <thead className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted uppercase tracking-widest text-[9px]">
                   <tr>
                     <th className="p-3">Status Code</th>
                     <th className="p-3">Severity</th>
@@ -803,7 +803,7 @@ export default function ToolDashboards() {
                     <th className="p-3">Active Duration</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 bg-[#050A08]/20">
+                <tbody className="divide-y divide-white/5 bg-prizm-surface-strong">
                   {statusCodes
                     .filter(c => {
                       const matchesSearch = c.code.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -816,20 +816,20 @@ export default function ToolDashboards() {
                       const isWarning = row.severity?.toLowerCase() === "warning" || row.severity?.toLowerCase() === "medium";
                       return (
                         <tr key={idx} className="hover:bg-white/5 font-mono">
-                          <td className="p-3 font-bold text-white flex items-center gap-2">
-                            <span className={`w-1.5 h-1.5 rounded-full ${isCritical ? "bg-rose-500" : isWarning ? "bg-amber-400" : "bg-cyan-500"}`}></span>
+                          <td className="p-3 font-bold text-prizm-text flex items-center gap-2">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isCritical ? "bg-rose-500" : isWarning ? "bg-prizm-warning" : "bg-cyan-500"}`}></span>
                             {row.code}
                           </td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                              isCritical ? "bg-rose-500/10 text-rose-400" : isWarning ? "bg-amber-500/10 text-amber-400" : "bg-cyan-500/10 text-cyan-400"
+                              isCritical ? "bg-prizm-danger/10 text-prizm-danger" : isWarning ? "bg-prizm-warning/10 text-prizm-warning" : "bg-prizm-info/10 text-prizm-primary"
                             }`}>
                               {row.severity}
                             </span>
                           </td>
-                          <td className="p-3 text-white/80 max-w-sm sm:max-w-md truncate">{row.extendedInfo}</td>
-                          <td className="p-3 text-white/40">{row.stationCode || "ST-01"} Index {row.blockIndex || 1}</td>
-                          <td className="p-3 text-[#5CF2A5]">
+                          <td className="p-3 text-prizm-text-muted max-w-sm sm:max-w-md truncate">{row.extendedInfo}</td>
+                          <td className="p-3 text-prizm-text-muted">{row.stationCode || "ST-01"} Index {row.blockIndex || 1}</td>
+                          <td className="p-3 text-prizm-primary">
                             {row.startTimestamp ? `${Math.floor((Date.now() - new Date(row.startTimestamp).getTime()) / 60000)}m active` : "12m elapsed"}
                           </td>
                         </tr>
@@ -838,7 +838,7 @@ export default function ToolDashboards() {
                 </tbody>
               </table>
               {statusCodes.length === 0 && (
-                <div className="p-6 text-center text-white/30 italic">No reports of active status codes.</div>
+                <div className="p-6 text-center text-prizm-text-muted italic">No reports of active status codes.</div>
               )}
             </div>
           </div>
@@ -850,20 +850,20 @@ export default function ToolDashboards() {
             {/* Filtering bar */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-2.5 text-white/35" />
+                <Search size={14} className="absolute left-3 top-2.5 text-prizm-text-muted" />
                 <input
                   type="text"
                   placeholder="Search string key..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#050A08] border border-white/10 rounded px-8 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#5CF2A5]/30"
+                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-8 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-prizm-primary"
                 />
               </div>
 
               <select
                 value={arrayFilter}
                 onChange={e => setArrayFilter(e.target.value)}
-                className="bg-[#050A08] border border-white/10 rounded px-3 py-1 text-xs text-white font-mono"
+                className="bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1 text-xs text-prizm-text font-mono"
               >
                 <option value="all">Array Index: All</option>
                 <option value="1">Array 1 Only</option>
@@ -874,7 +874,7 @@ export default function ToolDashboards() {
               <select
                 value={stateFilter}
                 onChange={e => setStateFilter(e.target.value)}
-                className="bg-[#050A08] border border-white/10 rounded px-3 py-1 text-xs text-[#5CF2A5] font-mono"
+                className="bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1 text-xs text-prizm-primary font-mono"
               >
                 <option value="all">Connectivity: All</option>
                 <option value="connected">Connected OK</option>
@@ -889,7 +889,7 @@ export default function ToolDashboards() {
                   setArrayFilter("all");
                   setStateFilter("all");
                 }}
-                className="px-3 py-1 border border-white/10 hover:bg-white/5 text-white font-mono text-xs rounded transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-3 py-1 border border-prizm-border hover:bg-white/5 text-prizm-text font-mono text-xs rounded transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw size={11} />
                 Reset Search
@@ -897,10 +897,10 @@ export default function ToolDashboards() {
             </div>
 
             {/* High-density grid table */}
-            <div className="border border-white/15 rounded-lg overflow-hidden font-mono text-[10px]">
+            <div className="border border-prizm-border rounded-lg overflow-hidden font-mono text-[10px]">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[900px]">
-                  <thead className="bg-[#0A120F] border-b border-white/15 text-white/50 uppercase tracking-widest text-[8px]">
+                  <thead className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted uppercase tracking-widest text-[8px]">
                     <tr>
                       <th className="p-2.5">String Key</th>
                       <th className="p-2.5">Comm State</th>
@@ -914,7 +914,7 @@ export default function ToolDashboards() {
                       <th className="p-2.5">Alarms / Warnings</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 bg-[#050A08]/20">
+                  <tbody className="divide-y divide-white/5 bg-prizm-surface-strong">
                     {strings
                       .filter(row => {
                         const matchesKey = row.stringKey.toLowerCase().includes(searchQuery.toLowerCase());
@@ -931,52 +931,52 @@ export default function ToolDashboards() {
                         const isWarn = row.connectionState === "WARNING" || row.warningCount > 0;
                         return (
                           <tr key={idx} className="hover:bg-white/5 font-mono">
-                            <td className="p-2.5 font-bold text-white">{row.stringKey}</td>
+                            <td className="p-2.5 font-bold text-prizm-text">{row.stringKey}</td>
                             <td className="p-2.5">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-black ${
-                                isFailed ? "bg-rose-500/10 text-rose-400" : isWarn ? "bg-amber-500/10 text-amber-400" : "bg-green-500/10 text-[#5CF2A5]"
+                                isFailed ? "bg-prizm-danger/10 text-prizm-danger" : isWarn ? "bg-prizm-warning/10 text-prizm-warning" : "bg-green-500/10 text-prizm-primary"
                               }`}>
                                 {row.connectionState}
                               </span>
                             </td>
                             <td className="p-2.5">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-cyan-400">{row.soc}%</span>
+                                <span className="font-bold text-prizm-primary">{row.soc}%</span>
                                 <div className="w-10 bg-white/5 h-1 rounded overflow-hidden">
                                   <div className="bg-cyan-400 h-full" style={{ width: `${row.soc}%` }}></div>
                                 </div>
                               </div>
                             </td>
-                            <td className="p-2.5 text-white/80">{row.kw > 0 ? `+${row.kw} kW` : `${row.kw} kW`}</td>
-                            <td className="p-2.5 text-white/55">{row.kwh} kWh / {row.ah} Ah</td>
-                            <td className="p-2.5 text-white/90">
+                            <td className="p-2.5 text-prizm-text-muted">{row.kw > 0 ? `+${row.kw} kW` : `${row.kw} kW`}</td>
+                            <td className="p-2.5 text-prizm-text-muted">{row.kwh} kWh / {row.ah} Ah</td>
+                            <td className="p-2.5 text-prizm-text-muted">
                               <div className="flex flex-col">
-                                <span>Meas: <strong className="text-white">{row.voltageMeasured}V</strong></span>
-                                <span className="text-[9px] text-white/30">Calc: {row.voltageCalculated}V | Bus: {row.voltageDcBus}V</span>
+                                <span>Meas: <strong className="text-prizm-text">{row.voltageMeasured}V</strong></span>
+                                <span className="text-[9px] text-prizm-text-muted">Calc: {row.voltageCalculated}V | Bus: {row.voltageDcBus}V</span>
                               </div>
                             </td>
                             <td className="p-2.5">
                               <div className="flex flex-col leading-tight">
-                                <span className={row.positiveContactorClosed ? "text-green-400 font-semibold" : "text-white/30"}>
+                                <span className={row.positiveContactorClosed ? "text-green-400 font-semibold" : "text-prizm-text-muted"}>
                                   POS: {row.positiveContactorClosed ? "CLOSED" : "OPEN"}
                                 </span>
-                                <span className={row.negativeContactorClosed ? "text-green-400 font-semibold" : "text-white/30"}>
+                                <span className={row.negativeContactorClosed ? "text-green-400 font-semibold" : "text-prizm-text-muted"}>
                                   NEG: {row.negativeContactorClosed ? "CLOSED" : "OPEN"}
                                 </span>
                               </div>
                             </td>
-                            <td className="p-2.5 text-white/90">
+                            <td className="p-2.5 text-prizm-text-muted">
                               <span>{row.cellGroupVoltageMin.toFixed(3)} - {row.cellGroupVoltageMax.toFixed(3)} V</span>
-                              <span className="block text-[8px] text-rose-400 font-mono">Delta: {((row.cellGroupVoltageMax - row.cellGroupVoltageMin) * 1000).toFixed(0)}mV</span>
+                              <span className="block text-[8px] text-prizm-danger font-mono">Delta: {((row.cellGroupVoltageMax - row.cellGroupVoltageMin) * 1000).toFixed(0)}mV</span>
                             </td>
-                            <td className="p-2.5 text-white/90 font-mono text-right">{row.cellGroupTempMax.toFixed(1)}°C</td>
+                            <td className="p-2.5 text-prizm-text-muted font-mono text-right">{row.cellGroupTempMax.toFixed(1)}°C</td>
                             <td className="p-2.5 text-[8px]">
                               {row.alarmCount > 0 ? (
-                                <span className="text-rose-400 font-bold block">{row.alarms[0]}</span>
+                                <span className="text-prizm-danger font-bold block">{row.alarms[0]}</span>
                               ) : row.warningCount > 0 ? (
-                                <span className="text-amber-400 font-bold block">{row.warnings[0]}</span>
+                                <span className="text-prizm-warning font-bold block">{row.warnings[0]}</span>
                               ) : (
-                                <span className="text-white/20">None Active</span>
+                                <span className="text-prizm-text-muted">None Active</span>
                               )}
                             </td>
                           </tr>
@@ -993,24 +993,24 @@ export default function ToolDashboards() {
         {activeSubTab === "ip-maps" && (
           <div className="space-y-6">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-2.5 text-white/35" />
+              <Search size={14} className="absolute left-3 top-2.5 text-prizm-text-muted" />
               <input
                 type="text"
                 placeholder="Search network maps by IP address, target name, or model type..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-[#050A08] border border-white/10 rounded px-8 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#5CF2A5]/30"
+                className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-8 py-1.5 font-mono text-xs text-prizm-text focus:outline-none focus:border-prizm-primary"
               />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-mono text-[11px]">
               {/* Site IP Map Panel */}
-              <div className="border border-white/10 rounded-lg overflow-hidden flex flex-col">
-                <div className="bg-[#0A120F] px-4 py-3 border-b border-white/10 text-white/80 font-bold uppercase tracking-wider flex items-center justify-between">
+              <div className="border border-prizm-border rounded-lg overflow-hidden flex flex-col">
+                <div className="bg-prizm-surface-strong px-4 py-3 border-b border-prizm-border text-prizm-text-muted font-bold uppercase tracking-wider flex items-center justify-between">
                   <span>Site Controllers LAN Route IP Grid</span>
-                  <span className="text-cyan-400 text-[9px] font-black">{siteIps.length} TARGETS PLOTTED</span>
+                  <span className="text-prizm-primary text-[9px] font-black">{siteIps.length} TARGETS PLOTTED</span>
                 </div>
-                <div className="divide-y divide-white/5 bg-[#050A08]/10 overflow-y-auto max-h-[350px]">
+                <div className="divide-y divide-white/5 bg-prizm-surface-strong overflow-y-auto max-h-[350px]">
                   {siteIps
                     .filter(row => 
                       row.target.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -1020,10 +1020,10 @@ export default function ToolDashboards() {
                     .map((row, idx) => (
                       <div key={idx} className="p-3 hover:bg-white/5 flex justify-between items-center">
                         <div>
-                          <strong className="text-white block text-xs">{row.target}</strong>
-                          <span className="text-white/40 block text-[9px] mt-0.5">{row.model}</span>
+                          <strong className="text-prizm-text block text-xs">{row.target}</strong>
+                          <span className="text-prizm-text-muted block text-[9px] mt-0.5">{row.model}</span>
                         </div>
-                        <span className="px-2.5 py-1 bg-cyan-500/10 border border-cyan-400/25 rounded text-cyan-400 font-bold font-mono">
+                        <span className="px-2.5 py-1 bg-prizm-info/10 border border-prizm-primary rounded text-prizm-primary font-bold font-mono">
                           {row.ipAddress}
                         </span>
                       </div>
@@ -1032,12 +1032,12 @@ export default function ToolDashboards() {
               </div>
 
               {/* String IP Map Panel */}
-              <div className="border border-white/10 rounded-lg overflow-hidden flex flex-col">
-                <div className="bg-[#0A120F] px-4 py-3 border-b border-white/10 text-white/80 font-bold uppercase tracking-wider flex items-center justify-between">
+              <div className="border border-prizm-border rounded-lg overflow-hidden flex flex-col">
+                <div className="bg-prizm-surface-strong px-4 py-3 border-b border-prizm-border text-prizm-text-muted font-bold uppercase tracking-wider flex items-center justify-between">
                   <span>Downstream Battery Strings IP Grid</span>
-                  <span className="text-[#5CF2A5] text-[9px] font-black">{stringIps.length} STRINGS TRANSLATED</span>
+                  <span className="text-prizm-primary text-[9px] font-black">{stringIps.length} STRINGS TRANSLATED</span>
                 </div>
-                <div className="divide-y divide-white/5 bg-[#050A08]/10 overflow-y-auto max-h-[350px]">
+                <div className="divide-y divide-white/5 bg-prizm-surface-strong overflow-y-auto max-h-[350px]">
                   {stringIps
                     .filter(row => 
                       row.ip.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -1046,10 +1046,10 @@ export default function ToolDashboards() {
                     .map((row, idx) => (
                       <div key={idx} className="p-3 hover:bg-white/5 flex justify-between items-center">
                         <div>
-                          <strong className="text-white block text-xs">Battery String Channel A{row.array}-S{row.string}</strong>
-                          <span className="text-white/40 block text-[9px] mt-0.5">Physical Stack Ingress Controller Node</span>
+                          <strong className="text-prizm-text block text-xs">Battery String Channel A{row.array}-S{row.string}</strong>
+                          <span className="text-prizm-text-muted block text-[9px] mt-0.5">Physical Stack Ingress Controller Node</span>
                         </div>
-                        <span className="px-2.5 py-1 bg-cyan-500/10 border border-[#5CF2A5]/25 rounded text-[#5CF2A5] font-bold font-mono">
+                        <span className="px-2.5 py-1 bg-prizm-info/10 border border-prizm-primary rounded text-prizm-primary font-bold font-mono">
                           {row.ip}
                         </span>
                       </div>
@@ -1063,22 +1063,22 @@ export default function ToolDashboards() {
         {/* ------------------------- 2E. LAST CALL EXPLORER SUBTAB ------------------------- */}
         {activeSubTab === "last-call" && (
           <div className="space-y-4">
-            <div className="bg-cyan-500/10 border border-cyan-500/15 p-4 rounded-lg font-mono text-[11px] flex flex-col md:flex-row justify-between gap-4">
+            <div className="bg-prizm-info/10 border border-prizm-primary p-4 rounded-lg font-mono text-[11px] flex flex-col md:flex-row justify-between gap-4">
               <div>
-                <span className="text-cyan-400 font-black block text-xs tracking-wider uppercase mb-1">
+                <span className="text-prizm-primary font-black block text-xs tracking-wider uppercase mb-1">
                   LAST RECOGNIZED TRANSACTION REPORT
                 </span>
-                <p className="text-white/60 leading-normal max-w-xl">
+                <p className="text-prizm-text-muted leading-normal max-w-xl">
                   Technicians monitor recent controller response logs to review diagnostic heartbeat anomalies or handshake warnings. Below is a drill-down analyzer of communication nodes.
                 </p>
               </div>
 
-              <div className="shrink-0 flex flex-col justify-end text-right md:border-l md:border-white/10 md:pl-4">
-                <span className="text-white/30 block mb-0.5">REQUEST HASH</span>
-                <span className="text-white font-mono font-bold block bg-black/40 px-2 py-0.5 rounded text-[10px]">
+              <div className="shrink-0 flex flex-col justify-end text-right md:border-l md:border-prizm-border md:pl-4">
+                <span className="text-prizm-text-muted block mb-0.5">REQUEST HASH</span>
+                <span className="text-prizm-text font-mono font-bold block bg-prizm-surface-strong px-2 py-0.5 rounded text-[10px]">
                   {lastCallLog?.requestId || "0x98A1_BESS_8C"}
                 </span>
-                <span className="text-[9px] text-[#5CF2A5] mt-1 font-bold">
+                <span className="text-[9px] text-prizm-primary mt-1 font-bold">
                   ● HANDSHAKE OK (0ms delay)
                 </span>
               </div>
@@ -1086,38 +1086,38 @@ export default function ToolDashboards() {
 
             {/* Drill-Down Expandable tree */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-[11px]">
-              <div className="border border-white/10 rounded-lg p-4 bg-[#050A08]/25 space-y-4">
-                <span className="font-bold text-white uppercase block border-b border-white/5 pb-2">Active Ingress Subsections</span>
+              <div className="border border-prizm-border rounded-lg p-4 bg-prizm-surface-strong space-y-4">
+                <span className="font-bold text-prizm-text uppercase block border-b border-prizm-border pb-2">Active Ingress Subsections</span>
                 
                 <div className="space-y-2">
-                  <div className="bg-white/5 px-3 py-2 border border-white/5 rounded flex justify-between items-center">
+                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
-                      <span className="font-bold text-white block">Event Log Buffer Summary</span>
-                      <span className="text-[9px] text-white/30">Contains active severity system errors & telemetry.</span>
+                      <span className="font-bold text-prizm-text block">Event Log Buffer Summary</span>
+                      <span className="text-[9px] text-prizm-text-muted">Contains active severity system errors & telemetry.</span>
                     </div>
-                    <span className="text-cyan-400 font-bold">{lastCallLog?.eventLogEntry ? "14 Records" : "Cached OK"}</span>
+                    <span className="text-prizm-primary font-bold">{lastCallLog?.eventLogEntry ? "14 Records" : "Cached OK"}</span>
                   </div>
 
-                  <div className="bg-white/5 px-3 py-2 border border-white/5 rounded flex justify-between items-center">
+                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
-                      <span className="font-bold text-white block">Central Site Block Report</span>
-                      <span className="text-[9px] text-white/30">Total fleet lineup indexes payload.</span>
+                      <span className="font-bold text-prizm-text block">Central Site Block Report</span>
+                      <span className="text-[9px] text-prizm-text-muted">Total fleet lineup indexes payload.</span>
                     </div>
-                    <span className="text-[#5CF2A5] font-bold">1 Block parsed</span>
+                    <span className="text-prizm-primary font-bold">1 Block parsed</span>
                   </div>
 
-                  <div className="bg-white/5 px-3 py-2 border border-white/5 rounded flex justify-between items-center">
+                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
-                      <span className="font-bold text-white block">Lineup Array Segments</span>
-                      <span className="text-[9px] text-white/30">Active string balances and line logs.</span>
+                      <span className="font-bold text-prizm-text block">Lineup Array Segments</span>
+                      <span className="text-[9px] text-prizm-text-muted">Active string balances and line logs.</span>
                     </div>
-                    <span className="text-[#5CF2A5] font-bold">3 Array elements</span>
+                    <span className="text-prizm-primary font-bold">3 Array elements</span>
                   </div>
                 </div>
               </div>
 
-              <div className="border border-white/10 rounded-lg p-4 bg-[#050A08]/5 flex flex-col gap-3">
-                <span className="font-bold text-white uppercase block border-b border-white/5 pb-2">Granulated JSON payload</span>
+              <div className="border border-prizm-border rounded-lg p-4 bg-prizm-surface-strong flex flex-col gap-3">
+                <span className="font-bold text-prizm-text uppercase block border-b border-prizm-border pb-2">Granulated JSON payload</span>
                 {renderJSONTree(lastCallLog || {
                   requestId: "0x98A1_BESS_8C",
                   requestTimestamp: new Date().toISOString(),
@@ -1142,20 +1142,20 @@ export default function ToolDashboards() {
           <div className="space-y-4 font-mono">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-2.5 text-white/35" />
+                <Search size={14} className="absolute left-3 top-2.5 text-prizm-text-muted" />
                 <input
                   type="text"
                   placeholder="Filter register nodes by keyword or address index..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#050A08] border border-white/10 rounded px-8 py-1.5 text-xs text-white focus:outline-none focus:border-[#5CF2A5]/30"
+                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-8 py-1.5 text-xs text-prizm-text focus:outline-none focus:border-prizm-primary"
                 />
               </div>
 
               <select
                 value={rwFilter}
                 onChange={e => setRwFilter(e.target.value)}
-                className="bg-[#050A08] border border-white/10 rounded px-3 py-1 text-xs text-white"
+                className="bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1 text-xs text-prizm-text"
               >
                 <option value="all">Access: All</option>
                 <option value="R">Read-Only (R)</option>
@@ -1164,10 +1164,10 @@ export default function ToolDashboards() {
             </div>
 
             {/* Modbus registries list */}
-            <div className="border border-white/15 rounded-lg overflow-hidden text-[11px]">
+            <div className="border border-prizm-border rounded-lg overflow-hidden text-[11px]">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[750px]">
-                  <thead className="bg-[#0A120F] border-b border-white/15 text-white/50 uppercase tracking-widest text-[8px]">
+                  <thead className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted uppercase tracking-widest text-[8px]">
                     <tr>
                       <th className="p-2.5">Category</th>
                       <th className="p-2.5">Address</th>
@@ -1179,7 +1179,7 @@ export default function ToolDashboards() {
                       <th className="p-2.5">Mandatory</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 bg-[#050A08]/20">
+                  <tbody className="divide-y divide-white/5 bg-prizm-surface-strong">
                     {modbusMap
                       .filter(row => {
                         const matchesSearch = row.fieldName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -1190,24 +1190,24 @@ export default function ToolDashboards() {
                       })
                       .map((row, idx) => (
                         <tr key={idx} className="hover:bg-white/5">
-                          <td className="p-2.5 text-white/40">{row.fieldType}</td>
-                          <td className="p-2.5 text-cyan-400 font-bold font-mono">{row.register}</td>
-                          <td className="p-2.5 font-semibold text-white">{row.fieldName}</td>
-                          <td className="p-2.5 text-[#5CF2A5] font-bold">{row.value} {row.unit !== "-" ? row.unit : ""}</td>
-                          <td className="p-2.5 text-white/60">{row.type} ({row.fieldSize || "1 word"})</td>
+                          <td className="p-2.5 text-prizm-text-muted">{row.fieldType}</td>
+                          <td className="p-2.5 text-prizm-primary font-bold font-mono">{row.register}</td>
+                          <td className="p-2.5 font-semibold text-prizm-text">{row.fieldName}</td>
+                          <td className="p-2.5 text-prizm-primary font-bold">{row.value} {row.unit !== "-" ? row.unit : ""}</td>
+                          <td className="p-2.5 text-prizm-text-muted">{row.type} ({row.fieldSize || "1 word"})</td>
                           <td className="p-2.5">
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
-                              row.rw === "RW" ? "bg-amber-500/10 text-amber-400" : "bg-cyan-500/10 text-cyan-400"
+                              row.rw === "RW" ? "bg-prizm-warning/10 text-prizm-warning" : "bg-prizm-info/10 text-prizm-primary"
                             }`}>
                               {row.rw}
                             </span>
                           </td>
-                          <td className="p-2.5 text-white/40">{row.scaleFactor}</td>
+                          <td className="p-2.5 text-prizm-text-muted">{row.scaleFactor}</td>
                           <td className="p-2.5">
                             {row.mandatory ? (
-                              <span className="text-[#5CF2A5] font-black">✔ MANDATORY</span>
+                              <span className="text-prizm-primary font-black">✔ MANDATORY</span>
                             ) : (
-                              <span className="text-white/20">Optional</span>
+                              <span className="text-prizm-text-muted">Optional</span>
                             )}
                           </td>
                         </tr>
@@ -1222,11 +1222,11 @@ export default function ToolDashboards() {
         {/* ------------------------- 2G. LOCKED ADVANCED WORKFLOWS ------------------------- */}
         {activeSubTab === "locked-controls" && (
           <div className="space-y-6">
-            <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-lg font-mono text-[11px] flex gap-3 items-start">
-              <Lock className="text-rose-400 shrink-0 mt-0.5" size={18} />
+            <div className="bg-prizm-danger/10 border border-prizm-danger/20 p-4 rounded-lg font-mono text-[11px] flex gap-3 items-start">
+              <Lock className="text-prizm-danger shrink-0 mt-0.5" size={18} />
               <div>
-                <strong className="text-rose-400 font-bold block mb-1">SAFETY ISOLATION LOCK IN EFFECT</strong>
-                <p className="text-white/60 leading-normal">
+                <strong className="text-prizm-danger font-bold block mb-1">SAFETY ISOLATION LOCK IN EFFECT</strong>
+                <p className="text-prizm-text-muted leading-normal">
                   In accordance with GreEnergy safety directives, all write command, firmware injection, cell-balancing overrides, fan speed configurations, and direct physical interlock triggers are locked on testing-only dashboards to prevent thermal damage or invalid high-voltage arcs on active lineups.
                 </p>
               </div>
@@ -1247,17 +1247,17 @@ export default function ToolDashboards() {
               ].map((card, i) => {
                 const Icon = card.icon;
                 return (
-                  <div key={i} className="bg-black/30 border border-white/5 rounded-lg p-4 relative overflow-hidden flex flex-col justify-between group">
+                  <div key={i} className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-4 relative overflow-hidden flex flex-col justify-between group">
                     <div className="space-y-2">
-                      <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-white font-bold block">{card.name}</span>
-                        <Lock className="text-rose-400" size={12} />
+                      <div className="flex justify-between items-center border-b border-prizm-border pb-2">
+                        <span className="text-prizm-text font-bold block">{card.name}</span>
+                        <Lock className="text-prizm-danger" size={12} />
                       </div>
-                      <p className="text-[10px] text-white/40 leading-normal">{card.desc}</p>
+                      <p className="text-[10px] text-prizm-text-muted leading-normal">{card.desc}</p>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-white/5">
-                      <span className="text-[9px] text-rose-400 bg-rose-500/10 px-2 py-1 rounded block text-center leading-normal font-semibold">
+                    <div className="mt-4 pt-3 border-t border-prizm-border">
+                      <span className="text-[9px] text-prizm-danger bg-prizm-danger/10 px-2 py-1 rounded block text-center leading-normal font-semibold">
                         Guarded workflow pending. This control action is intentionally disabled until pre-checks, confirmation, batch execution, post-command verification, and audit logging are implemented.
                       </span>
                     </div>
@@ -1275,26 +1275,26 @@ export default function ToolDashboards() {
 
         {/* ------------------------- ADVANCED DEBUG DRAWER VIEW ------------------------- */}
         {advancedDebugOpen && (
-          <div className="absolute inset-y-0 right-0 w-full sm:w-[500px] bg-[#0A120F] border-l border-white/10 p-5 shadow-2xl z-50 overflow-y-auto animate-slide-in duration-300 font-mono text-xs flex flex-col gap-4">
-            <div className="flex justify-between items-center border-b border-white/15 pb-3">
-              <span className="font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Database size={14} className="text-cyan-400" />
+          <div className="absolute inset-y-0 right-0 w-full sm:w-[500px] bg-prizm-surface-strong border-l border-prizm-border p-5 shadow-2xl z-50 overflow-y-auto animate-slide-in duration-300 font-mono text-xs flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-prizm-border pb-3">
+              <span className="font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
+                <Database size={14} className="text-prizm-primary" />
                 Raw Telemetry Payload Inspect
               </span>
               <button
                 onClick={() => setAdvancedDebugOpen(false)}
-                className="text-white/40 hover:text-white text-xs border border-white/10 px-2 py-1 rounded cursor-pointer"
+                className="text-prizm-text-muted hover:text-prizm-text text-xs border border-prizm-border px-2 py-1 rounded cursor-pointer"
               >
                 CLOSE
               </button>
             </div>
 
-            <p className="text-[11px] text-white/50">
+            <p className="text-[11px] text-prizm-text-muted">
               Below is the raw response received from the native PRIZM backend wrapper endpoints:
             </p>
 
-            <div className="flex-1 min-h-0 bg-black/40 p-3 rounded border border-white/5 overflow-y-auto">
-              <pre className="text-[#81FBC1] text-[10px] leading-tight">
+            <div className="flex-1 min-h-0 bg-prizm-surface-strong p-3 rounded border border-prizm-border overflow-y-auto">
+              <pre className="text-prizm-primary text-[10px] leading-tight">
                 {JSON.stringify(lastRawPayload || { status: "Fetching...", subTab: activeSubTab }, null, 2)}
               </pre>
             </div>

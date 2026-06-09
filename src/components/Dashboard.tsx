@@ -78,21 +78,21 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
   return (
     <div className="space-y-6">
       {/* View Switcher Controls Header */}
-      <div className="flex justify-between items-center bg-[#11131C] border border-white/5 p-3 rounded-lg flex-wrap gap-2">
+      <div className="flex justify-between items-center bg-prizm-surface-strong border border-prizm-border p-3 rounded-lg flex-wrap gap-2">
         <div>
-          <span className="text-[10px] font-mono text-cyan-400 font-bold block uppercase tracking-wider">Site View Mode Controller</span>
-          <h2 className="text-sm font-bold text-white uppercase tracking-tight">
+          <span className="text-[10px] font-mono text-prizm-primary-strong font-bold block uppercase tracking-wider">Site View Mode Controller</span>
+          <h2 className="text-sm font-bold text-prizm-text uppercase tracking-tight">
             {viewMode === "kobold" ? "Active: Prizm Realtime Site Monitor" : "Active: Grid Fleet Summary Charts"}
           </h2>
         </div>
-        <div className="flex gap-1.5 bg-black/40 p-1 rounded-md border border-white/5 font-mono text-[11px]">
+        <div className="flex gap-1.5 bg-prizm-bg p-1 rounded-md border border-prizm-border font-mono text-[11px]">
           <button
             type="button"
             onClick={() => setViewMode("kobold")}
             className={`px-3 py-1 text-[11px] rounded uppercase font-bold transition-all cursor-pointer ${
               viewMode === "kobold"
-                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/15"
-                : "text-white/40 hover:text-white/80"
+                ? "bg-prizm-info/10 text-prizm-primary border border-prizm-primary/20"
+                : "text-prizm-text-muted hover:text-prizm-text"
             }`}
           >
             Prizm Site Monitor
@@ -102,8 +102,8 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
             onClick={() => setViewMode("legacy")}
             className={`px-3 py-1 text-[11px] rounded uppercase font-bold transition-all cursor-pointer ${
               viewMode === "legacy"
-                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/15"
-                : "text-white/40 hover:text-white/80"
+                ? "bg-prizm-info/10 text-prizm-primary border border-prizm-primary/20"
+                : "text-prizm-text-muted hover:text-prizm-text"
             }`}
           >
             Legacy Fleet Stats
@@ -118,82 +118,82 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
           {/* Overview Stat Cards Grid (HIGH DENSITY THEME) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Fleet Load */}
-        <div className="bg-[#12141C] border border-white/5 p-4 rounded-lg relative overflow-hidden">
-          <p className="text-[10px] font-mono text-white/40 uppercase mb-1 tracking-wider">Fleet Power Flow</p>
+        <div className="bg-prizm-surface border border-prizm-border p-4 rounded-lg relative overflow-hidden">
+          <p className="text-[10px] font-mono text-prizm-text-muted uppercase mb-1 tracking-wider">Fleet Power Flow</p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-light text-white">
+            <span className="text-3xl font-light text-prizm-text">
               {totalPower > 0 ? `+${totalPower.toFixed(1)}` : totalPower.toFixed(1)}
             </span>
-            <span className="text-xs text-white/30 font-mono">kW</span>
+            <span className="text-xs text-prizm-text-muted font-mono">kW</span>
           </div>
           <div className="mt-3 text-[10px] font-mono flex items-center justify-between">
-            <span className={totalPower > 0 ? "text-cyan-400 font-bold" : totalPower < 0 ? "text-amber-400 font-bold" : "text-white/40"}>
+            <span className={totalPower > 0 ? "text-prizm-primary-strong font-bold" : totalPower < 0 ? "text-prizm-warning font-bold" : "text-prizm-text-muted"}>
               {totalPower > 0 ? "● DRAWING FROM GRID" : totalPower < 0 ? "● INJECTING POWER" : "● STANDING IDLE"}
             </span>
-            <span className="text-white/20">CTRL_NET</span>
+            <span className="text-prizm-text-muted opacity-50">CTRL_NET</span>
           </div>
         </div>
 
         {/* Average Battery SoC */}
-        <div className="bg-[#12141C] border border-white/5 p-4 rounded-lg relative overflow-hidden">
-          <p className="text-[10px] font-mono text-white/40 uppercase mb-1 tracking-wider">Fleet Avg Charge</p>
+        <div className="bg-prizm-surface border border-prizm-border p-4 rounded-lg relative overflow-hidden">
+          <p className="text-[10px] font-mono text-prizm-text-muted uppercase mb-1 tracking-wider">Fleet Avg Charge</p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-light text-cyan-400">{avgSoc}</span>
-            <span className="text-xs text-white/30 font-mono">% SOC</span>
+            <span className="text-3xl font-light text-prizm-primary">{avgSoc}</span>
+            <span className="text-xs text-prizm-text-muted font-mono">% SOC</span>
           </div>
           {/* High Density Bar Meter */}
-          <div className="mt-4 flex gap-[1px] h-1.5 w-full bg-white/5 rounded-sm overflow-hidden">
-            <div className="bg-cyan-500 h-full transition-all duration-1000" style={{ width: `${avgSoc}%` }}></div>
-            <div className="bg-white/10 h-full flex-1"></div>
+          <div className="mt-4 flex gap-[1px] h-1.5 w-full bg-prizm-bg-muted rounded-sm overflow-hidden">
+            <div className="bg-prizm-primary h-full transition-all duration-1000" style={{ width: `${avgSoc}%` }}></div>
+            <div className="bg-prizm-border h-full flex-1"></div>
           </div>
         </div>
 
         {/* Connected BESS Units */}
-        <div className="bg-[#12141C] border border-white/5 p-4 rounded-lg relative overflow-hidden">
-          <p className="text-[10px] font-mono text-white/40 uppercase mb-1 tracking-wider">BESS Comm Link</p>
+        <div className="bg-prizm-surface border border-prizm-border p-4 rounded-lg relative overflow-hidden">
+          <p className="text-[10px] font-mono text-prizm-text-muted uppercase mb-1 tracking-wider">BESS Comm Link</p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-light text-white">{onlineCount}</span>
-            <span className="text-xs text-white/30 font-mono">/ {devices.length} Units Online</span>
+            <span className="text-3xl font-light text-prizm-text">{onlineCount}</span>
+            <span className="text-xs text-prizm-text-muted font-mono">/ {devices.length} Units Online</span>
           </div>
-          <div className="mt-3 text-[10px] text-green-400 font-mono flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></span>
+          <div className="mt-3 text-[10px] text-prizm-success font-mono flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-prizm-success shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse"></span>
             ACTIVE MODBUS GATEWAY OK
           </div>
         </div>
 
         {/* Critical Alerts */}
-        <div className="bg-[#12141C] border border-white/5 p-4 rounded-lg relative overflow-hidden">
-          <p className="text-[10px] font-mono text-white/40 uppercase mb-1 tracking-wider">System Alarms</p>
+        <div className="bg-prizm-surface border border-prizm-border p-4 rounded-lg relative overflow-hidden">
+          <p className="text-[10px] font-mono text-prizm-text-muted uppercase mb-1 tracking-wider">System Alarms</p>
           <div className="flex items-baseline gap-2">
-            <span className={`text-3xl font-light ${faultedCount > 0 ? "text-rose-400" : "text-white"}`}>
+            <span className={`text-3xl font-light ${faultedCount > 0 ? "text-prizm-danger" : "text-prizm-text"}`}>
               {faultedCount}
             </span>
-            <span className="text-xs text-white/30 font-mono">Active Lockouts</span>
+            <span className="text-xs text-prizm-text-muted font-mono">Active Lockouts</span>
           </div>
           <div className="mt-3 text-[10px] font-mono">
             {faultedCount > 0 ? (
-              <span className="text-rose-400 font-bold animate-pulse">▲ ACTION REQUIRED</span>
+              <span className="text-prizm-danger font-bold animate-pulse">▲ ACTION REQUIRED</span>
             ) : (
-              <span className="text-emerald-400">● CELL BALANCES STABLE</span>
+              <span className="text-prizm-success">● CELL BALANCES STABLE</span>
             )}
           </div>
         </div>
       </div>
 
       {/* Grid Power and SoC Timelines Chart Card */}
-      <div className="bg-[#12141C] border border-white/5 rounded-lg p-5">
+      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
           <div>
-            <h3 className="text-sm font-mono font-bold uppercase tracking-[0.2em] text-white/80">GRID INTEGRATION POWER TREND</h3>
-            <p className="text-[10px] text-white/30 font-mono">Modbus live registers sequence stream (3s poll window)</p>
+            <h3 className="text-sm font-mono font-bold uppercase tracking-[0.2em] text-prizm-text">GRID INTEGRATION POWER TREND</h3>
+            <p className="text-[10px] text-prizm-text-muted font-mono">Modbus live registers sequence stream (3s poll window)</p>
           </div>
-          <div className="flex items-center gap-4 text-[10px] font-mono text-white/40 uppercase tracking-wider">
+          <div className="flex items-center gap-4 text-[10px] font-mono text-prizm-text-muted uppercase tracking-wider">
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-1 bg-cyan-400 rounded-sm"></span>
+              <span className="inline-block w-2.5 h-1 bg-prizm-info rounded-sm"></span>
               <span>Grid Load (kW)</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-1 bg-blue-500 rounded-sm"></span>
+              <span className="inline-block w-2.5 h-1 bg-prizm-primary rounded-sm"></span>
               <span>Avg SoC (%)</span>
             </div>
           </div>
@@ -204,36 +204,36 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
             <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.15}/>
-                  <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#0284C7" stopOpacity={0.15}/>
+                  <stop offset="95%" stopColor="#0284C7" stopOpacity={0}/>
                 </linearGradient>
                 <linearGradient id="colorSoC" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#16A34A" stopOpacity={0.1}/>
+                  <stop offset="95%" stopColor="#16A34A" stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <XAxis 
                 dataKey="time" 
-                stroke="#64748b" 
+                stroke="#94a3b8" 
                 fontSize={9} 
                 fontFamily="JetBrains Mono, Fira Code, monospace" 
                 tickLine={false}
               />
               <YAxis 
-                stroke="#64748b" 
+                stroke="#94a3b8" 
                 fontSize={9} 
                 fontFamily="JetBrains Mono, Fira Code, monospace" 
                 tickLine={false} 
               />
               <Tooltip 
-                contentStyle={{ backgroundColor: "#12141C", borderRadius: "4px", borderColor: "rgba(255,255,255,0.1)" }}
-                labelStyle={{ color: "rgba(255,255,255,0.4)", fontFamily: "monospace", fontSize: "10px" }}
-                itemStyle={{ color: "#fff", fontSize: "11px", fontFamily: "sans-serif" }}
+                contentStyle={{ backgroundColor: "#ffffff", borderRadius: "4px", borderColor: "#e2e8f0" }}
+                labelStyle={{ color: "#64748b", fontFamily: "monospace", fontSize: "10px" }}
+                itemStyle={{ color: "#0f172a", fontSize: "11px", fontFamily: "sans-serif" }}
               />
               <Area 
                 type="monotone" 
                 dataKey="Net Charge (kW)" 
-                stroke="#22d3ee" 
+                stroke="#0284C7" 
                 strokeWidth={1.5}
                 fillOpacity={1} 
                 fill="url(#colorPower)" 
@@ -241,7 +241,7 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
               <Area 
                 type="monotone" 
                 dataKey="Avg SoC (%)" 
-                stroke="#3267d6" 
+                stroke="#16A34A" 
                 strokeWidth={1.5}
                 fillOpacity={1} 
                 fill="url(#colorSoC)" 
@@ -253,9 +253,9 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
 
       {/* Individual Devices list segment */}
       <div className="space-y-3">
-        <div className="flex justify-between items-center bg-[#12141C]/50 p-2 px-4 rounded border border-white/5">
-          <h3 className="text-[11px] font-mono font-bold uppercase tracking-[0.2em] text-white/60">Device Cluster status grid</h3>
-          <span className="text-[10px] text-white/30 font-mono">CLICK MODULE TO INSPECT INTERNAL SERIES CELL VOLTAGES</span>
+        <div className="flex justify-between items-center bg-prizm-surface p-2 px-4 rounded border border-prizm-border">
+          <h3 className="text-[11px] font-mono font-bold uppercase tracking-[0.2em] text-prizm-text-muted">Device Cluster status grid</h3>
+          <span className="text-[10px] text-prizm-text-muted font-mono">CLICK MODULE TO INSPECT INTERNAL SERIES CELL VOLTAGES</span>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -266,23 +266,23 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
                 key={dev.id} 
                 id={`bess-card-${dev.id}`}
                 onClick={() => onSelectDevice(dev)}
-                className={`group flex flex-col bg-[#161922] border rounded overflow-hidden shadow-lg transition-all duration-250 cursor-pointer ${
-                  dev.status === "Faulted" ? "border-amber-500/30 hover:border-amber-500/60" : "border-white/10 hover:border-white/20"
+                className={`group flex flex-col bg-prizm-surface border rounded overflow-hidden shadow-lg transition-all duration-250 cursor-pointer ${
+                  dev.status === "Faulted" ? "border-prizm-warning hover:border-prizm-danger" : "border-prizm-border hover:border-prizm-text-muted"
                 }`}
               >
                 {/* Header info bar */}
-                <div className={`px-3 py-2 border-b border-white/5 flex justify-between items-center ${
-                  dev.status === "Faulted" ? 'bg-amber-500/10' : 'bg-white/5'
+                <div className={`px-3 py-2 border-b border-prizm-border flex justify-between items-center ${
+                  dev.status === "Faulted" ? 'bg-prizm-warning/10' : 'bg-prizm-surface-strong'
                 }`}>
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs font-mono font-bold ${dev.status === "Faulted" ? "text-amber-500" : "text-white"}`}>
+                    <span className={`text-xs font-mono font-bold ${dev.status === "Faulted" ? "text-prizm-warning" : "text-prizm-text"}`}>
                       {dev.name}
                     </span>
-                    <span className="text-[9px] font-mono text-white/40">({dev.ipAddress})</span>
+                    <span className="text-[9px] font-mono text-prizm-text-muted">({dev.ipAddress})</span>
                   </div>
                   <span className={`w-2 h-2 rounded-full ${
-                    dev.status === "Faulted" ? "bg-amber-500 animate-pulse" :
-                    dev.isOnline ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-white/20"
+                    dev.status === "Faulted" ? "bg-prizm-warning animate-pulse" :
+                    dev.isOnline ? "bg-prizm-success shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-prizm-border"
                   }`} />
                 </div>
 
@@ -290,26 +290,26 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
                 <div className="p-3.5 flex-1 space-y-3">
                   <div className="grid grid-cols-2 gap-y-3 gap-x-4">
                     <div>
-                      <p className="text-[9px] text-[#D1D5DB]/40 uppercase tracking-tighter">IP Connection</p>
-                      <p className="text-xs font-mono text-[#D1D5DB]">{dev.ipAddress}:{dev.port}</p>
+                      <p className="text-[9px] text-prizm-text-muted uppercase tracking-tighter">IP Connection</p>
+                      <p className="text-xs font-mono text-prizm-text">{dev.ipAddress}:{dev.port}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[#D1D5DB]/40 uppercase tracking-tighter">Status Reg</p>
+                      <p className="text-[9px] text-prizm-text-muted uppercase tracking-tighter">Status Reg</p>
                       <p className={`text-xs font-mono font-bold uppercase ${
-                        dev.status === "Charging" ? "text-cyan-400" :
-                        dev.status === "Discharging" ? "text-amber-400" :
-                        dev.status === "Faulted" ? "text-rose-400" : "text-slate-400"
+                        dev.status === "Charging" ? "text-prizm-primary" :
+                        dev.status === "Discharging" ? "text-prizm-warning" :
+                        dev.status === "Faulted" ? "text-prizm-danger" : "text-prizm-text-muted"
                       }`}>{dev.status}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[#D1D5DB]/40 uppercase tracking-tighter">Active Power Flow</p>
-                      <p className="text-base font-mono font-bold text-white leading-tight">
+                      <p className="text-[9px] text-prizm-text-muted uppercase tracking-tighter">Active Power Flow</p>
+                      <p className="text-base font-mono font-bold text-prizm-text leading-tight">
                         {dev.power > 0 ? `+${dev.power}` : dev.power} kW
                       </p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[#D1D5DB]/40 uppercase tracking-tighter">Register V / A</p>
-                      <p className="text-xs font-mono text-slate-300 leading-tight">
+                      <p className="text-[9px] text-prizm-text-muted uppercase tracking-tighter">Register V / A</p>
+                      <p className="text-xs font-mono text-prizm-text-muted leading-tight">
                         {dev.voltage}V / {dev.current}A
                       </p>
                     </div>
@@ -318,8 +318,8 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
                   {/* SoC bar */}
                   <div className="space-y-1">
                     <div className="flex justify-between items-baseline text-[10px]">
-                      <span className="text-[#D1D5DB]/40 uppercase tracking-tighter">SOC Allocation</span>
-                      <span className="font-mono text-white font-bold">{dev.soc}%</span>
+                      <span className="text-prizm-text-muted uppercase tracking-tighter">SOC Allocation</span>
+                      <span className="font-mono text-prizm-text font-bold">{dev.soc}%</span>
                     </div>
                     <div className="flex gap-[1px]">
                       {Array.from({ length: 5 }).map((_, i) => {
@@ -330,8 +330,8 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
                             key={i} 
                             className={`h-2.5 flex-1 transition-all ${
                               isFilled 
-                                ? dev.status === "Faulted" ? "bg-amber-500" : "bg-cyan-500" 
-                                : "bg-white/10"
+                                ? dev.status === "Faulted" ? "bg-prizm-warning" : "bg-prizm-primary" 
+                                : "bg-prizm-bg-muted"
                             }`} 
                           />
                         );
@@ -340,57 +340,54 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
                   </div>
 
                   {/* Temperature metrics line */}
-                  <div className="flex justify-between items-center text-[10px] font-mono border-t border-white/5 pt-2 text-[#D1D5DB]/50">
-                    <span>Temp: <strong className={dev.temperature > 45 ? "text-rose-400" : "text-slate-300"}>{dev.temperature}°C</strong></span>
-                    <span>Health (SOH): <strong className="text-slate-300">{dev.soh}%</strong></span>
-                    <span>Cycles: <strong className="text-slate-300">{dev.cycleCount}</strong></span>
+                  <div className="flex justify-between items-center text-[10px] font-mono border-t border-prizm-border pt-2 text-prizm-text-muted">
+                    <span>Temp: <strong className={dev.temperature > 45 ? "text-prizm-danger" : "text-prizm-text"}>{dev.temperature}°C</strong></span>
+                    <span>Health (SOH): <strong className="text-prizm-text">{dev.soh}%</strong></span>
+                    <span>Cycles: <strong className="text-prizm-text">{dev.cycleCount}</strong></span>
                   </div>
 
                   {/* Active Register Fault status overlay */}
                   {hasError && (
-                    <div className="p-2 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[10px] font-mono rounded leading-normal">
+                    <div className="p-2 bg-prizm-danger/10 border border-prizm-danger/20 text-prizm-danger text-[10px] font-mono rounded leading-normal">
                       ERR MAP: {dev.lastError}
                     </div>
                   )}
                 </div>
 
                 {/* Actions row footer */}
-                <div className="p-2 bg-black/30 border-t border-white/5 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="p-2 bg-prizm-surface-strong border-t border-prizm-border flex gap-2" onClick={(e) => e.stopPropagation()}>
                   {dev.status === "Faulted" ? (
                     <button 
                       onClick={() => onTriggerControl(dev.id, "reset_fault")}
-                      className="w-full py-1 text-[10px] font-mono bg-amber-500/20 border border-amber-500/40 text-amber-400 hover:bg-amber-400 hover:text-black uppercase font-bold rounded cursor-pointer transition-all"
+                      className="w-full py-1 text-[10px] font-mono bg-prizm-warning/20 border border-prizm-warning/40 text-prizm-warning-strong hover:bg-prizm-warning hover:text-prizm-text uppercase font-bold rounded cursor-pointer transition-all"
                     >
                       Reset Locked Controller
                     </button>
                   ) : (
                     <>
                       <button 
-                        onClick={() => onTriggerControl(dev.id, "charge", 100)}
-                        disabled={dev.status === "Maintenance"}
-                        className={`flex-1 py-1 text-[9px] font-mono rounded border uppercase font-bold cursor-pointer transition-colors ${
+                        disabled={true}
+                        className={`flex-1 py-1 text-[9px] font-mono rounded border uppercase font-bold cursor-not-allowed transition-colors ${
                           dev.status === "Charging" 
-                            ? "bg-cyan-500 text-black border-cyan-400" 
-                            : "bg-white/5 hover:bg-white/10 border-white/10 text-white/80 disabled:opacity-30"
+                            ? "bg-prizm-primary text-prizm-text border-prizm-primary-strong" 
+                            : "bg-prizm-bg-muted border-prizm-border text-prizm-text-muted opacity-50"
                         }`}
                       >
                         Charge
                       </button>
                       <button 
-                        onClick={() => onTriggerControl(dev.id, "discharge", 100)}
-                        disabled={dev.status === "Maintenance"}
-                        className={`flex-1 py-1 text-[9px] font-mono rounded border uppercase font-bold cursor-pointer transition-colors ${
+                        disabled={true}
+                        className={`flex-1 py-1 text-[9px] font-mono rounded border uppercase font-bold cursor-not-allowed transition-colors ${
                           dev.status === "Discharging" 
-                            ? "bg-cyan-500 text-black border-cyan-400" 
-                            : "bg-white/5 hover:bg-white/10 border-white/10 text-white/80 disabled:opacity-30"
+                            ? "bg-prizm-primary text-prizm-text border-prizm-primary-strong" 
+                            : "bg-prizm-bg-muted border-prizm-border text-prizm-text-muted opacity-50"
                         }`}
                       >
                         Discharge
                       </button>
                       <button 
-                        onClick={() => onTriggerControl(dev.id, "idle")}
-                        disabled={dev.status === "Maintenance" || dev.status === "Idle"}
-                        className="flex-1 py-1 text-[9px] font-mono rounded border bg-white/5 hover:bg-white/10 border-white/10 text-[#D1D5DB]/60 uppercase font-bold cursor-pointer transition-colors disabled:opacity-30"
+                        disabled={true}
+                        className="flex-1 py-1 text-[9px] font-mono rounded border bg-prizm-bg-muted border-prizm-border text-prizm-text-muted uppercase font-bold cursor-not-allowed transition-colors opacity-50"
                       >
                         Idle
                       </button>
