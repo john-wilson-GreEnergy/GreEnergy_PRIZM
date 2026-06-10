@@ -285,7 +285,10 @@ router.get("/candidates", async (req, res) => {
         let blockData: any = [];
         let blockOk = false;
         try {
-            const topoRes = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
+            const topoRes = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data", { signal: controller.signal });
+            clearTimeout(timeoutId);
             if (topoRes.ok) {
                 blockData = await topoRes.json();
                 blockOk = true;
@@ -298,7 +301,10 @@ router.get("/candidates", async (req, res) => {
         let lastCallData: any = {};
         let lastCallOk = false;
         try {
-            const lcRes = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
+            const lcRes = await fetch(baseUrl + "/tools/report/ems/lastCall.json", { signal: controller.signal });
+            clearTimeout(timeoutId);
             if (lcRes.ok) {
                 lastCallData = await lcRes.json();
                 lastCallOk = true;
