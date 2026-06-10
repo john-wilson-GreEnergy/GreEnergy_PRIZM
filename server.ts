@@ -43,6 +43,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
+app.use("/api/local/strings/dashboard", stringsDashboardRouter);
+
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");
 if (!fs.existsSync(DATA_DIR)) {
@@ -419,9 +422,6 @@ app.get("/api/local/site-metrics", (req, res) => {
 app.get("/api/local/site-metrics/history", (req, res) => {
   res.json(getSiteTelemetryHistory());
 });
-
-app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
-app.use("/api/local/strings/dashboard", stringsDashboardRouter);
 
 app.get("/api/local/status", (req, res) => {
   res.json(getEmsCachedStatus());
