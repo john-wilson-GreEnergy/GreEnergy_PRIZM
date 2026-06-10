@@ -1,5 +1,4 @@
 import { Router } from "express";
-import fetch from "node-fetch";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
@@ -209,11 +208,15 @@ router.post("/execute", async (req, res) => {
             return res.status(500).json({ error: "Protobuf definition missing" });
         }
 
-        const CommandMessage = root.lookupType("turtle.controls.Command");
+        const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
+        const blockEnumValue = EndpointTypeEnum.values["BLOCK"];
+        const goblinEnumValue = EndpointTypeEnum.values["GOBLIN"];
+
+        const CommandMessage = root.lookupType("phoenixtongue.Command");
         const commandPayload = {
             commandId: uuidv4(),
-            commandTarget: { endpointType: "BLOCK" },
-            commandSource: { endpointType: "GOBLIN" },
+            commandTarget: { endpointType: blockEnumValue },
+            commandSource: { endpointType: goblinEnumValue },
             commandPayload: {
                  manualClearDeviceFault: {
                      entityKey: entityKeyToken
@@ -222,7 +225,7 @@ router.post("/execute", async (req, res) => {
             username: operatorUsername || "local-prizm"
         };
         
-        // Ensure protobuf schema matches keys properly (might need to map according to the actual .proto)
+        // Ensure protobuf schema matches keys properly
         const errMsg = CommandMessage.verify(commandPayload);
         if (errMsg) {
              return res.status(500).json({ error: "Protobuf validation failed: " + errMsg });
@@ -230,6 +233,25 @@ router.post("/execute", async (req, res) => {
 
         const message = CommandMessage.create(commandPayload);
         const buffer = CommandMessage.encode(message).finish();
+
+        // Decode after encode validation
+        try {
+            const decoded = CommandMessage.decode(buffer) as any;
+            if (decoded.commandTarget?.endpointType !== blockEnumValue) {
+                throw new Error("Validation Failed: commandTarget endpointType is not BLOCK");
+            }
+            if (decoded.commandSource?.endpointType !== goblinEnumValue) {
+                throw new Error("Validation Failed: commandSource endpointType is not GOBLIN");
+            }
+            if (!decoded.username) {
+                throw new Error("Validation Failed: username is not populated");
+            }
+            if (decoded.commandPayload?.manualClearDeviceFault?.entityKey !== entityKeyToken) {
+                throw new Error("Validation Failed: entityKey does not match the token");
+            }
+        } catch (validationErr: any) {
+            return res.status(500).json({ error: "Pre-flight decode validation failed: " + validationErr.message });
+        }
 
         const postUrl = baseUrl + "/tools/controls/ems/command";
         const cmdRes = await fetch(postUrl, {

@@ -1,4 +1,3 @@
-import fetch from "node-fetch";
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { getFeatherCache } from "./featherClient";

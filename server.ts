@@ -72,159 +72,7 @@ function writeJSONFile<T>(filePath: string, data: T): void {
   }
 }
 
-// Initial seed devices
-const initialDevices: BessDevice[] = [
-  {
-    id: "bess-01",
-    name: "Substation Alpha-1 Core",
-    ipAddress: "192.168.1.101",
-    port: 502,
-    model: "Greenergy BESS-Mega 1000",
-    status: "Charging",
-    soc: 42.5,
-    soh: 96.8,
-    voltage: 482.4,
-    current: 207.3,
-    frequency: 60.02,
-    temperature: 34.6,
-    power: 100.0, // kW
-    capacityKwh: 1200,
-    cycleCount: 247,
-    lastPing: new Date().toISOString(),
-    isOnline: true,
-    firmwareVersion: "v2.5.14",
-    lastError: null,
-    cellVoltages: [3.21, 3.22, 3.21, 3.23, 3.22, 3.21, 3.22, 3.23, 3.21, 3.21, 3.22, 3.22, 3.21, 3.23, 3.22, 3.21]
-  },
-  {
-    id: "bess-02",
-    name: "Solar Array B Buffer",
-    ipAddress: "192.168.1.102",
-    port: 502,
-    model: "Tesla Megapack 2XL",
-    status: "Discharging",
-    soc: 81.2,
-    soh: 98.1,
-    voltage: 812.5,
-    current: -153.8,
-    frequency: 59.98,
-    temperature: 31.2,
-    power: -125.0, // kW
-    capacityKwh: 3000,
-    cycleCount: 112,
-    lastPing: new Date().toISOString(),
-    isOnline: true,
-    firmwareVersion: "v2025.12.3",
-    lastError: null,
-    cellVoltages: [3.31, 3.32, 3.31, 3.30, 3.31, 3.32, 3.32, 3.31, 3.31, 3.30, 3.31, 3.32, 3.31, 3.30, 3.32, 3.31]
-  },
-  {
-    id: "bess-03",
-    name: "Anode Storage Cluster C",
-    ipAddress: "192.168.1.103",
-    port: 502,
-    model: "Greenergy BESS-Eco 500",
-    status: "Faulted",
-    soc: 18.4,
-    soh: 89.2,
-    voltage: 410.2,
-    current: 0.0,
-    frequency: 60.00,
-    temperature: 52.4, // Overheating!
-    power: 0.0,
-    capacityKwh: 500,
-    cycleCount: 684,
-    lastPing: new Date().toISOString(),
-    isOnline: true,
-    firmwareVersion: "v1.12.2",
-    lastError: "ALERT_CODE_711_HIGH_TEMP_CELL_VARIANCE_CRITICAL",
-    cellVoltages: [3.12, 3.14, 3.12, 3.42, 3.11, 3.10, 3.12, 3.14, 3.09, 3.10, 3.11, 3.15, 3.08, 3.51, 3.12, 3.11] // voltage imbalance in cell 14 and 4!
-  },
-  {
-    id: "bess-04",
-    name: "Office Peak-Shaving Unit",
-    ipAddress: "192.168.1.104",
-    port: 502,
-    model: "Greenergy BESS-Eco 250",
-    status: "Idle",
-    soc: 94.1,
-    soh: 93.5,
-    voltage: 240.1,
-    current: 0.0,
-    frequency: 60.01,
-    temperature: 24.5,
-    power: 0.0,
-    capacityKwh: 250,
-    cycleCount: 412,
-    lastPing: new Date().toISOString(),
-    isOnline: true,
-    firmwareVersion: "v2.1.0-rc1",
-    lastError: null,
-    cellVoltages: [3.28, 3.28, 3.29, 3.28, 3.29, 3.28, 3.28, 3.29, 3.28, 3.28, 3.29, 3.29, 3.28, 3.28, 3.29, 3.28]
-  }
-];
 
-const initialLogs: BessLog[] = [
-  {
-    id: "log-1",
-    deviceId: "bess-03",
-    deviceName: "Anode Storage Cluster C",
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    level: "WARNING",
-    message: "Cell temperature has exceeded caution limit (45°C). Current sensor read: 46.2°C.",
-    code: "TEMP_WARNING_45C"
-  },
-  {
-    id: "log-2",
-    deviceId: "bess-03",
-    deviceName: "Anode Storage Cluster C",
-    timestamp: new Date(Date.now() - 1800000).toISOString(),
-    level: "CRITICAL",
-    message: "Overtemperature Trip Activated: Cell #14 is reporting 55.1°C with voltage variance of +390mV. Contactors decoupled automatically.",
-    code: "ALERT_CODE_711_HIGH_TEMP_CELL_VARIANCE_CRITICAL"
-  },
-  {
-    id: "log-3",
-    deviceId: "bess-01",
-    deviceName: "Substation Alpha-1 Core",
-    timestamp: new Date(Date.now() - 600000).toISOString(),
-    level: "INFO",
-    message: "Remote API Command received: Set Active Charge Mode to 100.0kW.",
-    code: "CMD_CHARGE_OK"
-  },
-  {
-    id: "log-4",
-    deviceId: "bess-04",
-    deviceName: "Office Peak-Shaving Unit",
-    timestamp: new Date().toISOString(),
-    level: "INFO",
-    message: "State of Charge reached target threshold (94.1%). Transitioning to Idle Mode.",
-    code: "STATE_THRESHOLD_IDLE"
-  }
-];
-
-const initialReports: ReportConfig[] = [
-  {
-    id: "rep-1",
-    name: "Substation Daily Efficiency & Cycle Log",
-    frequency: "Daily",
-    format: "JSON",
-    recipients: ["john.wilson@greenergyresources.com", "ops-alerts@greenergyresources.com"],
-    lastSent: new Date(Date.now() - 86400000).toISOString(),
-    selectedDevices: ["bess-01", "bess-02"],
-    includeMetrics: ["soc", "temperature", "cycleCount", "power"]
-  },
-  {
-    id: "rep-2",
-    name: "Facility Integrity Weekly Summary",
-    frequency: "Weekly",
-    format: "CSV",
-    recipients: ["john.wilson@greenergyresources.com"],
-    lastSent: new Date(Date.now() - 432000000).toISOString(),
-    selectedDevices: ["bess-01", "bess-02", "bess-03", "bess-04"],
-    includeMetrics: ["soh", "temperature", "lastError", "voltage", "current"]
-  }
-];
 
 // Load collections from files or write seeds
 
@@ -531,154 +379,7 @@ for (let i = 15; i >= 0; i--) {
   });
 }
 
-// SIMULATOR & REAL-TIME POLL LOOP (triggers every 3 seconds to auto-refresh local EMS)
-setInterval(async () => {
-  let changed = false;
 
-  const polledDevices = await Promise.all(devices.map(async (dev) => {
-    // If real-time querying is activated and device is configured for TCP Modbus
-    if (dev.isRealtimeEnabled) {
-      try {
-        const polledData = await pollRealtimeDevice(dev);
-        changed = true;
-        return {
-          ...dev,
-          ...polledData,
-          lastPing: new Date().toISOString()
-        };
-      } catch (err: any) {
-        console.error(`[Modbus TCP] Failed to poll actual EMS at ${dev.ipAddress}:${dev.port}:`, err.message || err);
-        
-        // Log Modbus connection issue in system logs
-        if (dev.pollStatus !== "polling_error") {
-          const errorLogMsg = `Modbus TCP Connection Error on ${dev.name} (${dev.ipAddress}:${dev.port}): ${err.message || "Timeout"}`;
-          const logMsg: BessLog = {
-            id: "log-" + Math.random().toString(36).substring(2, 9),
-            deviceId: dev.id,
-            deviceName: dev.name,
-            timestamp: new Date().toISOString(),
-            level: "ERROR",
-            message: errorLogMsg,
-            code: "MODBUS_POLL_ERROR"
-          };
-          logs.unshift(logMsg);
-          if (logs.length > 200) logs.pop();
-          
-        }
-
-        changed = true;
-        return {
-          ...dev,
-          isOnline: false,
-          pollStatus: "polling_error" as const,
-          errorLog: err.message || "Connection timed out, check physical link / server host offline."
-        };
-      }
-    }
-
-    // Otherwise, execute the classic robust charger/discharger built-in simulation model
-    if (!dev.isOnline) return dev;
-
-    changed = true;
-    let { soc, temperature, power, voltage, current } = dev;
-
-    // SoC updates
-    if (dev.status === "Charging") {
-      const chargedKwh = power * (3 / 3600);
-      const addedSoc = (chargedKwh / dev.capacityKwh) * 100;
-      soc = Math.min(100, parseFloat((soc + addedSoc).toFixed(3)));
-
-      temperature = parseFloat((temperature + 0.05 * (power / 100) + (Math.random() - 0.45) * 0.1).toFixed(2));
-      voltage = parseFloat((400 + (soc / 100) * 100 + (Math.random() - 0.5) * 0.5).toFixed(1));
-      current = parseFloat((power * 1000 / voltage).toFixed(1));
-
-      if (soc >= 100) {
-        dev.status = "Idle";
-        dev.power = 0;
-        const logMsg: BessLog = {
-          id: "log-" + Math.random().toString(36).substring(2, 9),
-          deviceId: dev.id,
-          deviceName: dev.name,
-          timestamp: new Date().toISOString(),
-          level: "INFO",
-          message: `${dev.name} reached State of Charge threshold (100%). Switched to Idle mode.`,
-          code: "CHARGE_COMPLETE_IDLE"
-        };
-        logs.unshift(logMsg);
-        if (logs.length > 200) logs.pop();
-        
-      }
-    } else if (dev.status === "Discharging") {
-      const dischargedKwh = Math.abs(power) * (3 / 3600);
-      const subtractedSoc = (dischargedKwh / dev.capacityKwh) * 100;
-      soc = Math.max(0, parseFloat((soc - subtractedSoc).toFixed(3)));
-
-      temperature = parseFloat((temperature + 0.07 * (Math.abs(power) / 100) + (Math.random() - 0.45) * 0.1).toFixed(2));
-      voltage = parseFloat((400 + (soc / 100) * 100 - 15 + (Math.random() - 0.5) * 0.5).toFixed(1));
-      current = parseFloat((power * 1000 / voltage).toFixed(1));
-
-      if (soc <= 0) {
-        dev.status = "Idle";
-        dev.power = 0;
-        const logMsg: BessLog = {
-          id: "log-" + Math.random().toString(36).substring(2, 9),
-          deviceId: dev.id,
-          deviceName: dev.name,
-          timestamp: new Date().toISOString(),
-          level: "INFO",
-          message: `${dev.name} is fully depleted (SoC 0%). Switched to Idle mode.`,
-          code: "DISCHARGE_DEPLETED_IDLE"
-        };
-        logs.unshift(logMsg);
-        if (logs.length > 200) logs.pop();
-        
-      }
-    } else if (dev.status === "Idle") {
-      if (temperature > 23.5) {
-        temperature = parseFloat((temperature - 0.08).toFixed(2));
-      } else if (temperature < 22.5) {
-        temperature = parseFloat((temperature + 0.05).toFixed(2));
-      }
-      voltage = parseFloat((400 + (soc / 100) * 100 + (Math.random() - 0.5) * 0.1).toFixed(1));
-      current = 0;
-      power = 0;
-    } else if (dev.status === "Faulted") {
-      if (dev.id === "bess-03" && temperature > 42.0) {
-        temperature = parseFloat((temperature - 0.25).toFixed(2));
-      }
-      power = 0;
-      current = 0;
-    }
-
-    const updatedCellVoltages = dev.cellVoltages.map((cell, idx) => {
-      const baseCellVolts = dev.status === "Faulted" ? 3.12 : (voltage / 16 / 10);
-      const multiplier = dev.id === "bess-03" && (idx === 13 || idx === 3) ? 1.05 : 1.0;
-      const noise = (Math.random() - 0.5) * 0.004;
-      return parseFloat((baseCellVolts * multiplier + noise).toFixed(3));
-    });
-
-    return {
-      ...dev,
-      soc,
-      temperature,
-      power,
-      voltage,
-      current,
-      cellVoltages: updatedCellVoltages,
-      lastPing: new Date().toISOString()
-    };
-  }));
-
-  devices = polledDevices;
-
-  if (changed) {
-    
-  }
-  
-  if (typeof generateTelemetryPacket === "function") {
-    generateTelemetryPacket();
-  }
-}, 3000);
 
 // ==================== LOCAL EMS TURTLE INTEGRATION API ROUTES ====================
 // Setup background interval polling for EMS Turtle from configure interval
@@ -1758,19 +1459,17 @@ app.post("/api/cloud-telemetry/trigger-export", (req, res) => {
 
 // API: Fetch error logs
 app.get("/api/logs", (req, res) => {
-  res.json(logs);
+  res.json([]);
 });
 
 // API: Clear Logs
 app.delete("/api/logs", (req, res) => {
-  logs = [];
-  
   res.json({ success: true });
 });
 
 // GET: active reporting configs
 app.get("/api/reports", (req, res) => {
-  res.json(reports);
+  res.json([]);
 });
 
 // POST: create a report

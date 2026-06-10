@@ -49,12 +49,13 @@ function runTests() {
     // Test 5: Protobuf command builder creates a Command
     const protoPath = path.join(process.cwd(), "src/server/safetyFaultClearProto.proto");
     const root = protobuf.loadSync(protoPath);
-    const CommandMessage = root.lookupType("turtle.controls.Command");
+    const CommandMessage = root.lookupType("phoenixtongue.Command");
+    const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
 
     const cmdPayload = {
         commandId: uuidv4(),
-        commandTarget: { endpointType: "BLOCK" },
-        commandSource: { endpointType: "GOBLIN" },
+        commandTarget: { endpointType: EndpointTypeEnum.values["BLOCK"] },
+        commandSource: { endpointType: EndpointTypeEnum.values["GOBLIN"] },
         commandPayload: {
              manualClearDeviceFault: {
                  entityKey: "ENT_01"
@@ -71,8 +72,8 @@ function runTests() {
     assert.ok(buf.length > 0, "Buffer generated successfully");
 
     const decoded = CommandMessage.decode(buf) as any;
-    assert.strictEqual(decoded.commandSource.endpointType, "GOBLIN");
-    assert.strictEqual(decoded.commandTarget.endpointType, "BLOCK");
+    assert.strictEqual(decoded.commandSource.endpointType, EndpointTypeEnum.values["GOBLIN"]);
+    assert.strictEqual(decoded.commandTarget.endpointType, EndpointTypeEnum.values["BLOCK"]);
     assert.strictEqual(decoded.commandPayload.manualClearDeviceFault.entityKey, "ENT_01");
     assert.strictEqual(decoded.username, "local-prizm");
 

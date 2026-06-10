@@ -28,9 +28,6 @@ import { BessDevice, BessLog, ReportConfig } from "./types";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
-  const [devices, setDevices] = useState<BessDevice[]>([]);
-  const [logs, setLogs] = useState<BessLog[]>([]);
-  const [reports, setReports] = useState<ReportConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Monitor EMS metadata
@@ -50,39 +47,12 @@ export default function App() {
   const fetchAllData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [devRes, logRes, repRes, modeRes] = await Promise.all([
-        fetch("/api/devices").catch(err => {
-          console.log("[App Telemetry Info] Devices endpoint standby:", err);
-          return null;
-        }),
-        fetch("/api/logs").catch(err => {
-          console.log("[App Telemetry Info] Logs endpoint standby:", err);
-          return null;
-        }),
-        fetch("/api/reports").catch(err => {
-          console.log("[App Telemetry Info] Reports endpoint standby:", err);
-          return null;
-        }),
-        fetch("/api/local/mode").catch(err => null)
-      ]);
+      const modeRes = await fetch("/api/local/mode").catch(err => null);
 
-      if (devRes && devRes.ok) {
-        const devs = await devRes.json().catch(() => null);
-        if (devs) setDevices(devs);
-      }
-      if (logRes && logRes.ok) {
-        const lg = await logRes.json().catch(() => null);
-        if (lg) setLogs(lg);
-      }
-      if (repRes && repRes.ok) {
-        const rep = await repRes.json().catch(() => null);
-        if (rep) setReports(rep);
-      }
       if (modeRes && modeRes.ok) {
         const mode = await modeRes.json().catch(() => null);
         if (mode) setEmsMetadata(mode);
       }
-
     } catch (err) {
       console.log("[App Telemetry Info] Telemetry gateway offline standby:", err);
     } finally {
@@ -125,13 +95,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
-          {devices.filter(d => d.status === "Faulted").length > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-prizm-danger/10 border border-prizm-danger/20 rounded">
-              <span className="text-prizm-danger text-[10px] font-bold uppercase tracking-wider animate-pulse">
-                {devices.filter(d => d.status === "Faulted").length} RACK ALERTS
-              </span>
-            </div>
-          )}
           <div className="text-right">
             <div className="text-[11px] text-prizm-text-muted font-mono tracking-widest">
               {currentTime.toISOString().replace('T', ' ').slice(0, 19)} UTC
@@ -224,8 +187,8 @@ export default function App() {
 
             {activeTab === "reports" && (
               <Reporting 
-                devices={devices}
-                reports={reports}
+                devices={[]}
+                reports={[]}
                 onAddReport={async () => {}}
                 onDeleteReport={async () => {}}
               />

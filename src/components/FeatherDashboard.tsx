@@ -879,7 +879,7 @@ export default function FeatherDashboard() {
                             ? "bg-green-500/5 text-green-400 border border-green-500/10" 
                             : "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20"
                         }`}>
-                          {(d.reachable ? (d.alarmCount ? 'ALARM' : d.warningCount ? 'WARNING' : 'NORMAL') : (d.sourceCoverage.directFeather ? 'OFFLINE' : 'Not reporting')) || "OFFLINE"}
+                          {d.reachable ? (d.alarmCount ? 'ALARM' : d.warningCount ? 'WARNING' : 'NORMAL') : (d.sourceCoverage.directFeather ? 'OFFLINE' : 'Not reporting')}
                         </span>
                       </td>
 
