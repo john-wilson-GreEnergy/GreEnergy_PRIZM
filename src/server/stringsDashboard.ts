@@ -386,4 +386,125 @@ router.get("/", (req, res) => {
     }
 });
 
+router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
+    try {
+        const arrayNumber = Number(req.params.arrayNumber);
+        const stringNumber = Number(req.params.stringNumber);
+        const profile = ProfileStore.getActiveProfile();
+        
+        if (!profile) return res.status(400).json({ error: "No active profile" });
+        const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
+
+        let stringViewerData: any = null;
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const r = await fetch(`${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/string/${stringNumber}/data`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (r.ok) {
+                stringViewerData = await r.json();
+            }
+        } catch(e) {}
+
+        let lcBaseData = null;
+        const lastCallWrapper = getEmsCachedLastCall();
+        if (lastCallWrapper.data) {
+             let lcS = null;
+             if (Array.isArray(lastCallWrapper.data.strings)) {
+                 lcS = lastCallWrapper.data.strings.find((s:any) => (s.array === arrayNumber || s.arrayIndex === arrayNumber) && (s.string === stringNumber || s.stringIndex === stringNumber));
+             }
+             if (!lcS && Array.isArray(lastCallWrapper.data.arrays)) {
+                 const lcA = lastCallWrapper.data.arrays.find((a:any) => a.index === arrayNumber || a.arrayIndex === arrayNumber);
+                 if (lcA && Array.isArray(lcA.strings)) {
+                     lcS = lcA.strings.find((s:any) => s.index === stringNumber || s.stringIndex === stringNumber);
+                 }
+             }
+             if (lcS) lcBaseData = lcS;
+        }
+
+        let voltageMatrix: number[][] = [];
+        let temperatureMatrix: number[][] = [];
+        let notificationMatrix: any[][] = [];
+        let balancingDetails: any[] = [];
+        let notifications: any[] = [];
+        let eventLogs: any[] = [];
+
+        if (stringViewerData && stringViewerData.stringViewerDataModel) {
+            const sv = stringViewerData.stringViewerDataModel;
+            const vm = sv.voltageMap?.batteryPacks || {};
+            const tm = sv.temperatureMap?.batteryPacks || {};
+            
+            const bpKeys = Object.keys(vm).map(Number).sort((a,b) => a-b);
+            bpKeys.forEach(bpIdx => {
+                const cgsV = vm[String(bpIdx)]?.cellGroups || {};
+                const cgsT = tm[String(bpIdx)]?.cellGroups || {};
+                
+                const cgKeys = Object.keys(cgsV).map(Number).sort((a,b) => a-b);
+                const vRow = cgKeys.map(cg => cgsV[String(cg)]?.value);
+                const tRow = cgKeys.map(cg => cgsT[String(cg)]?.value);
+                voltageMatrix.push(vRow);
+                temperatureMatrix.push(tRow);
+            });
+        } else if (lcBaseData) {
+            let bpcsData = lcBaseData.packs || lcBaseData.bpcs || lcBaseData.batteryPacks || [];
+            if (!Array.isArray(bpcsData)) bpcsData = [];
+            
+            bpcsData.sort((a,b) => (a.index || a.bpcIndex || 0) - (b.index || b.bpcIndex || 0));
+            
+            bpcsData.forEach((bpc: any) => {
+                const cv = Array.isArray(bpc.cellVoltages) ? bpc.cellVoltages : [];
+                voltageMatrix.push(cv);
+                
+                const ct = Array.isArray(bpc.cellTemperatures) ? bpc.cellTemperatures : [];
+                temperatureMatrix.push(ct);
+                
+                const cn = Array.isArray(bpc.notifications || bpc.cgStatus) ? (bpc.notifications || bpc.cgStatus) : [];
+                notificationMatrix.push(cn);
+                
+                if (bpc.balancing || bpc.balancingMode || bpc.balancingState) {
+                    balancingDetails.push({
+                        index: bpc.index || bpc.bpcIndex,
+                        mode: bpc.balancingMode,
+                        state: bpc.balancingState,
+                        balancingActive: bpc.balancingActive || bpc.balancing,
+                        targetCellGroup: undefined
+                    });
+                }
+                
+                if (bpc.warnings && Array.isArray(bpc.warnings) && bpc.warnings.length > 0) {
+                     bpc.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                } else if (bpc.warningList && Array.isArray(bpc.warningList) && bpc.warningList.length > 0) {
+                     bpc.warningList.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                }
+                if (bpc.alarms && Array.isArray(bpc.alarms) && bpc.alarms.length > 0) {
+                     bpc.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                } else if (bpc.alarmList && Array.isArray(bpc.alarmList) && bpc.alarmList.length > 0) {
+                     bpc.alarmList.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                }
+            });
+            
+            if (lcBaseData.warnings && Array.isArray(lcBaseData.warnings) && lcBaseData.warnings.length > 0) {
+                lcBaseData.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `String` }));
+            }
+            if (lcBaseData.alarms && Array.isArray(lcBaseData.alarms) && lcBaseData.alarms.length > 0) {
+                lcBaseData.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `String` }));
+            }
+        }
+
+        res.json({
+            arrayNumber,
+            stringNumber,
+            voltageMatrix,
+            temperatureMatrix,
+            notificationMatrix,
+            balancingDetails,
+            notifications,
+            eventLogs,
+            sourceViewerUsed: !!stringViewerData
+        });
+    } catch(err) {
+        res.status(500).json({ error: (err as any).message });
+    }
+});
+
 export default router;
