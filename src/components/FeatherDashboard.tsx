@@ -963,38 +963,46 @@ export default function FeatherDashboard() {
                       </td>
 
                       {/* HVAC/MIO inputs Summary */}
-                      <td className="p-3 text-prizm-text-muted min-w-[280px] leading-normal whitespace-nowrap overflow-x-auto">
+                      <td className="p-3">
                         {d.reachable ? (
-                          <div className="flex flex-col gap-1.5 text-[10px]">
-                            <div className="flex items-center gap-1.5 text-blue-300">
-                              <Thermometer size={10} className="shrink-0" />
-                              <div className="flex flex-wrap gap-x-2 gap-y-1 text-prizm-text-muted">
-                                {d.spaceTemperatureC !== undefined && d.spaceTemperatureC !== null && (
-                                  <span>Space {d.spaceTemperatureC.toFixed(1)}°C {d.spaceHumidityPct !== undefined && d.spaceHumidityPct !== null ? `/ RH ${d.spaceHumidityPct.toFixed(1)}%` : ""} <span className="text-white/20 mx-1">|</span></span>
-                                )}
-                                {d.avgCellTemperatureC !== undefined && d.avgCellTemperatureC !== null && (
-                                  <span>Cell {d.avgCellTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
-                                )}
-                                {d.supplyAirTempC !== undefined && d.supplyAirTempC !== null && (
-                                  <span>Supply {d.supplyAirTempC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
-                                )}
-                                {d.outsideTemperatureC !== undefined && d.outsideTemperatureC !== null && (
-                                  <span>Outside {d.outsideTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
-                                )}
-                                {d.hydrogen1PPM !== undefined && d.hydrogen1PPM !== null && (
-                                  <span>H2 {d.hydrogen1PPM.toFixed(1)} ppm</span>
-                                )}
+                          <div className="flex items-center gap-3 w-full text-[10px] min-w-[400px]">
+                            <div className="min-w-0 flex-1 flex flex-col gap-1.5">
+                              {/* Top summary row */}
+                              <div className="flex items-center gap-1.5 text-blue-300 overflow-hidden text-ellipsis whitespace-nowrap">
+                                <Thermometer size={10} className="shrink-0" />
+                                <div className="overflow-hidden text-ellipsis whitespace-nowrap flex gap-x-2 text-prizm-text-muted">
+                                  {d.spaceTemperatureC !== undefined && d.spaceTemperatureC !== null && (
+                                    <span>Space {d.spaceTemperatureC.toFixed(1)}°C {d.spaceHumidityPct !== undefined && d.spaceHumidityPct !== null ? `/ RH ${d.spaceHumidityPct.toFixed(1)}%` : ""} <span className="text-white/20 mx-1">|</span></span>
+                                  )}
+                                  {d.avgCellTemperatureC !== undefined && d.avgCellTemperatureC !== null && (
+                                    <span>Cell {d.avgCellTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                  )}
+                                  {d.supplyAirTempC !== undefined && d.supplyAirTempC !== null && (
+                                    <span>Supply {d.supplyAirTempC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                  )}
+                                  {d.outsideTemperatureC !== undefined && d.outsideTemperatureC !== null && (
+                                    <span>Outside {d.outsideTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                  )}
+                                  {d.hydrogen1PPM !== undefined && d.hydrogen1PPM !== null && (
+                                    <span>H2 {d.hydrogen1PPM.toFixed(1)} ppm</span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* State line */}
+                              <div className="flex items-center gap-x-2 font-bold mt-0.5 text-prizm-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
+                                <span className="text-prizm-primary shrink-0">{d.thermostatStage || "IDLE"}</span> <span className="text-white/20">|</span>
+                                <span>{d.thermalControlRunning ? "Control Active" : "Control Inactive"}</span> <span className="text-white/20">|</span>
+                                <span>{d.hvacRuntimeState || "HVAC Unknown"}</span> <span className="text-white/20">|</span>
+                                <span>HVAC1 {(d.hvac1?.currentA || 0).toFixed(1)}A</span> <span className="text-white/20">|</span>
+                                <span>HVAC2 {(d.hvac2?.currentA || 0).toFixed(1)}A</span>
                               </div>
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-2 font-bold mt-0.5 text-prizm-text-muted">
-                              <span className="text-prizm-primary">{d.thermostatStage || "IDLE"}</span> <span className="text-white/20">|</span>
-                              <span>{d.thermalControlRunning ? "Control Active" : "Control Inactive"}</span> <span className="text-white/20">|</span>
-                              <span>{d.hvacRuntimeState || "HVAC Unknown"}</span> <span className="text-white/20">|</span>
-                              <span>HVAC1 {(d.hvac1?.currentA || 0).toFixed(1)}A</span> <span className="text-white/20">|</span>
-                              <span>HVAC2 {(d.hvac2?.currentA || 0).toFixed(1)}A</span> <span className="text-white/20">|</span>
-                              <span className={d.hvacDataValid ? "text-emerald-400" : "text-prizm-danger"}>{d.hvacDataValid ? "HVAC Data Valid" : "HVAC Data Invalid"}</span> <span className="text-white/20">|</span>
-                              <span className={d.fssSignals?.valid ? "text-emerald-400" : "text-prizm-danger"}>{d.fssSignals?.valid ? "FSS Valid" : "FSS Invalid"}</span> <span className="text-white/20">|</span>
-                              <span className={d.doors?.valid ? "text-emerald-400" : "text-prizm-danger"}>{d.doors?.valid ? "Doors Valid" : "Doors Invalid"}</span>
+                            
+                            {/* Validation Callouts */}
+                            <div className="ml-auto flex justify-end gap-2 whitespace-nowrap min-w-[260px]">
+                              <span className={d.hvacDataValid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.hvacDataValid ? "HVAC Data Valid" : "HVAC Data Invalid"}</span> <span className="text-white/20">|</span>
+                              <span className={d.fssSignals?.valid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.fssSignals?.valid ? "FSS Valid" : "FSS Invalid"}</span> <span className="text-white/20">|</span>
+                              <span className={d.doors?.valid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.doors?.valid ? "Doors Valid" : "Doors Invalid"}</span>
                             </div>
                           </div>
                         ) : (

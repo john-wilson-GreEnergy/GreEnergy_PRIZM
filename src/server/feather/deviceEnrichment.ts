@@ -297,7 +297,7 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
       hvac1Data.valid && hvac2Data.valid
   );
 
-  const fss = raw.fssSignals || {};
+  const fss = thermal.fssSignals || raw.fssSignals || {};
   partial.fssSignals = {
     valid: fss.valid,
     fssAlarm: fss.fssAlarm,
@@ -315,7 +315,7 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
     louverOpen: fss.louverOpen,
   };
 
-  const doors = raw.doors || {};
+  const doors = thermal.doors || raw.doors || {};
   partial.doors = {
     valid: doors.valid,
     batteryDoorsClosed: doors.batteryDoorsClosed,

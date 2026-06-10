@@ -43,8 +43,14 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     );
   }
 
-  const s = stringData;
-  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], notifications = [], eventLogs = [] } = data || {};
+  const s = {
+    ...stringData,
+    ...(data?.summary || {})
+  };
+
+  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
+
+  const stringViewerHealth = sourceHealth?.stringviewer;
 
   const downloadMatrixCsv = (matrix: any[], name: string) => {
     if (!matrix || matrix.length === 0) return;
@@ -53,7 +59,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     matrix.forEach((row, rIdx) => {
         csvRows.push([`BPC ${rIdx+1}`, ...row].join(','));
     });
-    const blob = new Blob([csvRows.join('\\n')], { type: 'text/csv' });
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -62,9 +68,12 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     URL.revokeObjectURL(url);
   };
 
-  const hasVoltageMatrix = Array.isArray(voltageMatrix) && voltageMatrix.some(r => Array.isArray(r) && r.length > 0);
-  const hasTempMatrix = Array.isArray(temperatureMatrix) && temperatureMatrix.some(r => Array.isArray(r) && r.length > 0);
+  const hasBpcCellGroups = bpcs?.some((bpc: any) => Array.isArray(bpc.cellGroups) && bpc.cellGroups.length > 0);
+  const hasVoltageMatrix = hasBpcCellGroups || (Array.isArray(voltageMatrix) && voltageMatrix.some(r => Array.isArray(r) && r.length > 0));
+  const hasTempMatrix = hasBpcCellGroups || (Array.isArray(temperatureMatrix) && temperatureMatrix.some(r => Array.isArray(r) && r.length > 0));
   const hasNotifMatrix = Array.isArray(notificationMatrix) && notificationMatrix.some((r: any) => Array.isArray(r) && r.length > 0);
+
+  const finalBpcCount = data?.summary?.bpcCount ?? bpcs?.length ?? s.bpcCount ?? 0;
 
   const getVoltageColor = (v: number) => {
        if (v > 3600) return "bg-prizm-danger text-prizm-bg font-bold animate-pulse";
@@ -102,33 +111,52 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase">Contact / Rot</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5"><span className={s.contactorClosed ? "text-emerald-400" : "text-prizm-text-muted"}>{s.contactorStatus}</span> | <span className={s.rotationEnabled ? "text-emerald-400" : "text-prizm-warning"}>{s.rotationStatus}</span></span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5"><span className={s.contactorClosed || s.positiveContactorClosed || s.negativeContactorClosed ? "text-emerald-400" : "text-prizm-text-muted"}>{s.contactorStatus || (s.positiveContactorClosed ? "CLOSED" : "OPEN")}</span> | <span className={s.rotationEnabled || s.rotationStatus === "OUT" ? "text-emerald-400" : "text-prizm-warning"}>{s.rotationStatus}</span></span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase">SOC / Energy</span>
-              <span className="text-[11px] font-bold text-prizm-info mt-0.5">{s.socPct}% | {s.kwh}kWh</span>
+              <span className="text-[11px] font-bold text-prizm-info mt-0.5">{s.socPct ?? s.soc}% | {s.kwh ?? '--'}kWh</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase">Power / Amps</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.kw}kW | {s.amps}A</span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.kw ?? '--'}kW | {s.amps ?? '--'}A</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Voltages (Meas/Calc)</span>
-               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.measuredVoltage}V / {s.calculatedVoltage}V</span>
+               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.measuredVoltage ?? '--'}V / {s.calculatedVoltage ?? '--'}V</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Cell Bounds</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellVoltage}V &rarr; {s.maxCellVoltage}V</span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellVoltage ?? '--'}V &rarr; {s.maxCellVoltage ?? '--'}V</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
                <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Temp Bounds</span>
-               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellTemperature}° &rarr; {s.maxCellTemperature}°</span>
+               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellTemperature ?? '--'}° &rarr; {s.maxCellTemperature ?? '--'}°</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Container / BPCs</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.container || s.location} | {s.bpcCount} BPCs</span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.container || s.location || '--'} | {finalBpcCount} BPCs</span>
             </div>
           </div>
+
+          {/* Details / Debug */}
+          <details className="mb-6 bg-prizm-surface border border-prizm-border rounded-lg text-xs font-mono group">
+            <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold tracking-wider">
+               Local EMS Data Binding Details
+            </summary>
+            <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar">
+                {stringViewerHealth && (
+                    <div className="flex gap-4">
+                        <span className={`px-1.5 py-0.5 rounded font-bold ${stringViewerHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
+                            stringviewer {stringViewerHealth.ok ? 'OK' : 'FAIL'}
+                        </span>
+                        <span className="text-prizm-text-muted">HTTP {stringViewerHealth.httpStatus || '--'}</span>
+                        <span className="text-prizm-text-muted">{stringViewerHealth.durationMs}ms</span>
+                        <span className="text-prizm-text-muted opacity-80">{stringViewerHealth.url}</span>
+                    </div>
+                )}
+            </div>
+          </details>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               {/* Voltage Matrix */}
@@ -147,7 +175,21 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   {hasVoltageMatrix ? (
                       <div className="overflow-x-auto no-scrollbar pb-2">
                          <div className="flex flex-col gap-1 font-mono text-[9px]">
-                             {voltageMatrix.map((row: number[], bpcIdx: number) => (
+                             {hasBpcCellGroups ? bpcs.map((bpc: any, bpcIdx: number) => (
+                                 <div key={bpcIdx} className="flex gap-1 group whitespace-nowrap items-center">
+                                     <div className="w-10 text-prizm-text-muted font-bold">B{bpc.bpcNumber ?? (bpcIdx + 1)}</div>
+                                     {bpc.cellGroups.map((cg: any, cIdx: number) => (
+                                         <div 
+                                            key={cIdx} 
+                                            title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.voltage} mV`}
+                                            className={`w-10 h-6 flex items-center justify-center rounded cursor-help transition-colors ${cg.voltageColor ? '' : getVoltageColor(cg.voltage)}`}
+                                            style={cg.voltageColor ? { backgroundColor: cg.voltageColor, color: '#000', fontWeight: 'bold' } : {}}
+                                         >
+                                             {cg.voltage}
+                                         </div>
+                                     ))}
+                                 </div>
+                             )) : voltageMatrix.map((row: number[], bpcIdx: number) => (
                                  <div key={bpcIdx} className="flex gap-1 group whitespace-nowrap items-center">
                                      <div className="w-10 text-prizm-text-muted font-bold">B{bpcIdx + 1}</div>
                                      {row.map((v, cIdx) => (
@@ -186,7 +228,21 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   {hasTempMatrix ? (
                       <div className="overflow-x-auto no-scrollbar pb-2">
                          <div className="flex flex-col gap-1 font-mono text-[9px]">
-                             {temperatureMatrix.map((row: number[], bpcIdx: number) => (
+                             {hasBpcCellGroups ? bpcs.map((bpc: any, bpcIdx: number) => (
+                                 <div key={bpcIdx} className="flex gap-1 group whitespace-nowrap items-center">
+                                     <div className="w-10 text-prizm-text-muted font-bold">B{bpc.bpcNumber ?? (bpcIdx + 1)}</div>
+                                     {bpc.cellGroups.map((cg: any, cIdx: number) => (
+                                         <div 
+                                            key={cIdx} 
+                                            title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.temperature}°C`}
+                                            className={`w-10 h-6 flex items-center justify-center rounded cursor-help transition-colors ${cg.temperatureColor ? '' : getTempColor(cg.temperature)}`}
+                                            style={cg.temperatureColor ? { backgroundColor: cg.temperatureColor, color: '#000', fontWeight: 'bold' } : {}}
+                                         >
+                                             {cg.temperature}
+                                         </div>
+                                     ))}
+                                 </div>
+                             )) : temperatureMatrix.map((row: number[], bpcIdx: number) => (
                                  <div key={bpcIdx} className="flex gap-1 group whitespace-nowrap items-center">
                                      <div className="w-10 text-prizm-text-muted font-bold">B{bpcIdx + 1}</div>
                                      {row.map((t, cIdx) => (
