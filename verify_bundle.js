@@ -37,14 +37,18 @@ function ping() {
         return;
       }
       
-      const cssMatch = body.match(/\\/assets\\/.*?\\.css/);
-      if (!cssMatch) {
+      const cssMatch = body.match(/href="([^"]*\/assets\/[^"]+\.css)"/);
+      const cssPath = cssMatch?.[1];
+
+      if (!cssPath) {
          console.error("No css asset found");
          cleanup(1);
          return;
       }
       
-      http.get('http://127.0.0.1:3000' + cssMatch[0], (cssRes) => {
+      const cssUrl = cssPath.startsWith('http') ? cssPath : 'http://127.0.0.1:3000' + (cssPath.startsWith('/') ? cssPath : '/' + cssPath);
+
+      http.get(cssUrl, (cssRes) => {
          if (cssRes.statusCode !== 200) {
             console.error("CSS asset returned " + cssRes.statusCode);
             cleanup(1);
