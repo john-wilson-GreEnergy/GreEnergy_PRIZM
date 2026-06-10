@@ -197,23 +197,23 @@ export default function StringDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Total Strings</span>
-          <span className="text-sm font-bold text-prizm-text">{summary.totalStrings}</span>
+          <span className="text-sm font-bold text-prizm-text">{data.rollups?.totalStrings ?? summary.totalStrings ?? "--"}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Normal</span>
-          <span className="text-sm font-bold text-emerald-400">{summary.normalStrings}</span>
+          <span className="text-sm font-bold text-emerald-400">{data.rollups?.normal ?? summary.normalStrings ?? "--"}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-danger/50 rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Offline</span>
-          <span className={summary.offlineStrings > 0 ? "text-sm font-bold text-prizm-danger" : "text-sm font-bold text-prizm-text"}>{summary.offlineStrings}</span>
+          <span className={(data.rollups?.offline ?? summary.offlineStrings) > 0 ? "text-sm font-bold text-prizm-danger" : "text-sm font-bold text-prizm-text"}>{data.rollups?.offline ?? summary.offlineStrings ?? "--"}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Warns / Alarms</span>
-          <span className="text-sm font-bold text-prizm-warning">{summary.warningStrings} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{summary.alarmStrings}</span></span>
+          <span className="text-sm font-bold text-prizm-warning">{data.rollups?.warnings ?? summary.warningStrings ?? 0} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{data.rollups?.alarms ?? summary.alarmStrings ?? 0}</span></span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Total BPCs</span>
-          <span className="text-sm font-bold text-prizm-text">{summary.totalBpcs}</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">Known {data.rollups?.knownBpcCount ?? summary.totalBpcs ?? "--"} <span className="text-prizm-text-muted font-normal mx-0.5">/</span> {data.rollups?.expectedBpcCount ?? "--"}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">BPC Alerts</span>
@@ -221,11 +221,11 @@ export default function StringDashboard() {
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Cell / V Delta</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{summary.avgCellVoltage !== null ? summary.avgCellVoltage+"V" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {summary.maxCellVoltageDelta !== null ? "\u0394"+summary.maxCellVoltageDelta+"V" : "--"}</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{(data.rollups?.fleetAvgCellVoltage ?? summary.avgCellVoltage) !== null ? (data.rollups?.fleetAvgCellVoltage ?? summary.avgCellVoltage)+"V" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {(data.rollups?.fleetMaxCellVoltageDelta ?? summary.maxCellVoltageDelta) !== null ? "\u0394"+(data.rollups?.fleetMaxCellVoltageDelta ?? summary.maxCellVoltageDelta)+"V" : "--"}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Temp / Max \u0394</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{summary.avgCellTemperature !== null ? summary.avgCellTemperature+"°C" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {summary.maxCellTemperatureDelta !== null ? "\u0394"+summary.maxCellTemperatureDelta+"°C" : "--"}</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{(data.rollups?.fleetAvgCellTemp ?? summary.avgCellTemperature) !== null ? (data.rollups?.fleetAvgCellTemp ?? summary.avgCellTemperature)+"°C" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {(data.rollups?.fleetMaxCellTemp ?? summary.maxCellTemperature) !== null ? (data.rollups?.fleetMaxCellTemp ?? summary.maxCellTemperature)+"°C" : "--"}</span>
         </div>
       </div>
 
@@ -330,28 +330,19 @@ export default function StringDashboard() {
                   // Fans logic
                   let fanDot = 'bg-prizm-text-muted/10';
                   let fanMatch = "N/A";
-                  if (s.fanRequested !== undefined && s.fanRequested !== null && s.fanRequested !== "") {
-                        if (s.fanActual !== undefined && s.fanActual !== null && s.fanActual !== "") {
-                             const req = Number(s.fanRequested);
-                             const act = Number(s.fanActual);
-                             if (!isNaN(req) && !isNaN(act)) {
-                                  fanMatch = Math.abs(req - act) <= 2 ? 'Yes' : 'No';
-                                  fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
-                             } else {
-                                  fanMatch = (String(s.fanRequested).toLowerCase() === String(s.fanActual).toLowerCase()) ? 'Yes' : 'No';
-                                  fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
-                             }
-                        } else {
-                             fanDot = 'bg-prizm-text-muted/30';
-                        }
+                  if (s.fanCommandRequested !== undefined && s.fanCommandRequested !== null && s.fanCommandRequested !== "") {
+                        fanMatch = s.fanHealthy ? "Yes" : "No";
+                        fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
                   }
 
                   const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
 
                   return (
                   <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-black/20 cursor-pointer transition-colors relative">
-                    <td className="px-3 py-3 border-r border-prizm-border/20 sticky left-0 group-hover:bg-black/60 bg-prizm-surface z-10 font-bold text-prizm-text">
-                       A{s.arrayNumber}-S{s.stringNumber}
+                    <td className="px-3 py-3 border-r border-prizm-border/20 sticky left-0 group-hover:bg-black/60 bg-prizm-surface z-10 font-bold text-prizm-text" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
+                       <span className={s.warningCount > 0 || s.alarmCount > 0 ? (s.alarmCount > 0 ? "text-prizm-danger" : "text-prizm-warning") : ""}>A{s.arrayNumber}-S{s.stringNumber}</span>
+                       {s.alarmCount > 0 && <span className="text-prizm-danger ml-1" title="Alarms Active">⚠️</span>}
+                       {s.warningCount > 0 && s.alarmCount === 0 && <span className="text-prizm-warning ml-1" title="Warnings Active">⚠️</span>}
                     </td>
                     <td className="px-3 py-3">
                        <div 
@@ -418,7 +409,7 @@ export default function StringDashboard() {
                     </td>
                     <td className="px-3 py-3">
                        <div 
-                           title={`Fan Requested: ${s.fanRequested ?? "--"} | Actual: ${s.fanActual ?? "--"} | Match: ${fanMatch}`}
+                           title={`Fan Requested: ${s.fanCommandRequested ?? "--"} | Match: ${fanMatch}`}
                            className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDot}`}
                        ></div>
                     </td>

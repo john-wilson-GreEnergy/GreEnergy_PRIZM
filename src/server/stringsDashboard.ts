@@ -24,6 +24,12 @@ function normalizeHeader(h: string): string {
     return h.toLowerCase().replace(/[\s_\-\.]/g, "");
 }
 
+function parseBoolean(val: any): boolean {
+    if (val === true) return true;
+    if (val === "true" || val === "TRUE" || val === "1" || val === 1) return true;
+    return false;
+}
+
 function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNames: string[]): any {
     for (const n of possibleNames) {
         if (row[n] !== undefined) return row[n];
@@ -118,6 +124,7 @@ router.get("/", async (req, res) => {
         let alarmStrings = 0;
         let offlineStrings = 0;
         let totalBpcs = 0;
+        let knownBpcCount = 0;
         let warningBpcs = 0;
         let alarmBpcs = 0;
         
@@ -133,6 +140,9 @@ router.get("/", async (req, res) => {
         let gSumT = 0;
         let gCountT = 0;
         let gMaxTDelta: number | null = null;
+        
+        let gWarnCount = 0;
+        let gAlarmCount = 0;
 
         stringsData.forEach(row => {
             const normalizedObject: Record<string, any> = {};
@@ -179,16 +189,22 @@ router.get("/", async (req, res) => {
             
             let isOnline: boolean | null = null;
             if (conn === true || conn === "true" || conn === "Online" || conn === "ONLINE") isOnline = true;
-            else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE") isOnline = false;
+            else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE" || row.StringConnectionState === "OFFLINE") isOnline = false;
             
-            const contactorClosed = Boolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "contactorclosed", "contactor_state"]) ?? isOnline);
+            const contactorsCloseExpected = parseBoolean(tryGetField(row, normalizedObject, ["contactorscloseexpected", "closeexpected"]));
+            const positiveContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed"]));
+            const negativeContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed"]));
+            const contactorClosed = positiveContactorClosed && negativeContactorClosed;
+            const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
+            const recloseCount = pN(tryGetField(row, normalizedObject, ["reclosecount"]));
             
-            const rot = tryGetField(row, normalizedObject, ["rotation", "outrotation", "out_rotation"]);
-            const rotationStatus = String(rot || "IN");
+            const outRotation = parseBoolean(tryGetField(row, normalizedObject, ["rotation", "outrotation", "out_rotation"]));
+            const rotationStatus = outRotation ? "OUT" : "IN";
+            const rotationEnabled = !outRotation;
 
-            const measuredVoltage = pN(tryGetField(row, normalizedObject, ["voltagemeasured", "voltagemeas", "voltage_measured"]));
-            const calculatedVoltage = pN(tryGetField(row, normalizedObject, ["voltagecalculated", "voltagecalc", "voltage_calculated"]));
-            const busVoltage = pN(tryGetField(row, normalizedObject, ["voltagedcbus", "voltagebus", "voltage_bus"]));
+            const measuredVoltage = pN(tryGetField(row, normalizedObject, ["voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
+            const calculatedVoltage = pN(tryGetField(row, normalizedObject, ["voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
+            const busVoltage = pN(tryGetField(row, normalizedObject, ["voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
             let voltageDelta = pN(tryGetField(row, normalizedObject, ["voltagedelta", "voltage_delta"]));
             if (voltageDelta === null && measuredVoltage !== null && calculatedVoltage !== null) {
                 voltageDelta = Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2));
@@ -200,17 +216,20 @@ router.get("/", async (req, res) => {
             const ah = pN(tryGetField(row, normalizedObject, ["ah", "capacityah"]));
             const kwh = pN(tryGetField(row, normalizedObject, ["kwh", "powerkwh"]));
 
-            const minCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemin", "cellvoltsmin", "mincellvoltage"]));
-            const maxCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemax", "cellvoltsmax", "maxcellvoltage"]));
-            const avgCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltageavg", "avgcellvoltage"]));
+            const minCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage", "mincellvoltage"]));
+            const maxCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage", "maxcellvoltage"]));
+            const avgCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltageavg", "avgcellgroupvoltage", "avgcellvoltage"]));
             let cellVoltageDelta = pN(tryGetField(row, normalizedObject, ["cellvoltagedelta", "celldelta"]));
             if (cellVoltageDelta === null && maxCellVoltage !== null && minCellVoltage !== null) {
                 cellVoltageDelta = Number((maxCellVoltage - minCellVoltage).toFixed(3));
             }
 
-            const minCellTemperature = pN(tryGetField(row, normalizedObject, ["cellgrouptempmin", "celltempmin", "mincelltemp", "mincelltemperature"]));
-            const maxCellTemperature = pN(tryGetField(row, normalizedObject, ["cellgrouptempmax", "celltempmax", "maxcelltemp", "maxcelltemperature"]));
-            const avgCellTemperature = pN(tryGetField(row, normalizedObject, ["cellgrouptempavg", "avgcelltemp", "avgcelltemperature"]));
+            let rawMinT = pN(tryGetField(row, normalizedObject, ["cellgrouptempmin", "celltempmin", "mincellgrouptemp", "mincelltemp", "mincelltemperature"]));
+            let minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
+            let rawMaxT = pN(tryGetField(row, normalizedObject, ["cellgrouptempmax", "celltempmax", "maxcellgrouptemp", "maxcelltemp", "maxcelltemperature"]));
+            let maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
+            let rawAvgT = pN(tryGetField(row, normalizedObject, ["cellgrouptempavg", "avgcelltemp", "avgcellgrouptemp", "avgcelltemperature"]));
+            let avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
             let cellTemperatureDelta = pN(tryGetField(row, normalizedObject, ["celltempdelta"]));
             if (cellTemperatureDelta === null && maxCellTemperature !== null && minCellTemperature !== null) {
                 cellTemperatureDelta = Number((maxCellTemperature - minCellTemperature).toFixed(1));
@@ -220,18 +239,25 @@ router.get("/", async (req, res) => {
             const balanceMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
             const container = String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
             const location = String(tryGetField(row, normalizedObject, ["location"]) || "");
-            const fanStatus = String(tryGetField(row, normalizedObject, ["lastfancommand", "fanstatus"]) || "");
+            
+            const lastFanCommand = parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
+            const lastFanCommandTime = tryGetField(row, normalizedObject, ["lastfancommandtime"]);
+            const fanCommandRequested = lastFanCommand;
+            const fanHealthy = true;
 
             const timestampUtc = tryGetField(row, normalizedObject, ["timestamp", "datetime"]) || new Date().toISOString();
 
-            const warningCount = pN(tryGetField(row, normalizedObject, ["warningcount", "warnings"]), 0) || 0;
+            const warningCount = pN(tryGetField(row, normalizedObject, ["warningcount", "warncount", "warnings"]), 0) || 0;
             const alarmCount = pN(tryGetField(row, normalizedObject, ["alarmcount", "alarms"]), 0) || 0;
             
-            let warnings: string[] = tryGetField(row, normalizedObject, ["warningslist"]) || [];
+            gWarnCount += warningCount;
+            gAlarmCount += alarmCount;
+            
+            let warnings: string[] = tryGetField(row, normalizedObject, ["warns", "warningslist"]) || [];
             let alarms: string[] = tryGetField(row, normalizedObject, ["alarmslist"]) || [];
             
-            if (typeof warnings === "string") warnings = (warnings as string).split(",");
-            if (typeof alarms === "string") alarms = (alarms as string).split(",");
+            if (typeof warnings === "string") warnings = (warnings as string).split(",").map(v=>v.trim()).filter(Boolean);
+            if (typeof alarms === "string") alarms = (alarms as string).split(",").map(v=>v.trim()).filter(Boolean);
 
             // Extract BPC data
             let bpcs: any[] = [];
@@ -303,20 +329,25 @@ router.get("/", async (req, res) => {
                 else if (bpcWarns.length > 0) warningBpcs++;
             });
 
+            let bpcCount = pN(tryGetField(row, normalizedObject, ["bpccount", "packcount"]));
+            if (bpcSourceData.length > 0) bpcCount = bpcSourceData.length;
+            if (bpcCount !== null) knownBpcCount += bpcCount;
+
             let bpcFirmwareSummary = "Unknown";
             if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
             else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
 
             let operationalState = "UNKNOWN";
-            if (isOnline === false) operationalState = "OFFLINE";
+            if (row.StringConnectionState === "OFFLINE") operationalState = "OFFLINE";
+            else if (isOnline === false) operationalState = "OFFLINE";
             else if (alarmCount > 0) operationalState = "ALARM";
             else if (warningCount > 0) operationalState = "WARNING";
-            else if (isOnline === true) operationalState = "NORMAL";
-
-             if (operationalState === "NORMAL") normalStrings++;
-             if (operationalState === "WARNING") warningStrings++;
-             if (operationalState === "ALARM") alarmStrings++;
-             if (operationalState === "OFFLINE") offlineStrings++;
+            else if (isOnline === true || row.StringConnectionState === "ONLINE" || row.StringConnectionState === "NORMAL") operationalState = "NORMAL";
+            
+            if (operationalState === "NORMAL") normalStrings++;
+            if (operationalState === "WARNING") warningStrings++;
+            if (operationalState === "ALARM") alarmStrings++;
+            if (operationalState === "OFFLINE") offlineStrings++;
 
              if (minCellVoltage !== null) {
                  if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
@@ -349,21 +380,28 @@ router.get("/", async (req, res) => {
                 stringControllerIp: sIpInfo?.ip || tryGetField(row, normalizedObject, ["ip", "ipaddress"]),
                 stringControllerEntityKey: sIpInfo?.entityKey,
                 stringControllerEntityKeyToken: sIpInfo?.entityKeyToken,
-                contactorStatus: contactorClosed ? "CLOSED" : "OPEN",
+                contactorStatus,
                 contactorClosed,
+                contactorsCloseExpected,
+                positiveContactorClosed,
+                negativeContactorClosed,
+                recloseCount,
                 rotationStatus,
-                rotationEnabled: rotationStatus !== "OUT",
+                outRotation,
+                rotationEnabled,
                 measuredVoltage, calculatedVoltage, busVoltage, voltageDelta,
                 amps, kw, socPct, ah, kwh,
                 minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
                 minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
                 balanceCount, balanceMode,
                 container, location,
-                fanStatus, fanHealthy: fanStatus !== "FAULT",
+                fanCommandRequested,
+                lastFanCommandTime,
+                fanHealthy,
                 timestampUtc,
                 lastUpdatedUtc: new Date().toISOString(),
                 stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(row, normalizedObject, ["firmware", "firmwareversion"]),
-                bpcCount: bpcs.length,
+                bpcCount,
                 bpcFirmwareSummary,
                 bpcs,
                 operationalState,
@@ -433,6 +471,29 @@ router.get("/", async (req, res) => {
             durationMs: debugInfoMap["/tools/report/ems/strings.csv"]?.durationMs || 0,
             cacheAgeMs: 0,
             sourceHealth,
+            expectedStringCount: strings.length > 0 ? strings.length : 320,
+            baseRowCount: strings.length,
+            enrichedRowCount: req.query.enrich === 'stringviewer' ? strings.length : 0,
+            rollups: {
+                totalStrings: strings.length,
+                normal: normalStrings,
+                offline: offlineStrings,
+                warnings: gWarnCount,
+                alarms: gAlarmCount,
+                knownBpcCount,
+                totalBpcs: totalBpcs || knownBpcCount,
+                expectedBpcCount: (strings.length > 0 ? strings.length : 320) * 14,
+                fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
+                fleetMaxCellVoltageDelta: gMaxVDelta,
+                fleetAvgCellTemp: gCountT > 0 ? Number((gSumT/gCountT).toFixed(1)) : null,
+                fleetMaxCellTemp: gMaxT
+            },
+            totalStrings: strings.length,
+            normal: normalStrings,
+            offline: offlineStrings,
+            warnings: gWarnCount,
+            alarms: gAlarmCount,
+            totalBpcs: totalBpcs || knownBpcCount,
             summary: {
                 totalArrays: new Set(strings.map(s => s.arrayNumber)).size,
                 totalStrings,
