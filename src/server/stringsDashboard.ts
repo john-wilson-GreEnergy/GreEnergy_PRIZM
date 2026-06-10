@@ -33,8 +33,12 @@ function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNa
     return undefined;
 }
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
     try {
+        if (req.query.refresh === 'true') {
+            await (await import('./emsTurtleClient')).pollEmsTurtle();
+        }
+
         const rawStringsWrapper = getEmsCachedRawStrings();
         const blockWrapper = getEmsCachedBlock();
         const stringIpMapWrapper = getEmsStringIpMap();
@@ -48,16 +52,21 @@ router.get("/", (req, res) => {
         const profile = ProfileStore.getActiveProfile();
         const baseUrl = profile ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "unknown";
 
+        const debugInfoArray = Array.isArray(debugInfo) ? debugInfo : [];
+        const debugInfoMap: Record<string, any> = {};
+        debugInfoArray.forEach((r: any) => {
+            debugInfoMap[r.endpoint] = r;
+        });
+
         // Source coverage
         const getSourceHealth = (key: string) => {
-            const rawKey = key;
-            const health = (debugInfo as any)[rawKey] || { success: false, statusCode: null, durationMs: null, lastError: null };
+            const health = debugInfoMap[key] || { success: false, statusCode: null, durationMs: null, lastError: null };
             return {
                 ok: !!health.success,
-                httpStatus: health.statusCode,
+                httpStatus: health.statusCode || (health.success ? 200 : null),
                 durationMs: health.durationMs,
-                error: health.lastError,
-                url: `${baseUrl}${health.endpoint || ''}`
+                error: health.lastError === "NONE" ? null : health.lastError,
+                url: `${baseUrl}${key}`
             };
         };
 
@@ -154,10 +163,13 @@ router.get("/", (req, res) => {
             // Identify Connection State
             let conn = tryGetField(row, normalizedObject, ["connectionstate", "contact", "communicating"]);
             if (conn === undefined && blockStrBase) conn = blockStrBase.communicating;
+            if (conn === undefined && lcStrBase) {
+                 conn = lcStrBase.communicating ?? lcStrBase.connectionState;
+            }
             
-            let isOnline = false;
-            if (conn === true || conn === "true" || conn === "Online") isOnline = true;
-            else if (conn === false || conn === "false" || conn === "Offline") isOnline = false;
+            let isOnline: boolean | null = null;
+            if (conn === true || conn === "true" || conn === "Online" || conn === "ONLINE") isOnline = true;
+            else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE") isOnline = false;
             
             const contactorClosed = Boolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "contactorclosed", "contactor_state"]) ?? isOnline);
             
@@ -285,10 +297,11 @@ router.get("/", (req, res) => {
             if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
             else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
 
-            let operationalState = "NORMAL";
-            if (!isOnline) operationalState = "OFFLINE";
+            let operationalState = "UNKNOWN";
+            if (isOnline === false) operationalState = "OFFLINE";
             else if (alarmCount > 0) operationalState = "ALARM";
             else if (warningCount > 0) operationalState = "WARNING";
+            else if (isOnline === true) operationalState = "NORMAL";
 
              if (operationalState === "NORMAL") normalStrings++;
              if (operationalState === "WARNING") warningStrings++;
@@ -364,7 +377,7 @@ router.get("/", (req, res) => {
             generatedAt: new Date().toISOString(),
             scanStartedAt: rawStringsWrapper.lastUpdated,
             scanCompletedAt: new Date().toISOString(),
-            durationMs: debugInfo["/tools/report/ems/strings.csv"]?.durationMs || 0,
+            durationMs: debugInfoMap["/tools/report/ems/strings.csv"]?.durationMs || 0,
             cacheAgeMs: 0,
             sourceHealth,
             summary: {
@@ -429,8 +442,44 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         let notifications: any[] = [];
         let eventLogs: any[] = [];
 
+        let bpcs: any[] = [];
+        let summary: any = {};
+        
         if (stringViewerData && stringViewerData.stringViewerDataModel) {
             const sv = stringViewerData.stringViewerDataModel;
+            summary = {
+                arrayNumber: sv.arrayIndex || arrayNumber,
+                stringNumber: sv.stringIndex || stringNumber,
+                bpcCount: sv.batteryPackCount,
+                cellGroupCount: sv.cellGroupCount,
+                socPct: sv.soc,
+                soc: sv.soc,
+                busVoltage: sv.dcBusVoltage,
+                rotationStatus: sv.outRotation ? "OUT" : "IN",
+                positiveContactorClosed: sv.positiveContactorClosed,
+                negativeContactorClosed: sv.negativeContactorClosed,
+                calculatedVoltage: sv.calculatedStringVoltage,
+                measuredVoltage: sv.measuredStringVoltage,
+                amps: sv.stringCurrent,
+                contactorsCloseExpected: sv.contactorsCloseExpected,
+                recloseCount: sv.recloseCount,
+                maxCellTemperature: sv.maxCellGroupTemp,
+                minCellTemperature: sv.minCellGroupTemp,
+                avgCellTemperature: sv.avgCellGroupTemp,
+                maxCellVoltage: sv.maxCellGroupVoltage,
+                minCellVoltage: sv.minCellGroupVoltage,
+                avgCellVoltage: sv.avgCellGroupVoltage,
+                operationalState: sv.stringConnectionState,
+                preciseCalculatedVoltage: sv.preciseCalculatedStringVoltage,
+                ctCurrent1: sv.ctCurrent1,
+                ctCurrent2: sv.ctCurrent2,
+                badReport: sv.badReport,
+                timestampUtc: sv.reportTimestamp,
+                cellVoltageDelta: (sv.maxCellGroupVoltage !== undefined && sv.minCellGroupVoltage !== undefined) ? Number((sv.maxCellGroupVoltage - sv.minCellGroupVoltage).toFixed(3)) : undefined,
+                cellTemperatureDelta: (sv.maxCellGroupTemp !== undefined && sv.minCellGroupTemp !== undefined) ? Number((sv.maxCellGroupTemp - sv.minCellGroupTemp).toFixed(1)) : undefined,
+                voltageDelta: (sv.measuredStringVoltage !== undefined && sv.calculatedStringVoltage !== undefined) ? Number(Math.abs(sv.measuredStringVoltage - sv.calculatedStringVoltage).toFixed(2)) : undefined,
+            };
+
             const vm = sv.voltageMap?.batteryPacks || {};
             const tm = sv.temperatureMap?.batteryPacks || {};
             
@@ -440,10 +489,61 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 const cgsT = tm[String(bpIdx)]?.cellGroups || {};
                 
                 const cgKeys = Object.keys(cgsV).map(Number).sort((a,b) => a-b);
-                const vRow = cgKeys.map(cg => cgsV[String(cg)]?.value);
-                const tRow = cgKeys.map(cg => cgsT[String(cg)]?.value);
+                const vRow = cgKeys.map(cg => Number(cgsV[String(cg)]?.value));
+                const tRow = cgKeys.map(cg => Number(cgsT[String(cg)]?.value));
                 voltageMatrix.push(vRow);
                 temperatureMatrix.push(tRow);
+                
+                let minV: number | null = null;
+                let maxV: number | null = null;
+                let sumV = 0, countV = 0;
+                let minT: number | null = null;
+                let maxT: number | null = null;
+                let sumT = 0, countT = 0;
+                
+                const cellGroups = cgKeys.map(cg => {
+                    const v = Number(cgsV[String(cg)]?.value);
+                    const t = Number(cgsT[String(cg)]?.value);
+                    if (!isNaN(v)) {
+                         if (minV === null || v < minV) minV = v;
+                         if (maxV === null || v > maxV) maxV = v;
+                         sumV += v; countV++;
+                    }
+                    if (!isNaN(t)) {
+                         if (minT === null || t < minT) minT = t;
+                         if (maxT === null || t > maxT) maxT = t;
+                         sumT += t; countT++;
+                    }
+                    return {
+                        arrayNumber,
+                        stringNumber,
+                        bpcNumber: bpIdx,
+                        cellGroupNumber: cg,
+                        voltage: v,
+                        temperature: t,
+                        voltageColor: cgsV[String(cg)]?.color,
+                        temperatureColor: cgsT[String(cg)]?.color,
+                        voltageColorIndex: cgsV[String(cg)]?.colorIndex,
+                        temperatureColorIndex: cgsT[String(cg)]?.colorIndex,
+                        rawVoltage: cgsV[String(cg)]?.value,
+                        rawTemperature: cgsT[String(cg)]?.value
+                    };
+                });
+                
+                bpcs.push({
+                    arrayNumber,
+                    stringNumber,
+                    bpcNumber: bpIdx,
+                    cellGroups,
+                    minCellVoltage: minV,
+                    maxCellVoltage: maxV,
+                    avgCellVoltage: countV > 0 ? Number((sumV / countV).toFixed(3)) : null,
+                    cellVoltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
+                    minCellTemperature: minT,
+                    maxCellTemperature: maxT,
+                    avgCellTemperature: countT > 0 ? Number((sumT / countT).toFixed(1)) : null,
+                    cellTemperatureDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
+                });
             });
         } else if (lcBaseData) {
             let bpcsData = lcBaseData.packs || lcBaseData.bpcs || lcBaseData.batteryPacks || [];
@@ -461,9 +561,36 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 const cn = Array.isArray(bpc.notifications || bpc.cgStatus) ? (bpc.notifications || bpc.cgStatus) : [];
                 notificationMatrix.push(cn);
                 
+                const bpcIdx = bpc.index || bpc.bpcIndex;
+                const cellGroups = [];
+                const maxLen = Math.max(cv.length, ct.length);
+                for (let i = 0; i < maxLen; i++) {
+                    cellGroups.push({
+                        arrayNumber,
+                        stringNumber,
+                        bpcNumber: bpcIdx,
+                        cellGroupNumber: i + 1,
+                        voltage: cv[i],
+                        temperature: ct[i]
+                    });
+                }
+                
+                bpcs.push({
+                    arrayNumber,
+                    stringNumber,
+                    bpcNumber: bpcIdx,
+                    cellGroups,
+                    minCellVoltage: bpc.minCellVoltage,
+                    maxCellVoltage: bpc.maxCellVoltage,
+                    avgCellVoltage: bpc.avgCellVoltage,
+                    minCellTemperature: bpc.minCellTemp || bpc.minCellTemperature,
+                    maxCellTemperature: bpc.maxCellTemp || bpc.maxCellTemperature,
+                    avgCellTemperature: bpc.avgCellTemp || bpc.avgCellTemperature,
+                });
+                
                 if (bpc.balancing || bpc.balancingMode || bpc.balancingState) {
                     balancingDetails.push({
-                        index: bpc.index || bpc.bpcIndex,
+                        index: bpcIdx,
                         mode: bpc.balancingMode,
                         state: bpc.balancingState,
                         balancingActive: bpc.balancingActive || bpc.balancing,
@@ -472,14 +599,14 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 }
                 
                 if (bpc.warnings && Array.isArray(bpc.warnings) && bpc.warnings.length > 0) {
-                     bpc.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                     bpc.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpcIdx}` }));
                 } else if (bpc.warningList && Array.isArray(bpc.warningList) && bpc.warningList.length > 0) {
-                     bpc.warningList.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                     bpc.warningList.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpcIdx}` }));
                 }
                 if (bpc.alarms && Array.isArray(bpc.alarms) && bpc.alarms.length > 0) {
-                     bpc.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                     bpc.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpcIdx}` }));
                 } else if (bpc.alarmList && Array.isArray(bpc.alarmList) && bpc.alarmList.length > 0) {
-                     bpc.alarmList.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpc.index || bpc.bpcIndex}` }));
+                     bpc.alarmList.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpcIdx}` }));
                 }
             });
             
@@ -492,8 +619,14 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         }
 
         res.json({
+            profileId: profile.id,
+            emsBaseUrl: baseUrl,
+            stationCode: "BHE",
+            blockIndex: 1,
             arrayNumber,
             stringNumber,
+            summary,
+            bpcs,
             voltageMatrix,
             temperatureMatrix,
             notificationMatrix,

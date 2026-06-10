@@ -299,12 +299,37 @@ const OFFLINE_TEMPLATES = {
 // Simple helper to parse CSV into rows of records
 function parseCsv(text: string): any[] {
   if (!text) return [];
-  const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length === 0) return [];
-  const headers = lines[0].split(",").map(h => h.trim());
+  
+  function parseRow(rowStr: string): string[] {
+      const values: string[] = [];
+      let inQuote = false;
+      let currentValue = "";
+      for (let i = 0; i < rowStr.length; i++) {
+          const char = rowStr[i];
+          if (char === '"') {
+              if (inQuote && rowStr[i + 1] === '"') {
+                  currentValue += '"';
+                  i++; // skip next quote
+              } else {
+                  inQuote = !inQuote;
+              }
+          } else if (char === ',' && !inQuote) {
+              values.push(currentValue);
+              currentValue = "";
+          } else {
+              currentValue += char;
+          }
+      }
+      values.push(currentValue);
+      return values;
+  }
+
+  const headers = parseRow(lines[0]).map(h => h.trim());
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(",").map(v => v.trim());
+    const values = parseRow(lines[i]).map(v => v.trim());
     const obj: any = {};
     headers.forEach((header, index) => {
       obj[header] = values[index] || "";

@@ -156,6 +156,43 @@ export default function StringDashboard() {
         </div>
       </div>
 
+      {/* Source Debug Panel */}
+      <details className="mb-6 bg-prizm-surface border border-prizm-border rounded-lg text-xs font-mono group">
+        <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold uppercase tracking-wider">
+           Source Debug Information
+        </summary>
+        <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar">
+           <table className="w-full text-left whitespace-nowrap text-[10px]">
+              <thead className="text-prizm-text-muted">
+                 <tr>
+                    <th className="pr-4 pb-2">Key</th>
+                    <th className="pr-4 pb-2">Status</th>
+                    <th className="pr-4 pb-2">HTTP Code</th>
+                    <th className="pr-4 pb-2">Ping (ms)</th>
+                    <th className="pr-4 pb-2">URL</th>
+                    <th className="pb-2">Error</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-prizm-border/10">
+                 {Object.entries(data.sourceHealth || {}).map(([cKey, h]: [string, any]) => (
+                    <tr key={cKey}>
+                       <td className="pr-4 py-1.5 text-prizm-primary font-bold">{cKey}</td>
+                       <td className="pr-4 py-1.5">
+                          <span className={`px-1.5 py-0.5 rounded text-white ${h.ok ? 'bg-emerald-500/50' : 'bg-prizm-danger/50'}`}>
+                              {h.ok ? 'OK' : 'FAIL'}
+                          </span>
+                       </td>
+                       <td className="pr-4 py-1.5 text-prizm-text">{h.httpStatus || '--'}</td>
+                       <td className="pr-4 py-1.5 text-prizm-text-muted">{h.durationMs !== null ? `${h.durationMs}ms` : '--'}</td>
+                       <td className="pr-4 py-1.5 text-prizm-text-muted opacity-80">{h.url}</td>
+                       <td className="py-1.5 text-prizm-danger/80">{h.error || '--'}</td>
+                    </tr>
+                 ))}
+              </tbody>
+           </table>
+        </div>
+      </details>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded p-2 flex flex-col justify-center">
