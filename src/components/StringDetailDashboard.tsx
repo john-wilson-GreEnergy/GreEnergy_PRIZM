@@ -93,18 +93,18 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const finalBpcCount = data?.summary?.bpcCount ?? bpcs?.length ?? s.bpcCount ?? 0;
 
   const getVoltageColor = (v: number) => {
-       if (v > 3600) return "bg-prizm-danger text-prizm-bg font-bold animate-pulse";
-       if (v > 3500) return "bg-prizm-warning text-black font-bold";
-       if (v < 2800) return "bg-prizm-danger text-white font-bold animate-pulse";
-       if (v < 3000) return "bg-prizm-warning text-black font-bold";
-       return "bg-black/20 text-emerald-400 group-hover:bg-black/40";
+       if (v > 3600) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
+       if (v > 3500) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
+       if (v < 2800) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
+       if (v < 3000) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
+       return "border-transparent text-emerald-400 bg-black/20 hover:bg-black/40 hover:border-emerald-500/50";
   };
 
   const getTempColor = (t: number) => {
-       if (t > 45) return "bg-prizm-danger text-white font-bold animate-pulse";
-       if (t > 40) return "bg-prizm-warning text-black font-bold";
-       if (t < 5) return "bg-blue-500 text-white font-bold";
-       return "bg-black/20 text-prizm-text group-hover:bg-black/40";
+       if (t > 45) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
+       if (t > 40) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
+       if (t < 5) return "border-blue-400 text-blue-400 bg-blue-400/10 font-bold";
+       return "border-transparent text-prizm-text-muted bg-black/20 hover:bg-black/40 hover:text-prizm-text hover:border-prizm-text/30";
   };
 
   return (
@@ -195,12 +195,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             </div>
           </details>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div className="flex flex-col gap-6 mb-6">
               {/* Voltage Matrix */}
               <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
                   <div className="flex justify-between items-center mb-4">
-                     <h3 className="font-mono text-xs font-bold text-prizm-primary flex items-center gap-2 uppercase tracking-wide">
-                         <Zap size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Voltage
+                     <h3 className="font-mono text-xs font-bold text-prizm-primary flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
+                         <div className="flex items-center gap-2"><Zap size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Voltage Matrix</div>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Cols: BPCs)</span>
                      </h3>
                      {hasVoltageMatrix && (
                         <button onClick={() => downloadMatrixCsv(voltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -213,13 +214,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                       const cgCount = bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length || 30;
                       const bpcList = hasBpcCellGroups ? bpcs : voltageMatrix;
                       return (
-                      <div className="overflow-auto no-scrollbar pb-2 max-h-[400px]">
+                      <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold">CELL</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">CELL Group ↓</th>
                                   {bpcList.map((bpc: any, bpcIdx: number) => (
-                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none">
+                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
                                         B{bpc.bpcNumber ?? (bpcIdx + 1)}
                                       </th>
                                   ))}
@@ -227,8 +228,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                             </thead>
                             <tbody>
                              {Array.from({ length: cgCount }, (_, cIdx) => (
-                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">
+                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
                                         C{cIdx + 1}
                                      </td>
                                      {bpcList.map((bpc: any, bpcIdx: number) => {
@@ -239,8 +240,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                                <td key={bpcIdx} className="p-0.5">
                                                   <div 
                                                     title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.voltage} mV`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.voltageColor ? '' : getVoltageColor(cg.voltage)}`}
-                                                    style={cg.voltageColor ? { backgroundColor: cg.voltageColor, color: '#000', fontWeight: 'bold' } : {}}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${cg.voltageColor ? getVoltageColor(cg.voltage) : getVoltageColor(cg.voltage)}`}
                                                   >
                                                       {cg.voltage}
                                                   </div>
@@ -252,8 +252,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                  <div 
-                                                    title={`BPC ${bpcIdx + 1}, Cell ${cIdx + 1}: ${v} mV`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getVoltageColor(v)}`}
+                                                    title={`BPC ${bpcIdx + 1}, Cell Group ${cIdx + 1}: ${v} mV`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getVoltageColor(v)}`}
                                                  >
                                                      {v}
                                                  </div>
@@ -277,8 +277,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
               {/* Temperature Matrix */}
               <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
                   <div className="flex justify-between items-center mb-4">
-                     <h3 className="font-mono text-xs font-bold text-prizm-warning flex items-center gap-2 uppercase tracking-wide">
-                         <Thermometer size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Temperature
+                     <h3 className="font-mono text-xs font-bold text-prizm-warning flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
+                         <div className="flex items-center gap-2"><Thermometer size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Temperature Matrix</div>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Cols: BPCs)</span>
                      </h3>
                      {hasTempMatrix && (
                         <button onClick={() => downloadMatrixCsv(temperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -291,13 +292,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                       const cgCount = bpcs?.[0]?.cellGroups?.length || temperatureMatrix?.[0]?.length || 30;
                       const bpcList = hasBpcCellGroups ? bpcs : temperatureMatrix;
                       return (
-                      <div className="overflow-auto no-scrollbar pb-2 max-h-[400px]">
+                      <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold">CELL</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">CELL Group ↓</th>
                                   {bpcList.map((bpc: any, bpcIdx: number) => (
-                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none">
+                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
                                         B{bpc.bpcNumber ?? (bpcIdx + 1)}
                                       </th>
                                   ))}
@@ -305,8 +306,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                             </thead>
                             <tbody>
                              {Array.from({ length: cgCount }, (_, cIdx) => (
-                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">
+                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
                                         C{cIdx + 1}
                                      </td>
                                      {bpcList.map((bpc: any, bpcIdx: number) => {
@@ -317,8 +318,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                                <td key={bpcIdx} className="p-0.5">
                                                   <div 
                                                     title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.temperature}°C`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.temperatureColor ? '' : getTempColor(cg.temperature)}`}
-                                                    style={cg.temperatureColor ? { backgroundColor: cg.temperatureColor, color: '#000', fontWeight: 'bold' } : {}}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${cg.temperatureColor ? getTempColor(cg.temperature) : getTempColor(cg.temperature)}`}
                                                   >
                                                       {cg.temperature}
                                                   </div>
@@ -330,8 +330,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                  <div 
-                                                    title={`BPC ${bpcIdx + 1}, Cell ${cIdx + 1}: ${t}°C`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getTempColor(t)}`}
+                                                    title={`BPC ${bpcIdx + 1}, Cell Group ${cIdx + 1}: ${t}°C`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getTempColor(t)}`}
                                                  >
                                                      {t}
                                                  </div>

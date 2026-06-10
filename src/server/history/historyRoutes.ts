@@ -5,15 +5,15 @@ import * as hysteresisRules from "./hysteresisRules";
 const router = Router();
 
 router.get("/series", async (req, res) => {
-    const { entityKey, metric, range } = req.query;
-    const samples = await prizmHistory.querySeries({ entityKey, metric, range });
-    res.json(samples);
+    const { entityKey, metric, range, limit } = req.query;
+    const result = await prizmHistory.querySeries({ entityKey, metric, range, limit });
+    res.json(result);
 });
 
 router.get("/events", async (req, res) => {
-    const { entityKey, range } = req.query;
-    const events = await prizmHistory.queryEvents({ entityKey, range });
-    res.json(events);
+    const { entityKey, range, limit } = req.query;
+    const result = await prizmHistory.queryEvents({ entityKey, range, limit });
+    res.json(result);
 });
 
 router.post("/capture/string-detail", async (req, res) => {

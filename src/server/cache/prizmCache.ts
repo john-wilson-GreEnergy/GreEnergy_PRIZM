@@ -15,6 +15,7 @@ export interface PrizmCacheEntry<T = unknown> {
   error?: string | null;
   profileId?: string | null;
   emsBaseUrl?: string | null;
+  wasFetched?: boolean;
 }
 
 export interface SetCacheOptions {
@@ -76,6 +77,7 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
       if (options?.profileId && existing.profileId !== options.profileId) {
          // Profile mismatch, continue to fetch
       } else {
+         existing.wasFetched = false;
          return existing;
       }
     }
@@ -84,6 +86,7 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
   try {
     const data = await fetcher();
     const entry = set<T>(key, data, options);
+    entry.wasFetched = true;
     if (options?.persist) {
       persistEntry(key);
     }
@@ -93,6 +96,7 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
     if (existing && existing.data) {
       existing.sourceOk = false;
       existing.isLive = false;
+      existing.wasFetched = false;
       existing.error = err.message;
       return existing;
     }
@@ -109,6 +113,7 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
       error: err.message,
       profileId: options?.profileId,
       emsBaseUrl: options?.emsBaseUrl,
+      wasFetched: false,
     };
     return failedEntry;
   }

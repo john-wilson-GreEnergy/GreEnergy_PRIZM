@@ -8,11 +8,19 @@ router.get("/status", (req, res) => {
 });
 
 router.post("/refresh", (req, res) => {
-    const keys = req.body.keys;
+    const keys = req.body.keys || req.body.cleared || [];
+    const clearedKeys: string[] = [];
     if (Array.isArray(keys)) {
-        keys.forEach(k => prizmCache.clear(k));
+        keys.forEach(k => {
+           prizmCache.clear(k);
+           clearedKeys.push(k);
+        });
     }
-    res.json({ success: true, cleared: keys });
+    res.json({
+        success: true,
+        cleared: clearedKeys,
+        message: "Cache cleared. Next route request will fetch live data."
+    });
 });
 
 router.post("/clear", (req, res) => {

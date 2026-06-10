@@ -20,7 +20,7 @@ export default function StringDashboard() {
     let unmounted = false;
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/local/strings/dashboard?enrich=stringviewer&maxAgeMs=${refreshInterval}`);
+        const res = await fetch(`/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=${refreshInterval}`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -50,7 +50,7 @@ export default function StringDashboard() {
   const handleManualRefresh = async () => {
       setIsRefreshing(true);
       try {
-        const res = await fetch(`/api/local/strings/dashboard?refresh=true&enrich=stringviewer&maxAgeMs=${refreshInterval}`);
+        const res = await fetch(`/api/local/strings/dashboard?array=ALL&enrich=none&refresh=true&maxAgeMs=${refreshInterval}`);
         if (res.ok) {
           const json = await res.json();
           setData(json);
@@ -177,11 +177,11 @@ export default function StringDashboard() {
               <RefreshCw size={10} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
            </button>
            <div className={`p-1.5 border rounded ${
-                !data.sourceOk ? 'bg-prizm-danger/20 border-prizm-danger text-prizm-danger' : 
-                (!data.isCached ? 'bg-prizm-warning/20 border-prizm-warning text-prizm-warning' : 
-                 (data.cacheAgeMs === 0 ? 'bg-prizm-primary/20 border-prizm-primary text-prizm-primary' : 'bg-prizm-surface border-prizm-border text-prizm-text-muted'))
+                (!data.cache || !data.cache.sourceOk) ? 'bg-prizm-danger/20 border-prizm-danger text-prizm-danger' : 
+                (data.cache.isStale ? 'bg-prizm-warning/20 border-prizm-warning text-prizm-warning' : 
+                 (data.cache.ageMs <= 100 ? 'bg-prizm-primary/20 border-prizm-primary text-prizm-primary' : 'bg-prizm-surface border-prizm-border text-prizm-text-muted'))
            }`}>
-                {!data.sourceOk ? 'SOURCE OFFLINE' : (!data.isCached ? `STALE (${data.cacheAgeMs}ms)` : (data.cacheAgeMs <= 100 ? 'LIVE' : `CACHED (${data.cacheAgeMs}ms)`))}
+                {(!data.cache || !data.cache.sourceOk) ? 'SOURCE OFFLINE' : (data.cache.isStale ? `STALE (${data.cache.ageMs}ms)` : (data.cache.ageMs <= 100 ? 'LIVE' : `CACHED (${data.cache.ageMs}ms)`))}
            </div>
            <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
               SRC: <span className="text-prizm-text">{data.emsBaseUrl}</span>

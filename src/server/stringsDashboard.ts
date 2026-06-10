@@ -542,7 +542,7 @@ router.get("/", async (req, res) => {
         });
 
         // Hysteresis / History tracking
-        if (cacheEntry.data && cacheEntry.data.strings) {
+        if (cacheEntry.data && cacheEntry.data.strings && cacheEntry.wasFetched) {
             const hMetrics: any[] = [];
             const timestampUtc = new Date().toISOString();
             cacheEntry.data.strings.forEach((s:any) => {
@@ -574,7 +574,27 @@ router.get("/", async (req, res) => {
             prizmHistory.appendSamples(hMetrics);
         }
 
-        res.json({ ...cacheEntry.data, cacheAgeMs: cacheEntry.ageMs, isCached: cacheEntry.isLive, sourceOk: cacheEntry.sourceOk });
+        res.json({ 
+            ...cacheEntry.data, 
+            cache: {
+                key: cacheEntry.key,
+                fetchedAt: cacheEntry.fetchedAt,
+                updatedAt: cacheEntry.updatedAt,
+                ageMs: cacheEntry.ageMs,
+                ttlMs: cacheEntry.ttlMs,
+                sourceOk: cacheEntry.sourceOk,
+                isLive: cacheEntry.isLive,
+                isStale: cacheEntry.isStale,
+                error: cacheEntry.error,
+                profileId: cacheEntry.profileId,
+                emsBaseUrl: cacheEntry.emsBaseUrl
+            },
+            cacheAgeMs: cacheEntry.ageMs, 
+            isCached: !cacheEntry.isLive || cacheEntry.isStale, 
+            sourceOk: cacheEntry.sourceOk,
+            isLive: cacheEntry.isLive,
+            isStale: cacheEntry.isStale
+        });
 
     } catch (e: any) {
         res.status(500).json({ error: e.message || "Failed to process strings dashboard" });
@@ -855,7 +875,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         });
 
         // Hysteresis / History tracking
-        if (cacheEntry.data && cacheEntry.data.bpcs && !!req.query.captureHistory) {
+        if (cacheEntry.data && cacheEntry.data.bpcs && !!req.query.captureHistory && cacheEntry.wasFetched) {
              const hMetrics: any[] = [];
              const timestampUtc = new Date().toISOString();
              cacheEntry.data.bpcs.forEach((b:any, i:number) => {
@@ -883,7 +903,27 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
              prizmHistory.appendSamples(hMetrics);
         }
 
-        res.json({ ...cacheEntry.data, cacheAgeMs: cacheEntry.ageMs, isCached: cacheEntry.isLive, sourceOk: cacheEntry.sourceOk });
+        res.json({ 
+            ...cacheEntry.data, 
+            cache: {
+                key: cacheEntry.key,
+                fetchedAt: cacheEntry.fetchedAt,
+                updatedAt: cacheEntry.updatedAt,
+                ageMs: cacheEntry.ageMs,
+                ttlMs: cacheEntry.ttlMs,
+                sourceOk: cacheEntry.sourceOk,
+                isLive: cacheEntry.isLive,
+                isStale: cacheEntry.isStale,
+                error: cacheEntry.error,
+                profileId: cacheEntry.profileId,
+                emsBaseUrl: cacheEntry.emsBaseUrl
+            },
+            cacheAgeMs: cacheEntry.ageMs, 
+            isCached: !cacheEntry.isLive || cacheEntry.isStale, 
+            sourceOk: cacheEntry.sourceOk,
+            isLive: cacheEntry.isLive,
+            isStale: cacheEntry.isStale
+        });
     } catch(err) {
         res.status(500).json({ error: (err as any).message });
     }
