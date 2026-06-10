@@ -93,18 +93,20 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const finalBpcCount = data?.summary?.bpcCount ?? bpcs?.length ?? s.bpcCount ?? 0;
 
   const getVoltageColor = (v: number) => {
-       if (v > 3600) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
-       if (v > 3500) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
-       if (v < 2800) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
-       if (v < 3000) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
-       return "border-transparent text-emerald-400 bg-black/20 hover:bg-black/40 hover:border-emerald-500/50";
+       if (v > 3600) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
+       if (v > 3500) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
+       if (v < 2800) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
+       if (v < 3000) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
+       if (v > 0) return "bg-emerald-500/10 border-emerald-500/20 text-prizm-text";
+       return "bg-white/5 border-white/10 text-prizm-text-muted";
   };
 
   const getTempColor = (t: number) => {
-       if (t > 45) return "border-prizm-danger text-prizm-danger bg-prizm-danger/10 font-bold animate-pulse";
-       if (t > 40) return "border-prizm-warning text-prizm-warning bg-prizm-warning/10 font-bold";
-       if (t < 5) return "border-blue-400 text-blue-400 bg-blue-400/10 font-bold";
-       return "border-transparent text-prizm-text-muted bg-black/20 hover:bg-black/40 hover:text-prizm-text hover:border-prizm-text/30";
+       if (t > 45) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
+       if (t > 40) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
+       if (t < 5) return "bg-blue-500/20 border-blue-500/40 text-blue-100 font-bold";
+       if (t !== undefined && !Number.isNaN(t)) return "bg-amber-500/10 border-amber-500/20 text-prizm-text";
+       return "bg-white/5 border-white/10 text-prizm-text-muted";
   };
 
   return (
@@ -135,7 +137,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase">Contact / Rot</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5"><span className={s.contactorClosed || s.positiveContactorClosed || s.negativeContactorClosed ? "text-emerald-400" : "text-prizm-text-muted"}>{s.contactorStatus || (s.positiveContactorClosed ? "CLOSED" : "OPEN")}</span> | <span className={s.rotationEnabled || s.rotationStatus === "OUT" ? "text-emerald-400" : "text-prizm-warning"}>{s.rotationStatus}</span></span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5"><span className={s.contactorStatus === "CLOSED" ? "text-emerald-400" : "text-prizm-text-muted"}>{s.contactorStatus === "CLOSED" ? "CLOSED" : "OPEN"}</span> | <span className={s.rotationStatus === "IN" ? "text-emerald-400" : "text-prizm-warning"}>{s.rotationStatus === "IN" ? "IN" : "OUT"}</span></span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase">SOC / Energy</span>
@@ -201,7 +203,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   <div className="flex justify-between items-center mb-4">
                      <h3 className="font-mono text-xs font-bold text-prizm-primary flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
                          <div className="flex items-center gap-2"><Zap size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Voltage Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Cols: BPCs)</span>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Columns: BPCs)</span>
                      </h3>
                      {hasVoltageMatrix && (
                         <button onClick={() => downloadMatrixCsv(voltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -218,10 +220,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">CELL Group ↓</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">Cell Group</th>
                                   {bpcList.map((bpc: any, bpcIdx: number) => (
                                       <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        B{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                       </th>
                                   ))}
                                </tr>
@@ -230,7 +232,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                              {Array.from({ length: cgCount }, (_, cIdx) => (
                                  <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
                                      <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        C{cIdx + 1}
+                                        CG{cIdx + 1}
                                      </td>
                                      {bpcList.map((bpc: any, bpcIdx: number) => {
                                          if (hasBpcCellGroups) {
@@ -239,8 +241,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                   <div 
-                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.voltage} mV`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${cg.voltageColor ? getVoltageColor(cg.voltage) : getVoltageColor(cg.voltage)}`}
+                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.voltage} mV${cg.voltageColor ? ` (source color: ${cg.voltageColor})` : ''}`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getVoltageColor(cg.voltage)}`}
                                                   >
                                                       {cg.voltage}
                                                   </div>
@@ -252,7 +254,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                  <div 
-                                                    title={`BPC ${bpcIdx + 1}, Cell Group ${cIdx + 1}: ${v} mV`}
+                                                    title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${v} mV`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getVoltageColor(v)}`}
                                                  >
                                                      {v}
@@ -279,7 +281,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   <div className="flex justify-between items-center mb-4">
                      <h3 className="font-mono text-xs font-bold text-prizm-warning flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
                          <div className="flex items-center gap-2"><Thermometer size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Temperature Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Cols: BPCs)</span>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Columns: BPCs)</span>
                      </h3>
                      {hasTempMatrix && (
                         <button onClick={() => downloadMatrixCsv(temperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -296,10 +298,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">CELL Group ↓</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">Cell Group</th>
                                   {bpcList.map((bpc: any, bpcIdx: number) => (
                                       <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        B{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                       </th>
                                   ))}
                                </tr>
@@ -308,7 +310,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                              {Array.from({ length: cgCount }, (_, cIdx) => (
                                  <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
                                      <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        C{cIdx + 1}
+                                        CG{cIdx + 1}
                                      </td>
                                      {bpcList.map((bpc: any, bpcIdx: number) => {
                                          if (hasBpcCellGroups) {
@@ -317,8 +319,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                   <div 
-                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.temperature}°C`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${cg.temperatureColor ? getTempColor(cg.temperature) : getTempColor(cg.temperature)}`}
+                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.temperature}°C${cg.temperatureColor ? ` (source color: ${cg.temperatureColor})` : ''}`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getTempColor(cg.temperature)}`}
                                                   >
                                                       {cg.temperature}
                                                   </div>
@@ -330,7 +332,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={bpcIdx} className="p-0.5">
                                                  <div 
-                                                    title={`BPC ${bpcIdx + 1}, Cell Group ${cIdx + 1}: ${t}°C`}
+                                                    title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${t}°C`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getTempColor(t)}`}
                                                  >
                                                      {t}

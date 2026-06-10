@@ -22,6 +22,9 @@ export interface PrizmTelemetrySample {
 
 const HISTORY_DIR = path.join(process.cwd(), ".prizm-cache", "history");
 
+const writeThrottleMillis = 5000;
+const lastWriteMap = new Map<string, number>();
+
 function parseRangeMs(rangeStr: string): number {
     const r = rangeStr.trim().toLowerCase();
     if (r.endsWith('m')) return parseInt(r) * 60 * 1000;
@@ -35,10 +38,26 @@ export async function appendSamples(samples: PrizmTelemetrySample[]): Promise<vo
     try {
         if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
         const filePath = path.join(HISTORY_DIR, "telemetry-samples.jsonl");
-        const lines = samples
-            .filter(s => s.metricValue !== null && s.metricValue !== undefined)
-            .map(s => JSON.stringify(s)).join('\n') + '\n';
-        if (lines.trim().length > 0) {
+        
+        const nowMs = Date.now();
+        const validSamples = samples.filter(s => {
+            if (s.metricValue === null || s.metricValue === undefined) {
+               if (s.metricText === null || s.metricText === undefined || s.metricText === "") {
+                   return false; // drop fully empty samples
+               }
+            }
+            
+            const key = `${s.entityKey}:${s.metricName}`;
+            const lastWrite = lastWriteMap.get(key) || 0;
+            if (nowMs - lastWrite < writeThrottleMillis) {
+                return false; // throttled
+            }
+            lastWriteMap.set(key, nowMs);
+            return true;
+        });
+
+        const lines = validSamples.map(s => JSON.stringify(s)).join('\n') + '\n';
+        if (validSamples.length > 0 && lines.trim().length > 0) {
             fs.appendFileSync(filePath, lines);
         }
     } catch(err) {

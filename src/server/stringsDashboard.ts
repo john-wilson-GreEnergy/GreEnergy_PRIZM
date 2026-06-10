@@ -545,31 +545,53 @@ router.get("/", async (req, res) => {
         if (cacheEntry.data && cacheEntry.data.strings && cacheEntry.wasFetched) {
             const hMetrics: any[] = [];
             const timestampUtc = new Date().toISOString();
+            const quality = (cacheEntry.isLive && cacheEntry.sourceOk) ? "live" : "stale";
+            
+            const pushNumeric = (base: any, metricName: string, metricValue: number | undefined | null) => {
+                if (metricValue === undefined || metricValue === null || Number.isNaN(metricValue)) return;
+                hMetrics.push({ ...base, metricName, metricValue, quality });
+            };
+            const pushText = (base: any, metricName: string, metricText: string | undefined | null) => {
+                if (!metricText || metricText.trim() === "") return;
+                hMetrics.push({ ...base, metricName, metricText, quality });
+            };
+
             cacheEntry.data.strings.forEach((s:any) => {
-                 hMetrics.push({
+                 const base = {
                       timestampUtc,
                       profileId: profile?.id,
+                      emsBaseUrl: cacheEntry.emsBaseUrl,
                       source: "dashboard_strings_matrix",
                       entityType: "string",
                       entityKey: s.id,
-                      metricName: "voltage",
-                      metricValue: s.measuredVoltage,
-                      quality: cacheEntry.isLive ? "live" : "cached",
                       arrayNumber: s.arrayNumber,
                       stringNumber: s.stringNumber
-                 });
-                 hMetrics.push({
-                      timestampUtc,
-                      profileId: profile?.id,
-                      source: "dashboard_strings_matrix",
-                      entityType: "string",
-                      entityKey: s.id,
-                      metricName: "temperature",
-                      metricValue: s.maxCellTemperature,
-                      quality: cacheEntry.isLive ? "live" : "cached",
-                      arrayNumber: s.arrayNumber,
-                      stringNumber: s.stringNumber
-                 });
+                 };
+                 // Numeric
+                 pushNumeric(base, "socPct", s.socPct);
+                 pushNumeric(base, "measuredVoltage", s.measuredVoltage);
+                 pushNumeric(base, "calculatedVoltage", s.calculatedVoltage);
+                 pushNumeric(base, "busVoltage", s.busVoltage);
+                 pushNumeric(base, "voltageDelta", s.voltageDelta);
+                 pushNumeric(base, "amps", s.amps);
+                 pushNumeric(base, "kw", s.kw);
+                 pushNumeric(base, "kwh", s.kwh);
+                 pushNumeric(base, "minCellVoltage", s.minCellVoltage);
+                 pushNumeric(base, "avgCellVoltage", s.avgCellVoltage);
+                 pushNumeric(base, "maxCellVoltage", s.maxCellVoltage);
+                 pushNumeric(base, "cellVoltageDelta", s.cellVoltageDelta);
+                 pushNumeric(base, "minCellTemperature", s.minCellTemperature);
+                 pushNumeric(base, "avgCellTemperature", s.avgCellTemperature);
+                 pushNumeric(base, "maxCellTemperature", s.maxCellTemperature);
+                 pushNumeric(base, "cellTemperatureDelta", s.cellTemperatureDelta);
+                 pushNumeric(base, "warningCount", s.warningCount);
+                 pushNumeric(base, "alarmCount", s.alarmCount);
+                 pushNumeric(base, "recloseCount", s.recloseCount);
+                 // Text
+                 pushText(base, "operationalState", s.operationalState);
+                 pushText(base, "rotationStatus", s.rotationStatus);
+                 pushText(base, "contactorStatus", s.contactorStatus);
+                 pushText(base, "fanStatus", s.fanStatus);
             });
             prizmHistory.appendSamples(hMetrics);
         }
@@ -585,6 +607,7 @@ router.get("/", async (req, res) => {
                 sourceOk: cacheEntry.sourceOk,
                 isLive: cacheEntry.isLive,
                 isStale: cacheEntry.isStale,
+                wasFetched: cacheEntry.wasFetched,
                 error: cacheEntry.error,
                 profileId: cacheEntry.profileId,
                 emsBaseUrl: cacheEntry.emsBaseUrl
@@ -914,6 +937,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 sourceOk: cacheEntry.sourceOk,
                 isLive: cacheEntry.isLive,
                 isStale: cacheEntry.isStale,
+                wasFetched: cacheEntry.wasFetched,
                 error: cacheEntry.error,
                 profileId: cacheEntry.profileId,
                 emsBaseUrl: cacheEntry.emsBaseUrl
