@@ -9,7 +9,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     let unmounted = false;
     const fetchDetail = async () => {
       try {
-        const res = await fetch(`/api/local/strings/${stringData.arrayNumber}/${stringData.stringNumber}/detail`);
+        const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -144,16 +144,29 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold tracking-wider">
                Local EMS Data Binding Details
             </summary>
-            <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar">
+            <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar space-y-2">
+                <div className="flex gap-4 items-center">
+                    <span className={`px-1.5 py-0.5 rounded font-bold ${data ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
+                        Detail endpoint loaded: {data ? 'true' : 'false'}
+                    </span>
+                    <span className="text-prizm-text-muted">sourceViewerUsed: {data?.sourceViewerUsed ? 'true' : 'false'}</span>
+                    <span className="text-prizm-text-muted">bpcs: {bpcs?.length || 0}</span>
+                    <span className="text-prizm-text-muted">firstBpcCellGroups: {bpcs?.[0]?.cellGroups?.length || 0}</span>
+                    <span className="text-prizm-text-muted">voltageRows: {voltageMatrix?.length || 0}</span>
+                    <span className="text-prizm-text-muted">temperatureRows: {temperatureMatrix?.length || 0}</span>
+                </div>
                 {stringViewerHealth && (
-                    <div className="flex gap-4">
+                    <div className="flex gap-4 items-center bg-black/20 p-2 rounded">
                         <span className={`px-1.5 py-0.5 rounded font-bold ${stringViewerHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
                             stringviewer {stringViewerHealth.ok ? 'OK' : 'FAIL'}
                         </span>
                         <span className="text-prizm-text-muted">HTTP {stringViewerHealth.httpStatus || '--'}</span>
                         <span className="text-prizm-text-muted">{stringViewerHealth.durationMs}ms</span>
-                        <span className="text-prizm-text-muted opacity-80">{stringViewerHealth.url}</span>
+                        <span className="text-prizm-text-muted break-all">{stringViewerHealth.url}</span>
                     </div>
+                )}
+                {stringViewerHealth && !stringViewerHealth.ok && stringViewerHealth.error && (
+                    <div className="text-prizm-danger">Error: {stringViewerHealth.error}</div>
                 )}
             </div>
           </details>

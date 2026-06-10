@@ -52,6 +52,8 @@ export interface FeatherHvacDevice {
   anyHvacActive?: boolean;
   hvacRuntimeState?: string;
   hvacDataValid?: boolean;
+  fssValid?: boolean;
+  doorsValid?: boolean;
   segmentLabel?: string;
 
   hvac1?: {
@@ -299,30 +301,32 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
 
   const fss = thermal.fssSignals || raw.fssSignals || {};
   partial.fssSignals = {
-    valid: fss.valid,
-    fssAlarm: fss.fssAlarm,
-    fssAlarmOrTrouble: fss.fssAlarmOrTrouble,
-    fssTrouble: fss.fssTrouble,
-    statXRelease: fss.statXRelease,
-    hydrogenAlarm: fss.hydrogenAlarm,
-    hydrogenFault: fss.hydrogenFault,
-    smokeAlarm: fss.smokeAlarm,
-    smokeAlarmTrouble: fss.smokeAlarmTrouble,
-    heatSensor: fss.heatSensor,
-    fireAlarm: fss.fireAlarm,
-    fireTrouble: fss.fireTrouble,
-    leakAlarm: fss.leakAlarm,
-    louverOpen: fss.louverOpen,
+    valid: fss.valid === true,
+    fssAlarm: fss.fssAlarm === true,
+    fssAlarmOrTrouble: fss.fssAlarmOrTrouble === true,
+    fssTrouble: fss.fssTrouble === true,
+    statXRelease: fss.statXRelease === true,
+    hydrogenAlarm: fss.hydrogenAlarm === true,
+    hydrogenFault: fss.hydrogenFault === true,
+    smokeAlarm: fss.smokeAlarm === true,
+    smokeAlarmTrouble: fss.smokeAlarmTrouble === true,
+    heatSensor: fss.heatSensor === true,
+    fireAlarm: fss.fireAlarm === true,
+    fireTrouble: fss.fireTrouble === true,
+    leakAlarm: fss.leakAlarm === true,
+    louverOpen: fss.louverOpen === true,
   };
+  partial.fssValid = fss.valid === true;
 
   const doors = thermal.doors || raw.doors || {};
   partial.doors = {
-    valid: doors.valid,
-    batteryDoorsClosed: doors.batteryDoorsClosed,
-    lowerTopcapClosed: doors.lowerTopcapClosed,
-    dcDoorsClosed: doors.dcDoorsClosed,
-    acDoorsClosed: doors.acDoorsClosed,
+    valid: doors.valid === true,
+    batteryDoorsClosed: doors.batteryDoorsClosed === true,
+    lowerTopcapClosed: doors.lowerTopcapClosed === true,
+    dcDoorsClosed: doors.dcDoorsClosed === true,
+    acDoorsClosed: doors.acDoorsClosed === true,
   };
+  partial.doorsValid = doors.valid === true;
 
   partial.doorApplicability = {
     isCollectionSegment: isCS,
@@ -591,7 +595,7 @@ export async function fetchEnrichedDevices() {
                    if (fss.fireAlarm) d.alarmFaults.push("Fire Alarm");
                    if (fss.fireTrouble) d.alarmFaults.push("Fire Trouble");
                    if (fss.leakAlarm) d.alarmFaults.push("Leak Alarm");
-                   if (fss.louverOpen === false) d.warnInfo.push("Louver Closed");
+                   
                  }
 
                  if (normalized.hvac1?.freezeDetected) d.alarmFaults.push("HVAC1 Freeze");

@@ -1001,8 +1001,8 @@ export default function FeatherDashboard() {
                             {/* Validation Callouts */}
                             <div className="ml-auto flex justify-end gap-2 whitespace-nowrap min-w-[260px]">
                               <span className={d.hvacDataValid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.hvacDataValid ? "HVAC Data Valid" : "HVAC Data Invalid"}</span> <span className="text-white/20">|</span>
-                              <span className={d.fssSignals?.valid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.fssSignals?.valid ? "FSS Valid" : "FSS Invalid"}</span> <span className="text-white/20">|</span>
-                              <span className={d.doors?.valid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.doors?.valid ? "Doors Valid" : "Doors Invalid"}</span>
+                              <span className={d.fssValid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.fssValid ? "FSS Valid" : "FSS Invalid"}</span> <span className="text-white/20">|</span>
+                              <span className={d.doorsValid ? "text-emerald-400 font-bold" : "text-prizm-danger font-bold"}>{d.doorsValid ? "Doors Valid" : "Doors Invalid"}</span>
                             </div>
                           </div>
                         ) : (
