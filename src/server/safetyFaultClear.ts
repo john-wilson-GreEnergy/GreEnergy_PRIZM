@@ -1,6 +1,4 @@
 import { Router } from "express";
-import path from "path";
-import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import protobuf from "protobufjs";
 import { getEmsCachedBlock } from "./emsTurtleClient";
@@ -9,17 +7,106 @@ import { buildEmsBaseUrl } from "./profiles/profileManager";
 
 const router = Router();
 
-// Load proto definitions dynamically
-import { fileURLToPath } from "url";
+export const SAFETY_FAULT_CLEAR_PROTO = `syntax = "proto3";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const protoPath = path.join(__dirname, "safetyFaultClearProto.proto");
+package phoenixtongue;
+
+message Command {
+  string commandId = 1;
+  string originalCommandId = 3;
+  Endpoint commandTarget = 4;
+  Endpoint commandSource = 5;
+  CommandPayload commandPayload = 6;
+  string username = 7;
+}
+
+message CommandPayload {
+  ManualClearDeviceFault manualClearDeviceFault = 51;
+}
+
+message ManualClearDeviceFault {
+  string entityKey = 1;
+}
+
+message Endpoint {
+  EndpointType endpointType = 1;
+  string stationCode = 2;
+  uint32 blockIndex = 3;
+  uint32 arrayIndex = 4;
+  uint32 stringIndex = 5;
+  uint32 batteryPackIndex = 6;
+  uint32 cellGroupIndex = 7;
+  uint32 arrayPcsIndex = 8;
+  uint32 blockMeterIndex = 9;
+  uint32 blockDataSourceIndex = 10;
+  uint32 blockHvacIndex = 11;
+  uint32 lowVoltageMeterIndex = 12;
+  uint32 openClosedDetectorIndex = 13;
+  uint32 containerIndex = 14;
+  uint32 humidityTemperatureSensorIndex = 15;
+  uint32 dcDcConverterModuleIndex = 16;
+  uint32 upsIndex = 17;
+  uint32 arrayGFDIndex = 18;
+  uint32 digitalSwitchesIndex = 19;
+  uint32 dcDcConverterGroupIndex = 20;
+  uint32 dcDcParallelingControllerIndex = 21;
+  uint32 blockEnclosureIndex = 22;
+  uint32 fanControlRelayIndex = 23;
+  uint32 multiPcsManagerIndex = 24;
+  uint32 dispatchableDcDcBatteryIndex = 26;
+  uint32 acPvBatteryIndex = 27;
+  uint32 pvPcsIndex = 28;
+  uint32 loadTapChangerIndex = 29;
+  uint32 emsIndex = 30;
+  uint32 bmsIndex = 31;
+  uint32 blockEnclosureGroupIndex = 32;
+  uint32 featherIndex = 33;
+}
+
+enum EndpointType {
+  INVALID_COMMAND_TARGET_TYPE = 0;
+  GOBLIN = 1;
+  STATION = 2;
+  BLOCK = 3;
+  ARRAY = 4;
+  STRING = 5;
+  BATTERY_PACK = 6;
+  CELL_GROUP = 7;
+  ARRAY_PCS = 8;
+  BLOCK_METER = 9;
+  BLOCK_DATA_SOURCE = 10;
+  BLOCK_HVAC = 11;
+  LOW_VOLTAGE_METER = 12;
+  OPEN_CLOSED_DETECTOR = 13;
+  AC_BATTERY = 14;
+  CONTAINER = 15;
+  HUMIDITY_TEMPERATURE_SENSOR = 16;
+  DC_DC_CONVERTER = 17;
+  UPS = 18;
+  ARRAY_GFD = 19;
+  PV_PCS = 20;
+  DIGITAL_SWITCHES = 21;
+  DC_DC_CONVERTER_GROUP = 22;
+  DC_DC_PARALLELING_CONTROLLER = 23;
+  BLOCK_ENCLOSURE = 24;
+  FAN_CONTROL_RELAY = 25;
+  DISPATCHABLE_DC_DC_BATTERY = 26;
+  AC_PV_BATTERY = 27;
+  MULTI_PCS_MANAGER = 28;
+  LOAD_TAP_CHANGER = 29;
+  EMS = 30;
+  BMS = 31;
+  BLOCK_ENCLOSURE_CONTROLLER = 32;
+  FIRE_PANEL = 33;
+  BLOCK_ENCLOSURE_GROUP = 34;
+  FEATHER = 35;
+}`;
+
 let root: protobuf.Root | null = null;
 try {
-  root = protobuf.loadSync(protoPath);
+  root = protobuf.parse(SAFETY_FAULT_CLEAR_PROTO).root;
 } catch (err) {
-  console.warn("Could not load safetyFaultClearProto.proto", err);
+  console.warn("Could not parse SAFETY_FAULT_CLEAR_PROTO inline", err);
 }
 
 export interface SafetyFaultClearCandidate {

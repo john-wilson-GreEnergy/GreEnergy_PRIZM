@@ -1,7 +1,6 @@
 import assert from "assert";
 import { v4 as uuidv4 } from "uuid";
 import protobuf from "protobufjs";
-import path from "path";
 
 // Extract logic directly or mock for tests
 // 1. Topology Normalization
@@ -23,7 +22,7 @@ function normalize(topologyList: any[]) {
      }));
 }
 
-function runTests() {
+async function runTests() {
     console.log("Running Safety Fault Clear Tests...");
     
     // Test 1: Topology Normalization & Filter
@@ -47,8 +46,8 @@ function runTests() {
     assert.strictEqual(commFailureEntity?.communicating, false, "ENT_03 properly reports non-communicating");
 
     // Test 5: Protobuf command builder creates a Command
-    const protoPath = path.join(process.cwd(), "src/server/safetyFaultClearProto.proto");
-    const root = protobuf.loadSync(protoPath);
+    const { SAFETY_FAULT_CLEAR_PROTO } = await import("./safetyFaultClear");
+    const root = protobuf.parse(SAFETY_FAULT_CLEAR_PROTO).root;
     const CommandMessage = root.lookupType("phoenixtongue.Command");
     const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
 
@@ -80,4 +79,4 @@ function runTests() {
     console.log("All tests passed!");
 }
 
-runTests();
+runTests().catch(console.error);
