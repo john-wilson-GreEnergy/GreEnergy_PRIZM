@@ -29,6 +29,87 @@ export interface FeatherHvacDevice {
   softwareVersion?: string;
   deviceState?: string;
 
+  firmwareType?: string;
+  controllerType?: string;
+
+  spaceTemperatureC?: number;
+  spaceHumidityPct?: number;
+  avgCellTemperatureC?: number;
+  avgCellTemperatureRateCPerMin?: number;
+  supplyAirTempC?: number;
+  outsideTemperatureC?: number;
+  outsideHumidityPct?: number | null;
+  hydrogen1PPM?: number;
+  controlTemperatureC?: number;
+  coolingSetpointC?: number;
+  heatingSetpointC?: number;
+  thermostatStage?: string;
+  running?: boolean;
+  hvacEnabled?: boolean;
+
+  hvac1?: {
+    controlsValid?: boolean;
+    dataValid?: boolean;
+    fanLowOn?: boolean;
+    fanHighOn?: boolean;
+    compressorOn?: boolean;
+    reversingValveOn?: boolean;
+    electricHeatOn?: boolean;
+    freezeDetected?: boolean;
+    currentA?: number;
+    fanSpeedRpm?: number;
+    firmwareVersion?: string;
+  };
+
+  hvac2?: {
+    controlsValid?: boolean;
+    dataValid?: boolean;
+    fanLowOn?: boolean;
+    fanHighOn?: boolean;
+    compressorOn?: boolean;
+    reversingValveOn?: boolean;
+    electricHeatOn?: boolean;
+    freezeDetected?: boolean;
+    currentA?: number;
+    fanSpeedRpm?: number;
+    firmwareVersion?: string;
+  };
+
+  fssSignals?: {
+    valid?: boolean;
+    fssAlarm?: boolean;
+    fssAlarmOrTrouble?: boolean;
+    fssTrouble?: boolean;
+    statXRelease?: boolean;
+    hydrogenAlarm?: boolean;
+    hydrogenFault?: boolean;
+    smokeAlarm?: boolean;
+    smokeAlarmTrouble?: boolean;
+    heatSensor?: boolean;
+    fireAlarm?: boolean;
+    fireTrouble?: boolean;
+    leakAlarm?: boolean;
+    louverOpen?: boolean;
+  };
+
+  doors?: {
+    valid?: boolean;
+    batteryDoorsClosed?: boolean;
+    lowerTopcapClosed?: boolean;
+    dcDoorsClosed?: boolean;
+    acDoorsClosed?: boolean;
+  };
+
+  doorApplicability?: {
+    isCollectionSegment: boolean;
+    monitorsAcDoors: boolean;
+    monitorsDcDoors: boolean;
+    monitorsBatteryDoors: boolean;
+    monitorsTopCap: boolean;
+  };
+
+  devicesWithLostComms?: string[];
+
   hvacSummary?: string;
   hvacMode?: string;
   hvacStatus?: string;
@@ -58,6 +139,144 @@ export interface FeatherHvacDevice {
   };
 
   raw?: any;
+}
+
+
+export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<FeatherHvacDevice> {
+  const partial: Partial<FeatherHvacDevice> = {};
+  if (!raw || typeof raw !== "object") return partial;
+
+  partial.ip = ip;
+
+  const statsReport = raw.fromFeatherControllerStatistcsReport;
+  if (statsReport) {
+    if (statsReport.controllerStatisticsData) {
+      if (statsReport.controllerStatisticsData.ipAddress) {
+        partial.ip = statsReport.controllerStatisticsData.ipAddress;
+      }
+      partial.controllerType = statsReport.controllerStatisticsData.controllerType;
+      
+      const tv = statsReport.controllerStatisticsData.turtleVersion;
+      if (tv) {
+        partial.firmwareType = tv.firmwareType;
+        if (tv.fwVersionMajor !== undefined && tv.fwVersionMinor !== undefined && tv.fwVersionRevision !== undefined) {
+          partial.firmwareVersion = `${tv.fwVersionMajor}.${tv.fwVersionMinor}.${tv.fwVersionRevision}`;
+        }
+      }
+    }
+    if (statsReport.energySegmentIndex !== undefined) {
+      partial.arrayIndex = statsReport.energySegmentIndex;
+    }
+    if (statsReport.collectionSegmentIndex !== undefined) {
+      partial.stringIndex = statsReport.collectionSegmentIndex;
+    }
+  }
+
+  // Fallbacks for entity description
+  if (partial.arrayIndex !== undefined && partial.stringIndex !== undefined) {
+    partial.entityDescription = `FEATHER A${partial.arrayIndex} / S${partial.stringIndex}`;
+  } else if (partial.controllerType) {
+    partial.entityDescription = partial.controllerType;
+  }
+
+  partial.deviceState = raw.operationalState || "NORMAL";
+  
+  if (raw.healthy === true && partial.deviceState === "NORMAL") {
+    partial.deviceState = "NORMAL";
+  }
+
+  const thermal = raw.thermalData || {};
+  partial.spaceTemperatureC = thermal.spaceTemperature !== undefined ? thermal.spaceTemperature : undefined;
+  partial.spaceHumidityPct = thermal.spaceHumidity !== undefined ? thermal.spaceHumidity : undefined;
+  partial.avgCellTemperatureC = thermal.avgCellTemperature !== undefined ? thermal.avgCellTemperature : undefined;
+  partial.avgCellTemperatureRateCPerMin = thermal.avgCellTemperatureRateOfChange !== undefined ? thermal.avgCellTemperatureRateOfChange : undefined;
+  partial.thermostatStage = thermal.thermostatStage;
+  partial.supplyAirTempC = thermal.supplyAirTemp !== undefined ? thermal.supplyAirTemp : undefined;
+  partial.outsideTemperatureC = thermal.outsideTemperature !== undefined ? thermal.outsideTemperature : undefined;
+  if (thermal.outsideHumidity !== undefined) {
+    partial.outsideHumidityPct = thermal.outsideHumidity === 999.9 ? null : thermal.outsideHumidity;
+  }
+  partial.hydrogen1PPM = thermal.hydrogen1PPM !== undefined ? thermal.hydrogen1PPM : undefined;
+  partial.controlTemperatureC = thermal.controlTemperature !== undefined ? thermal.controlTemperature : undefined;
+  partial.coolingSetpointC = thermal.coolingSetpoint !== undefined ? thermal.coolingSetpoint : undefined;
+  partial.heatingSetpointC = thermal.heatingSetpoint !== undefined ? thermal.heatingSetpoint : undefined;
+  partial.running = thermal.running;
+  partial.hvacEnabled = thermal.enabled;
+
+  const hvac1Ctrls = thermal.HVAC1Controls || {};
+  const hvac1Data = thermal.HVAC1Data || {};
+  partial.hvac1 = {
+    controlsValid: hvac1Ctrls.valid,
+    dataValid: hvac1Data.valid,
+    fanLowOn: hvac1Ctrls.fanLowOn,
+    fanHighOn: hvac1Ctrls.fanHighOn,
+    compressorOn: hvac1Ctrls.YCompressorOn,
+    reversingValveOn: hvac1Ctrls.ReversingValveOn,
+    electricHeatOn: hvac1Ctrls.ElectricHeatOn,
+    freezeDetected: hvac1Data.FreezeDetected,
+    currentA: hvac1Data.hvacCurrent,
+    fanSpeedRpm: hvac1Data.fanSpeedRpm,
+    firmwareVersion: hvac1Data.firmwareVersion,
+  };
+
+  const hvac2Ctrls = thermal.HVAC2Controls || {};
+  const hvac2Data = thermal.HVAC2Data || {};
+  partial.hvac2 = {
+    controlsValid: hvac2Ctrls.valid,
+    dataValid: hvac2Data.valid,
+    fanLowOn: hvac2Ctrls.fanLowOn,
+    fanHighOn: hvac2Ctrls.fanHighOn,
+    compressorOn: hvac2Ctrls.YCompressorOn,
+    reversingValveOn: hvac2Ctrls.ReversingValveOn,
+    electricHeatOn: hvac2Ctrls.ElectricHeatOn,
+    freezeDetected: hvac2Data.FreezeDetected,
+    currentA: hvac2Data.hvacCurrent,
+    fanSpeedRpm: hvac2Data.fanSpeedRpm,
+    firmwareVersion: hvac2Data.firmwareVersion,
+  };
+
+  const fss = raw.fssSignals || {};
+  partial.fssSignals = {
+    valid: fss.valid,
+    fssAlarm: fss.fssAlarm,
+    fssAlarmOrTrouble: fss.fssAlarmOrTrouble,
+    fssTrouble: fss.fssTrouble,
+    statXRelease: fss.statXRelease,
+    hydrogenAlarm: fss.hydrogenAlarm,
+    hydrogenFault: fss.hydrogenFault,
+    smokeAlarm: fss.smokeAlarm,
+    smokeAlarmTrouble: fss.smokeAlarmTrouble,
+    heatSensor: fss.heatSensor,
+    fireAlarm: fss.fireAlarm,
+    fireTrouble: fss.fireTrouble,
+    leakAlarm: fss.leakAlarm,
+    louverOpen: fss.louverOpen,
+  };
+
+  const doors = raw.doors || {};
+  partial.doors = {
+    valid: doors.valid,
+    batteryDoorsClosed: doors.batteryDoorsClosed,
+    lowerTopcapClosed: doors.lowerTopcapClosed,
+    dcDoorsClosed: doors.dcDoorsClosed,
+    acDoorsClosed: doors.acDoorsClosed,
+  };
+
+  const parts = ip.split(".");
+  const lastOctet = parseInt(parts[parts.length - 1], 10);
+  const isCS = lastOctet === 3;
+
+  partial.doorApplicability = {
+    isCollectionSegment: isCS,
+    monitorsAcDoors: isCS,
+    monitorsDcDoors: isCS,
+    monitorsBatteryDoors: true, // both can have it technically, ES has it always, CS optionally if present/valid
+    monitorsTopCap: true,
+  };
+
+  partial.devicesWithLostComms = raw.devicesWithLostComms || [];
+
+  return partial;
 }
 
 export async function fetchEnrichedDevices() {
@@ -287,7 +506,60 @@ export async function fetchEnrichedDevices() {
              const d = getOrCreate(dev.deviceIp);
              d.sourceCoverage.directFeather = true;
              d.raw!.directFeather = dev;
-             if (dev.reachable) {
+             if (dev.reachable && dev.rawResponse) {
+                 sourceCounts.directFeatherSuccess++;
+                 const normalized = normalizeDirectFeatherStatus(dev.deviceIp, dev.rawResponse);
+                 Object.assign(d, normalized);
+
+                 d.reachable = true;
+                 d.communicating = true;
+                 d.pingMs = dev.responseDurationMs;
+                 d.lastSuccessUtc = dev.lastSuccessAt || new Date().toISOString();
+
+                 d.warnInfo = [];
+                 d.alarmFaults = [];
+
+                 if (normalized.fssSignals) {
+                   const fss = normalized.fssSignals;
+                   if (fss.fssAlarm) d.alarmFaults.push("FSS Alarm");
+                   if (fss.fssTrouble) d.alarmFaults.push("FSS Trouble");
+                   if (fss.fssAlarmOrTrouble) d.alarmFaults.push("FSS Alarm or Trouble");
+                   if (fss.statXRelease) d.alarmFaults.push("StatX Release");
+                   if (fss.hydrogenAlarm) d.alarmFaults.push("H2 Alarm");
+                   if (fss.hydrogenFault) d.alarmFaults.push("H2 Fault");
+                   if (fss.smokeAlarm) d.alarmFaults.push("Smoke Alarm");
+                   if (fss.smokeAlarmTrouble) d.alarmFaults.push("Smoke Alarm Trouble");
+                   if (fss.heatSensor) d.alarmFaults.push("Heat Sensor");
+                   if (fss.fireAlarm) d.alarmFaults.push("Fire Alarm");
+                   if (fss.fireTrouble) d.alarmFaults.push("Fire Trouble");
+                   if (fss.leakAlarm) d.alarmFaults.push("Leak Alarm");
+                   if (fss.louverOpen === false) d.warnInfo.push("Louver Closed");
+                 }
+
+                 if (normalized.hvac1?.freezeDetected) d.alarmFaults.push("HVAC1 Freeze");
+                 if (normalized.hvac2?.freezeDetected) d.alarmFaults.push("HVAC2 Freeze");
+
+                 if (normalized.doors && normalized.doorApplicability) {
+                     const doors = normalized.doors;
+                     const app = normalized.doorApplicability;
+                     if (app.monitorsAcDoors && doors.acDoorsClosed === false) d.alarmFaults.push("AC Door Open");
+                     if (app.monitorsDcDoors && doors.dcDoorsClosed === false) d.alarmFaults.push("DC Door Open");
+                     if (app.monitorsBatteryDoors && doors.batteryDoorsClosed === false) d.alarmFaults.push("Battery Door Open");
+                     if (app.monitorsTopCap && doors.lowerTopcapClosed === false) d.alarmFaults.push("Top Cap Open");
+                 }
+
+                 if (normalized.devicesWithLostComms && normalized.devicesWithLostComms.length > 0) {
+                     d.alarmFaults.push("Lost Comms");
+                     d.warnInfo.push(`Lost Comms with: ${normalized.devicesWithLostComms.join(", ")}`);
+                 }
+
+                 if (normalized.running && normalized.hvacEnabled === false) {
+                     d.warnInfo.push("Running but HVAC Disabled");
+                 }
+
+                 if (normalized.thermostatStage) d.hvacMode = normalized.thermostatStage;
+                 d.mioSensorSummary = normalized.hvac1?.controlsValid ? "Valid" : "Invalid";
+             } else if (dev.reachable) {
                  sourceCounts.directFeatherSuccess++;
                  d.reachable = true;
                  d.communicating = true;
@@ -305,6 +577,7 @@ export async function fetchEnrichedDevices() {
                  d.mioSensorSummary = dev.mioValid ? "Valid" : "Invalid";
              } else {
                  sourceCounts.directFeatherFailed++;
+                 d.deviceState = "OFFLINE";
              }
              d.lastCheckedUtc = dev.lastSuccessAt || new Date().toISOString();
          }

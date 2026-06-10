@@ -34,6 +34,7 @@ import { ProfileManager } from "./src/server/profiles/profileManager";
 import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
 import { getFeatherCache, clearFeatherCache, queryFeatherDevice } from "./src/server/feather/featherClient";
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
+import { executeDataDiscovery } from "./src/server/telemetry/discovery";
 
 
 const app = express();
@@ -397,6 +398,15 @@ pollEmsTurtle().catch(err => {
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry
 app.get("/api/local/connection", (req, res) => {
   res.json(getEmsConnectionStatus());
+});
+
+app.get("/api/local/data-discovery/site-equipment", async (req, res) => {
+  try {
+    const discovery = await executeDataDiscovery();
+    res.json(discovery);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to execute data discovery" });
+  }
 });
 
 // 2. GET /api/local/status: Proxy to ems/status.json
@@ -1208,11 +1218,66 @@ app.post("/api/feather/scan", async (req, res) => {
 import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 
 // 4. GET /api/feather/devices
+let activeDeviceScanPromise: Promise<any> | null = null;
+let lastEnrichedCache: any = null;
+
 app.get("/api/feather/devices", async (req, res) => {
   try {
-    const data = await fetchEnrichedDevices();
+    const forceRefresh = req.query.refresh === "true";
+    const maxAgeMs = req.query.maxAgeMs ? parseInt(req.query.maxAgeMs as string, 10) : 5000;
+
+    if (!forceRefresh && lastEnrichedCache) {
+      const ageMs = Date.now() - new Date(lastEnrichedCache.generatedAt).getTime();
+      if (ageMs < maxAgeMs) {
+        lastEnrichedCache.cacheAgeMs = ageMs;
+        lastEnrichedCache.live = false;
+        return res.json(lastEnrichedCache);
+      }
+    }
+
+    if (activeDeviceScanPromise) {
+      const data = await activeDeviceScanPromise;
+      return res.json(data);
+    }
+
+    activeDeviceScanPromise = (async () => {
+      const scanStartedAt = new Date().toISOString();
+      const startTime = Date.now();
+
+      // First pass to discover candidates and topologies
+      const initialData = await fetchEnrichedDevices();
+      const ipsToPoll = initialData.devices.map((d: any) => d.ip).filter((ip: string) => ip);
+
+      // Perform live background scan
+      if (ipsToPoll.length > 0) {
+        // Use high concurrency and shorter timeout for quick live UI refresh
+        await executeFeatherScan(ipsToPoll, 32, 2500);
+      }
+
+      // Re-fetch populated enrichment data
+      const finalData = await fetchEnrichedDevices();
+      const durationMs = Date.now() - startTime;
+
+      const responseData = {
+        ...finalData,
+        generatedAt: new Date().toISOString(),
+        scanStartedAt,
+        scanCompletedAt: new Date().toISOString(),
+        durationMs,
+        cacheAgeMs: 0,
+        live: true
+      };
+      
+      lastEnrichedCache = responseData;
+      return responseData;
+    })();
+
+    const data = await activeDeviceScanPromise;
+    activeDeviceScanPromise = null;
+
     res.json(data);
   } catch (err: any) {
+    activeDeviceScanPromise = null;
     res.status(500).json({ error: err.message || "Failed to fetch enriched Feather cache" });
   }
 });

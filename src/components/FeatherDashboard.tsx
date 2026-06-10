@@ -57,6 +57,9 @@ export default function FeatherDashboard() {
     isStale: true
   });
 
+  const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(5);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
+
   // Table Filters
   const [ipSearchParams, setIpSearchParams] = useState<string>("");
   const [entitySearchParams, setEntitySearchParams] = useState<string>("");
@@ -75,15 +78,28 @@ export default function FeatherDashboard() {
   const [alertMessage, setAlertMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
 
   // Load cache on bootstrap
-  const loadCache = async (autoDiscoverOnEmpty = false) => {
+  const loadCache = async (autoDiscoverOnEmpty = false, forceRefresh = false) => {
     try {
-      const res = await fetch("/api/feather/devices");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const url = forceRefresh ? "/api/feather/devices?refresh=true" : "/api/feather/devices?maxAgeMs=5000";
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      
       if (res.ok) {
         const data = await res.json();
-        setDevices(data.devices || []);
+        setDevices(prev => {
+             // keep old rows around and just update matched keys to prevent jitter
+             if (!prev || prev.length === 0) return data.devices || [];
+             const map = new Map(prev.map(d => [d.ip, d]));
+             (data.devices || []).forEach((d: FeatherHvacDevice) => {
+                  map.set(d.ip, d);
+             });
+             return Array.from(map.values());
+        });
         setCacheDetails({
           createdAt: data.createdAt || data.generatedAt,
-          lastUpdatedAt: data.lastUpdatedAt || data.generatedAt,
+          lastUpdatedAt: data.lastUpdatedAt || data.scanCompletedAt || data.generatedAt,
           activeProfileId: data.activeProfileId || data.profileId,
           activeProfileName: data.activeProfileName || "Active Profile",
           activeEmsBaseUrl: data.activeEmsBaseUrl || data.emsBaseUrl,
@@ -91,9 +107,9 @@ export default function FeatherDashboard() {
         });
 
         if (autoDiscoverOnEmpty && (!data.devices || data.devices.length === 0)) {
-          // If no cache, run topology discovery silently on load to present candidates
           runTopologyDiscovery(true);
         }
+        setLastRefreshTime(Date.now());
       }
     } catch (e) {
       console.error("Failed to load feather devices cache", e);
@@ -101,8 +117,16 @@ export default function FeatherDashboard() {
   };
 
   useEffect(() => {
-    loadCache(true);
+    loadCache(true, false);
   }, []);
+
+  useEffect(() => {
+    if (refreshIntervalSec <= 0) return;
+    const intervalId = setInterval(() => {
+      loadCache(false, true);
+    }, refreshIntervalSec * 1000);
+    return () => clearInterval(intervalId);
+  }, [refreshIntervalSec]);
 
   // Utility to calculate target count preview
   const getTargetCountPreview = (): { count: number; isValid: boolean; warningMsg: string | null } => {
@@ -688,7 +712,35 @@ export default function FeatherDashboard() {
         </div>
       )}
 
-      {/* 2. SUMMARY TELEMETRY CARDS */}
+      {/* 2. SUMMARY TELEMETRY CARDS & LIVE REFRESH CONTROLS */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-prizm-surface border border-prizm-border rounded-lg p-3 font-mono text-xs">
+        <div className="flex items-center gap-4">
+          <RefreshCw className={`text-prizm-primary ${refreshIntervalSec > 0 ? "animate-spin" : ""}`} size={16} />
+          <div>
+             <span className="block font-bold">LIVE TELEMETRY POLLING</span>
+             <span className="block text-[10px] text-prizm-text-muted">
+                {refreshIntervalSec > 0 ? `Active - Auto Refreshing every ${refreshIntervalSec}s (Targeting Direct Feather nodes)` : "Paused. System idle."}
+             </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-3 md:mt-0">
+          <span className="text-[9px] uppercase tracking-wider text-prizm-text-muted">Interval:</span>
+          <div className="flex bg-prizm-surface-strong p-1 rounded border border-prizm-border text-[10px]">
+             {[0, 2, 5, 10, 30].map(val => (
+               <button
+                  key={val}
+                  onClick={() => setRefreshIntervalSec(val)}
+                  className={`px-2 py-0.5 rounded cursor-pointer ${
+                    refreshIntervalSec === val ? "bg-prizm-warning text-prizm-warning" : "text-prizm-text-muted hover:text-prizm-text"
+                  }`}
+               >
+                 {val === 0 ? "PAUSED" : `${val}s`}
+               </button>
+             ))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 font-mono text-[11px]">
         {[
           { label: "IP Candidates", val: stats.total, color: "text-prizm-text" },
@@ -833,7 +885,7 @@ export default function FeatherDashboard() {
                   
                   return (
                     <tr
-                      key={index}
+                      key={d.ip}
                       onClick={() => {
                         setSelectedDevice(d);
                         setAdvancedDrawerShowJson(false);
@@ -856,11 +908,12 @@ export default function FeatherDashboard() {
                       </td>
 
                       <td className="p-3 text-prizm-text-muted">
-                        {d.arrayIndex !== undefined ? `A-${d.arrayIndex}` : "Unmapped"} 
-                        {d.stringIndex !== undefined ? ` / S-${d.stringIndex}` : ""}
+                        {(d.arrayIndex !== undefined || d.stringIndex !== undefined) ? 
+                          `${d.arrayIndex !== undefined ? `A${d.arrayIndex}` : "A?"} / ${d.stringIndex !== undefined ? `S${d.stringIndex}` : "S?"}` 
+                          : "Unmapped"}
                       </td>
 
-                      <td className="p-3 text-prizm-text-muted max-w-44 truncate font-medium">
+                      <td className="p-3 text-prizm-text-muted max-w-44 truncate font-medium title-cell" title={d.entityDescription || "Unmapped"}>
                         {d.entityDescription || "Unmapped"}
                       </td>
 
@@ -875,29 +928,43 @@ export default function FeatherDashboard() {
                       {/* Operational state */}
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                          (!d.alarmCount && !d.warningCount && d.reachable) 
-                            ? "bg-green-500/5 text-green-400 border border-green-500/10" 
-                            : "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20"
+                          d.reachable && d.deviceState === "NORMAL"
+                            ? "bg-green-500/5 text-green-400 border border-green-500/10"
+                            : d.reachable && d.deviceState === "ALARM"
+                            ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20"
+                            : d.reachable && d.deviceState === "WARNING"
+                            ? "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20"
+                            : !d.reachable && d.sourceCoverage.directFeather 
+                            ? "bg-black/40 text-prizm-text-muted border border-prizm-border" 
+                            : "bg-prizm-surface-strong text-prizm-text-muted"
                         }`}>
-                          {d.reachable ? (d.alarmCount ? 'ALARM' : d.warningCount ? 'WARNING' : 'NORMAL') : (d.sourceCoverage.directFeather ? 'OFFLINE' : 'Not reporting')}
+                          {d.reachable ? (d.deviceState || "NORMAL") : (d.sourceCoverage.directFeather ? 'OFFLINE' : 'Not reporting')}
                         </span>
                       </td>
 
                       <td className="p-3 text-center">
-                        {isWarned ? (
-                          <span className="px-2 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px]">
-                            {d.warningCount} WARN
-                          </span>
+                        {isWarned && d.warnInfo && d.warnInfo.length > 0 ? (
+                           <div className="flex flex-col gap-1 items-center">
+                             {d.warnInfo.map((n, i) => (
+                               <span key={i} className="px-1.5 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px] whitespace-nowrap">
+                                 {n}
+                               </span>
+                             ))}
+                           </div>
                         ) : (
                           <span className="text-prizm-text-muted">-</span>
                         )}
                       </td>
 
                       <td className="p-3 text-center">
-                        {isTripped ? (
-                          <span className="px-2 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse">
-                            {d.alarmCount} TRIP
-                          </span>
+                        {isTripped && d.alarmFaults && d.alarmFaults.length > 0 ? (
+                           <div className="flex flex-col gap-1 items-center">
+                               {d.alarmFaults.map((f, i) => (
+                                 <span key={i} className="px-1.5 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse whitespace-nowrap">
+                                   {f}
+                                 </span>
+                               ))}
+                           </div>
                         ) : (
                           <span className="text-prizm-text-muted">-</span>
                         )}
@@ -906,26 +973,20 @@ export default function FeatherDashboard() {
                       {/* HVAC/MIO inputs Summary */}
                       <td className="p-3 text-prizm-text-muted max-w-[280px] truncate leading-normal">
                         {d.reachable ? (
-                          <div className="flex gap-2 items-center text-[10px]">
-                            {d.temperatureSupplyC !== null && (
-                              <span className="flex items-center gap-0.5 text-prizm-text-muted">
-                                <Thermometer size={10} className="text-prizm-primary" />
-                                {d.temperatureSupplyC}°C
-                              </span>
-                            )}
-                            {d.temperatureCellC !== null && (
-                              <span className="text-prizm-warning">Cell: {d.temperatureCellC}°C</span>
-                            )}
-                            {d.hvacMode && d.hvacMode !== "Idle" && (
-                              <span className="text-prizm-primary font-black">{d.hvacMode}</span>
-                            )}
-                            {(d.raw?.directFeather as any)?.batteryDoorsClosed === false && (
-                              <span className="text-prizm-danger font-bold border-prizm-danger/20 border bg-prizm-danger/10 px-1 py-0.2 rounded text-[8px]">DoorOpen</span>
-                            )}
-                            {d.temperatureSupplyC === null && d.temperatureCellC === null && "MIO Signals Nominal"}
+                          <div className="flex flex-col gap-1.5 text-[10px]">
+                            <div className="flex items-center gap-1.5 text-blue-300">
+                              <Thermometer size={10} />
+                              <span>S: {d.temperatureSupplyC !== undefined && d.temperatureSupplyC !== null ? d.temperatureSupplyC : "?"}°C</span>
+                              <span className="text-prizm-text-muted">/</span>
+                              <span className="text-orange-300">C: {d.temperatureCellC !== undefined && d.temperatureCellC !== null ? d.temperatureCellC : "?"}°C</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-prizm-primary font-bold">{d.hvacMode || "IDLE"}</span>
+                              <span className="text-prizm-text-muted border-l border-prizm-border pl-1.5 ml-1">MIO: {d.mioSensorSummary || "N/A"}</span>
+                            </div>
                           </div>
                         ) : (
-                          <span className="text-prizm-danger/60 font-semibold italic">Unreachable</span>
+                          <span className="text-prizm-text-muted">-</span>
                         )}
                       </td>
 
@@ -1099,19 +1160,24 @@ export default function FeatherDashboard() {
 
               {/* Advanced toggle for raw json */}
               <div className="space-y-2 border-t border-prizm-border pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-prizm-text-muted text-[10px] uppercase">Advanced direct output debug</span>
+                <div className="flex justify-between items-center bg-prizm-surface-strong p-2 rounded border border-prizm-border">
+                  <div className="flex flex-col">
+                    <span className="text-prizm-text-muted text-[10px] uppercase font-bold">Direct JSON Source</span>
+                    <a href={`http://${selectedDevice.ip}:8080/feather/status/report.json`} target="_blank" rel="noreferrer" className="text-prizm-primary hover:text-cyan-400 text-[10px] underline leading-tight mt-1">
+                      http://{selectedDevice.ip}:8080/feather/status/report.json
+                    </a>
+                  </div>
                   <button
                     onClick={() => setAdvancedDrawerShowJson(!advancedDrawerShowJson)}
-                    className="px-2 py-1 bg-black/5 hover:bg-black/10 rounded font-bold text-[9px] text-prizm-text cursor-pointer"
+                    className="px-2 py-1 bg-black/20 hover:bg-black/40 rounded font-bold text-[9px] text-prizm-text cursor-pointer border border-prizm-border transition-colors"
                   >
-                    {advancedDrawerShowJson ? "Hide Raw report JSON" : "Show Raw report JSON"}
+                    {advancedDrawerShowJson ? "Hide Processed Payload" : "Show Processed Payload"}
                   </button>
                 </div>
 
                 {advancedDrawerShowJson && (
-                   <div className="bg-black border border-prizm-border p-3 rounded font-mono text-[9px] text-prizm-text-muted select-text break-all overflow-y-auto max-h-[300px]">
-                     <pre className="whitespace-pre-wrap">{JSON.stringify(selectedDevice.raw || {}, null, 2)}</pre>
+                   <div className="bg-black border border-prizm-border p-3 rounded font-mono text-[9px] text-emerald-500/80 select-text overflow-x-auto max-h-[300px]">
+                     <pre className="whitespace-pre">{JSON.stringify(selectedDevice.raw?.directFeather?.rawResponse || selectedDevice.raw || {}, null, 2)}</pre>
                    </div>
                 )}
               </div>

@@ -30,6 +30,7 @@ import {
   AlertOctagon
 } from "lucide-react";
 import FeatherDashboard from "./FeatherDashboard";
+import DataDiscovery from "./DataDiscovery";
 
 interface TelemetryMetadata {
   source: "live" | "cached" | "offline" | "demo";
@@ -569,6 +570,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               { id: "last-call", label: "Last Call Explorer", icon: Clock },
               { id: "modbus", label: "Modbus Map Browser", icon: Database },
               { id: "feather", label: "Feather / HVAC Devices", icon: Sliders },
+              { id: "data-discovery", label: "Local Data Discovery", icon: Search },
               { id: "locked-controls", label: "Locked Advanced Workflows", icon: Lock }
             ].map(item => {
               const Icon = item.icon;
@@ -655,6 +657,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               {activeSubTab === "last-call" && "Watchdog Communication Handshake Explorer"}
               {activeSubTab === "modbus" && "Modbus Register Schema Browser"}
               {activeSubTab === "feather" && "Feather / HVAC Devices Controller Diagnostics"}
+              {activeSubTab === "data-discovery" && "Data Discovery & Taxonomy Mapping"}
               {activeSubTab === "locked-controls" && "Guarded High-Voltage Commands Terminal"}
             </h2>
             <p className="text-[11px] text-prizm-text-muted mt-1">
@@ -665,6 +668,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               {activeSubTab === "last-call" && "Transaction payload dumps recording the exact last handshake with EMS Turtle."}
               {activeSubTab === "modbus" && "Complete site registers mapping, scales, and data structure constraints."}
               {activeSubTab === "feather" && "Live status overview, direct ping latencies, and HVAC thermal metrics for site units."}
+              {activeSubTab === "data-discovery" && "Direct payload scan and endpoint analysis for dashboard field mapping."}
               {activeSubTab === "locked-controls" && "Safety lock preventing write scripts execution in raw production environments."}
             </p>
           </div>
@@ -1279,8 +1283,13 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
           <FeatherDashboard />
         )}
 
+        {/* ------------------------- 2I. LOCAL DATA DISCOVERY ------------------------- */}
+        {activeSubTab === "data-discovery" && (
+          <DataDiscovery />
+        )}
+
         {/* ------------------------- ADVANCED DEBUG DRAWER VIEW ------------------------- */}
-        {advancedDebugOpen && (
+        {advancedDebugOpen && !["feather", "data-discovery"].includes(activeSubTab) && (
           <div className="absolute inset-y-0 right-0 w-full sm:w-[500px] bg-prizm-surface-strong border-l border-prizm-border p-5 shadow-2xl z-50 overflow-y-auto animate-slide-in duration-300 font-mono text-xs flex flex-col gap-4">
             <div className="flex justify-between items-center border-b border-prizm-border pb-3">
               <span className="font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
