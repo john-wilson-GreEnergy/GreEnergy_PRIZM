@@ -2178,7 +2178,8 @@ app.get("/tools/controls/ems/heatsoak/stop/blockEnclosure/:seg", (req, res) => {
 }
 
 // Production route serving SPA build
-if (process.env.NODE_ENV !== "production") {
+if (process.env.PRIZM_FORCE_DEV === "true") {
+  console.log("PRIZM server mode: Vite development middleware");
   const startVite = async () => {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -2188,6 +2189,7 @@ if (process.env.NODE_ENV !== "production") {
   };
   startVite();
 } else {
+  console.log("PRIZM server mode: production static client");
   const distPath = path.join(process.cwd(), "dist");
   app.use(express.static(distPath));
   app.get("*", (req, res) => {
@@ -2195,8 +2197,17 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+server.on('error', (e: any) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use.`);
+    console.error(`Run: npm run stop:port`);
+    console.error(`Then: npm start`);
+    process.exit(1);
+  }
 });
 
 let reports: any[] = [];

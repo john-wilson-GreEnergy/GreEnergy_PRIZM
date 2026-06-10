@@ -56,37 +56,66 @@ function matchesAnyKeyword(text: string, categoryKeywords: string[]): boolean {
   return categoryKeywords.some(kw => lower.includes(kw));
 }
 
-function scanJson(obj: any, currentPath: string, endpointKey: string, discovered: Record<string, DiscoveredField[]>) {
+interface InternalDiscoveredField extends DiscoveredField {
+  category: string;
+}
+
+function getNormalizedPath(path: string) {
+  return path.replace(/\[\d+\]/g, '[]');
+}
+
+function scanJson(
+  obj: any,
+  currentPath: string,
+  endpointKey: string,
+  dedupeMap: Map<string, InternalDiscoveredField>,
+  options: { depth: number; maxDepth: number; maxArraySamples: number; maxFieldsPerCategory: number }
+) {
+  if (options.depth > options.maxDepth) return;
   if (!obj || typeof obj !== "object") return;
 
   if (Array.isArray(obj)) {
-    if (obj.length > 0) {
-      scanJson(obj[0], `${currentPath}[0]`, endpointKey, discovered);
+    const limit = Math.min(obj.length, options.maxArraySamples);
+    for (let i = 0; i < limit; i++) {
+       scanJson(obj[i], `${currentPath}[${i}]`, endpointKey, dedupeMap, { ...options, depth: options.depth + 1 });
     }
     return;
   }
 
-  for (const [key, value] of Object.entries(obj)) {
+  const keys = Object.keys(obj);
+  for (const key of keys) {
+    const value = obj[key];
     const newPath = currentPath ? `${currentPath}.${key}` : key;
     const valType = typeof value;
 
     if (value !== null && valType === "object") {
-      scanJson(value, newPath, endpointKey, discovered);
+      scanJson(value, newPath, endpointKey, dedupeMap, { ...options, depth: options.depth + 1 });
     } else {
+      if (typeof value === 'string' && value.length > 500) continue; // safety
+
       for (const [category, keywords] of Object.entries(KEYWORDS)) {
         if (matchesAnyKeyword(key, keywords) || matchesAnyKeyword(newPath, keywords)) {
-          const field: DiscoveredField = {
-            endpoint: endpointKey,
-            path: newPath,
-            key,
-            valueType: valType,
-            sampleValue: value,
-            confidence: "Medium",
-            reason: `Matches ${category} keywords`
-          };
-          if (!discovered[category]) discovered[category] = [];
-          if (!discovered[category].some(d => d.path === newPath)) {
-            discovered[category].push(field);
+          const normPath = getNormalizedPath(newPath);
+          const dedupeKey = `${endpointKey}:${category}:${normPath}:${key}`;
+          
+          if (!dedupeMap.has(dedupeKey)) {
+            // Count existing in category
+            let count = 0;
+            for (const field of dedupeMap.values()) {
+              if (field.category === category) count++;
+            }
+            if (count >= options.maxFieldsPerCategory) continue;
+
+            dedupeMap.set(dedupeKey, {
+              endpoint: endpointKey,
+              path: newPath, // first concrete path found
+              key,
+              valueType: valType,
+              sampleValue: value,
+              confidence: "Medium",
+              reason: `Matches ${category} keywords`,
+              category
+            });
           }
         }
       }
@@ -94,7 +123,7 @@ function scanJson(obj: any, currentPath: string, endpointKey: string, discovered
   }
 }
 
-function parseCsvAndScan(csvText: string, endpointKey: string, discovered: Record<string, DiscoveredField[]>) {
+function parseCsvAndScan(csvText: string, endpointKey: string, dedupeMap: Map<string, InternalDiscoveredField>) {
   const lines = csvText.split("\\n").filter(l => l.trim().length > 0);
   if (lines.length === 0) return;
 
@@ -117,24 +146,114 @@ function parseCsvAndScan(csvText: string, endpointKey: string, discovered: Recor
 
     for (const [category, keywords] of Object.entries(KEYWORDS)) {
       if (matchesAnyKeyword(header, keywords)) {
-        const field: DiscoveredField = {
-          endpoint: endpointKey,
-          path: header,
-          key: header,
-          valueType: stats ? "number" : "string",
-          sampleValue: dataRows.length > 0 ? dataRows[0][i] : null,
-          numericStats: stats,
-          confidence: "High",
-          reason: `CSV Header matches ${category} keywords`
-        };
-        if (!discovered[category]) discovered[category] = [];
-        if (!discovered[category].some(d => d.path === header)) {
-          discovered[category].push(field);
+        const dedupeKey = `${endpointKey}:${category}:${header}:${header}`;
+        if (!dedupeMap.has(dedupeKey)) {
+          dedupeMap.set(dedupeKey, {
+            endpoint: endpointKey,
+            path: header,
+            key: header,
+            valueType: stats ? "number" : "string",
+            sampleValue: dataRows.length > 0 ? dataRows[0][i] : null,
+            numericStats: stats,
+            confidence: "High",
+            reason: `CSV Header matches ${category} keywords`,
+            category
+          });
         }
       }
     }
   }
 }
+
+const rankVoltage = (fields: DiscoveredField[]) => {
+    for (const f of fields) {
+        if (f.endpoint === 'lastCall' && f.path.toLowerCase().includes('cellgroup') && f.path.toLowerCase().includes('voltage')) {
+           return { ...f, description: "lastCall.json cell-group voltage fields (Highest priority)" };
+        }
+    }
+    for (const f of fields) {
+        if (f.endpoint === 'stringsCsv' && (f.path.toLowerCase().includes('avgcellgroupvoltage') || f.path.toLowerCase().includes('mincellgroupvoltage') || f.path.toLowerCase().includes('maxcellgroupvoltage'))) {
+           return { ...f, description: "strings.csv Avg/Min/Max cell group voltage fields" };
+        }
+    }
+    for (const f of fields) {
+        if (f.endpoint === 'stringsCsv' && (f.path.toLowerCase().includes('measuredstringvoltage') || f.path.toLowerCase().includes('calculatedstringvoltage'))) {
+           return { ...f, description: "strings.csv measured/calculated string voltage fields" };
+        }
+    }
+    for (const f of fields) {
+        if (f.endpoint === 'blockviewer' && f.path.toLowerCase().includes('voltage')) {
+           return { ...f, description: "blockviewer voltage fields" };
+        }
+    }
+    return { ...fields[0], description: "Fallback voltage match" };
+};
+
+const rankTemperature = (fields: DiscoveredField[]) => {
+    for (const f of fields) {
+        if (f.endpoint === 'lastCall' && f.path.toLowerCase().includes('cellgroup') && f.path.toLowerCase().includes('temperature')) {
+           return { ...f, description: "lastCall.json cell-group temperature fields (Highest priority)" };
+        }
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'stringsCsv' && (f.path.toLowerCase().includes('avgcellgrouptemperature') || f.path.toLowerCase().includes('mincellgrouptemperature') || f.path.toLowerCase().includes('maxcellgrouptemperature'))) {
+           return { ...f, description: "strings.csv Avg/Min/Max cell group temperature fields" };
+        }
+    }
+    for (const f of fields) {
+        if (f.endpoint === 'directFeather' && (f.path.toLowerCase().includes('avgcell') || f.path.toLowerCase().includes('space') || f.path.toLowerCase().includes('supplyair'))) {
+           return { ...f, description: "direct Feather avg cell / space / supply air temperature fields" };
+        }
+    }
+    for (const f of fields) {
+        if (f.endpoint === 'blockviewer' && f.path.toLowerCase().includes('temperature')) {
+           return { ...f, description: "blockviewer temperature fields" };
+        }
+    }
+    return { ...fields[0], description: "Fallback temperature match" };
+};
+
+const rankPcs = (fields: DiscoveredField[]) => {
+    for (const f of fields) {
+         if (f.endpoint === 'blockviewer') return { ...f, description: "blockviewer PCS/inverter structured objects" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'lastCall') return { ...f, description: "lastCall PCS/inverter structured objects" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'modbusMap') return { ...f, description: "modbus_map PCS/inverter register definitions" };
+    }
+    return { ...fields[0], description: "Fallback PCS match" };
+};
+
+const rankUps = (fields: DiscoveredField[]) => {
+    for (const f of fields) {
+         if (f.endpoint === 'blockviewer') return { ...f, description: "blockviewer UPS structured objects" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'firstResponder' || f.endpoint === 'firstResponderV2') return { ...f, description: "firstResponder UPS fields" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'lastCall') return { ...f, description: "lastCall UPS fields" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'modbusMap') return { ...f, description: "modbus_map UPS register definitions" };
+    }
+    return { ...fields[0], description: "Fallback UPS match" };
+};
+
+const rankArray = (fields: DiscoveredField[]) => {
+    for (const f of fields) {
+         if (f.endpoint === 'blockviewer') return { ...f, description: "blockviewer arrays" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'lastCall') return { ...f, description: "lastCall arrayReport" };
+    }
+    for (const f of fields) {
+         if (f.endpoint === 'stringsCsv') return { ...f, description: "strings.csv grouped by ArrayIndex" };
+    }
+    return { ...fields[0], description: "Fallback Array match" };
+};
 
 export async function executeDataDiscovery() {
   const profile = ProfileStore.getActiveProfile();
@@ -174,6 +293,9 @@ export async function executeDataDiscovery() {
     }
   };
 
+  const scannerConfig = { maxDepth: 20, maxArraySamples: 25, maxFieldsPerCategory: 500 };
+  const dedupeMap = new Map<string, InternalDiscoveredField>();
+
   const fetches = Object.entries(ENDPOINTS).map(async ([key, path]) => {
     const url = `${baseUrl}${path}`;
     const start = Date.now();
@@ -196,11 +318,11 @@ export async function executeDataDiscovery() {
         payload = await resp.json().catch(() => null);
         if (payload && typeof payload === "object") {
           topLevelKeys = Object.keys(payload);
-          scanJson(payload, "", key, results.discovered);
+          scanJson(payload, "", key, dedupeMap, { ...scannerConfig, depth: 0 });
         }
       } else if (isCsv) {
         const textStr = await resp.text();
-        parseCsvAndScan(textStr, key, results.discovered);
+        parseCsvAndScan(textStr, key, dedupeMap);
         const headers = textStr.split("\\n")[0]?.split(",") || [];
         topLevelKeys = headers;
         payload = "CSV_DATA";
@@ -226,49 +348,80 @@ export async function executeDataDiscovery() {
 
   await Promise.allSettled(fetches);
 
+  for (const field of dedupeMap.values()) {
+    delete (field as any).category; // clean up for response
+    results.discovered[(field as InternalDiscoveredField).category || "pcs"].push(field); // Actually we need category
+    // wait, we can't delete it before pushing since we need it... ah.
+  }
+  
+  // Re-map to correct lists based on keys in result.discovered
+  for (const key of Object.keys(results.discovered)) {
+      results.discovered[key] = Array.from(dedupeMap.values()).filter(f => f.category === key).map(f => {
+          const { category, ...rest } = f as any;
+          return rest;
+      });
+  }
+
+  results.discoveredSummary = {
+     pcs: results.discovered.pcs.length,
+     ups: results.discovered.ups.length,
+     arrays: results.discovered.arrays.length,
+     voltage: results.discovered.voltage.length,
+     temperature: results.discovered.temperature.length,
+     strings: results.discovered.strings.length,
+     cellGroups: results.discovered.cellGroups.length,
+     safety: results.discovered.safety.length
+  };
+  results.scannerConfig = scannerConfig;
+
   // Suggested mappings
   if (results.discovered.pcs.length > 0) {
+    const best = rankPcs(results.discovered.pcs);
     results.suggestedMappings.pcs.push({
       title: "PCS Telemetry",
-      fieldPath: results.discovered.pcs[0].path,
-      sourceEndpoint: results.discovered.pcs[0].endpoint,
-      description: "Based on found PCS fields"
+      fieldPath: best.path,
+      sourceEndpoint: best.endpoint,
+      description: (best as any).description || best.reason || "Fallback PCS match"
     });
   }
 
   if (results.discovered.ups.length > 0) {
+    const best = rankUps(results.discovered.ups);
     results.suggestedMappings.ups.push({
         title: "UPS Overview",
-        fieldPath: results.discovered.ups[0].path,
-        sourceEndpoint: results.discovered.ups[0].endpoint,
-        description: "Likely UPS telemetry root"
+        fieldPath: best.path,
+        sourceEndpoint: best.endpoint,
+        description: (best as any).description || best.reason || "Fallback UPS match"
     });
   }
 
   if (results.discovered.voltage.length > 0) {
+      const best = rankVoltage(results.discovered.voltage);
       results.suggestedMappings.voltageDistribution.push({
           title: "Cell/String Voltage Distribution",
-          fieldPath: results.discovered.voltage[0].path,
-          sourceEndpoint: results.discovered.voltage[0].endpoint,
-          description: "Found voltage distribution data points"
+          fieldPath: best.path,
+          sourceEndpoint: best.endpoint,
+          description: (best as any).description || best.reason || "Fallback voltage match"
       });
   }
 
   if (results.discovered.temperature.length > 0) {
+      const best = rankTemperature(results.discovered.temperature);
       results.suggestedMappings.temperatureDistribution.push({
           title: "Cell/String Temperature Distribution",
-          fieldPath: results.discovered.temperature[0].path,
-          sourceEndpoint: results.discovered.temperature[0].endpoint,
-          description: "Found temperature distribution data points"
+          fieldPath: best.path,
+          sourceEndpoint: best.endpoint,
+          description: (best as any).description || best.reason || "Fallback temperature match"
       });
   }
   
   if (results.discovered.arrays.length > 0) {
+      const best = rankArray(results.discovered.arrays);
       results.suggestedMappings.arraySummary.push({
           title: "Array Data Summary",
-          fieldPath: results.discovered.arrays[0].path,
-          sourceEndpoint: results.discovered.arrays[0].endpoint,
-          description: "Found array data"
+          fieldPath: best.path,
+          sourceEndpoint: best.endpoint,
+          description: (best as any).description || best.reason || "Fallback Array match"
       });
   }
 

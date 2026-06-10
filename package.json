@@ -4,13 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "PRIZM_FORCE_DEV=true tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
+    "start": "node start-production.cjs",
+    "start:prod": "node start-production.cjs",
     "clean": "node clean.js",
     "lint": "tsc --noEmit",
     "test": "tsx src/lib/ipUtils.test.ts && tsx src/server/safetyFaultClear.test.ts",
-    "verify": "npm run lint && npm run test && npm run build && node verify_bundle.js"
+    "verify": "npm run lint && npm run test && npm run build && node verify_bundle.js",
+    "prestart": "npm run build",
+    "stop:port": "node scripts/kill-port-3000.cjs",
+    "restart": "npm run stop:port && npm start"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
