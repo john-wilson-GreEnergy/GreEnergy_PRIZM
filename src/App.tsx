@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteTelemetryDashboard from "./components/SiteTelemetryDashboard";
-import SiteStringsDashboard from "./components/SiteStringsDashboard";
+import StringDashboard from "./components/StringDashboard";
 import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
 import ToolDashboards from "./components/ToolDashboards";
@@ -170,7 +170,7 @@ export default function App() {
             )}
 
             {activeTab === "arrays-strings" && (
-              <SiteStringsDashboard />
+              <StringDashboard />
             )}
 
             {activeTab === "tool-dashboards" && (

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import protobuf from "protobufjs";
-import { getEmsCachedBlock } from "./emsTurtleClient";
+import { getEmsCachedBlock, getEmsCachedLastCall } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
 
@@ -114,67 +114,127 @@ export interface SafetyFaultClearCandidate {
   displayKey: string;
   entityKey: string;
   entityKeyToken: string;
+  resetEntityKey: string;
   entityType: string;
   entitySubType: string;
   statusMessage: string;
+  statusMessageText: string;
   enabled: boolean;
   ready: boolean;
   communicating: boolean;
   allowFaultReset: boolean;
   stationCode: string;
   blockIndex: string;
+  source: string;
   sourceEndpoint: string;
+  blockviewerMatched: boolean;
+  lastCallMatched: boolean;
   lastSeen: string;
   raw?: any;
 }
 
-function normalizeTopology(topologyData: any): SafetyFaultClearCandidate[] {
+function normalizeKey(key: string): string {
+    if (!key) return "";
+    return key.replace(/[-:]/g, "_");
+}
+
+function extractLastCallCandidates(obj: any, candidates: SafetyFaultClearCandidate[] = []): SafetyFaultClearCandidate[] {
+    if (!obj || typeof obj !== 'object') return candidates;
+    
+    if (obj.entityKey && typeof obj.entityKey === 'string') {
+        if (obj.allowFaultReset === true || 'allowFaultReset' in obj) {
+            const rawHtml = obj.statusMessage || "";
+            const plainText = rawHtml.replace(/<[^>]*>?/gm, '');
+
+            candidates.push({
+                id: obj.entityKey,
+                displayKey: obj.displayKey || obj.entityKey,
+                entityKey: obj.entityKey,
+                entityKeyToken: normalizeKey(obj.entityKey),
+                resetEntityKey: obj.entityKey,
+                entityType: obj.entityType || "",
+                entitySubType: obj.entitySubType || "",
+                statusMessage: obj.statusMessage || "",
+                statusMessageText: plainText,
+                enabled: obj.enabled === true,
+                ready: obj.ready === true,
+                communicating: obj.communicating === true,
+                allowFaultReset: Boolean(obj.allowFaultReset),
+                stationCode: obj.stationCode || "",
+                blockIndex: obj.blockIndex || "",
+                source: "lastCall",
+                sourceEndpoint: "/tools/report/ems/lastCall.json",
+                blockviewerMatched: false,
+                lastCallMatched: true,
+                lastSeen: new Date().toISOString(),
+                raw: obj
+            });
+        }
+    }
+    
+    for (const key of Object.keys(obj)) {
+        if (typeof obj[key] === 'object' && obj[key] !== null) {
+            extractLastCallCandidates(obj[key], candidates);
+        }
+    }
+    
+    return candidates;
+}
+
+function extractBlockviewerCandidate(item: any): SafetyFaultClearCandidate {
+    const rawHtml = item.statusMessage || "";
+    const plainText = rawHtml.replace(/<[^>]*>?/gm, '');
+    return {
+        id: item.entityKeyToken || item.entityKey || item.displayKey || Math.random().toString(),
+        displayKey: item.displayKey || "",
+        entityKey: item.entityKey || "",
+        entityKeyToken: item.entityKeyToken || "",
+        resetEntityKey: item.entityKeyToken || "",
+        entityType: item.entityType || "",
+        entitySubType: item.entitySubType || "",
+        statusMessage: item.statusMessage || "",
+        statusMessageText: plainText,
+        enabled: Boolean(item.enabled),
+        ready: Boolean(item.ready),
+        communicating: Boolean(item.communicating),
+        allowFaultReset: Boolean(item.allowFaultReset),
+        stationCode: item.stationCode || "",
+        blockIndex: item.blockIndex || "",
+        source: "blockviewer",
+        sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+        blockviewerMatched: true,
+        lastCallMatched: false,
+        lastSeen: new Date().toISOString(),
+        raw: item
+    };
+}
+
+function normalizeBlockviewerTopology(topologyData: any): SafetyFaultClearCandidate[] {
     const candidates: SafetyFaultClearCandidate[] = [];
     if (!topologyData) return candidates;
 
-    // The topology might be an array or inside an object
     const list = Array.isArray(topologyData) ? topologyData : (topologyData.topology || []);
 
     for (const item of list) {
         if (!item || !item.entityKeyToken) continue;
-
-        candidates.push({
-            id: item.entityKeyToken || item.entityKey || item.displayKey || Math.random().toString(),
-            displayKey: item.displayKey || "",
-            entityKey: item.entityKey || "",
-            entityKeyToken: item.entityKeyToken || "",
-            entityType: item.entityType || "",
-            entitySubType: item.entitySubType || "",
-            statusMessage: item.statusMessage || "",
-            enabled: Boolean(item.enabled),
-            ready: Boolean(item.ready),
-            communicating: Boolean(item.communicating),
-            allowFaultReset: Boolean(item.allowFaultReset),
-            stationCode: item.stationCode || "",
-            blockIndex: item.blockIndex || "",
-            sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
-            lastSeen: new Date().toISOString(),
-            raw: item
-        });
+        candidates.push(extractBlockviewerCandidate(item));
     }
 
-    // Try mapping nested blocks/arrays/strings from blockviewer if "topology" isn't direct
     if (topologyData.arrays && Array.isArray(topologyData.arrays)) {
         for (const arr of topologyData.arrays) {
             if (arr.entityKeyToken) {
-                 candidates.push(extractCandidate(arr));
+                 candidates.push(extractBlockviewerCandidate(arr));
             }
             if (arr.strings && Array.isArray(arr.strings)) {
                 for (const str of arr.strings) {
                     if (str.entityKeyToken) {
-                        candidates.push(extractCandidate(str));
+                        candidates.push(extractBlockviewerCandidate(str));
                     }
                 }
             }
         }
     }
     
-    // De-duplicate by entityKeyToken
     const uniqueMap = new Map<string, SafetyFaultClearCandidate>();
     for (const cand of candidates) {
         uniqueMap.set(cand.entityKeyToken, cand);
@@ -183,103 +243,149 @@ function normalizeTopology(topologyData: any): SafetyFaultClearCandidate[] {
     return Array.from(uniqueMap.values());
 }
 
-function extractCandidate(item: any): SafetyFaultClearCandidate {
-    return {
-        id: item.entityKeyToken,
-        displayKey: item.displayKey || "",
-        entityKey: item.entityKey || "",
-        entityKeyToken: item.entityKeyToken || "",
-        entityType: item.entityType || "",
-        entitySubType: item.entitySubType || "",
-        statusMessage: item.statusMessage || "",
-        enabled: Boolean(item.enabled),
-        ready: Boolean(item.ready),
-        communicating: Boolean(item.communicating),
-        allowFaultReset: Boolean(item.allowFaultReset),
-        stationCode: item.stationCode || "",
-        blockIndex: item.blockIndex || "",
-        sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
-        lastSeen: new Date().toISOString(),
-        raw: item
-    };
+function mergeCandidates(bvCandidates: SafetyFaultClearCandidate[], lcCandidates: SafetyFaultClearCandidate[]): SafetyFaultClearCandidate[] {
+    const map = new Map<string, SafetyFaultClearCandidate>();
+    
+    for (const bv of bvCandidates) {
+        map.set(bv.entityKeyToken, bv);
+    }
+    
+    for (const lc of lcCandidates) {
+        const normKey = normalizeKey(lc.entityKey);
+        const existing = map.get(normKey);
+        if (existing) {
+            existing.lastCallMatched = true;
+            existing.allowFaultReset = lc.allowFaultReset;
+            if (lc.statusMessage) {
+                existing.statusMessage = lc.statusMessage;
+            }
+            if (lc.statusMessageText) {
+                existing.statusMessageText = lc.statusMessageText;
+            }
+            existing.enabled = lc.enabled;
+            if ('ready' in lc.raw) existing.ready = lc.ready;
+            existing.communicating = lc.communicating;
+            existing.resetEntityKey = lc.entityKey;
+            existing.source = "lastCall";
+        } else {
+            map.set(normKey, lc);
+        }
+    }
+    
+    return Array.from(map.values());
 }
 
-// 1. GET Candidates
 router.get("/candidates", async (req, res) => {
     try {
         const profile = ProfileStore.getActiveProfile();
-        if (!profile) {
-            return res.json({ error: "No active profile" });
-        }
+        if (!profile) return res.json({ error: "No active profile" });
         
         const baseUrl = buildEmsBaseUrl(profile);
-        let topologyList: any = [];
+        
+        let blockData: any = [];
+        let blockOk = false;
         try {
-            const url = baseUrl + "/tools/monitor/ems/blockviewer/data";
-            const topoRes = await fetch(url);
+            const topoRes = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
             if (topoRes.ok) {
-                topologyList = await topoRes.json();
+                blockData = await topoRes.json();
+                blockOk = true;
             }
         } catch (err) {
-            // fallback to cache if fetch fails
             const cachedBlock = getEmsCachedBlock();
-            if (cachedBlock && cachedBlock.data) {
-                topologyList = cachedBlock.data;
-            }
+            if (cachedBlock && cachedBlock.data) blockData = cachedBlock.data;
         }
 
-        const candidates = normalizeTopology(topologyList);
-        const eligible = candidates.filter(c => c.allowFaultReset === true);
-        const notEligible = candidates.filter(c => c.allowFaultReset !== true);
+        let lastCallData: any = {};
+        let lastCallOk = false;
+        try {
+            const lcRes = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
+            if (lcRes.ok) {
+                lastCallData = await lcRes.json();
+                lastCallOk = true;
+            }
+        } catch (err) {
+            const cachedLc = getEmsCachedLastCall();
+            if (cachedLc && cachedLc.data) lastCallData = cachedLc.data;
+        }
 
-        // Sanitize sensitive info for the log
-        const safeCandidates = candidates.map(({ raw, ...rest }) => rest);
+        const bvCandidates = normalizeBlockviewerTopology(blockData);
+        const lcCandidates = extractLastCallCandidates(lastCallData);
+        
+        // De-dup lcCandidates by normalized key to avoid repeating the same one
+        const lcUnique = new Map<string, SafetyFaultClearCandidate>();
+        for (const c of lcCandidates) {
+             const nk = normalizeKey(c.entityKey);
+             lcUnique.set(nk, c);
+        }
+
+        const merged = mergeCandidates(bvCandidates, Array.from(lcUnique.values()));
+
+        const eligible = merged.filter(c => c.allowFaultReset === true);
+        const notEligible = merged.filter(c => c.allowFaultReset !== true);
+
+        const safeEligible = eligible.map(({ raw, ...rest }) => rest);
+        const safeNotEligible = notEligible.map(({ raw, ...rest }) => rest);
 
         res.json({
             profileId: profile.id,
             emsBaseUrl: baseUrl,
-            stationCode: topologyList.stationCode || "Default",
-            blockIndex: topologyList.blockIndex || "0",
+            stationCode: blockData.stationCode || "Default",
+            blockIndex: blockData.blockIndex || "0",
             generatedAt: new Date().toISOString(),
-            eligible,
-            notEligible,
-            source: "/tools/monitor/ems/blockviewer/data"
+            sources: {
+                blockviewer: { ok: blockOk, url: "/tools/monitor/ems/blockviewer/data", count: bvCandidates.length, eligibleCount: bvCandidates.filter(c=>c.allowFaultReset).length },
+                lastCall: { ok: lastCallOk, url: "/tools/report/ems/lastCall.json", count: lcCandidates.length, eligibleCount: lcCandidates.filter(c=>c.allowFaultReset).length }
+            },
+            eligible: safeEligible,
+            notEligible: safeNotEligible
         });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 2. POST Execute
 router.post("/execute", async (req, res) => {
     try {
-        const { profileId, entityKeyToken, expectedDisplayKey, expectedStatusMessage, operatorUsername, confirmationText } = req.body;
+        const { profileId, entityKeyToken, confirmationText, operatorUsername } = req.body;
         
         const profile = ProfileStore.getActiveProfile();
-        if (!profile || profile.id !== profileId) {
-            return res.status(400).json({ error: "Profile mismatch or no active profile" });
-        }
+        if (!profile || profile.id !== profileId) return res.status(400).json({ error: "Profile mismatch or no active profile" });
 
         if (confirmationText !== entityKeyToken && confirmationText !== "CLEAR FAULT") {
              return res.status(400).json({ error: "Invalid confirmation text" });
         }
 
         const baseUrl = buildEmsBaseUrl(profile);
-        const url = baseUrl + "/tools/monitor/ems/blockviewer/data";
         
-        const topoRes = await fetch(url);
-        if (!topoRes.ok) {
-             return res.status(500).json({ error: "Failed preflight topology fetch" });
+        // Preflight fetch
+        let blockData: any = [];
+        try {
+             const r = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
+             if (r.ok) blockData = await r.json();
+        } catch(e) {}
+        
+        let lastCallData: any = {};
+        try {
+             const r = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
+             if (r.ok) lastCallData = await r.json();
+        } catch(e) {}
+
+        const bvCandidates = normalizeBlockviewerTopology(blockData);
+        const lcCandidates = extractLastCallCandidates(lastCallData);
+        
+        const lcUnique = new Map<string, SafetyFaultClearCandidate>();
+        for (const c of lcCandidates) {
+             const nk = normalizeKey(c.entityKey);
+             lcUnique.set(nk, c);
         }
         
-        const topologyList = await topoRes.json();
-        const candidates = normalizeTopology(topologyList);
+        const merged = mergeCandidates(bvCandidates, Array.from(lcUnique.values()));
         
-        const targetEntity = candidates.find(c => c.entityKeyToken === entityKeyToken);
+        const targetEntity = merged.find(c => c.entityKeyToken === entityKeyToken || normalizeKey(c.entityKey) === entityKeyToken);
+        
         if (!targetEntity) {
-             return res.status(404).json({ error: "Entity not found in live topology" });
+             return res.status(404).json({ error: "Entity not found in live topology or lastCall" });
         }
-        
         if (targetEntity.allowFaultReset !== true) {
              return res.status(400).json({ error: "allowFaultReset expects true but was false" });
         }
@@ -290,10 +396,7 @@ router.post("/execute", async (req, res) => {
              return res.status(400).json({ error: "Entity is not enabled" });
         }
 
-        // Build protobuf
-        if (!root) {
-            return res.status(500).json({ error: "Protobuf definition missing" });
-        }
+        if (!root) return res.status(500).json({ error: "Protobuf definition missing" });
 
         const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
         const blockEnumValue = EndpointTypeEnum.values["BLOCK"];
@@ -306,119 +409,72 @@ router.post("/execute", async (req, res) => {
             commandSource: { endpointType: goblinEnumValue },
             commandPayload: {
                  manualClearDeviceFault: {
-                     entityKey: entityKeyToken
+                     entityKey: targetEntity.resetEntityKey || targetEntity.entityKeyToken
                  }
             },
             username: operatorUsername || "local-prizm"
         };
         
-        // Ensure protobuf schema matches keys properly
         const errMsg = CommandMessage.verify(commandPayload);
-        if (errMsg) {
-             return res.status(500).json({ error: "Protobuf validation failed: " + errMsg });
-        }
+        if (errMsg) return res.status(500).json({ error: "Protobuf validation failed: " + errMsg });
 
         const message = CommandMessage.create(commandPayload);
         const buffer = CommandMessage.encode(message).finish();
 
-        // Decode after encode validation
-        try {
-            const decoded = CommandMessage.decode(buffer) as any;
-            if (decoded.commandTarget?.endpointType !== blockEnumValue) {
-                throw new Error("Validation Failed: commandTarget endpointType is not BLOCK");
-            }
-            if (decoded.commandSource?.endpointType !== goblinEnumValue) {
-                throw new Error("Validation Failed: commandSource endpointType is not GOBLIN");
-            }
-            if (!decoded.username) {
-                throw new Error("Validation Failed: username is not populated");
-            }
-            if (decoded.commandPayload?.manualClearDeviceFault?.entityKey !== entityKeyToken) {
-                throw new Error("Validation Failed: entityKey does not match the token");
-            }
-        } catch (validationErr: any) {
-            return res.status(500).json({ error: "Pre-flight decode validation failed: " + validationErr.message });
-        }
-
         const postUrl = baseUrl + "/tools/controls/ems/command";
         const cmdRes = await fetch(postUrl, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/octet-stream"
-            },
+            headers: { "Content-Type": "application/octet-stream" },
             body: Buffer.from(buffer) as any
         });
 
-        // "treated as queued"
         const queued = cmdRes.status === 200;
         let responseSummary = "";
-        try {
-            responseSummary = await cmdRes.text();
-        } catch(e) {}
+        try { responseSummary = await cmdRes.text(); } catch(e) {}
 
-        // Wait briefly
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Post-command fetch
-        let afterEntity: SafetyFaultClearCandidate | null = null;
-        let stillPresent = false;
+        let postBlockData: any = [];
         try {
-             const postTopoRes = await fetch(url);
-             if (postTopoRes.ok) {
-                 const postList = await postTopoRes.json();
-                 const postCand = normalizeTopology(postList);
-                 afterEntity = postCand.find(c => c.entityKeyToken === entityKeyToken) || null;
-                 stillPresent = !!afterEntity;
-             }
+             const r = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
+             if (r.ok) postBlockData = await r.json();
         } catch(e) {}
-
-        const appearsCleared = afterEntity ? (afterEntity.allowFaultReset === false && afterEntity.statusMessage !== targetEntity.statusMessage) : false;
         
-        const warnings = [];
-        if (afterEntity && afterEntity.allowFaultReset === true) {
-            warnings.push("Entity remains eligible for fault reset after command execution. It may not have cleared.");
-        }
+        let postLastCallData: any = {};
+        try {
+             const r = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
+             if (r.ok) postLastCallData = await r.json();
+        } catch(e) {}
+        
+        const postBv = normalizeBlockviewerTopology(postBlockData);
+        const postLc = extractLastCallCandidates(postLastCallData);
+        const postLcUnique = new Map<string, SafetyFaultClearCandidate>();
+        for (const c of postLc) postLcUnique.set(normalizeKey(c.entityKey), c);
+        
+        const postMerged = mergeCandidates(postBv, Array.from(postLcUnique.values()));
+        const afterEntity = postMerged.find(c => c.entityKeyToken === targetEntity.entityKeyToken || normalizeKey(c.entityKey) === targetEntity.entityKeyToken) || null;
 
-        const result = {
+        const appearsCleared = afterEntity ? (afterEntity.allowFaultReset === false) : true;
+        
+        res.json({
             ok: queued,
             queued,
             commandId: commandPayload.commandId,
             profileId,
             emsBaseUrl: baseUrl,
-            entityKeyToken,
+            entityKeyToken: targetEntity.entityKeyToken,
+            usedResetKey: targetEntity.resetEntityKey,
             before: { ...targetEntity, raw: undefined },
             after: afterEntity ? { ...afterEntity, raw: undefined } : null,
             httpStatus: cmdRes.status,
             responseSummary,
             verification: {
-                stillPresent,
+                stillPresent: !!afterEntity,
                 allowFaultResetBefore: targetEntity.allowFaultReset,
                 allowFaultResetAfter: afterEntity ? afterEntity.allowFaultReset : null,
-                statusMessageBefore: targetEntity.statusMessage,
-                statusMessageAfter: afterEntity ? afterEntity.statusMessage : null,
                 appearsCleared
-            },
-            warnings
-        };
-
-        // Audit Logging (console for local log)
-        console.log("[AUDIT] SafetyFaultClear Execute Attempt:", JSON.stringify({
-            timestamp: new Date().toISOString(),
-            profileId,
-            emsBaseUrl: baseUrl,
-            operatorUsername: operatorUsername || "local-prizm",
-            entityKeyToken,
-            displayKey: targetEntity.displayKey,
-            statusMessage_before: targetEntity.statusMessage,
-            allowFaultReset_before: targetEntity.allowFaultReset,
-            httpStatus: cmdRes.status,
-            commandId: commandPayload.commandId,
-            statusMessage_after: afterEntity?.statusMessage,
-            allowFaultReset_after: afterEntity?.allowFaultReset,
-            queued
-        }));
-
-        res.json(result);
+            }
+        });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }

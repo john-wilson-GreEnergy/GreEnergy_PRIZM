@@ -6,16 +6,21 @@ interface Candidate {
   displayKey: string;
   entityKey: string;
   entityKeyToken: string;
+  resetEntityKey: string;
   entityType: string;
   entitySubType: string;
   statusMessage: string;
+  statusMessageText: string;
   enabled: boolean;
   ready: boolean;
   communicating: boolean;
   allowFaultReset: boolean;
   stationCode: string;
   blockIndex: string;
+  source: string;
   sourceEndpoint: string;
+  blockviewerMatched: boolean;
+  lastCallMatched: boolean;
   lastSeen: string;
 }
 
@@ -123,6 +128,12 @@ export default function SafetyFaultClearView() {
                   <div className="bg-black/30 px-2 py-1 rounded border border-prizm-border">
                      EMS Base URL: {data?.emsBaseUrl}
                   </div>
+                  <div className="bg-black/30 px-2 py-1 rounded border border-prizm-border flex items-center gap-2">
+                     <span className={data?.sources?.blockviewer?.ok ? "text-emerald-400" : "text-prizm-danger"}>● Blockviewer</span>: {data?.sources?.blockviewer?.count || 0} entities
+                  </div>
+                  <div className="bg-black/30 px-2 py-1 rounded border border-prizm-border flex items-center gap-2">
+                     <span className={data?.sources?.lastCall?.ok ? "text-emerald-400" : "text-prizm-danger"}>● LastCall</span>: {data?.sources?.lastCall?.count || 0} entities
+                  </div>
                   <div className="bg-black/30 px-2 py-1 rounded border border-prizm-border text-prizm-text-muted">
                      Last Scan: {new Date().toLocaleTimeString()}
                   </div>
@@ -145,7 +156,7 @@ export default function SafetyFaultClearView() {
                          <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border">Display Key</th>
                          <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border">Type / SubType</th>
                          <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border">Status Message</th>
-                         <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border">Rdy / Comm / En</th>
+                         <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border">Source</th>
                          <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border text-prizm-danger text-center">allowFaultReset</th>
                          <th className="px-4 py-3 font-bold uppercase border-b border-prizm-border text-center">Action</th>
                       </tr>
@@ -160,11 +171,14 @@ export default function SafetyFaultClearView() {
                                <div className="text-[9px] text-prizm-text-muted mt-0.5">{item.entityKeyToken}</div>
                             </td>
                             <td className="px-4 py-3 text-prizm-text-muted">{item.entityType} {item.entitySubType ? ` / ${item.entitySubType}` : ''}</td>
-                            <td className="px-4 py-3 max-w-[200px] truncate" title={item.statusMessage}>{item.statusMessage || "-"}</td>
-                            <td className="px-4 py-3 text-center">
-                               <span className={item.ready ? "text-emerald-400 mx-1" : "text-prizm-text-muted mx-1"}>R</span>
-                               <span className={item.communicating ? "text-emerald-400 mx-1" : "text-prizm-danger mx-1"}>C</span>
-                               <span className={item.enabled ? "text-emerald-400 mx-1" : "text-prizm-text-muted mx-1"}>E</span>
+                            <td className="px-4 py-3 max-w-[200px] truncate" title={item.statusMessageText}>{item.statusMessageText || item.statusMessage || "-"}</td>
+                            <td className="px-4 py-3 text-xs font-mono">
+                               <div className="flex flex-col gap-1">
+                                  {item.source === 'lastCall' && <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded uppercase font-bold text-[9px] w-fit">LastCall</span>}
+                                  {item.source === 'blockviewer' && <span className="bg-prizm-info/10 text-prizm-info px-1.5 py-0.5 rounded uppercase font-bold text-[9px] w-fit">Blockviewer</span>}
+                                  {item.lastCallMatched && item.source !== 'lastCall' && <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded uppercase font-bold text-[9px] w-fit tracking-wide">LastCall</span>}
+                                  {item.blockviewerMatched && item.source !== 'blockviewer' && <span className="bg-prizm-info/10 text-prizm-info px-1.5 py-0.5 rounded uppercase font-bold text-[9px] w-fit tracking-wide">Blockviewer</span>}
+                               </div>
                             </td>
                             <td className="px-4 py-3 text-center">
                                <span className="bg-prizm-danger/10 text-prizm-danger rounded px-2 py-0.5 font-bold uppercase">TRUE</span>
@@ -244,7 +258,7 @@ export default function SafetyFaultClearView() {
                  {data?.notEligible?.map((item: Candidate) => (
                     <tr key={item.id} className="hover:bg-white/5 opacity-60 hover:opacity-100">
                        <td className="px-4 py-1.5 text-prizm-text">{item.displayKey} <span className="text-[9px] text-prizm-text-muted ml-2">{item.entityKeyToken}</span></td>
-                       <td className="px-4 py-1.5 text-prizm-text-muted">{item.statusMessage || "-"}</td>
+                       <td className="px-4 py-1.5 text-prizm-text-muted max-w-[200px] truncate" title={item.statusMessageText}>{item.statusMessageText || item.statusMessage || "-"}</td>
                        <td className="px-4 py-1.5 text-center text-prizm-text-muted">FALSE</td>
                     </tr>
                  ))}
@@ -286,6 +300,17 @@ export default function SafetyFaultClearView() {
                      <div className="grid grid-cols-[120px_1fr] gap-2 items-start">
                         <span className="text-prizm-text-muted">Entity Token:</span>
                         <span className="text-prizm-text bg-prizm-surface px-1.5 py-0.5 rounded break-all tracking-wider text-[10px] border border-prizm-border">{selectedCandidate.entityKeyToken}</span>
+                     </div>
+                     <div className="grid grid-cols-[120px_1fr] gap-2 items-start">
+                        <span className="text-prizm-text-muted">Reset Key:</span>
+                        <span className="text-prizm-text bg-emerald-500/10 text-emerald-400 font-bold px-1.5 py-0.5 rounded break-all tracking-wider text-[10px] border border-emerald-500/30">{selectedCandidate.resetEntityKey}</span>
+                     </div>
+                     <div className="grid grid-cols-[120px_1fr] gap-2 items-start text-[10px]">
+                        <span className="text-prizm-text-muted">Sources Matched:</span>
+                        <div className="flex gap-2">
+                           {selectedCandidate.blockviewerMatched && <span className="text-prizm-info">Blockviewer</span>}
+                           {selectedCandidate.lastCallMatched && <span className="text-emerald-400">LastCall</span>}
+                        </div>
                      </div>
                   </div>
                   
