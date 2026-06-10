@@ -45,7 +45,14 @@ export interface FeatherHvacDevice {
   heatingSetpointC?: number;
   thermostatStage?: string;
   running?: boolean;
+  thermalControlRunning?: boolean;
   hvacEnabled?: boolean;
+  hvac1Active?: boolean;
+  hvac2Active?: boolean;
+  anyHvacActive?: boolean;
+  hvacRuntimeState?: string;
+  hvacDataValid?: boolean;
+  segmentLabel?: string;
 
   hvac1?: {
     controlsValid?: boolean;
@@ -164,19 +171,33 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
         }
       }
     }
-    if (statsReport.energySegmentIndex !== undefined) {
-      partial.arrayIndex = statsReport.energySegmentIndex;
-    }
-    if (statsReport.collectionSegmentIndex !== undefined) {
-      partial.stringIndex = statsReport.collectionSegmentIndex;
+  }
+
+  const parts = ip.split(".");
+  let isCS = false;
+  let isES = false;
+  if (parts.length === 4) {
+    const arrayNum = parseInt(parts[2], 10);
+    const lastOctet = parseInt(parts[3], 10);
+    partial.arrayIndex = arrayNum;
+
+    if (lastOctet === 3) {
+      isCS = true;
+      partial.segmentLabel = "CS";
+      partial.entityDescription = `Feather CS`;
+    } else if (lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
+      isES = true;
+      const energySegmentNumber = ((lastOctet - 10) / 5) + 1;
+      partial.segmentLabel = `ES ${energySegmentNumber}`;
+      partial.entityDescription = `Feather ES ${energySegmentNumber}`;
     }
   }
 
   // Fallbacks for entity description
-  if (partial.arrayIndex !== undefined && partial.stringIndex !== undefined) {
-    partial.entityDescription = `FEATHER A${partial.arrayIndex} / S${partial.stringIndex}`;
-  } else if (partial.controllerType) {
-    partial.entityDescription = partial.controllerType;
+  if (!partial.entityDescription) {
+    if (partial.controllerType) {
+      partial.entityDescription = partial.controllerType;
+    }
   }
 
   partial.deviceState = raw.operationalState || "NORMAL";
@@ -193,14 +214,20 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
   partial.thermostatStage = thermal.thermostatStage;
   partial.supplyAirTempC = thermal.supplyAirTemp !== undefined ? thermal.supplyAirTemp : undefined;
   partial.outsideTemperatureC = thermal.outsideTemperature !== undefined ? thermal.outsideTemperature : undefined;
-  if (thermal.outsideHumidity !== undefined) {
+  
+  if (isES) {
+    partial.outsideHumidityPct = null; // Ignored for ES
+  } else if (thermal.outsideHumidity !== undefined) {
     partial.outsideHumidityPct = thermal.outsideHumidity === 999.9 ? null : thermal.outsideHumidity;
   }
+
   partial.hydrogen1PPM = thermal.hydrogen1PPM !== undefined ? thermal.hydrogen1PPM : undefined;
   partial.controlTemperatureC = thermal.controlTemperature !== undefined ? thermal.controlTemperature : undefined;
   partial.coolingSetpointC = thermal.coolingSetpoint !== undefined ? thermal.coolingSetpoint : undefined;
   partial.heatingSetpointC = thermal.heatingSetpoint !== undefined ? thermal.heatingSetpoint : undefined;
+  
   partial.running = thermal.running;
+  partial.thermalControlRunning = thermal.running;
   partial.hvacEnabled = thermal.enabled;
 
   const hvac1Ctrls = thermal.HVAC1Controls || {};
@@ -214,8 +241,8 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
     reversingValveOn: hvac1Ctrls.ReversingValveOn,
     electricHeatOn: hvac1Ctrls.ElectricHeatOn,
     freezeDetected: hvac1Data.FreezeDetected,
-    currentA: hvac1Data.hvacCurrent,
-    fanSpeedRpm: hvac1Data.fanSpeedRpm,
+    currentA: hvac1Data.hvacCurrent || 0,
+    fanSpeedRpm: hvac1Data.fanSpeedRpm || 0,
     firmwareVersion: hvac1Data.firmwareVersion,
   };
 
@@ -230,10 +257,45 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
     reversingValveOn: hvac2Ctrls.ReversingValveOn,
     electricHeatOn: hvac2Ctrls.ElectricHeatOn,
     freezeDetected: hvac2Data.FreezeDetected,
-    currentA: hvac2Data.hvacCurrent,
-    fanSpeedRpm: hvac2Data.fanSpeedRpm,
+    currentA: hvac2Data.hvacCurrent || 0,
+    fanSpeedRpm: hvac2Data.fanSpeedRpm || 0,
     firmwareVersion: hvac2Data.firmwareVersion,
   };
+
+  partial.hvac1Active = !!(
+    hvac1Ctrls.fanLowOn ||
+    hvac1Ctrls.fanHighOn ||
+    hvac1Ctrls.YCompressorOn ||
+    hvac1Ctrls.ReversingValveOn ||
+    hvac1Ctrls.ElectricHeatOn ||
+    (partial.hvac1.currentA && partial.hvac1.currentA > 0.2) ||
+    (partial.hvac1.fanSpeedRpm && partial.hvac1.fanSpeedRpm > 0)
+  );
+
+  partial.hvac2Active = !!(
+    hvac2Ctrls.fanLowOn ||
+    hvac2Ctrls.fanHighOn ||
+    hvac2Ctrls.YCompressorOn ||
+    hvac2Ctrls.ReversingValveOn ||
+    hvac2Ctrls.ElectricHeatOn ||
+    (partial.hvac2.currentA && partial.hvac2.currentA > 0.2) ||
+    (partial.hvac2.fanSpeedRpm && partial.hvac2.fanSpeedRpm > 0)
+  );
+
+  partial.anyHvacActive = partial.hvac1Active || partial.hvac2Active;
+  
+  if (partial.anyHvacActive) {
+      partial.hvacRuntimeState = "HVAC Active";
+  } else if (!partial.anyHvacActive && (hvac1Ctrls.valid !== undefined)) {
+      partial.hvacRuntimeState = "HVAC Idle";
+  } else {
+      partial.hvacRuntimeState = "HVAC Unknown";
+  }
+
+  partial.hvacDataValid = !!(
+      hvac1Ctrls.valid && hvac2Ctrls.valid &&
+      hvac1Data.valid && hvac2Data.valid
+  );
 
   const fss = raw.fssSignals || {};
   partial.fssSignals = {
@@ -262,15 +324,11 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
     acDoorsClosed: doors.acDoorsClosed,
   };
 
-  const parts = ip.split(".");
-  const lastOctet = parseInt(parts[parts.length - 1], 10);
-  const isCS = lastOctet === 3;
-
   partial.doorApplicability = {
     isCollectionSegment: isCS,
     monitorsAcDoors: isCS,
     monitorsDcDoors: isCS,
-    monitorsBatteryDoors: true, // both can have it technically, ES has it always, CS optionally if present/valid
+    monitorsBatteryDoors: isES,
     monitorsTopCap: true,
   };
 
@@ -553,9 +611,6 @@ export async function fetchEnrichedDevices() {
                      d.warnInfo.push(`Lost Comms with: ${normalized.devicesWithLostComms.join(", ")}`);
                  }
 
-                 if (normalized.running && normalized.hvacEnabled === false) {
-                     d.warnInfo.push("Running but HVAC Disabled");
-                 }
 
                  if (normalized.thermostatStage) d.hvacMode = normalized.thermostatStage;
                  d.mioSensorSummary = normalized.hvac1?.controlsValid ? "Valid" : "Invalid";
@@ -567,10 +622,15 @@ export async function fetchEnrichedDevices() {
                  d.lastSuccessUtc = dev.lastSuccessAt || new Date().toISOString();
                  if (dev.firmwareVersion) d.firmwareVersion = dev.firmwareVersion;
                  if (dev.entityName) d.entityDescription = dev.entityName;
-                 d.warningCount = dev.warningCount;
-                 d.alarmCount = dev.alarmCount;
-                 if (dev.activeWarnings) d.warnInfo = dev.activeWarnings;
-                 if (dev.activeAlarms) d.alarmFaults = dev.activeAlarms;
+                 if (dev.activeWarnings) {
+                     d.warnInfo = dev.activeWarnings.filter((w: string) => !w.includes("TRIP") && !w.includes("WARNING"));
+                 }
+                 if (dev.activeAlarms) {
+                     d.alarmFaults = dev.activeAlarms.filter((a: string) => !a.includes("TRIP") && !a.includes("ALARM"));
+                 }
+                 
+                 d.warningCount = d.warnInfo?.length || 0;
+                 d.alarmCount = d.alarmFaults?.length || 0;
                  if (dev.spaceTemperature !== null) d.temperatureSupplyC = dev.spaceTemperature;
                  if (dev.avgCellTemperature !== null) d.temperatureCellC = dev.avgCellTemperature;
                  if (dev.thermostatStage) d.hvacMode = dev.thermostatStage;

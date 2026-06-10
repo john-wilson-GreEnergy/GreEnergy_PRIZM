@@ -866,8 +866,7 @@ export default function FeatherDashboard() {
                 <tr>
                   <th className="p-3 w-10 text-center">Status</th>
                   <th className="p-3 cursor-pointer hover:text-prizm-primary select-none flex gap-2 items-center" onClick={() => setIpSortDesc(!ipSortDesc)}>Device IP {ipSortDesc ? "▼" : "▲"}</th>
-                  <th className="p-3">Discovery Method</th>
-                  <th className="p-3">Arr / Str</th>
+                  <th className="p-3">ARRAY / SEGMENT</th>
                   <th className="p-3">Entity Description</th>
                   <th className="p-3">Ping (ms)</th>
                   <th className="p-3">Fw Version</th>
@@ -901,16 +900,9 @@ export default function FeatherDashboard() {
 
                       <td className="p-3 text-prizm-text font-bold">{d.ip}</td>
 
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded bg-black/5 text-prizm-text-muted text-[9px] uppercase">
-                          {d.discoveryMethod}
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-prizm-text-muted">
-                        {(d.arrayIndex !== undefined || d.stringIndex !== undefined) ? 
-                          `${d.arrayIndex !== undefined ? `A${d.arrayIndex}` : "A?"} / ${d.stringIndex !== undefined ? `S${d.stringIndex}` : "S?"}` 
-                          : "Unmapped"}
+                      <td className="p-3 text-prizm-text-muted leading-tight whitespace-nowrap">
+                        <span className="block font-bold">Array {d.arrayIndex ?? "?"}</span>
+                        <span className="block text-[9px]">{d.segmentLabel ?? ""}</span>
                       </td>
 
                       <td className="p-3 text-prizm-text-muted max-w-44 truncate font-medium title-cell" title={d.entityDescription || "Unmapped"}>
@@ -971,18 +963,38 @@ export default function FeatherDashboard() {
                       </td>
 
                       {/* HVAC/MIO inputs Summary */}
-                      <td className="p-3 text-prizm-text-muted max-w-[280px] truncate leading-normal">
+                      <td className="p-3 text-prizm-text-muted min-w-[280px] leading-normal whitespace-nowrap overflow-x-auto">
                         {d.reachable ? (
                           <div className="flex flex-col gap-1.5 text-[10px]">
                             <div className="flex items-center gap-1.5 text-blue-300">
-                              <Thermometer size={10} />
-                              <span>S: {d.temperatureSupplyC !== undefined && d.temperatureSupplyC !== null ? d.temperatureSupplyC : "?"}°C</span>
-                              <span className="text-prizm-text-muted">/</span>
-                              <span className="text-orange-300">C: {d.temperatureCellC !== undefined && d.temperatureCellC !== null ? d.temperatureCellC : "?"}°C</span>
+                              <Thermometer size={10} className="shrink-0" />
+                              <div className="flex flex-wrap gap-x-2 gap-y-1 text-prizm-text-muted">
+                                {d.spaceTemperatureC !== undefined && d.spaceTemperatureC !== null && (
+                                  <span>Space {d.spaceTemperatureC.toFixed(1)}°C {d.spaceHumidityPct !== undefined && d.spaceHumidityPct !== null ? `/ RH ${d.spaceHumidityPct.toFixed(1)}%` : ""} <span className="text-white/20 mx-1">|</span></span>
+                                )}
+                                {d.avgCellTemperatureC !== undefined && d.avgCellTemperatureC !== null && (
+                                  <span>Cell {d.avgCellTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                )}
+                                {d.supplyAirTempC !== undefined && d.supplyAirTempC !== null && (
+                                  <span>Supply {d.supplyAirTempC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                )}
+                                {d.outsideTemperatureC !== undefined && d.outsideTemperatureC !== null && (
+                                  <span>Outside {d.outsideTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                )}
+                                {d.hydrogen1PPM !== undefined && d.hydrogen1PPM !== null && (
+                                  <span>H2 {d.hydrogen1PPM.toFixed(1)} ppm</span>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-prizm-primary font-bold">{d.hvacMode || "IDLE"}</span>
-                              <span className="text-prizm-text-muted border-l border-prizm-border pl-1.5 ml-1">MIO: {d.mioSensorSummary || "N/A"}</span>
+                            <div className="flex flex-wrap items-center gap-x-2 font-bold mt-0.5 text-prizm-text-muted">
+                              <span className="text-prizm-primary">{d.thermostatStage || "IDLE"}</span> <span className="text-white/20">|</span>
+                              <span>{d.thermalControlRunning ? "Control Active" : "Control Inactive"}</span> <span className="text-white/20">|</span>
+                              <span>{d.hvacRuntimeState || "HVAC Unknown"}</span> <span className="text-white/20">|</span>
+                              <span>HVAC1 {(d.hvac1?.currentA || 0).toFixed(1)}A</span> <span className="text-white/20">|</span>
+                              <span>HVAC2 {(d.hvac2?.currentA || 0).toFixed(1)}A</span> <span className="text-white/20">|</span>
+                              <span className={d.hvacDataValid ? "text-emerald-400" : "text-prizm-danger"}>{d.hvacDataValid ? "HVAC Data Valid" : "HVAC Data Invalid"}</span> <span className="text-white/20">|</span>
+                              <span className={d.fssSignals?.valid ? "text-emerald-400" : "text-prizm-danger"}>{d.fssSignals?.valid ? "FSS Valid" : "FSS Invalid"}</span> <span className="text-white/20">|</span>
+                              <span className={d.doors?.valid ? "text-emerald-400" : "text-prizm-danger"}>{d.doors?.valid ? "Doors Valid" : "Doors Invalid"}</span>
                             </div>
                           </div>
                         ) : (
