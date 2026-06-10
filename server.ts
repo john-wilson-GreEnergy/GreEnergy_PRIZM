@@ -1,3 +1,4 @@
+import safetyFaultClearRouter from "./src/server/safetyFaultClear";
 
 import { emsCache } from "./src/server/emsTurtleClient";
 import express from "express";
@@ -706,6 +707,9 @@ app.get("/api/local/site-metrics", (req, res) => {
 app.get("/api/local/site-metrics/history", (req, res) => {
   res.json(getSiteTelemetryHistory());
 });
+
+
+app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
 
 app.get("/api/local/status", (req, res) => {
   res.json(getEmsCachedStatus());
@@ -1500,13 +1504,15 @@ app.post("/api/feather/scan", async (req, res) => {
   }
 });
 
+import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
+
 // 4. GET /api/feather/devices
-app.get("/api/feather/devices", (req, res) => {
+app.get("/api/feather/devices", async (req, res) => {
   try {
-    const cache = getFeatherCache();
-    res.json(cache);
+    const data = await fetchEnrichedDevices();
+    res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch Feather cache" });
+    res.status(500).json({ error: err.message || "Failed to fetch enriched Feather cache" });
   }
 });
 

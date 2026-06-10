@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package turtle.controls;
+
+message CommandTarget {
+    string endpointType = 1;
+}
+
+message CommandSource {
+    string endpointType = 1;
+}
+
+message ManualClearDeviceFault {
+    string entityKey = 1;
+}
+
+message CommandPayload {
+    ManualClearDeviceFault manualClearDeviceFault = 100; // Guessing field number, TODO: Verify field number
+}
+
+message Command {
+    string commandId = 1;
+    CommandTarget commandTarget = 2;
+    CommandSource commandSource = 3;
+    CommandPayload commandPayload = 4;
+    string username = 5;
+}

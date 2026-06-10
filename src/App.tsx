@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import SafetyFaultClearView from "./components/SafetyFaultClearView";
 import { 
   Activity, 
   Cpu, 
@@ -26,7 +27,7 @@ import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
   const [devices, setDevices] = useState<BessDevice[]>([]);
   const [logs, setLogs] = useState<BessLog[]>([]);
   const [reports, setReports] = useState<ReportConfig[]>([]);
@@ -154,7 +155,8 @@ export default function App() {
                 { id: "feather-hvac", label: "Feather / HVAC", icon: Network },
                 { id: "settings", label: "Connection Settings", icon: Settings },
                 { id: "reports", label: "Reports / Exports", icon: FileText },
-                { id: "advanced", label: "Advanced / Locked", icon: Lock }
+                { id: "advanced", label: "Advanced / Locked", icon: Lock },
+                { id: "safety-fault", label: "Safety Fault Clear", icon: ShieldAlert }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -227,6 +229,10 @@ export default function App() {
                 onAddReport={async () => {}}
                 onDeleteReport={async () => {}}
               />
+            )}
+
+            {activeTab === "safety-fault" && (
+              <SafetyFaultClearView />
             )}
 
             {activeTab === "advanced" && (

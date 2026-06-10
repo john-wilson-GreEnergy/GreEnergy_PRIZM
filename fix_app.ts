@@ -1,27 +1,29 @@
 import fs from 'fs';
-import path from 'path';
 
-const file = path.join(process.cwd(), 'src/App.tsx');
-let content = fs.readFileSync(file, 'utf8');
+let content = fs.readFileSync('src/App.tsx', 'utf8');
 
-content = content.replace(
-  'import Dashboard from "./components/Dashboard";',
-  'import SiteTelemetryDashboard from "./components/SiteTelemetryDashboard";'
-);
-
-// We'll regex replace to catch multiple lines safely
-content = content.replace(
-  /{activeTab === "overview" && \([\s\S]*?<Dashboard[\s\S]*?\/>[\s\S]*?\)}/,
-  '{activeTab === "overview" && (\n              <SiteTelemetryDashboard />\n            )}'
-);
-
-fs.writeFileSync(file, content);
-console.log('App.tsx patched');
-// delete Dashboard and KoboldMonitor
-if (fs.existsSync(path.join(process.cwd(), 'src/components/Dashboard.tsx'))) {
-  fs.unlinkSync(path.join(process.cwd(), 'src/components/Dashboard.tsx'));
-}
-if (fs.existsSync(path.join(process.cwd(), 'src/components/KoboldMonitor.tsx'))) {
-  fs.unlinkSync(path.join(process.cwd(), 'src/components/KoboldMonitor.tsx'));
+const safetyFaultImportStr = `import SafetyFaultClearView from "./components/SafetyFaultClearView";`;
+if (!content.includes('SafetyFaultClearView')) {
+    content = content.replace('import {', safetyFaultImportStr + '\nimport {');
 }
 
+const tabIdsOld = `const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced">("overview");`;
+const tabIdsNew = `const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced" | "safety-fault">("overview");`;
+
+content = content.replace(tabIdsOld, tabIdsNew);
+
+const tabDefOld = `{ id: "advanced", label: "Advanced / Locked", icon: Lock }`;
+const tabDefNew = `{ id: "advanced", label: "Advanced / Locked", icon: Lock },\n                { id: "safety-fault", label: "Safety Fault Clear", icon: ShieldAlert }`;
+
+content = content.replace(tabDefOld, tabDefNew);
+
+const viewRenderStr = `{activeTab === "safety-fault" && (
+              <SafetyFaultClearView />
+            )}`;
+
+if (!content.includes('SafetyFaultClearView />')) {
+    const idx = content.indexOf('{activeTab === "advanced"');
+    content = content.slice(0, idx) + viewRenderStr + '\n\n            ' + content.slice(idx);
+}
+
+fs.writeFileSync('src/App.tsx', content);
