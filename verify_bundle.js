@@ -116,8 +116,32 @@ function ping() {
                            cleanup(1);
                            return;
                          }
-                         console.log("Server verification passed!");
-                         cleanup(0);
+                         console.log("Checking /api/local/strings/dashboard/1/1/detail...");
+                          http.get("http://127.0.0.1:3001/api/local/strings/dashboard/1/1/detail", (detRes) => {
+                              if (!detRes.headers["content-type"]?.includes("application/json")) {
+                                  console.error("Detail endpoint Content-Type is not application/json");
+                                  cleanup(1);
+                                  return;
+                              }
+                              let detBody = "";
+                              detRes.on("data", chunk => detBody += chunk);
+                              detRes.on("end", () => {
+                                  if (detBody.includes("<!doctype html>")) {
+                                     console.error("Detail endpoint returned HTML");
+                                     cleanup(1);
+                                     return;
+                                  }
+                                  try {
+                                    JSON.parse(detBody);
+                                  } catch (err) {
+                                    console.error("Detail endpoint invalid JSON");
+                                    cleanup(1);
+                                    return;
+                                  }
+                                  console.log("Server verification passed!");
+                                  cleanup(0);
+                              });
+                          }).on("error", () => cleanup(1));
                      });
                  }).on('error', () => cleanup(1));
                });

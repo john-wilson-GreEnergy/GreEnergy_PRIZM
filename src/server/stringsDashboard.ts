@@ -408,16 +408,36 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         if (!profile) return res.status(400).json({ error: "No active profile" });
         const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
 
+        const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
+        const startTime = Date.now();
+        let stringViewerSourceHealth: any = {
+            ok: false,
+            url: stringViewerUrl,
+            httpStatus: null,
+            durationMs: null,
+            error: null
+        };
+
         let stringViewerData: any = null;
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
-            const r = await fetch(`${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/string/${stringNumber}/data`, { signal: controller.signal });
+            const r = await fetch(stringViewerUrl, { signal: controller.signal });
             clearTimeout(timeoutId);
+            
+            stringViewerSourceHealth.httpStatus = r.status;
+            stringViewerSourceHealth.ok = r.ok;
+            
             if (r.ok) {
                 stringViewerData = await r.json();
+            } else {
+                stringViewerSourceHealth.error = `HTTP ${r.status}`;
             }
-        } catch(e) {}
+        } catch(e: any) {
+            stringViewerSourceHealth.error = e.message;
+        } finally {
+            stringViewerSourceHealth.durationMs = Date.now() - startTime;
+        }
 
         let lcBaseData = null;
         const lastCallWrapper = getEmsCachedLastCall();
@@ -625,6 +645,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             blockIndex: 1,
             arrayNumber,
             stringNumber,
+            sourceHealth: { stringviewer: stringViewerSourceHealth },
             summary,
             bpcs,
             voltageMatrix,
