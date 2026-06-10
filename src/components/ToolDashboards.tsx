@@ -570,7 +570,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               { id: "last-call", label: "Last Call Explorer", icon: Clock },
               { id: "modbus", label: "Modbus Map Browser", icon: Database },
               { id: "feather", label: "Feather / HVAC Devices", icon: Sliders },
-              { id: "data-discovery", label: "Local Data Discovery", icon: Search },
+              { id: "data-discovery", label: "Overview Discovery", icon: Search },
               { id: "locked-controls", label: "Locked Advanced Workflows", icon: Lock }
             ].map(item => {
               const Icon = item.icon;

@@ -33,6 +33,13 @@ function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNa
     return undefined;
 }
 
+router.get("/dump", (req, res) => {
+    res.json({
+        rawStrings: getEmsCachedRawStrings(),
+        debug: getEmsSourcesDebugInfo()
+    });
+});
+
 router.get("/", async (req, res) => {
     try {
         if (req.query.refresh === 'true') {
@@ -136,7 +143,10 @@ router.get("/", async (req, res) => {
             const arrayNumber = pN(tryGetField(row, normalizedObject, ["array", "arrayindex", "arr"]));
             const stringNumber = pN(tryGetField(row, normalizedObject, ["string", "stringindex", "str"]));
             
-            if (arrayNumber === null || stringNumber === null) return;
+            if (arrayNumber === null || stringNumber === null) {
+                require('fs').appendFileSync('skips.log', JSON.stringify({ arrayNumber, stringNumber, row }) + "\n");
+                return;
+            }
             totalStrings++;
 
             const id = `A${arrayNumber}-S${stringNumber}`;
@@ -370,6 +380,49 @@ router.get("/", async (req, res) => {
                 raw: rawSources
             });
         });
+
+        if (req.query.enrich === 'stringviewer') {
+            const arrayFilter = req.query.array ? Number(req.query.array) : null;
+            const targetStrings = arrayFilter ? strings.filter(s => s.arrayNumber === arrayFilter) : strings;
+            await Promise.allSettled(targetStrings.map(async (s) => {
+                const svUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${s.arrayNumber}/${s.stringNumber}/data`;
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 2000);
+                    const r = await fetch(svUrl, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (r.ok) {
+                        const svData = await r.json();
+                        if (svData && svData.stringViewerDataModel) {
+                            const sv = svData.stringViewerDataModel;
+                            s.busVoltage = sv.dcBusVoltage ?? s.busVoltage;
+                            s.outRotation = sv.outRotation ?? s.outRotation;
+                            s.positiveContactorClosed = sv.positiveContactorClosed ?? s.positiveContactorClosed;
+                            s.negativeContactorClosed = sv.negativeContactorClosed ?? s.negativeContactorClosed;
+                            s.contactorsCloseExpected = sv.contactorsCloseExpected ?? s.contactorsCloseExpected;
+                            s.recloseCount = sv.recloseCount ?? s.recloseCount;
+                            s.badReport = sv.badReport ?? s.badReport;
+                            s.fanRequested = sv.lastFanCommand ?? sv.fanCommand ?? sv.requestedFanCommand ?? sv.stringFanRequested ?? s.fanRequested;
+                            s.fanActual = sv.fanActual ?? sv.fanState ?? sv.fanStatus ?? sv.fanSpeed ?? sv.fanSpeedRpm ?? sv.stringFanActual ?? s.fanActual;
+                            s.socPct = sv.soc ?? s.socPct;
+                            s.measuredVoltage = sv.measuredStringVoltage ?? s.measuredVoltage;
+                            s.calculatedVoltage = sv.calculatedStringVoltage ?? s.calculatedVoltage;
+                            s.minCellVoltage = sv.minCellGroupVoltage ?? s.minCellVoltage;
+                            s.maxCellVoltage = sv.maxCellGroupVoltage ?? s.maxCellVoltage;
+                            s.avgCellVoltage = sv.avgCellGroupVoltage ?? s.avgCellVoltage;
+                            s.minCellTemperature = sv.minCellGroupTemp ?? s.minCellTemperature;
+                            s.maxCellTemperature = sv.maxCellGroupTemp ?? s.maxCellTemperature;
+                            s.avgCellTemperature = sv.avgCellGroupTemp ?? s.avgCellTemperature;
+                            s.amps = sv.stringCurrent ?? s.amps;
+                            s.bpcCount = sv.batteryPackCount ?? s.bpcCount;
+                            s.cellGroupCount = sv.cellGroupCount ?? s.cellGroupCount;
+                            s.timestampUtc = sv.reportTimestamp ?? s.timestampUtc;
+                            s.operationalState = sv.stringConnectionState ?? s.operationalState;
+                        }
+                    }
+                } catch(e) {}
+            }));
+        }
 
         res.json({
             profileId: profile?.id,

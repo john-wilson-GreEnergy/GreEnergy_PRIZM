@@ -1,0 +1,22 @@
+[
+  {
+    "id": "default-local-ems",
+    "profileName": "Local EMS Default",
+    "siteName": "Local BESS Site",
+    "stationCode": "BHE0020",
+    "blockIndex": 1,
+    "emsHost": "127.0.0.1",
+    "emsPort": 3000,
+    "turtlePath": "/turtle",
+    "modbusHost": "10.0.0.3",
+    "modbusPort": 4502,
+    "arrayCount": 8,
+    "stringsPerArray": 40,
+    "notes": "Default local EMS profile",
+    "isActive": true,
+    "createdAt": "2026-06-10T20:18:54.250Z",
+    "updatedAt": "2026-06-10T20:18:54.250Z",
+    "lastTestedAt": null,
+    "lastTestResult": null
+  }
+]

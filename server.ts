@@ -1,5 +1,6 @@
 import safetyFaultClearRouter from "./src/server/safetyFaultClear";
 import stringsDashboardRouter from "./src/server/stringsDashboard";
+import overviewDiscoveryRouter from "./src/server/overviewDiscovery";
 
 import { emsCache } from "./src/server/emsTurtleClient";
 import express from "express";
@@ -45,6 +46,7 @@ app.use(express.json());
 
 app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
 app.use("/api/local/strings/dashboard", stringsDashboardRouter);
+app.use("/api/local/overview", overviewDiscoveryRouter);
 
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");

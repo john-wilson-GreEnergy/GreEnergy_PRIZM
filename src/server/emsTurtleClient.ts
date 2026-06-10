@@ -681,7 +681,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     const text = await res.text();
     emsCache.strings = parseCsv(text);
   } catch (err: any) {
-    // Optional endpoint
+    console.error("fetch strings csv error:", err);
   }
 
   // 8. /tools/report/ems/ipMap
@@ -753,22 +753,23 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     // Optional endpoint
   }
 
+  const rawUrl = getNormalizedBaseUrl();
+  const activeRef = ProfileStore.getActiveProfile();
+  const activeId = activeRef ? activeRef.id : "default-local-ems";
+
+  if (!cacheCreatedAt || cacheProfileId !== activeId || cacheEmsBaseUrl !== rawUrl) {
+    cacheCreatedAt = new Date().toISOString();
+  }
+  cacheLastUpdatedAt = new Date().toISOString();
+  cacheProfileId = activeId;
+  cacheEmsBaseUrl = rawUrl;
+
   if (criticalEndpointsFailed === 0) {
-    const rawUrl = getNormalizedBaseUrl();
-    const activeRef = ProfileStore.getActiveProfile();
-    const activeId = activeRef ? activeRef.id : "default-local-ems";
-
-    if (!cacheCreatedAt || cacheProfileId !== activeId || cacheEmsBaseUrl !== rawUrl) {
-      cacheCreatedAt = new Date().toISOString();
-    }
-    cacheLastUpdatedAt = new Date().toISOString();
-    cacheProfileId = activeId;
-    cacheEmsBaseUrl = rawUrl;
-
     emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = null;
     return { success: true, error: null };
   } else {
+    emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = overallError || "Multiple critical EMS endpoints are unreachable";
     
     if (

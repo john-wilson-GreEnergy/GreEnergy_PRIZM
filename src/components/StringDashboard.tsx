@@ -18,7 +18,7 @@ export default function StringDashboard() {
     let unmounted = false;
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/local/strings/dashboard?refresh=true&maxAgeMs=${refreshInterval}`);
+        const res = await fetch(`/api/local/strings/dashboard?refresh=true&enrich=stringviewer&maxAgeMs=${refreshInterval}`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -277,15 +277,18 @@ export default function StringDashboard() {
          <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
             <thead className="bg-prizm-surface-strong sticky top-0 z-10 shadow-md">
                <tr className="text-prizm-text-muted uppercase tracking-wider">
-                  <th className="px-4 py-3 border-b border-prizm-border font-bold sticky left-0 bg-prizm-surface-strong z-20">String Key</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Status</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Contactor / Rot</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">SOC / Power</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">V / A</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Cell V Min/Avg/Max (\u0394)</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Cell T Min/Avg/Max (\u0394)</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">BPCs</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">IP / Firmware</th>
+                  <th className="px-3 py-3 border-b border-prizm-border font-bold sticky left-0 bg-prizm-surface-strong z-20 whitespace-nowrap">Arr / Str</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Contactors</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Rotation</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Voltage</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Power</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Energy</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Cell Voltage</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Cell Temp</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Balance</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Location</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Fans</th>
+                  <th className="px-3 py-3 border-b border-prizm-border text-right">Timestamp</th>
                </tr>
             </thead>
             <tbody className="divide-y divide-prizm-border/20">
@@ -294,60 +297,139 @@ export default function StringDashboard() {
                   <td colSpan={9} className="px-4 py-12 text-center text-prizm-text-muted font-bold tracking-widest text-xs">NO STRINGS MATCHING FILTERS</td>
                 </tr>
               ) : (
-                filtered.map((s:any) => (
+                filtered.map((s:any) => {
+                  
+                  // Rotation Dots
+                  const commsOk = s.badReport === false || (new Date().getTime() - new Date(s.timestampUtc || 0).getTime() < 300000);
+                  const inRotation = s.outRotation === false;
+                  const alertsState = s.alarmCount > 0 ? 'alarm' : s.warningCount > 0 ? 'warning' : 'ok';
+                  
+                  const rotDot1 = commsOk ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-text-muted/30';
+                  const rotDot2 = inRotation ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-text-muted/30';
+                  const rotDot3 = alertsState === 'alarm' ? 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]' : alertsState === 'warning' ? 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]' : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]';
+                  
+                  // Contactor Dots
+                  const stateHasContactorProps = typeof s.positiveContactorClosed === "boolean" && typeof s.negativeContactorClosed === "boolean";
+                  const overallContactorClosed = stateHasContactorProps 
+                        ? (s.positiveContactorClosed && s.negativeContactorClosed) 
+                        : s.contactorClosed;
+                  
+                  const contDot1 = overallContactorClosed ? 'bg-blue-400 shadow-[0_0_5px_rgba(96,165,250,0.5)]' : 'bg-prizm-text-muted/30';
+                  
+                  let contDot2 = 'bg-prizm-text-muted/30';
+                  let contDot3 = 'bg-prizm-text-muted/30';
+                  if (typeof s.contactorsCloseExpected === "boolean" && stateHasContactorProps) {
+                        contDot2 = s.positiveContactorClosed === s.contactorsCloseExpected ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]';
+                        contDot3 = s.negativeContactorClosed === s.contactorsCloseExpected ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]';
+                  } else if (stateHasContactorProps) {
+                        // Without expected, we can just show physical state or default to unknown
+                        contDot2 = s.positiveContactorClosed ? 'bg-blue-400 border border-transparent' : 'bg-prizm-bg border border-prizm-text-muted/50';
+                        contDot3 = s.negativeContactorClosed ? 'bg-blue-400 border border-transparent' : 'bg-prizm-bg border border-prizm-text-muted/50';
+                  }
+                  
+                  // Fans logic
+                  let fanDot = 'bg-prizm-text-muted/10';
+                  let fanMatch = "N/A";
+                  if (s.fanRequested !== undefined && s.fanRequested !== null && s.fanRequested !== "") {
+                        if (s.fanActual !== undefined && s.fanActual !== null && s.fanActual !== "") {
+                             const req = Number(s.fanRequested);
+                             const act = Number(s.fanActual);
+                             if (!isNaN(req) && !isNaN(act)) {
+                                  fanMatch = Math.abs(req - act) <= 2 ? 'Yes' : 'No';
+                                  fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
+                             } else {
+                                  fanMatch = (String(s.fanRequested).toLowerCase() === String(s.fanActual).toLowerCase()) ? 'Yes' : 'No';
+                                  fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
+                             }
+                        } else {
+                             fanDot = 'bg-prizm-text-muted/30';
+                        }
+                  }
+
+                  const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
+
+                  return (
                   <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-black/20 cursor-pointer transition-colors relative">
-                    <td className="px-4 py-3 border-r border-prizm-border/20 sticky left-0 group-hover:bg-black/60 bg-prizm-surface z-10 font-bold text-prizm-text">
-                       {s.stringKey}
-                       {s.alarmCount > 0 && <span className="ml-2 text-prizm-danger bg-prizm-danger/10 px-1 py-0.5 rounded">ALARM</span>}
-                       {s.warningCount > 0 && s.alarmCount === 0 && <span className="ml-2 text-prizm-warning bg-prizm-warning/10 px-1 py-0.5 rounded">WARN</span>}
-                    </td>
-                    <td className="px-3 py-3 font-bold">
-                       {s.operationalState === "NORMAL" ? <span className="text-emerald-400">NORMAL</span> : 
-                        s.operationalState === "WARNING" ? <span className="text-prizm-warning">WARNING</span> :
-                        s.operationalState === "ALARM" ? <span className="text-prizm-danger">ALARM</span> :
-                        <span className="text-prizm-text-muted opacity-50">OFFLINE</span>}
+                    <td className="px-3 py-3 border-r border-prizm-border/20 sticky left-0 group-hover:bg-black/60 bg-prizm-surface z-10 font-bold text-prizm-text">
+                       A{s.arrayNumber}-S{s.stringNumber}
                     </td>
                     <td className="px-3 py-3">
-                       <span className={s.contactorClosed ? "text-emerald-400" : "text-prizm-text-muted"}>{s.contactorStatus}</span>
-                       <span className="mx-2 text-prizm-text-muted">|</span>
-                       <span className={s.rotationEnabled ? "text-emerald-400" : "text-prizm-warning"}>ROT {s.rotationStatus}</span>
-                    </td>
-                    <td className="px-3 py-3 space-x-2">
-                       <span className="text-prizm-info font-bold">{s.socPct !== null ? s.socPct + "%" : "--"}</span>
-                       <span className="text-prizm-text-muted">|</span>
-                       <span className="text-prizm-text">{s.kw !== null ? s.kw + " kW" : "--"}</span>
-                    </td>
-                    <td className="px-3 py-3 space-x-2">
-                       <span className="text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage + " V" : "--"}</span>
-                       <span className="text-prizm-text-muted text-[9px]">/</span>
-                       <span className="text-prizm-text">{s.amps !== null ? s.amps + " A" : "--"}</span>
+                       <div 
+                         className="flex items-center gap-1 cursor-help"
+                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected?"CLOSED":"OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed!==undefined?(s.positiveContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Negative: ${s.negativeContactorClosed!==undefined?(s.negativeContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Reclose Count: ${s.recloseCount ?? "--"}`}
+                       >
+                           <div className={`w-2.5 h-2.5 rounded-full ${contDot1}`}></div>
+                           <div className={`w-2.5 h-2.5 rounded-full ${contDot2}`}></div>
+                           <div className={`w-2.5 h-2.5 rounded-full ${contDot3}`}></div>
+                           <span className="ml-1 text-[9px] text-prizm-text-muted">R:{s.recloseCount ?? "--"}</span>
+                       </div>
                     </td>
                     <td className="px-3 py-3">
-                       {s.minCellVoltage !== null && s.maxCellVoltage !== null ? (
-                          <span>{s.minCellVoltage}V &nbsp;&bull;&nbsp; {s.avgCellVoltage}V &nbsp;&bull;&nbsp; {s.maxCellVoltage}V <span className="text-prizm-warning ml-1">(\u0394{s.cellVoltageDelta}V)</span></span>
-                       ) : "--"}
+                       <div 
+                         className="flex items-center gap-1 cursor-help"
+                         title={`Comms: ${commsOk?"OK":"Stale"} | Rotation: ${inRotation?"IN":"OUT"} | Alerts: ${alertsState}`}
+                       >
+                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot1}`}></div>
+                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot2}`}></div>
+                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot3}`}></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5">
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Meas:</span> <span className="text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</span></div>
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Calc:</span> <span className="text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</span></div>
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Bus:</span> <span className="text-prizm-text">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5">
+                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">A:</span> <span className="text-prizm-text">{s.amps !== null ? s.amps : "--"}</span></div>
+                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">kW:</span> <span className="text-prizm-text">{s.kw !== null ? s.kw : "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5">
+                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">SOC:</span> <span className="text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</span></div>
+                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">Ah:</span> <span className="text-prizm-text">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5" title={`Min: ${s.minCellVoltage ?? "--"} | Avg: ${s.avgCellVoltage ?? "--"} | Max: ${s.maxCellVoltage ?? "--"} | Delta: ${s.cellVoltageDelta ?? "--"}`}>
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Min:</span> <span className="text-prizm-text">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</span></div>
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Max:</span> <span className="text-prizm-text">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</span></div>
+                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">\u0394:</span> <span className="text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5" title={`Min: ${s.minCellTemperature ?? "--"} | Avg: ${s.avgCellTemperature ?? "--"} | Max: ${s.maxCellTemperature ?? "--"} | Delta: ${s.cellTemperatureDelta ?? "--"}`}>
+                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Min:</span> <span className="text-prizm-text">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</span></div>
+                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Max:</span> <span className="text-prizm-text">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</span></div>
+                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">\u0394:</span> <span className="text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                       <div className="flex flex-col gap-0.5">
+                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Count:</span> <span className="text-prizm-text">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</span></div>
+                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Mode:</span> <span className="text-prizm-text truncate" title={s.balanceMode}>{s.balanceMode || "--"}</span></div>
+                       </div>
+                    </td>
+                    <td className="px-3 py-3 font-bold text-prizm-text-muted">
+                        {locStr}
                     </td>
                     <td className="px-3 py-3">
-                       {s.minCellTemperature !== null && s.maxCellTemperature !== null ? (
-                          <span>{s.minCellTemperature}° &nbsp;&bull;&nbsp; {s.avgCellTemperature}° &nbsp;&bull;&nbsp; {s.maxCellTemperature}° <span className="text-prizm-warning ml-1">(\u0394{s.cellTemperatureDelta}°)</span></span>
-                       ) : "--"}
+                       <div 
+                           title={`Fan Requested: ${s.fanRequested ?? "--"} | Actual: ${s.fanActual ?? "--"} | Match: ${fanMatch}`}
+                           className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDot}`}
+                       ></div>
                     </td>
-                    <td className="px-3 py-3 text-prizm-text-muted">
-                        {s.bpcCount > 0 ? (
-                            <span className="flex items-center gap-2">
-                               {s.bpcCount} <span className="text-[9px]">({s.bpcFirmwareSummary || "Unk"})</span>
-                            </span>
-                        ) : "--"}
-                    </td>
-                    <td className="px-3 py-3 text-prizm-text-muted text-[9px] flex justify-between items-center pr-4">
-                       <span className="truncate max-w-[150px] block">
-                          IP: {s.stringControllerIp || "Unk"} <br/>
-                          FW: {s.stringControllerFirmware || "Unk"}
-                       </span>
-                       <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <td className="px-3 py-3 text-right">
+                       <div className="flex items-center justify-end gap-2">
+                           <span className="text-prizm-text-muted text-[9px]">{new Date(s.timestampUtc || 0).toLocaleString()}</span>
+                           <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-prizm-primary" />
+                       </div>
                     </td>
                   </tr>
-                ))
+                )})
               )}
             </tbody>
          </table>
