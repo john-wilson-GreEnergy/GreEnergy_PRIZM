@@ -1548,6 +1548,7 @@ app.get("/api/curllogs", (req, res) => {
   res.json(curlLogs);
 });
 
+if (process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true") {
 // API: Get intercepted cloud telemetry packets
 app.get("/api/cloud-telemetry/packets", (req, res) => {
   res.json({
@@ -1735,6 +1736,8 @@ app.post("/api/cloud-telemetry/trigger-export", (req, res) => {
     latestPacket: cloudTelemetryPackets[0]
   });
 });
+
+}
 
 // API: Fetch error logs
 app.get("/api/logs", (req, res) => {
@@ -2360,6 +2363,7 @@ app.get("/tools/controls/modbusPoll/host/:host/port/:port/unitId/:unit/type/:typ
   res.send(csv);
 });
 
+if (process.env.ENABLE_LEGACY_CONTROL_MOCKS === "true") {
 // Direct contactor / loop rotators overrides
 app.get("/tools/controls/ems/array/:arrayId/string/:stringId/contactors/:act", (req, res) => {
   res.json({ status: "success", detail: `Contactor set to ${req.params.act} on Array ${req.params.arrayId} String ${req.params.stringId}` });
@@ -2389,6 +2393,8 @@ app.get("/tools/controls/ems/heatsoak/stop/blockEnclosure/:seg", (req, res) => {
   res.json({ status: "success", detail: `Heat soak terminated on Block Enclosure Segment ${req.params.seg}` });
 });
 
+
+}
 
 // Production route serving SPA build
 if (process.env.NODE_ENV !== "production") {

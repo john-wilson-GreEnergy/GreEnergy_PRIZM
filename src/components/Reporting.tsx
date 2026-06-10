@@ -132,20 +132,20 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
     <div className="space-y-6">
       
       {/* Overview Intro banner */}
-      <div className="bg-[#12141C] border border-white/5 p-5 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono">
+      <div className="bg-prizm-surface border border-prizm-border p-5 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono">
         <div>
-          <h2 className="text-sm font-mono font-bold uppercase tracking-[0.2em] text-white">Automated Telemetry Reporting System</h2>
+          <h2 className="text-sm font-mono font-bold uppercase tracking-[0.2em] text-prizm-text">Automated Telemetry Reporting System</h2>
           <p className="text-[11px] text-[#D1D5DB]/40 font-mono mt-1">
             Configure periodic modbus scans, email log aggregates, and generate raw CSV/JSON spreadsheet alignments.
           </p>
         </div>
         
         {/* Quick export module */}
-        <div className="flex items-center gap-2 bg-[#0F1117] p-2 rounded border border-white/10 shrink-0">
+        <div className="flex items-center gap-2 bg-prizm-surface-strong p-2 rounded border border-prizm-border shrink-0">
           <select 
             value={quickFormat}
             onChange={e => setQuickFormat(e.target.value as any)}
-            className="text-[10px] uppercase font-bold tracking-wider bg-transparent border-none text-white focus:outline-none"
+            className="text-[10px] uppercase font-bold tracking-wider bg-transparent border-none text-prizm-text focus:outline-none"
           >
             <option value="CSV">Slicing CSV</option>
             <option value="JSON">Structure JSON</option>
@@ -166,20 +166,20 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
         {/* LEFT COLUMN: ACTIVE SCHEDULES & LOG LIST */}
         <div className="lg:col-span-2 space-y-6">
           
-          <div className="bg-[#12141C] border border-white/5 rounded-lg p-5">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
             <h3 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-white/80 mb-4 flex items-center gap-2">
               <Calendar size={14} className="text-cyan-400" />
               Active System Automated Scheduling Profiles ({reports.length})
             </h3>
 
             {reports.length === 0 ? (
-              <div className="text-center py-10 border border-dashed border-white/5 rounded text-[10px] text-white/30 uppercase tracking-widest font-mono">
+              <div className="text-center py-10 border border-dashed border-prizm-border rounded text-[10px] text-prizm-text-muted uppercase tracking-widest font-mono">
                 No automatic task schedules configured. Build one using the panel generator.
               </div>
             ) : (
               <div className="space-y-3 font-mono">
                 {reports.map((rep) => (
-                  <div key={rep.id} className="bg-[#161922] border border-white/5 p-4 rounded flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 transition-colors hover:border-white/10">
+                  <div key={rep.id} className="bg-prizm-surface-strong border border-prizm-border p-4 rounded flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 transition-colors hover:border-prizm-border">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-200 text-xs">{rep.name}</span>
@@ -189,18 +189,18 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
                       </div>
                       
                       {/* Sub details */}
-                      <div className="text-[10px] text-white/40 flex items-center flex-wrap gap-x-2 gap-y-1">
+                      <div className="text-[10px] text-prizm-text-muted flex items-center flex-wrap gap-x-2 gap-y-1">
                         <Mail size={10} className="text-white/20" />
-                        <span className="text-white/60 font-semibold truncate max-w-[200px]">{rep.recipients.join(", ")}</span>
+                        <span className="text-prizm-text-muted font-semibold truncate max-w-[200px]">{rep.recipients.join(", ")}</span>
                         <span>•</span>
                         <span>{rep.selectedDevices.length} sub-units</span>
                         <span>•</span>
-                        <span className="text-white/30 uppercase">Format: {rep.format}</span>
+                        <span className="text-prizm-text-muted uppercase">Format: {rep.format}</span>
                       </div>
 
                       <div className="pt-2 flex flex-wrap gap-1">
                         {rep.includeMetrics.map((met) => (
-                          <span key={met} className="px-1.5 py-0.5 rounded bg-[#0F1117] text-white/40 text-[9px] border border-white/5 font-semibold">
+                          <span key={met} className="px-1.5 py-0.5 rounded bg-prizm-surface-strong text-prizm-text-muted text-[9px] border border-prizm-border font-semibold">
                             {met}
                           </span>
                         ))}
@@ -208,10 +208,10 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
                     </div>
 
                     {/* Operational download shortcut triggers */}
-                    <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5 justify-end">
+                    <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-prizm-border justify-end">
                       <button 
                         onClick={() => handleTriggerExport(rep.id, rep.format)}
-                        className="px-2.5 py-1.5 text-[10px] font-bold uppercase transition-all bg-[#0F1117] border border-white/10 hover:border-white/20 rounded text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 cursor-pointer"
+                        className="px-2.5 py-1.5 text-[10px] font-bold uppercase transition-all bg-prizm-surface-strong border border-prizm-border hover:border-prizm-border rounded text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 cursor-pointer"
                         title="Force schedule dispatch export"
                       >
                         <Download size={11} />
@@ -219,7 +219,7 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
                       </button>
                       <button 
                         onClick={() => onDeleteReport(rep.id)}
-                        className="p-1.5 rounded text-white/40 border border-white/5 hover:border-rose-500/20 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                        className="p-1.5 rounded text-prizm-text-muted border border-prizm-border hover:border-rose-500/20 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
                         title="Delete scheduling"
                       >
                         <Trash2 size={12} />
@@ -232,29 +232,29 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
           </div>
 
           {/* Simulated task diagnostics parameters */}
-          <div className="bg-[#12141C] border border-white/5 rounded-lg p-5">
-            <h3 className="font-mono text-[11.5px] font-bold uppercase tracking-[0.2em] text-white/90 mb-2 flex items-center gap-1.5">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+            <h3 className="font-mono text-[11.5px] font-bold uppercase tracking-[0.2em] text-prizm-text mb-2 flex items-center gap-1.5">
               <Activity size={14} className="text-cyan-400" />
               Gateway Modbus Auto-Scanner Telemetry Loggers
             </h3>
-            <p className="text-[11px] text-white/40 font-mono leading-relaxed">
+            <p className="text-[11px] text-prizm-text-muted font-mono leading-relaxed">
               Every hour on the hour, the system automatically runs network polling diagnostics using pre-configured target Modbus coils. Data variables (State of Charge, Temperatures, Cell delta spikes) are structured locally and formatted for download. Automated backups prevent local data loss if power isolates.
             </p>
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 font-mono">
-              <div className="bg-[#161922] p-3.5 rounded border border-white/5 flex gap-3">
+              <div className="bg-prizm-surface-strong p-3.5 rounded border border-prizm-border flex gap-3">
                 <Clock className="text-cyan-400 mt-1 shrink-0" size={15} />
                 <div>
-                  <span className="block text-xs font-bold text-white uppercase tracking-wider">Last System Polling</span>
-                  <p className="text-[10px] text-white/40 mt-1 font-semibold">Success: 192.168.1.101, .102, .104</p>
+                  <span className="block text-xs font-bold text-prizm-text uppercase tracking-wider">Last System Polling</span>
+                  <p className="text-[10px] text-prizm-text-muted mt-1 font-semibold">Success: 192.168.1.101, .102, .104</p>
                   <p className="text-[10px] text-rose-400 font-semibold">Bypassed/Soft faulted: 192.168.1.103</p>
                 </div>
               </div>
-              <div className="bg-[#161922] p-3.5 rounded border border-white/5 flex gap-3">
+              <div className="bg-prizm-surface-strong p-3.5 rounded border border-prizm-border flex gap-3">
                 <FileSpreadsheet className="text-cyan-400 mt-1 shrink-0" size={15} />
                 <div>
-                  <span className="block text-xs font-bold text-white uppercase tracking-wider">Local Integrity Backup</span>
-                  <p className="text-[10px] text-white/40 mt-1 font-semibold">Size limits: 14.5 MB accumulated</p>
+                  <span className="block text-xs font-bold text-prizm-text uppercase tracking-wider">Local Integrity Backup</span>
+                  <p className="text-[10px] text-prizm-text-muted mt-1 font-semibold">Size limits: 14.5 MB accumulated</p>
                   <p className="text-[10px] text-emerald-400 font-semibold uppercase">Status: OK (Encryption active)</p>
                 </div>
               </div>
@@ -265,32 +265,32 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
 
         {/* RIGHT COLUMN: REPORT GENERATION FORM CARD */}
         <div>
-          <div className="bg-[#12141C] border border-white/5 rounded-lg p-5 sticky top-4 font-mono">
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-white mb-4 flex items-center gap-1.5">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 sticky top-4 font-mono">
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-prizm-text mb-4 flex items-center gap-1.5">
               <Plus size={14} className="text-cyan-400" />
               Create Automation Profile
             </h3>
 
             <form onSubmit={handleCreateSchedule} className="space-y-4">
               <div>
-                <label className="block text-[10px] text-white/40 uppercase">Profile Label *</label>
+                <label className="block text-[10px] text-prizm-text-muted uppercase">Profile Label *</label>
                 <input 
                   type="text"
                   required
                   placeholder="e.g. Weekly Feeder Integrity"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  className="mt-1.5 w-full text-xs font-mono rounded bg-[#0F1117] border border-white/10 px-3 py-2 text-white placeholder-white/10 focus:outline-none focus:border-cyan-500"
+                  className="mt-1.5 w-full text-xs font-mono rounded bg-prizm-surface-strong border border-prizm-border px-3 py-2 text-prizm-text placeholder-white/10 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] text-white/40 uppercase">Interval Period</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase">Interval Period</label>
                   <select 
                     value={frequency}
                     onChange={e => setFrequency(e.target.value as any)}
-                    className="mt-1.5 w-full text-xs font-mono rounded bg-[#0F1117] border border-white/10 px-2 py-2 text-white focus:outline-none focus:border-cyan-500"
+                    className="mt-1.5 w-full text-xs font-mono rounded bg-prizm-surface-strong border border-prizm-border px-2 py-2 text-prizm-text focus:outline-none focus:border-cyan-500"
                   >
                     <option value="Daily">Daily Map</option>
                     <option value="Weekly">Weekly Digest</option>
@@ -298,11 +298,11 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] text-white/40 uppercase">Export Format</label>
+                  <label className="block text-[10px] text-prizm-text-muted uppercase">Export Format</label>
                   <select 
                     value={format}
                     onChange={e => setFormat(e.target.value as any)}
-                    className="mt-1.5 w-full text-xs font-mono rounded bg-[#0F1117] border border-white/10 px-2 py-2 text-white focus:outline-none focus:border-cyan-500"
+                    className="mt-1.5 w-full text-xs font-mono rounded bg-prizm-surface-strong border border-prizm-border px-2 py-2 text-prizm-text focus:outline-none focus:border-cyan-500"
                   >
                     <option value="CSV">CSV Spreadsheet</option>
                     <option value="JSON">Raw JSON Dump</option>
@@ -311,28 +311,28 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
               </div>
 
               <div>
-                <label className="block text-[10px] text-white/40 uppercase">Recipient Email *</label>
+                <label className="block text-[10px] text-prizm-text-muted uppercase">Recipient Email *</label>
                 <input 
                   type="email"
                   required
                   placeholder="e.g. operators@site.com"
                   value={recipient}
                   onChange={e => setRecipient(e.target.value)}
-                  className="mt-1.5 w-full text-xs font-mono rounded bg-[#0F1117] border border-white/10 px-3 py-2 text-white placeholder-white/10 focus:outline-none focus:border-cyan-500"
+                  className="mt-1.5 w-full text-xs font-mono rounded bg-prizm-surface-strong border border-prizm-border px-3 py-2 text-prizm-text placeholder-white/10 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
               {/* Selection list: Devices to scope */}
               <div>
-                <span className="block text-[10px] text-white/40 uppercase mb-2">Scope Target Devices</span>
-                <div className="space-y-1.5 max-h-[110px] overflow-y-auto bg-[#0F1117] p-2.5 rounded border border-white/10 no-scrollbar">
+                <span className="block text-[10px] text-prizm-text-muted uppercase mb-2">Scope Target Devices</span>
+                <div className="space-y-1.5 max-h-[110px] overflow-y-auto bg-prizm-surface-strong p-2.5 rounded border border-prizm-border no-scrollbar">
                   {devices.map(dev => {
                     const isSelected = selectedDevices.includes(dev.id);
                     return (
                       <div 
                         key={dev.id}
                         onClick={() => handleToggleDevice(dev.id)}
-                        className={`flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors text-xs font-semibold select-none ${isSelected ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'}`}
+                        className={`flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors text-xs font-semibold select-none ${isSelected ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-prizm-text-muted hover:text-prizm-text hover:bg-white/5 border border-transparent'}`}
                       >
                         <span>{dev.name}</span>
                         {isSelected && <Check size={11} />}
@@ -344,7 +344,7 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
 
               {/* Selection list: Metrics to compile */}
               <div>
-                <span className="block text-[10px] text-white/40 uppercase mb-2">Include Metrics</span>
+                <span className="block text-[10px] text-prizm-text-muted uppercase mb-2">Include Metrics</span>
                 <div className="grid grid-cols-1 gap-1">
                   {metricsAvailable.map(met => {
                     const isSelected = selectedMetrics.includes(met.key);
@@ -352,7 +352,7 @@ export default function Reporting({ devices, reports, onAddReport, onDeleteRepor
                       <div 
                         key={met.key}
                         onClick={() => handleToggleMetric(met.key)}
-                        className={`flex items-center justify-between p-1.5 text-xs rounded cursor-pointer select-none border transition-colors ${isSelected ? 'bg-cyan-500/5 border-cyan-500/20 text-cyan-400' : 'bg-transparent border-white/5 text-white/40 hover:text-white'}`}
+                        className={`flex items-center justify-between p-1.5 text-xs rounded cursor-pointer select-none border transition-colors ${isSelected ? 'bg-cyan-500/5 border-cyan-500/20 text-cyan-400' : 'bg-transparent border-prizm-border text-prizm-text-muted hover:text-white'}`}
                       >
                         <span className="font-bold uppercase text-[9px] tracking-wide">{met.label}</span>
                         {isSelected && <Check size={11} />}

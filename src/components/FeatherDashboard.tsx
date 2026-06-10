@@ -510,7 +510,7 @@ export default function FeatherDashboard() {
             <button
               onClick={() => refreshSelectedTable(filteredDevices.map(d => d.deviceIp))}
               disabled={loading || filteredDevices.length === 0}
-              className="px-3 py-2 border border-prizm-border hover:border-prizm-border bg-white/5 hover:bg-white/10 text-prizm-text font-mono text-[10px] font-bold rounded uppercase tracking-wider text-center cursor-pointer transition-all"
+              className="px-3 py-2 border border-prizm-border hover:border-prizm-border bg-black/5 hover:bg-black/10 text-prizm-text font-mono text-[10px] font-bold rounded uppercase tracking-wider text-center cursor-pointer transition-all"
             >
               Refresh Filtered ({filteredDevices.length})
             </button>
@@ -786,14 +786,14 @@ export default function FeatherDashboard() {
           <div className="flex gap-2 shrink-0">
             <button
               onClick={exportNormalizedCSV}
-              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-white/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-black/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
             >
               <Download size={11} />
               Export CSV
             </button>
             <button
               onClick={exportFullJSON}
-              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-white/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-black/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
             >
               <Database size={11} />
               Export Full JSON
@@ -845,7 +845,7 @@ export default function FeatherDashboard() {
                       <td className="p-3 text-prizm-text font-bold">{d.deviceIp}</td>
 
                       <td className="p-3">
-                        <span className="px-2 py-0.5 rounded bg-white/5 text-prizm-text-muted text-[9px] uppercase">
+                        <span className="px-2 py-0.5 rounded bg-black/5 text-prizm-text-muted text-[9px] uppercase">
                           {d.sourceDiscoveryMethod}
                         </span>
                       </td>
@@ -962,7 +962,7 @@ export default function FeatherDashboard() {
                 </div>
                 <button
                   onClick={() => setSelectedDevice(null)}
-                  className="px-2.5 py-1 border border-prizm-border hover:bg-white/5 text-prizm-text-muted hover:text-prizm-text rounded text-[10px]"
+                  className="px-2.5 py-1 border border-prizm-border hover:bg-black/5 text-prizm-text-muted hover:text-prizm-text rounded text-[10px]"
                 >
                   ✕ Close Drawer
                 </button>
@@ -1140,7 +1140,7 @@ export default function FeatherDashboard() {
                   <span className="text-prizm-text-muted text-[10px] uppercase">Advanced direct output debug</span>
                   <button
                     onClick={() => setAdvancedDrawerShowJson(!advancedDrawerShowJson)}
-                    className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-bold text-[9px] text-prizm-text cursor-pointer"
+                    className="px-2 py-1 bg-black/5 hover:bg-black/10 rounded font-bold text-[9px] text-prizm-text cursor-pointer"
                   >
                     {advancedDrawerShowJson ? "Hide Raw report JSON" : "Show Raw report JSON"}
                   </button>
@@ -1165,7 +1165,7 @@ export default function FeatherDashboard() {
               </button>
               <button
                 onClick={() => setSelectedDevice(null)}
-                className="px-6 py-2 text-center text-xs font-bold font-mono bg-white/5 hover:bg-white/10 text-prizm-text rounded cursor-pointer transition-all uppercase"
+                className="px-6 py-2 text-center text-xs font-bold font-mono bg-black/5 hover:bg-black/10 text-prizm-text rounded cursor-pointer transition-all uppercase"
               >
                 Dismiss
               </button>

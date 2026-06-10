@@ -31,6 +31,9 @@ export default function App() {
   const [reports, setReports] = useState<ReportConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Monitor EMS metadata
+  const [emsMetadata, setEmsMetadata] = useState<any>(null);
+
   // Dynamic system clock matching timezone metadata
   const [currentTime, setCurrentTime] = useState(new Date("2026-05-29T14:19:25Z"));
 
@@ -45,7 +48,7 @@ export default function App() {
   const fetchAllData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [devRes, logRes, repRes] = await Promise.all([
+      const [devRes, logRes, repRes, modeRes] = await Promise.all([
         fetch("/api/devices").catch(err => {
           console.log("[App Telemetry Info] Devices endpoint standby:", err);
           return null;
@@ -57,7 +60,8 @@ export default function App() {
         fetch("/api/reports").catch(err => {
           console.log("[App Telemetry Info] Reports endpoint standby:", err);
           return null;
-        })
+        }),
+        fetch("/api/local/mode").catch(err => null)
       ]);
 
       if (devRes && devRes.ok) {
@@ -72,6 +76,11 @@ export default function App() {
         const rep = await repRes.json().catch(() => null);
         if (rep) setReports(rep);
       }
+      if (modeRes && modeRes.ok) {
+        const mode = await modeRes.json().catch(() => null);
+        if (mode) setEmsMetadata(mode);
+      }
+
     } catch (err) {
       console.log("[App Telemetry Info] Telemetry gateway offline standby:", err);
     } finally {
@@ -101,11 +110,15 @@ export default function App() {
             </span>
           </div>
           <div className="h-4 w-[1px] bg-prizm-border mx-1 sm:mx-2"></div>
-          <div className="hidden md:flex items-center gap-6 text-[11px] font-mono uppercase tracking-widest text-prizm-text-muted">
-            <span className="text-prizm-success font-bold">● ACTIVE</span>
-            <span>NODE: 192.168.1.1</span>
-            <span>GATEWAY: ON</span>
-            <span className="text-prizm-primary-strong">{devices.filter(d => d.isOnline).length} / {devices.length} NODES LOGGED</span>
+          <div className="hidden md:flex items-center gap-6 text-[11px] font-mono uppercase tracking-widest text-prizm-text-muted cursor-default select-none">
+            {emsMetadata?.activeMode === "live" && <span className="text-emerald-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>}
+            {emsMetadata?.activeMode === "cached" && <span className="text-amber-500 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>CACHED</span>}
+            {emsMetadata?.activeMode === "demo" && <span className="text-prizm-demo font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-demo animate-pulse"></span>DEMO</span>}
+            {emsMetadata?.activeMode === "offline" && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>OFFLINE</span>}
+            
+            <span title={emsMetadata?.activeEmsBaseUrl || "No site linked"} className="truncate max-w-[200px]">NODE: {emsMetadata ? (emsMetadata.activeProfileName || "UNLINKED") : '...'}</span>
+            
+            {emsMetadata?.stationCode && <span>SITE: {emsMetadata.stationCode}</span>}
           </div>
         </div>
 
@@ -191,15 +204,15 @@ export default function App() {
             )}
 
             {activeTab === "ems-health" && (
-              <ToolDashboards />
+              <ToolDashboards initialTab="stats" />
             )}
 
             {activeTab === "arrays-strings" && (
-              <ToolDashboards />
+              <ToolDashboards initialTab="strings" />
             )}
 
             {activeTab === "tool-dashboards" && (
-              <ToolDashboards />
+              <ToolDashboards initialTab="ip-maps" />
             )}
 
             {activeTab === "feather-hvac" && (
@@ -236,13 +249,19 @@ export default function App() {
       <footer className="h-8 bg-prizm-surface-strong border-t border-prizm-border px-4 sm:px-6 flex items-center justify-between text-[9px] font-mono tracking-widest text-prizm-text-muted uppercase shrink-0">
         <div className="flex gap-4 sm:gap-8 items-center">
           <span className="text-prizm-primary font-bold">GreEnergy Prizm</span>
-          <span className="text-prizm-info font-bold hidden sm:inline">● SYSTEM NORMAL</span>
-          <span className="hidden md:inline">PLC LINK: SECURE_OK</span>
-          <span className="hidden lg:inline">GATEWAYS: 12/12 CHANNELS OPEN</span>
+          
+          <span className={`font-bold hidden sm:inline ${emsMetadata?.activeMode === 'offline' ? 'text-prizm-danger' : emsMetadata?.staleData ? 'text-prizm-warning' : 'text-prizm-info'}`}>
+            ● {emsMetadata?.activeMode === 'offline' ? 'OFFLINE' : emsMetadata?.staleData ? 'STALE DATA' : 'SYSTEM NORMAL'}
+          </span>
+          <span className="hidden md:inline truncate max-w-[150px]">
+            LINK: {emsMetadata ? (emsMetadata.activeEmsBaseUrl || 'LOCAL LAN') : 'CHECKING'}
+          </span>
+          <span className="hidden lg:inline text-prizm-text-muted">
+            {emsMetadata?.lastUpdated ? `LAST UPDATED: ${new Date(emsMetadata.lastUpdated).toISOString().replace('T', ' ').slice(0, 19)}` : 'POLLING PENDING...'}
+          </span>
         </div>
         <div className="flex gap-4">
-          <span>VER: 4.3.0-PROD</span>
-          <span className="text-prizm-text-muted">USER: JOHN_WILSON</span>
+          <span>{emsMetadata?.isDemoFallback ? 'VER: 4.3.0-DEMO' : 'VER: 4.3.0-PROD'}</span>
         </div>
       </footer>
 

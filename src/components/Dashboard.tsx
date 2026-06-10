@@ -34,7 +34,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ devices, onTriggerControl, onSelectDevice }: DashboardProps) {
-  const [viewMode, setViewMode] = useState<"kobold" | "legacy">("kobold");
+  const [viewMode, setViewMode] = useState<"local_monitor" | "legacy">("local_monitor");
   const [historyData, setHistoryData] = useState<any[]>([]);
 
   useEffect(() => {
@@ -82,15 +82,15 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
         <div>
           <span className="text-[10px] font-mono text-prizm-primary-strong font-bold block uppercase tracking-wider">Site View Mode Controller</span>
           <h2 className="text-sm font-bold text-prizm-text uppercase tracking-tight">
-            {viewMode === "kobold" ? "Active: Prizm Realtime Site Monitor" : "Active: Grid Fleet Summary Charts"}
+            {viewMode === "local_monitor" ? "Active: Prizm Realtime Site Monitor" : "Active: Grid Fleet Summary Charts"}
           </h2>
         </div>
         <div className="flex gap-1.5 bg-prizm-bg p-1 rounded-md border border-prizm-border font-mono text-[11px]">
           <button
             type="button"
-            onClick={() => setViewMode("kobold")}
+            onClick={() => setViewMode("local_monitor")}
             className={`px-3 py-1 text-[11px] rounded uppercase font-bold transition-all cursor-pointer ${
-              viewMode === "kobold"
+              viewMode === "local_monitor"
                 ? "bg-prizm-info/10 text-prizm-primary border border-prizm-primary/20"
                 : "text-prizm-text-muted hover:text-prizm-text"
             }`}
@@ -111,7 +111,7 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
         </div>
       </div>
 
-      {viewMode === "kobold" ? (
+      {viewMode === "local_monitor" ? (
         <KoboldMonitor initialDevices={devices} />
       ) : (
         <>

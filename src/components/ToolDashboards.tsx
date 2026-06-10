@@ -119,7 +119,7 @@ interface ModbusRegisterRow {
   serverId: number;
 }
 
-export default function ToolDashboards() {
+export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: "stats" | "status-codes" | "strings" | "ip-maps" | "last-call" | "modbus" | "feather" | "locked-controls" }) {
   const [activeSubTab, setActiveSubTab] = useState<
     | "stats"
     | "status-codes"
@@ -129,7 +129,13 @@ export default function ToolDashboards() {
     | "modbus"
     | "feather"
     | "locked-controls"
-  >("stats");
+  >(initialTab);
+
+  // Sync state if initialTab prop changes
+  useEffect(() => {
+    setActiveSubTab(initialTab);
+  }, [initialTab]);
+
 
   // Telemetry metadata and fetch loading states
   const [metadata, setMetadata] = useState<TelemetryMetadata>({
@@ -578,7 +584,7 @@ export default function ToolDashboards() {
                   className={`w-full flex items-center justify-between px-3 py-2 text-[11px] rounded transition-all cursor-pointer ${
                     isActive
                       ? "bg-prizm-info/10 border-l-3 border-prizm-primary text-prizm-primary font-bold"
-                      : "text-prizm-text-muted hover:text-prizm-text hover:bg-white/5"
+                      : "text-prizm-text-muted hover:text-prizm-text hover:bg-black/5"
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -626,7 +632,7 @@ export default function ToolDashboards() {
             type="button"
             onClick={() => handleFetchData()}
             disabled={loading}
-            className="w-full mt-4 flex items-center justify-center gap-2 py-1.5 border border-prizm-border hover:border-prizm-border bg-white/5 hover:bg-white/10 transition rounded text-prizm-text text-[10px] font-bold cursor-pointer"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-1.5 border border-prizm-border hover:border-prizm-border bg-black/5 hover:bg-black/10 transition rounded text-prizm-text text-[10px] font-bold cursor-pointer"
           >
             <RefreshCw size={10} className={loading ? "animate-spin text-prizm-primary" : ""} />
             REFRESH TELEMETRY FEED
@@ -685,7 +691,7 @@ export default function ToolDashboards() {
                     ? `${(statsData.jvmAvailableMemoryBytes / 1024 / 1024).toFixed(1)} MB Free` 
                     : "135.2 MB Available"}
                 </div>
-                <div className="mt-3 bg-white/5 h-1.5 w-full rounded overflow-hidden">
+                <div className="mt-3 bg-black/5 h-1.5 w-full rounded overflow-hidden">
                   <div className="bg-prizm-surface-strong h-full" style={{ width: "68%" }}></div>
                 </div>
                 <span className="text-[9px] text-prizm-text-muted block mt-1">Allocation Limit: 512.0 MB Max</span>
@@ -698,7 +704,7 @@ export default function ToolDashboards() {
                     ? `${(statsData.freeDiskSpaceBytes / 1024 / 1024 / 1024).toFixed(1)} GB Available` 
                     : "14.2 GB Free space"}
                 </div>
-                <div className="mt-3 bg-white/5 h-1.5 w-full rounded overflow-hidden">
+                <div className="mt-3 bg-black/5 h-1.5 w-full rounded overflow-hidden">
                   <div className="bg-cyan-400 h-full" style={{ width: "34%" }}></div>
                 </div>
                 <span className="text-[9px] text-prizm-text-muted block mt-1">Total capacity: 32.0 GB Partition</span>
@@ -815,7 +821,7 @@ export default function ToolDashboards() {
                       const isCritical = row.severity?.toLowerCase() === "critical";
                       const isWarning = row.severity?.toLowerCase() === "warning" || row.severity?.toLowerCase() === "medium";
                       return (
-                        <tr key={idx} className="hover:bg-white/5 font-mono">
+                        <tr key={idx} className="hover:bg-black/5 font-mono">
                           <td className="p-3 font-bold text-prizm-text flex items-center gap-2">
                             <span className={`w-1.5 h-1.5 rounded-full ${isCritical ? "bg-rose-500" : isWarning ? "bg-prizm-warning" : "bg-cyan-500"}`}></span>
                             {row.code}
@@ -889,7 +895,7 @@ export default function ToolDashboards() {
                   setArrayFilter("all");
                   setStateFilter("all");
                 }}
-                className="px-3 py-1 border border-prizm-border hover:bg-white/5 text-prizm-text font-mono text-xs rounded transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-3 py-1 border border-prizm-border hover:bg-black/5 text-prizm-text font-mono text-xs rounded transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw size={11} />
                 Reset Search
@@ -930,7 +936,7 @@ export default function ToolDashboards() {
                         const isFailed = row.connectionState === "FAULTED" || row.outRotation;
                         const isWarn = row.connectionState === "WARNING" || row.warningCount > 0;
                         return (
-                          <tr key={idx} className="hover:bg-white/5 font-mono">
+                          <tr key={idx} className="hover:bg-black/5 font-mono">
                             <td className="p-2.5 font-bold text-prizm-text">{row.stringKey}</td>
                             <td className="p-2.5">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-black ${
@@ -942,7 +948,7 @@ export default function ToolDashboards() {
                             <td className="p-2.5">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-prizm-primary">{row.soc}%</span>
-                                <div className="w-10 bg-white/5 h-1 rounded overflow-hidden">
+                                <div className="w-10 bg-black/5 h-1 rounded overflow-hidden">
                                   <div className="bg-cyan-400 h-full" style={{ width: `${row.soc}%` }}></div>
                                 </div>
                               </div>
@@ -1018,7 +1024,7 @@ export default function ToolDashboards() {
                       row.model.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((row, idx) => (
-                      <div key={idx} className="p-3 hover:bg-white/5 flex justify-between items-center">
+                      <div key={idx} className="p-3 hover:bg-black/5 flex justify-between items-center">
                         <div>
                           <strong className="text-prizm-text block text-xs">{row.target}</strong>
                           <span className="text-prizm-text-muted block text-[9px] mt-0.5">{row.model}</span>
@@ -1044,7 +1050,7 @@ export default function ToolDashboards() {
                       `A${row.array}-S${row.string}`.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((row, idx) => (
-                      <div key={idx} className="p-3 hover:bg-white/5 flex justify-between items-center">
+                      <div key={idx} className="p-3 hover:bg-black/5 flex justify-between items-center">
                         <div>
                           <strong className="text-prizm-text block text-xs">Battery String Channel A{row.array}-S{row.string}</strong>
                           <span className="text-prizm-text-muted block text-[9px] mt-0.5">Physical Stack Ingress Controller Node</span>
@@ -1090,7 +1096,7 @@ export default function ToolDashboards() {
                 <span className="font-bold text-prizm-text uppercase block border-b border-prizm-border pb-2">Active Ingress Subsections</span>
                 
                 <div className="space-y-2">
-                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
+                  <div className="bg-black/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
                       <span className="font-bold text-prizm-text block">Event Log Buffer Summary</span>
                       <span className="text-[9px] text-prizm-text-muted">Contains active severity system errors & telemetry.</span>
@@ -1098,7 +1104,7 @@ export default function ToolDashboards() {
                     <span className="text-prizm-primary font-bold">{lastCallLog?.eventLogEntry ? "14 Records" : "Cached OK"}</span>
                   </div>
 
-                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
+                  <div className="bg-black/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
                       <span className="font-bold text-prizm-text block">Central Site Block Report</span>
                       <span className="text-[9px] text-prizm-text-muted">Total fleet lineup indexes payload.</span>
@@ -1106,7 +1112,7 @@ export default function ToolDashboards() {
                     <span className="text-prizm-primary font-bold">1 Block parsed</span>
                   </div>
 
-                  <div className="bg-white/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
+                  <div className="bg-black/5 px-3 py-2 border border-prizm-border rounded flex justify-between items-center">
                     <div>
                       <span className="font-bold text-prizm-text block">Lineup Array Segments</span>
                       <span className="text-[9px] text-prizm-text-muted">Active string balances and line logs.</span>
@@ -1189,7 +1195,7 @@ export default function ToolDashboards() {
                         return matchesSearch && matchesAccess;
                       })
                       .map((row, idx) => (
-                        <tr key={idx} className="hover:bg-white/5">
+                        <tr key={idx} className="hover:bg-black/5">
                           <td className="p-2.5 text-prizm-text-muted">{row.fieldType}</td>
                           <td className="p-2.5 text-prizm-primary font-bold font-mono">{row.register}</td>
                           <td className="p-2.5 font-semibold text-prizm-text">{row.fieldName}</td>

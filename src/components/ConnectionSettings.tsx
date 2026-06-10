@@ -402,7 +402,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleImportClick}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/5 hover:bg-black/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
           >
             <Upload size={11} />
             Import (.json)
@@ -416,7 +416,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
           />
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/5 hover:bg-black/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
           >
             <Download size={11} />
             Export (.json)
@@ -529,14 +529,14 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                     <div className="flex gap-1">
                       <button
                         onClick={() => handleOpenEditForm(p)}
-                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-2.5 rounded bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Edit config"
                       >
                         <Edit size={10} className="inline mr-1" /> Edit
                       </button>
                       <button
                         onClick={() => handleDuplicate(p)}
-                        className="p-1 px-2.5 rounded bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-2.5 rounded bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Duplicate configuration"
                       >
                         <Copy size={10} className="inline mr-1" /> Dup
@@ -626,7 +626,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                     type="text" 
                     value={formProfile.profileName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, profileName: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text font-bold placeholder-white/10 focus:border-prizm-primary outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text font-bold placeholder-black/20 focus:border-prizm-primary outline-none"
                     placeholder="PRIZM Site Core"
                   />
                 </div>
@@ -637,7 +637,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                     type="text" 
                     value={formProfile.siteName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, siteName: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
                     placeholder="BHE substation site"
                   />
                 </div>
@@ -649,7 +649,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                       type="text" 
                       value={formProfile.stationCode || ""}
                       onChange={e => setFormProfile(prev => ({ ...prev, stationCode: e.target.value }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
                       placeholder="BHE0020"
                     />
                   </div>
@@ -659,7 +659,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                       type="number" 
                       value={formProfile.blockIndex || 1}
                       onChange={e => setFormProfile(prev => ({ ...prev, blockIndex: Number(e.target.value) }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/10 focus:border-prizm-primary outline-none"
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
                       min={1}
                     />
                   </div>
@@ -762,7 +762,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                   <textarea 
                     value={formProfile.notes || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, notes: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text text-xs placeholder-white/10 h-16 focus:border-prizm-primary outline-none"
+                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text text-xs placeholder-black/20 h-16 focus:border-prizm-primary outline-none"
                     placeholder="e.g., Local backup substation configuration"
                   />
                 </div>
@@ -775,7 +775,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
               <button
                 onClick={handleTestInForm}
                 disabled={customTestLoading}
-                className="px-3.5 py-2 text-xs uppercase font-extrabold bg-white/5 hover:bg-white/10 text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1.5"
+                className="px-3.5 py-2 text-xs uppercase font-extrabold bg-black/5 hover:bg-black/10 text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1.5"
               >
                 {customTestLoading ? (
                   <>
@@ -791,7 +791,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-xs uppercase font-bold bg-white/5 hover:bg-white/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border rounded cursor-pointer transition-all"
+                  className="px-4 py-2 text-xs uppercase font-bold bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border rounded cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
