@@ -5,11 +5,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   useEffect(() => {
     let unmounted = false;
     const fetchDetail = async () => {
       try {
-        const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail`);
+        const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail?captureHistory=true`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -28,6 +30,21 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       clearInterval(interval);
     };
   }, [stringData.arrayNumber, stringData.stringNumber]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail?refresh=true&captureHistory=true`);
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (err) {
+      console.error("Failed to refresh detail manually", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (!data && loading) {
     return (
@@ -97,7 +114,14 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             <button onClick={onBack} className="text-prizm-text-muted hover:text-prizm-text flex items-center gap-2 text-xs font-bold transition-colors">
                 <ArrowLeft size={14} /> BACK TO STRINGS
             </button>
-            <div className="text-xs text-prizm-text-muted flex gap-4">
+            <div className="text-xs text-prizm-text-muted flex gap-4 items-center">
+                <button
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshing}
+                    className="flex items-center gap-2 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary font-bold mr-4"
+                >
+                    <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
+                </button>
                 <span>{s.stringControllerIp}</span>
                 <span>FW: {s.stringControllerFirmware || "Unknown"}</span>
             </div>
@@ -185,52 +209,65 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                      )}
                   </div>
                   
-                  {hasVoltageMatrix ? (
+                  {hasVoltageMatrix ? (() => {
+                      const cgCount = bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length || 30;
+                      const bpcList = hasBpcCellGroups ? bpcs : voltageMatrix;
+                      return (
                       <div className="overflow-auto no-scrollbar pb-2 max-h-[400px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none">BPC_IDX</th>
-                                  {Array.from({length: (bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length || 30)}, (_, i) => (
-                                      <th key={i} className="min-w-[36px] w-[36px] p-1 text-center font-normal text-prizm-text-muted select-none">{i+1}</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold">CELL</th>
+                                  {bpcList.map((bpc: any, bpcIdx: number) => (
+                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none">
+                                        B{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                      </th>
                                   ))}
                                </tr>
                             </thead>
                             <tbody>
-                             {hasBpcCellGroups ? bpcs.map((bpc: any, bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">BPC{bpc.bpcNumber ?? (bpcIdx + 1)}</td>
-                                     {bpc.cellGroups.map((cg: any, cIdx: number) => (
-                                         <td key={cIdx} className="p-0.5">
-                                            <div 
-                                              title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.voltage} mV`}
-                                              className={`w-full min-w-[36px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.voltageColor ? '' : getVoltageColor(cg.voltage)}`}
-                                              style={cg.voltageColor ? { backgroundColor: cg.voltageColor, color: '#000', fontWeight: 'bold' } : {}}
-                                            >
-                                                {cg.voltage}
-                                            </div>
-                                         </td>
-                                     ))}
-                                 </tr>
-                             )) : voltageMatrix.map((row: number[], bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">BPC{bpcIdx + 1}</td>
-                                     {row.map((v, cIdx) => (
-                                         <td key={cIdx} className="p-0.5">
-                                           <div 
-                                              title={`Cell ${cIdx + 1}: ${v} mV`}
-                                              className={`w-full min-w-[36px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getVoltageColor(v)}`}
-                                           >
-                                               {v}
-                                           </div>
-                                         </td>
-                                     ))}
+                             {Array.from({ length: cgCount }, (_, cIdx) => (
+                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">
+                                        C{cIdx + 1}
+                                     </td>
+                                     {bpcList.map((bpc: any, bpcIdx: number) => {
+                                         if (hasBpcCellGroups) {
+                                            const cg = bpc.cellGroups[cIdx];
+                                            if (!cg) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            return (
+                                               <td key={bpcIdx} className="p-0.5">
+                                                  <div 
+                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.voltage} mV`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.voltageColor ? '' : getVoltageColor(cg.voltage)}`}
+                                                    style={cg.voltageColor ? { backgroundColor: cg.voltageColor, color: '#000', fontWeight: 'bold' } : {}}
+                                                  >
+                                                      {cg.voltage}
+                                                  </div>
+                                               </td>
+                                            );
+                                         } else {
+                                            const v = bpc[cIdx];
+                                            if (v === undefined) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            return (
+                                               <td key={bpcIdx} className="p-0.5">
+                                                 <div 
+                                                    title={`BPC ${bpcIdx + 1}, Cell ${cIdx + 1}: ${v} mV`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getVoltageColor(v)}`}
+                                                 >
+                                                     {v}
+                                                 </div>
+                                               </td>
+                                            );
+                                         }
+                                     })}
                                  </tr>
                              ))}
                             </tbody>
                          </table>
                       </div>
-                  ) : (
+                      );
+                  })() : (
                       <div className="flex-1 flex items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12">
                           Granular BPC/cell-group matrix data not available from current local EMS source.
                       </div>
@@ -250,52 +287,65 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                      )}
                   </div>
                   
-                  {hasTempMatrix ? (
+                  {hasTempMatrix ? (() => {
+                      const cgCount = bpcs?.[0]?.cellGroups?.length || temperatureMatrix?.[0]?.length || 30;
+                      const bpcList = hasBpcCellGroups ? bpcs : temperatureMatrix;
+                      return (
                       <div className="overflow-auto no-scrollbar pb-2 max-h-[400px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none">BPC_IDX</th>
-                                  {Array.from({length: (bpcs?.[0]?.cellGroups?.length || temperatureMatrix?.[0]?.length || 30)}, (_, i) => (
-                                      <th key={i} className="min-w-[36px] w-[36px] p-1 text-center font-normal text-prizm-text-muted select-none">{i+1}</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold">CELL</th>
+                                  {bpcList.map((bpc: any, bpcIdx: number) => (
+                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none">
+                                        B{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                      </th>
                                   ))}
                                </tr>
                             </thead>
                             <tbody>
-                             {hasBpcCellGroups ? bpcs.map((bpc: any, bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">BPC{bpc.bpcNumber ?? (bpcIdx + 1)}</td>
-                                     {bpc.cellGroups.map((cg: any, cIdx: number) => (
-                                         <td key={cIdx} className="p-0.5">
-                                            <div 
-                                              title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.temperature}°C`}
-                                              className={`w-full min-w-[36px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.temperatureColor ? '' : getTempColor(cg.temperature)}`}
-                                              style={cg.temperatureColor ? { backgroundColor: cg.temperatureColor, color: '#000', fontWeight: 'bold' } : {}}
-                                            >
-                                                {cg.temperature}
-                                            </div>
-                                         </td>
-                                     ))}
-                                 </tr>
-                             )) : temperatureMatrix.map((row: number[], bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">BPC{bpcIdx + 1}</td>
-                                     {row.map((t, cIdx) => (
-                                         <td key={cIdx} className="p-0.5">
-                                           <div 
-                                              title={`Cell ${cIdx + 1}: ${t}°C`}
-                                              className={`w-full min-w-[36px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getTempColor(t)}`}
-                                           >
-                                               {t}
-                                           </div>
-                                         </td>
-                                     ))}
+                             {Array.from({ length: cgCount }, (_, cIdx) => (
+                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none">
+                                        C{cIdx + 1}
+                                     </td>
+                                     {bpcList.map((bpc: any, bpcIdx: number) => {
+                                         if (hasBpcCellGroups) {
+                                            const cg = bpc.cellGroups[cIdx];
+                                            if (!cg) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            return (
+                                               <td key={bpcIdx} className="p-0.5">
+                                                  <div 
+                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)}, CG ${cg.cellGroupNumber ?? (cIdx + 1)}, ${cg.temperature}°C`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${cg.temperatureColor ? '' : getTempColor(cg.temperature)}`}
+                                                    style={cg.temperatureColor ? { backgroundColor: cg.temperatureColor, color: '#000', fontWeight: 'bold' } : {}}
+                                                  >
+                                                      {cg.temperature}
+                                                  </div>
+                                               </td>
+                                            );
+                                         } else {
+                                            const t = bpc[cIdx];
+                                            if (t === undefined) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            return (
+                                               <td key={bpcIdx} className="p-0.5">
+                                                 <div 
+                                                    title={`BPC ${bpcIdx + 1}, Cell ${cIdx + 1}: ${t}°C`}
+                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none ${getTempColor(t)}`}
+                                                 >
+                                                     {t}
+                                                 </div>
+                                               </td>
+                                            );
+                                         }
+                                     })}
                                  </tr>
                              ))}
                             </tbody>
                          </table>
                       </div>
-                  ) : (
+                      );
+                  })() : (
                       <div className="flex-1 flex items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12">
                           Granular BPC/cell-group matrix data not available from current local EMS source.
                       </div>

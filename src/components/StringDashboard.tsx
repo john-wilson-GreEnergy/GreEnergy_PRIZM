@@ -14,11 +14,13 @@ export default function StringDashboard() {
   const [refreshInterval, setRefreshInterval] = useState(5000);
   const [selectedString, setSelectedString] = useState<any | null>(null);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   useEffect(() => {
     let unmounted = false;
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/local/strings/dashboard?refresh=true&enrich=stringviewer&maxAgeMs=${refreshInterval}`);
+        const res = await fetch(`/api/local/strings/dashboard?enrich=stringviewer&maxAgeMs=${refreshInterval}`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -44,6 +46,26 @@ export default function StringDashboard() {
       if (interval) clearInterval(interval);
     };
   }, [refreshInterval, selectedString?.id]);
+
+  const handleManualRefresh = async () => {
+      setIsRefreshing(true);
+      try {
+        const res = await fetch(`/api/local/strings/dashboard?refresh=true&enrich=stringviewer&maxAgeMs=${refreshInterval}`);
+        if (res.ok) {
+          const json = await res.json();
+          setData(json);
+          // Update selected string reference to get fresh data
+          if (selectedString) {
+             const updated = json.strings.find((s:any) => s.id === selectedString.id);
+             if (updated) setSelectedString(updated);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard strings", err);
+      } finally {
+        setIsRefreshing(false);
+      }
+  };
 
   const strings = data?.strings || [];
 
@@ -147,11 +169,25 @@ export default function StringDashboard() {
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[9px] font-bold">
-           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted">
+           <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary mr-2 disabled:opacity-50"
+           >
+              <RefreshCw size={10} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
+           </button>
+           <div className={`p-1.5 border rounded ${
+                !data.sourceOk ? 'bg-prizm-danger/20 border-prizm-danger text-prizm-danger' : 
+                (!data.isCached ? 'bg-prizm-warning/20 border-prizm-warning text-prizm-warning' : 
+                 (data.cacheAgeMs === 0 ? 'bg-prizm-primary/20 border-prizm-primary text-prizm-primary' : 'bg-prizm-surface border-prizm-border text-prizm-text-muted'))
+           }`}>
+                {!data.sourceOk ? 'SOURCE OFFLINE' : (!data.isCached ? `STALE (${data.cacheAgeMs}ms)` : (data.cacheAgeMs <= 100 ? 'LIVE' : `CACHED (${data.cacheAgeMs}ms)`))}
+           </div>
+           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
               SRC: <span className="text-prizm-text">{data.emsBaseUrl}</span>
            </div>
-           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted">
-              AGE: <span className="text-prizm-text">{data.durationMs}ms</span>
+           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
+              LATENCY: <span className="text-prizm-text">{data.durationMs}ms</span>
            </div>
         </div>
       </div>

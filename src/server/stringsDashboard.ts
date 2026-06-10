@@ -12,6 +12,9 @@ import {
 } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
 
+import * as prizmCache from "./cache/prizmCache";
+import * as prizmHistory from "./history/prizmHistory";
+
 const router = Router();
 
 function pN(val: any, def: number | null = null): number | null {
@@ -52,18 +55,22 @@ router.get("/", async (req, res) => {
             await (await import('./emsTurtleClient')).pollEmsTurtle();
         }
 
-        const rawStringsWrapper = getEmsCachedRawStrings();
-        const blockWrapper = getEmsCachedBlock();
-        const stringIpMapWrapper = getEmsStringIpMap();
-        const ipMapWrapper = getEmsIpMap();
-        const lastCallWrapper = getEmsCachedLastCall();
-        const statusWrapper = getEmsCachedStatus();
-        const controllerStatsWrapper = getEmsCachedControllerStatistics();
-        const bessStatusCodesWrapper = getEmsCachedStatusCodes();
-        const debugInfo = getEmsSourcesDebugInfo() || {};
-        
         const profile = ProfileStore.getActiveProfile();
         const baseUrl = profile ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "unknown";
+
+        const cacheKey = `string_dashboard_${req.query.enrich === 'stringviewer' ? 'enriched' : 'base'}_${req.query.array || 'ALL'}`;
+        const maxAgeMs = req.query.maxAgeMs ? parseInt(String(req.query.maxAgeMs), 10) : 5000;
+
+        const fetcher = async () => {
+            const rawStringsWrapper = getEmsCachedRawStrings();
+            const blockWrapper = getEmsCachedBlock();
+            const stringIpMapWrapper = getEmsStringIpMap();
+            const ipMapWrapper = getEmsIpMap();
+            const lastCallWrapper = getEmsCachedLastCall();
+            const statusWrapper = getEmsCachedStatus();
+            const controllerStatsWrapper = getEmsCachedControllerStatistics();
+            const bessStatusCodesWrapper = getEmsCachedStatusCodes();
+            const debugInfo = getEmsSourcesDebugInfo() || {};
 
         const debugInfoArray = Array.isArray(debugInfo) ? debugInfo : [];
         const debugInfoMap: Record<string, any> = {};
@@ -192,19 +199,19 @@ router.get("/", async (req, res) => {
             else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE" || row.StringConnectionState === "OFFLINE") isOnline = false;
             
             const contactorsCloseExpected = parseBoolean(tryGetField(row, normalizedObject, ["contactorscloseexpected", "closeexpected"]));
-            const positiveContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed"]));
-            const negativeContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed"]));
+            const positiveContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "positive_contactor_closed"]));
+            const negativeContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed", "negative_contactor_closed"]));
             const contactorClosed = positiveContactorClosed && negativeContactorClosed;
             const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
             const recloseCount = pN(tryGetField(row, normalizedObject, ["reclosecount"]));
             
-            const outRotation = parseBoolean(tryGetField(row, normalizedObject, ["rotation", "outrotation", "out_rotation"]));
+            const outRotation = parseBoolean(tryGetField(row, normalizedObject, ["outrotation", "out_rotation", "rotation"]));
             const rotationStatus = outRotation ? "OUT" : "IN";
             const rotationEnabled = !outRotation;
 
-            const measuredVoltage = pN(tryGetField(row, normalizedObject, ["voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
-            const calculatedVoltage = pN(tryGetField(row, normalizedObject, ["voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
-            const busVoltage = pN(tryGetField(row, normalizedObject, ["voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
+            const measuredVoltage = pN(tryGetField(row, normalizedObject, ["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
+            const calculatedVoltage = pN(tryGetField(row, normalizedObject, ["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
+            const busVoltage = pN(tryGetField(row, normalizedObject, ["busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
             let voltageDelta = pN(tryGetField(row, normalizedObject, ["voltagedelta", "voltage_delta"]));
             if (voltageDelta === null && measuredVoltage !== null && calculatedVoltage !== null) {
                 voltageDelta = Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2));
@@ -216,19 +223,19 @@ router.get("/", async (req, res) => {
             const ah = pN(tryGetField(row, normalizedObject, ["ah", "capacityah"]));
             const kwh = pN(tryGetField(row, normalizedObject, ["kwh", "powerkwh"]));
 
-            const minCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage", "mincellvoltage"]));
-            const maxCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage", "maxcellvoltage"]));
-            const avgCellVoltage = pN(tryGetField(row, normalizedObject, ["cellgroupvoltageavg", "avgcellgroupvoltage", "avgcellvoltage"]));
+            const minCellVoltage = pN(tryGetField(row, normalizedObject, ["mincellvoltage", "cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage"]));
+            const maxCellVoltage = pN(tryGetField(row, normalizedObject, ["maxcellvoltage", "cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage"]));
+            const avgCellVoltage = pN(tryGetField(row, normalizedObject, ["avgcellvoltage", "cellgroupvoltageavg", "avgcellgroupvoltage"]));
             let cellVoltageDelta = pN(tryGetField(row, normalizedObject, ["cellvoltagedelta", "celldelta"]));
             if (cellVoltageDelta === null && maxCellVoltage !== null && minCellVoltage !== null) {
                 cellVoltageDelta = Number((maxCellVoltage - minCellVoltage).toFixed(3));
             }
 
-            let rawMinT = pN(tryGetField(row, normalizedObject, ["cellgrouptempmin", "celltempmin", "mincellgrouptemp", "mincelltemp", "mincelltemperature"]));
+            let rawMinT = pN(tryGetField(row, normalizedObject, ["mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp"]));
             let minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
-            let rawMaxT = pN(tryGetField(row, normalizedObject, ["cellgrouptempmax", "celltempmax", "maxcellgrouptemp", "maxcelltemp", "maxcelltemperature"]));
+            let rawMaxT = pN(tryGetField(row, normalizedObject, ["maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp"]));
             let maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
-            let rawAvgT = pN(tryGetField(row, normalizedObject, ["cellgrouptempavg", "avgcelltemp", "avgcellgrouptemp", "avgcelltemperature"]));
+            let rawAvgT = pN(tryGetField(row, normalizedObject, ["avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp"]));
             let avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
             let cellTemperatureDelta = pN(tryGetField(row, normalizedObject, ["celltempdelta"]));
             if (cellTemperatureDelta === null && maxCellTemperature !== null && minCellTemperature !== null) {
@@ -462,7 +469,7 @@ router.get("/", async (req, res) => {
             }));
         }
 
-        res.json({
+        return {
             profileId: profile?.id,
             emsBaseUrl: baseUrl,
             generatedAt: new Date().toISOString(),
@@ -473,15 +480,30 @@ router.get("/", async (req, res) => {
             sourceHealth,
             expectedStringCount: strings.length > 0 ? strings.length : 320,
             baseRowCount: strings.length,
+            stringsReturned: strings.length,
             enrichedRowCount: req.query.enrich === 'stringviewer' ? strings.length : 0,
-            rollups: {
-                totalStrings: strings.length,
+            cards: {
+                totalStrings: strings.length > 0 ? strings.length : 320,
                 normal: normalStrings,
                 offline: offlineStrings,
                 warnings: gWarnCount,
                 alarms: gAlarmCount,
-                knownBpcCount,
                 totalBpcs: totalBpcs || knownBpcCount,
+                knownBpcCount,
+                expectedBpcCount: (strings.length > 0 ? strings.length : 320) * 14,
+                fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
+                fleetMaxCellVoltageDelta: gMaxVDelta,
+                fleetAvgCellTemp: gCountT > 0 ? Number((gSumT/gCountT).toFixed(1)) : null,
+                fleetMaxCellTemp: gMaxT
+            },
+            rollups: {
+                totalStrings: strings.length > 0 ? strings.length : 320,
+                normal: normalStrings,
+                offline: offlineStrings,
+                warnings: gWarnCount,
+                alarms: gAlarmCount,
+                totalBpcs: totalBpcs || knownBpcCount,
+                knownBpcCount,
                 expectedBpcCount: (strings.length > 0 ? strings.length : 320) * 14,
                 fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
                 fleetMaxCellVoltageDelta: gMaxVDelta,
@@ -507,7 +529,53 @@ router.get("/", async (req, res) => {
             },
             arrays: [], // Could aggregate array level logic here if needed
             strings
+        };
+        }; // end fetcher function
+        
+        const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
+            ttlMs: maxAgeMs,
+            sourceUrl: '/api/local/strings/dashboard',
+            profileId: profile?.id,
+            emsBaseUrl: baseUrl,
+            forceRefresh: req.query.refresh === 'true',
+            persist: true
         });
+
+        // Hysteresis / History tracking
+        if (cacheEntry.data && cacheEntry.data.strings) {
+            const hMetrics: any[] = [];
+            const timestampUtc = new Date().toISOString();
+            cacheEntry.data.strings.forEach((s:any) => {
+                 hMetrics.push({
+                      timestampUtc,
+                      profileId: profile?.id,
+                      source: "dashboard_strings_matrix",
+                      entityType: "string",
+                      entityKey: s.id,
+                      metricName: "voltage",
+                      metricValue: s.measuredVoltage,
+                      quality: cacheEntry.isLive ? "live" : "cached",
+                      arrayNumber: s.arrayNumber,
+                      stringNumber: s.stringNumber
+                 });
+                 hMetrics.push({
+                      timestampUtc,
+                      profileId: profile?.id,
+                      source: "dashboard_strings_matrix",
+                      entityType: "string",
+                      entityKey: s.id,
+                      metricName: "temperature",
+                      metricValue: s.maxCellTemperature,
+                      quality: cacheEntry.isLive ? "live" : "cached",
+                      arrayNumber: s.arrayNumber,
+                      stringNumber: s.stringNumber
+                 });
+            });
+            prizmHistory.appendSamples(hMetrics);
+        }
+
+        res.json({ ...cacheEntry.data, cacheAgeMs: cacheEntry.ageMs, isCached: cacheEntry.isLive, sourceOk: cacheEntry.sourceOk });
+
     } catch (e: any) {
         res.status(500).json({ error: e.message || "Failed to process strings dashboard" });
     }
@@ -521,6 +589,11 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         
         if (!profile) return res.status(400).json({ error: "No active profile" });
         const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
+
+        const cacheKey = `string_detail_${arrayNumber}_${stringNumber}`;
+        const maxAgeMs = req.query.maxAgeMs ? parseInt(String(req.query.maxAgeMs), 10) : 5000;
+
+        const fetcher = async () => {
 
         const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
         const startTime = Date.now();
@@ -752,7 +825,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             }
         }
 
-        res.json({
+        return {
             profileId: profile.id,
             emsBaseUrl: baseUrl,
             stationCode: "BHE",
@@ -769,7 +842,48 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             notifications,
             eventLogs,
             sourceViewerUsed: !!stringViewerData
+        };
+        }; // end fetcher function
+
+        const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
+            ttlMs: maxAgeMs,
+            sourceUrl: `/api/local/strings/dashboard/${arrayNumber}/${stringNumber}/detail`,
+            profileId: profile.id,
+            emsBaseUrl: baseUrl,
+            forceRefresh: req.query.refresh === 'true',
+            persist: true
         });
+
+        // Hysteresis / History tracking
+        if (cacheEntry.data && cacheEntry.data.bpcs && !!req.query.captureHistory) {
+             const hMetrics: any[] = [];
+             const timestampUtc = new Date().toISOString();
+             cacheEntry.data.bpcs.forEach((b:any, i:number) => {
+                  let maxV = 0, minV = 9999;
+                  if (b.cellGroups && b.cellGroups.length > 0) {
+                      b.cellGroups.forEach((cg:any) => {
+                          if (cg.voltage > maxV) maxV = cg.voltage;
+                          if (cg.voltage < minV && cg.voltage > 0) minV = cg.voltage;
+                      });
+                  }
+                  hMetrics.push({
+                      timestampUtc,
+                      profileId: profile?.id,
+                      source: "string_detail_bpcs",
+                      entityType: "bpc",
+                      entityKey: `BPC_${cacheEntry.data.arrayNumber}_${cacheEntry.data.stringNumber}_${b.bpcNumber ?? (i+1)}`,
+                      metricName: "maxVoltage",
+                      metricValue: maxV,
+                      quality: cacheEntry.isLive ? "live" : "cached",
+                      arrayNumber: cacheEntry.data.arrayNumber,
+                      stringNumber: cacheEntry.data.stringNumber,
+                      bpcNumber: b.bpcNumber ?? (i+1)
+                  });
+             });
+             prizmHistory.appendSamples(hMetrics);
+        }
+
+        res.json({ ...cacheEntry.data, cacheAgeMs: cacheEntry.ageMs, isCached: cacheEntry.isLive, sourceOk: cacheEntry.sourceOk });
     } catch(err) {
         res.status(500).json({ error: (err as any).message });
     }
