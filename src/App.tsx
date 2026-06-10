@@ -15,7 +15,8 @@ import {
   Lock
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
-import Dashboard from "./components/Dashboard";
+import SiteTelemetryDashboard from "./components/SiteTelemetryDashboard";
+import SiteStringsDashboard from "./components/SiteStringsDashboard";
 import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
 import ToolDashboards from "./components/ToolDashboards";
@@ -196,11 +197,7 @@ export default function App() {
         ) : (
           <div className="animate-fade-in duration-300 h-full">
             {activeTab === "overview" && (
-              <Dashboard 
-                devices={devices} 
-                onTriggerControl={() => {}}
-                onSelectDevice={() => setActiveTab("tool-dashboards")}
-              />
+              <SiteTelemetryDashboard />
             )}
 
             {activeTab === "ems-health" && (
@@ -208,7 +205,7 @@ export default function App() {
             )}
 
             {activeTab === "arrays-strings" && (
-              <ToolDashboards initialTab="strings" />
+              <SiteStringsDashboard />
             )}
 
             {activeTab === "tool-dashboards" && (

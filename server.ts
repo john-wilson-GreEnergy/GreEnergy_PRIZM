@@ -1,4 +1,7 @@
+
+import { emsCache } from "./src/server/emsTurtleClient";
 import express from "express";
+import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
 import path from "path";
 import fs from "fs";
 import net from "net";
@@ -43,9 +46,9 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-const DEVICES_FILE = path.join(DATA_DIR, "bess_devices.json");
-const LOGS_FILE = path.join(DATA_DIR, "bess_logs.json");
-const REPORTS_FILE = path.join(DATA_DIR, "bess_reports.json");
+
+
+
 
 // Helper file persistence
 function readJSONFile<T>(filePath: string, defaultValue: T): T {
@@ -223,14 +226,14 @@ const initialReports: ReportConfig[] = [
 ];
 
 // Load collections from files or write seeds
-let devices = readJSONFile<BessDevice[]>(DEVICES_FILE, initialDevices);
-if (!fs.existsSync(DEVICES_FILE)) writeJSONFile(DEVICES_FILE, devices);
 
-let logs = readJSONFile<BessLog[]>(LOGS_FILE, initialLogs);
-if (!fs.existsSync(LOGS_FILE)) writeJSONFile(LOGS_FILE, logs);
 
-let reports = readJSONFile<ReportConfig[]>(REPORTS_FILE, initialReports);
-if (!fs.existsSync(REPORTS_FILE)) writeJSONFile(REPORTS_FILE, reports);
+
+
+
+
+
+
 
 // Mock curl transaction recorder to show developers what commands are mapped under the hood
 interface CurlLog {
@@ -559,7 +562,7 @@ setInterval(async () => {
           };
           logs.unshift(logMsg);
           if (logs.length > 200) logs.pop();
-          writeJSONFile(LOGS_FILE, logs);
+          
         }
 
         changed = true;
@@ -602,7 +605,7 @@ setInterval(async () => {
         };
         logs.unshift(logMsg);
         if (logs.length > 200) logs.pop();
-        writeJSONFile(LOGS_FILE, logs);
+        
       }
     } else if (dev.status === "Discharging") {
       const dischargedKwh = Math.abs(power) * (3 / 3600);
@@ -627,7 +630,7 @@ setInterval(async () => {
         };
         logs.unshift(logMsg);
         if (logs.length > 200) logs.pop();
-        writeJSONFile(LOGS_FILE, logs);
+        
       }
     } else if (dev.status === "Idle") {
       if (temperature > 23.5) {
@@ -668,7 +671,7 @@ setInterval(async () => {
   devices = polledDevices;
 
   if (changed) {
-    writeJSONFile(DEVICES_FILE, devices);
+    
   }
   
   if (typeof generateTelemetryPacket === "function") {
@@ -681,6 +684,7 @@ setInterval(async () => {
 const emsPollInterval = Number(process.env.EMS_POLL_INTERVAL_MS) || 3000;
 setInterval(async () => {
   await pollEmsTurtle();
+  recordTelemetrySample(emsCache, getFeatherCache());
 }, emsPollInterval);
 
 // Kick off initial poll immediately on server start
@@ -694,6 +698,15 @@ app.get("/api/local/connection", (req, res) => {
 });
 
 // 2. GET /api/local/status: Proxy to ems/status.json
+
+app.get("/api/local/site-metrics", (req, res) => {
+  res.json(getLatestSiteMetrics() || { error: "No metrics available yet" });
+});
+
+app.get("/api/local/site-metrics/history", (req, res) => {
+  res.json(getSiteTelemetryHistory());
+});
+
 app.get("/api/local/status", (req, res) => {
   res.json(getEmsCachedStatus());
 });
@@ -724,32 +737,119 @@ app.get("/api/local/arrays", (req, res) => {
   });
 });
 
+
+// Optional Helper for safely parsing numbers
+function pN(val: any, def: number | null = null): number | null {
+  if (val === undefined || val === null || val === "") return def;
+  const n = Number(val);
+  return isNaN(n) ? def : n;
+}
+
 // 5. GET /api/local/strings: Derived from tools/report/ems/strings.csv or fallback to blockviewer
 app.get("/api/local/strings", (req, res) => {
-  const rawStrings = getEmsCachedRawStrings();
-  if (rawStrings.data && rawStrings.data.length > 0) {
-    res.json(rawStrings);
+  const rawStringsWrapper = getEmsCachedRawStrings();
+  const blockWrapper = getEmsCachedBlock();
+  const ipMapWrapper = getEmsStringIpMap();
+  
+  let rawData = [];
+  let metaWrapper = rawStringsWrapper;
+  if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
+    rawData = rawStringsWrapper.data;
   } else {
-    // Fallback/derive from blockviewer
-    const block = getEmsCachedBlock();
-    res.json({
-      source: block.source,
-      staleData: block.staleData,
-      lastUpdated: block.lastUpdated,
-      activeEmsBaseUrl: block.activeEmsBaseUrl,
-      activeProfileName: block.activeProfileName,
-      activeProfileId: block.activeProfileId,
-      stationCode: block.stationCode,
-      blockIndex: block.blockIndex,
-      lastError: block.lastError,
-      cacheProfileId: block.cacheProfileId,
-      cacheEmsBaseUrl: block.cacheEmsBaseUrl,
-      cacheCreatedAt: block.cacheCreatedAt,
-      cacheLastUpdatedAt: block.cacheLastUpdatedAt,
-      data: block.data?.strings || []
-    });
+    rawData = blockWrapper.data?.strings || [];
+    metaWrapper = blockWrapper;
   }
+  
+  let ipMap: any[] = [];
+  if (ipMapWrapper && Array.isArray(ipMapWrapper.data)) {
+    ipMap = ipMapWrapper.data;
+  }
+
+  const normalizedRows = rawData.map((row: any) => {
+    const arrayIndex = pN(row.arrayIndex || row.array, 1)!;
+    const stringIndex = pN(row.stringIndex || row.string, 1)!;
+    const stringKey = `A${arrayIndex}-S${stringIndex}`;
+    
+    // Look up ipMap
+    const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
+
+    let connectionState = row.connectionState || row.contact || row.communicating;
+    if (connectionState === true || connectionState === "true") connectionState = "Online";
+    else if (connectionState === false || connectionState === "false") connectionState = "Offline";
+    else if (!connectionState) connectionState = "Unknown";
+    else connectionState = String(connectionState);
+
+    const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? (connectionState === "Online"));
+    const positiveContactorClosed = Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? (connectionState === "Online"));
+    const negativeContactorClosed = Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? (connectionState === "Online"));
+    
+    const contactorMismatch = (contactorsCloseExpected !== positiveContactorClosed) || (contactorsCloseExpected !== negativeContactorClosed);
+
+    const maxT = pN(row.cellGroupTempMax || row.cellTempMax);
+    const minT = pN(row.cellGroupTempMin || row.cellTempMin);
+    const maxV = pN(row.cellGroupVoltageMax || row.cellVoltsMax || row.maxCellVoltage);
+    const minV = pN(row.cellGroupVoltageMin || row.cellVoltsMin || row.minCellVoltage);
+
+    return {
+      arrayIndex,
+      stringIndex,
+      stringKey,
+      timestamp: row.timestamp || metaWrapper.lastUpdated || new Date().toISOString(),
+      datetime: row.datetime || "",
+      connectionState,
+      soc: pN(row.soc || row.powerSoc),
+      kw: pN(row.kw || row.powerkW || row.measuredKw),
+      kwh: pN(row.kwh || row.powerKwh),
+      ah: pN(row.ah),
+      calculatedVoltage: pN(row.voltageCalculated || row.voltageCalc),
+      measuredVoltage: pN(row.voltageMeasured || row.voltageMeas),
+      dcBusVoltage: pN(row.voltageDcBus || row.voltageBus),
+      stringCurrent: pN(row.current || row.stringCurrent),
+      ctCurrent1: pN(row.ctCurrent1),
+      ctCurrent2: pN(row.ctCurrent2),
+      contactorsCloseExpected,
+      positiveContactorClosed,
+      negativeContactorClosed,
+      contactorMismatch,
+      recloseCount: pN(row.recloseCount, 0),
+      outRotation: Boolean(row.out_rotation ?? row.outRotation ?? (row.rotation === "fault" || row.outOfRotation)),
+      maxCellTemp: maxT,
+      minCellTemp: minT,
+      avgCellTemp: pN(row.cellGroupTempAvg || row.avgCellTemp),
+      tempDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
+      maxCellVoltage: maxV,
+      minCellVoltage: minV,
+      avgCellVoltage: pN(row.cellGroupVoltageAvg || row.avgCellVoltage),
+      voltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
+      alarmCount: pN(row.alarmCount || row.alarms, 0),
+      alarms: row.alarmsList || [],
+      warnCount: pN(row.warningCount || row.warnings, 0),
+      warns: row.warningsList || [],
+      lastFanCommand: row.lastFanCommand || row.fanStatus || "Unknown",
+      location: row.location || `R${arrayIndex}-Rack${stringIndex}`,
+      ipAddress: row.ipAddress || ipInfo?.ip || "Unknown",
+      entityToken: row.entityToken || ipInfo?.token || "N/A"
+    };
+  });
+
+  res.json({
+    source: metaWrapper.source,
+    staleData: metaWrapper.staleData,
+    lastUpdated: metaWrapper.lastUpdated,
+    activeEmsBaseUrl: metaWrapper.activeEmsBaseUrl,
+    activeProfileName: metaWrapper.activeProfileName,
+    activeProfileId: metaWrapper.activeProfileId,
+    stationCode: metaWrapper.stationCode,
+    blockIndex: metaWrapper.blockIndex,
+    lastError: metaWrapper.lastError,
+    cacheProfileId: metaWrapper.cacheProfileId,
+    cacheEmsBaseUrl: metaWrapper.cacheEmsBaseUrl,
+    cacheCreatedAt: metaWrapper.cacheCreatedAt,
+    cacheLastUpdatedAt: metaWrapper.cacheLastUpdatedAt,
+    data: normalizedRows
+  });
 });
+
 
 // 6. GET /api/local/pcses: Derived from blockviewer arrays/pcs data
 app.get("/api/local/pcses", (req, res) => {
@@ -806,6 +906,205 @@ app.get("/api/local/first-responder", (req, res) => {
 });
 
 // 9. GET /api/local/status-codes: Use /tools/report/ems/bessStatusCodes.json
+
+// Optional Helper for safely parsing numbers
+// (Ensure we don't declare pN again if it already exists, let's just make it local)
+app.get("/api/local/strings/:arrayIndex/:stringIndex/detail", (req, res) => {
+  function getNum(val: any, def: number | null = null): number | null {
+    if (val === undefined || val === null || val === "") return def;
+    const n = Number(val);
+    return isNaN(n) ? def : n;
+  }
+
+  const arrayIndex = getNum(req.params.arrayIndex);
+  const stringIndex = getNum(req.params.stringIndex);
+
+  const rawStringsWrapper = getEmsCachedRawStrings();
+  const blockWrapper = getEmsCachedBlock();
+  const ipMapWrapper = getEmsStringIpMap();
+  const lastCallWrapper = getEmsCachedLastCall();
+
+  let metaWrapper = rawStringsWrapper;
+
+  // 1. Find summary row
+  let rawData: any[] = [];
+  if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
+    rawData = rawStringsWrapper.data;
+  } else {
+    rawData = blockWrapper.data?.strings || [];
+    if (rawData.length > 0) {
+      metaWrapper = blockWrapper;
+    }
+  }
+
+  // Find exact string
+  const stringSummaryMatches = rawData.filter((row: any) => 
+     getNum(row.arrayIndex || row.array) === arrayIndex &&
+     getNum(row.stringIndex || row.string) === stringIndex
+  );
+  let summary = stringSummaryMatches.length > 0 ? stringSummaryMatches[0] : null;
+
+  // Enhance summary like the /api/local/strings route
+  if (summary) {
+    let ipMap: any[] = [];
+    if (ipMapWrapper && Array.isArray(ipMapWrapper.data)) {
+      ipMap = ipMapWrapper.data;
+    }
+    const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
+
+    let connectionState = summary.connectionState || summary.contact || summary.communicating;
+    if (connectionState === true || connectionState === "true") connectionState = "Online";
+    else if (connectionState === false || connectionState === "false") connectionState = "Offline";
+    else if (!connectionState) connectionState = "Unknown";
+    else connectionState = String(connectionState);
+
+    const contactorsCloseExpected = Boolean(summary.contact_close_expected ?? summary.contactCloseExpected ?? (connectionState === "Online"));
+    const positiveContactorClosed = Boolean(summary.positive_contactor_closed ?? summary.positiveContactorClosed ?? (connectionState === "Online"));
+    const negativeContactorClosed = Boolean(summary.negative_contactor_closed ?? summary.negativeContactorClosed ?? (connectionState === "Online"));
+    
+    const contactorMismatch = (contactorsCloseExpected !== positiveContactorClosed) || (contactorsCloseExpected !== negativeContactorClosed);
+
+    const maxT = getNum(summary.cellGroupTempMax || summary.cellTempMax);
+    const minT = getNum(summary.cellGroupTempMin || summary.cellTempMin);
+    const maxV = getNum(summary.cellGroupVoltageMax || summary.cellVoltsMax || summary.maxCellVoltage);
+    const minV = getNum(summary.cellGroupVoltageMin || summary.cellVoltsMin || summary.minCellVoltage);
+
+    summary = {
+      arrayIndex,
+      stringIndex,
+      stringKey: `A${arrayIndex}-S${stringIndex}`,
+      timestamp: summary.timestamp || metaWrapper.lastUpdated || new Date().toISOString(),
+      datetime: summary.datetime || "",
+      connectionState,
+      soc: getNum(summary.soc || summary.powerSoc),
+      kw: getNum(summary.kw || summary.powerkW || summary.measuredKw),
+      kwh: getNum(summary.kwh || summary.powerKwh),
+      ah: getNum(summary.ah),
+      calculatedVoltage: getNum(summary.voltageCalculated || summary.voltageCalc),
+      measuredVoltage: getNum(summary.voltageMeasured || summary.voltageMeas),
+      dcBusVoltage: getNum(summary.voltageDcBus || summary.voltageBus),
+      stringCurrent: getNum(summary.current || summary.stringCurrent),
+      ctCurrent1: getNum(summary.ctCurrent1),
+      ctCurrent2: getNum(summary.ctCurrent2),
+      contactorsCloseExpected,
+      positiveContactorClosed,
+      negativeContactorClosed,
+      contactorMismatch,
+      recloseCount: getNum(summary.recloseCount, 0),
+      outRotation: Boolean(summary.out_rotation ?? summary.outRotation ?? (summary.rotation === "fault" || summary.outOfRotation)),
+      maxCellTemp: maxT,
+      minCellTemp: minT,
+      avgCellTemp: getNum(summary.cellGroupTempAvg || summary.avgCellTemp),
+      tempDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
+      maxCellVoltage: maxV,
+      minCellVoltage: minV,
+      avgCellVoltage: getNum(summary.cellGroupVoltageAvg || summary.avgCellVoltage),
+      voltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
+      alarmCount: getNum(summary.alarmCount || summary.alarms, 0),
+      alarms: summary.alarmsList || [],
+      warnCount: getNum(summary.warningCount || summary.warnings, 0),
+      warns: summary.warningsList || [],
+      lastFanCommand: summary.lastFanCommand || summary.fanStatus || "Unknown",
+      location: summary.location || `R${arrayIndex}-Rack${stringIndex}`,
+      ipAddress: summary.ipAddress || ipInfo?.ip || "Unknown",
+      entityToken: summary.entityToken || ipInfo?.token || "N/A"
+    };
+  }
+
+  // 2. Explore deeper data from blockviewer or lastCall
+  // Because we don't know the precise shape of lastCall or blockviewer trees for Turtle EMS,
+  // we will try some intuitive paths: block.data.arrays[arrayIndex].strings[stringIndex] etc.
+  let stringBlockDetail: any = null;
+  if (blockWrapper.data && Array.isArray(blockWrapper.data)) {
+    // If it's an array of strings directly
+    const possibleStr = blockWrapper.data.find((s: any) => getNum(s.array) === arrayIndex && getNum(s.string) === stringIndex);
+    if (possibleStr) stringBlockDetail = possibleStr;
+  } else if (blockWrapper.data && blockWrapper.data.arrays) {
+    const arr = blockWrapper.data.arrays.find((a: any) => getNum(a.index) === arrayIndex || getNum(a.arrayIndex) === arrayIndex);
+    if (arr && arr.strings) {
+      stringBlockDetail = arr.strings.find((s: any) => getNum(s.index) === stringIndex || getNum(s.stringIndex) === stringIndex);
+    }
+  }
+
+  let stringLastCallDetail: any = null;
+  if (lastCallWrapper.data && Array.isArray(lastCallWrapper.data.strings)) {
+     stringLastCallDetail = lastCallWrapper.data.strings.find((s: any) => getNum(s.array) === arrayIndex && getNum(s.string) === stringIndex);
+  }
+
+  // 3. Normalization for UI Matrices
+  // Merge detail from block or lastCall
+  const detailSource = stringLastCallDetail || stringBlockDetail || {};
+
+  // Extract cellVoltageMatrix and cellTemperatureMatrix
+  // They might be arrays of arrays: [[v1, v2..], [v1, v2..]] or flattened arrays, or objects
+  let voltageMatrix: any[] = [];
+  let temperatureMatrix: any[] = [];
+  let notificationMatrix: any[] = [];
+  let balancingDetails: any[] = [];
+  let notifications: any[] = [];
+  let eventLogs: any[] = [];
+
+  // Very defensive parsing for voltage
+  if (detailSource.cellVoltages) {
+      // Assuming arrays of packs -> arrays of cells
+      if (Array.isArray(detailSource.cellVoltages)) {
+          voltageMatrix = detailSource.cellVoltages;
+      }
+  } else if (detailSource.packs) {
+      // iterate packs
+      if (Array.isArray(detailSource.packs)) {
+          voltageMatrix = detailSource.packs.map((p: any) => p.cellVoltages || p.voltages || []);
+          temperatureMatrix = detailSource.packs.map((p: any) => p.cellTemperatures || p.temperatures || p.temps || []);
+          notificationMatrix = detailSource.packs.map((p: any) => p.notifications || p.cgStatus || []);
+      }
+  }
+
+  // Balancing details
+  if (detailSource.balancing || detailSource.balanceDetails) {
+     balancingDetails = Array.isArray(detailSource.balancing || detailSource.balanceDetails) 
+        ? (detailSource.balancing || detailSource.balanceDetails)
+        : [];
+  }
+
+  // General string notifications
+  if (detailSource.notifications || detailSource.alarmsList || summary?.alarms || summary?.warns) {
+     notifications = [
+         ...(summary?.alarms || []).map((a: any) => ({ code: "ALARM", message: String(a), timestamp: new Date().toISOString() })),
+         ...(summary?.warns || []).map((w: any) => ({ code: "WARNING", message: String(w), timestamp: new Date().toISOString() })),
+         ...(Array.isArray(detailSource.notifications) ? detailSource.notifications : [])
+     ];
+  }
+
+  if (detailSource.events || detailSource.eventLogs) {
+     eventLogs = Array.isArray(detailSource.events || detailSource.eventLogs) ? (detailSource.events || detailSource.eventLogs) : [];
+  }
+
+  res.json({
+    source: metaWrapper.source,
+    staleData: metaWrapper.staleData,
+    lastUpdated: metaWrapper.lastUpdated,
+    activeEmsBaseUrl: metaWrapper.activeEmsBaseUrl,
+    activeProfileName: metaWrapper.activeProfileName,
+    activeProfileId: metaWrapper.activeProfileId,
+    stationCode: metaWrapper.stationCode,
+    blockIndex: metaWrapper.blockIndex,
+    arrayIndex,
+    stringIndex,
+    summary,
+    voltageMatrix,
+    temperatureMatrix,
+    notificationMatrix,
+    balancingDetails,
+    notifications,
+    eventLogs,
+    debug: {
+      block: stringBlockDetail,
+      lastCall: stringLastCallDetail
+    }
+  });
+});
+
+
 app.get("/api/local/status-codes", (req, res) => {
   res.json(getEmsCachedStatusCodes());
 });
@@ -1255,295 +1554,7 @@ app.post("/api/feather/clear-cache", (req, res) => {
   }
 });
 
-// API: List BESS devices
-app.get("/api/devices", (req, res) => {
-  res.json(devices);
-});
 
-// API: Get BESS device
-app.get("/api/devices/:id", (req, res) => {
-  const dev = devices.find((d) => d.id === req.params.id);
-  if (!dev) return res.status(404).json({ error: "Device not found" });
-  res.json(dev);
-});
-
-// API: Add device manually
-app.post("/api/devices", (req, res) => {
-  const { 
-    name, ipAddress, port, model, capacityKwh,
-    isRealtimeEnabled, modbusUnitId, socReg, sohReg, voltageReg, currentReg, powerReg, tempReg, frequencyReg
-  } = req.body;
-  if (!name || !ipAddress || !model || !capacityKwh) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
-  const newDevice: BessDevice = {
-    id: "bess-" + Math.random().toString(36).substring(2, 9),
-    name,
-    ipAddress,
-    port: port || 502,
-    model,
-    status: "Idle",
-    soc: 50.0,
-    soh: 100.0,
-    voltage: 450.0,
-    current: 0.0,
-    frequency: 60.00,
-    temperature: 23.0,
-    power: 0.0,
-    capacityKwh: Number(capacityKwh),
-    cycleCount: 0,
-    lastPing: new Date().toISOString(),
-    isOnline: true,
-    firmwareVersion: "v1.0.0",
-    lastError: null,
-    cellVoltages: Array(16).fill(3.25),
-
-    // Real-time Modbus parameter configs if provided
-    isRealtimeEnabled: isRealtimeEnabled !== undefined ? Boolean(isRealtimeEnabled) : false,
-    modbusUnitId: modbusUnitId !== undefined ? Number(modbusUnitId) : 1,
-    socReg: socReg !== undefined ? Number(socReg) : 658,
-    sohReg: sohReg !== undefined ? Number(sohReg) : 660,
-    voltageReg: voltageReg !== undefined ? Number(voltageReg) : 80,
-    currentReg: currentReg !== undefined ? Number(currentReg) : 691,
-    powerReg: powerReg !== undefined ? Number(powerReg) : 84,
-    tempReg: tempReg !== undefined ? Number(tempReg) : 103,
-    frequencyReg: frequencyReg !== undefined ? Number(frequencyReg) : 86,
-    pollStatus: isRealtimeEnabled ? "disconnected" : undefined
-  };
-
-  devices.push(newDevice);
-  writeJSONFile(DEVICES_FILE, devices);
-
-  const newLog: BessLog = {
-    id: "log-" + Math.random().toString(36).substring(2, 9),
-    deviceId: newDevice.id,
-    deviceName: newDevice.name,
-    timestamp: new Date().toISOString(),
-    level: "INFO",
-    message: `New manual BESS added: ${name} [${ipAddress}:${newDevice.port}]`,
-    code: "DEVICE_REGISTERED"
-  };
-  logs.unshift(newLog);
-  writeJSONFile(LOGS_FILE, logs);
-
-  recordCurl(newDevice, "status", "GET", "Fetch device initial status register", null, 200, JSON.stringify({ status: "Success", details: newDevice }));
-
-  res.status(201).json(newDevice);
-});
-
-// API: Edit IP / Port / Name / Modbus Config
-app.put("/api/devices/:id", (req, res) => {
-  const { 
-    name, ipAddress, port, model, capacityKwh, status, soh, cycleCount,
-    isRealtimeEnabled, modbusUnitId, socReg, sohReg, voltageReg, currentReg, powerReg, tempReg, frequencyReg
-  } = req.body;
-  const idx = devices.findIndex((d) => d.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Device not found" });
-
-  devices[idx] = {
-    ...devices[idx],
-    name: name !== undefined ? name : devices[idx].name,
-    ipAddress: ipAddress !== undefined ? ipAddress : devices[idx].ipAddress,
-    port: port !== undefined ? Number(port) : devices[idx].port,
-    model: model !== undefined ? model : devices[idx].model,
-    capacityKwh: capacityKwh !== undefined ? Number(capacityKwh) : devices[idx].capacityKwh,
-    status: status !== undefined ? status : devices[idx].status,
-    soh: soh !== undefined ? Number(soh) : devices[idx].soh,
-    cycleCount: cycleCount !== undefined ? Number(cycleCount) : devices[idx].cycleCount,
-    
-    // Modbus dynamic parameters
-    isRealtimeEnabled: isRealtimeEnabled !== undefined ? Boolean(isRealtimeEnabled) : devices[idx].isRealtimeEnabled,
-    modbusUnitId: modbusUnitId !== undefined ? Number(modbusUnitId) : devices[idx].modbusUnitId,
-    socReg: socReg !== undefined ? Number(socReg) : devices[idx].socReg,
-    sohReg: sohReg !== undefined ? Number(sohReg) : devices[idx].sohReg,
-    voltageReg: voltageReg !== undefined ? Number(voltageReg) : devices[idx].voltageReg,
-    currentReg: currentReg !== undefined ? Number(currentReg) : devices[idx].currentReg,
-    powerReg: powerReg !== undefined ? Number(powerReg) : devices[idx].powerReg,
-    tempReg: tempReg !== undefined ? Number(tempReg) : devices[idx].tempReg,
-    frequencyReg: frequencyReg !== undefined ? Number(frequencyReg) : devices[idx].frequencyReg,
-  };
-
-  // If modbus was just toggled on, clear existing polling_error to force retry
-  if (isRealtimeEnabled === true) {
-    devices[idx].pollStatus = "disconnected";
-    devices[idx].errorLog = null;
-  }
-
-  writeJSONFile(DEVICES_FILE, devices);
-  res.json(devices[idx]);
-});
-
-// API: Delete device
-app.delete("/api/devices/:id", (req, res) => {
-  const index = devices.findIndex((d) => d.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: "Device not found" });
-
-  const deleted = devices[index];
-  devices.splice(index, 1);
-  writeJSONFile(DEVICES_FILE, devices);
-
-  const logMsg: BessLog = {
-    id: "log-" + Math.random().toString(36).substring(2, 9),
-    deviceId: deleted.id,
-    deviceName: deleted.name,
-    timestamp: new Date().toISOString(),
-    level: "INFO",
-    message: `BESS connection removed: ${deleted.name} (${deleted.ipAddress})`,
-    code: "DEVICE_REMOVED"
-  };
-  logs.unshift(logMsg);
-  writeJSONFile(LOGS_FILE, logs);
-
-  res.json({ success: true, id: req.params.id });
-});
-
-// API: Device controller command routing
-app.post("/api/devices/:id/control", (req, res) => {
-  const dev = devices.find((d) => d.id === req.params.id);
-  if (!dev) return res.status(404).json({ error: "Device not found" });
-
-  const { command, value } = req.body; // value can be kW target, etc.
-  if (!command) return res.status(400).json({ error: "Missing command parameter" });
-
-  let responsePayload = { status: "success", detail: "" };
-
-  if (command === "charge") {
-    const rate = Math.min(250, Number(value || 100)); // Charge rate up to 250kW
-    dev.status = "Charging";
-    dev.power = rate;
-    responsePayload.detail = `Grid charging set to target rate of ${rate} kW.`;
-    
-    const newLog: BessLog = {
-      id: "log-" + Math.random().toString(36).substring(2, 9),
-      deviceId: dev.id,
-      deviceName: dev.name,
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      message: `Direct Charge Target instruction sent to ${dev.name}: ${rate} kW`,
-      code: "CMD_CHARGE_SET_KW"
-    };
-    logs.unshift(newLog);
-    
-    recordCurl(dev, "write-register?reg=40012&val=" + rate, "POST", "Set charging power limit in coils", { active_power_limit: rate }, 200, JSON.stringify(responsePayload));
-  } else if (command === "discharge") {
-    const rate = Math.min(250, Number(value || 100)); // Discharge rate up to 250kW
-    dev.status = "Discharging";
-    dev.power = -rate;
-    responsePayload.detail = `Grid discharge rate set to target of -${rate} kW.`;
-
-    const newLog: BessLog = {
-      id: "log-" + Math.random().toString(36).substring(2, 9),
-      deviceId: dev.id,
-      deviceName: dev.name,
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      message: `Direct Discharge Target instruction sent to ${dev.name}: -${rate} kW`,
-      code: "CMD_DISCHARGE_SET_KW"
-    };
-    logs.unshift(newLog);
-
-    recordCurl(dev, "write-register?reg=40013&val=" + rate, "POST", "Set discharging power limit in coils", { discharge_power_limit: rate }, 200, JSON.stringify(responsePayload));
-  } else if (command === "idle") {
-    dev.status = "Idle";
-    dev.power = 0;
-    dev.current = 0;
-    responsePayload.detail = "BESS set to passive idle buffer state.";
-
-    const newLog: BessLog = {
-      id: "log-" + Math.random().toString(36).substring(2, 9),
-      deviceId: dev.id,
-      deviceName: dev.name,
-      timestamp: new Date().toISOString(),
-      level: "INFO",
-      message: `Passive mode command received. Disabling contacts on ${dev.name}.`,
-      code: "CMD_SET_IDLE"
-    };
-    logs.unshift(newLog);
-
-    recordCurl(dev, "write-register?reg=40001&val=0", "POST", "Clear inverter enable coils", { enable: 0 }, 200, JSON.stringify(responsePayload));
-  } else if (command === "reset_fault") {
-    if (dev.status === "Faulted") {
-      dev.status = "Idle";
-      dev.lastError = null;
-      dev.temperature = 28.5; // clear temperature trip
-      responsePayload.detail = "Interlock bypassed and battery relay faults cleared.";
-
-      const newLog: BessLog = {
-        id: "log-" + Math.random().toString(36).substring(2, 9),
-        deviceId: dev.id,
-        deviceName: dev.name,
-        timestamp: new Date().toISOString(),
-        level: "INFO",
-        message: `Remote fault reset request cleared battery latching relays on ${dev.name}.`,
-        code: "CMD_RESET_FAULT"
-      };
-      logs.unshift(newLog);
-
-      recordCurl(dev, "write-register?reg=40002&val=1", "POST", "Latch electronic safety reset coils", { reset_faults: 1 }, 200, JSON.stringify(responsePayload));
-    } else {
-      return res.status(400).json({ error: "Device is not currently in Faulted state." });
-    }
-  } else if (command === "shutdown") {
-    dev.status = "Maintenance";
-    dev.power = 0;
-    dev.current = 0;
-    responsePayload.detail = "Contactors open. System secured for hot maintenance check.";
-
-    const newLog: BessLog = {
-      id: "log-" + Math.random().toString(36).substring(2, 9),
-      deviceId: dev.id,
-      deviceName: dev.name,
-      timestamp: new Date().toISOString(),
-      level: "CRITICAL",
-      message: `Emergency Remote Command: Secured and disabled entire dc bank for maintenance on ${dev.name}.`,
-      code: "CMD_EMERGENCY_SHUTDOWN"
-    };
-    logs.unshift(newLog);
-
-    recordCurl(dev, "write-register?reg=40009&val=1", "POST", "Emergency Trip coil override", { trip_contactor: 1 }, 200, JSON.stringify(responsePayload));
-  } else {
-    return res.status(400).json({ error: "Command not recognized." });
-  }
-
-  writeJSONFile(DEVICES_FILE, devices);
-  writeJSONFile(LOGS_FILE, logs);
-
-  res.json({ success: true, updatedDevice: dev, detail: responsePayload.detail });
-});
-
-// API: Simulate LAN Scanner finding devices on subnet
-app.post("/api/scan", (req, res) => {
-  // Let's search standard solar substation blocks and return a dynamic discovery alert
-  const scanResults = [
-    {
-      ipAddress: "192.168.1.115",
-      port: 502,
-      model: "Greenergy BESS-Mega 1000",
-      pingMs: 14,
-      isRegistered: devices.some(d => d.ipAddress === "192.168.1.115"),
-      suggestedName: "Substation Block-C Buffer"
-    },
-    {
-      ipAddress: "192.168.1.120",
-      port: 502,
-      model: "Tesla Megapack XL",
-      isRegistered: devices.some(d => d.ipAddress === "192.168.1.120"),
-      pingMs: 22,
-      suggestedName: "Feeder 4 Load Leveler"
-    }
-  ];
-
-  setTimeout(() => {
-    res.json({
-      timestamp: new Date().toISOString(),
-      scannedRange: "192.168.1.1/24",
-      activeDevicesFound: scanResults
-    });
-  }, 1200); // Simulate network round-trip ping latency
-});
-
-// API: Fetch curl logs to verify console bindings
 app.get("/api/curllogs", (req, res) => {
   res.json(curlLogs);
 });
@@ -1747,7 +1758,7 @@ app.get("/api/logs", (req, res) => {
 // API: Clear Logs
 app.delete("/api/logs", (req, res) => {
   logs = [];
-  writeJSONFile(LOGS_FILE, logs);
+  
   res.json({ success: true });
 });
 
@@ -1775,14 +1786,14 @@ app.post("/api/reports", (req, res) => {
   };
 
   reports.push(newReport);
-  writeJSONFile(REPORTS_FILE, reports);
+  
   res.status(201).json(newReport);
 });
 
 // DELETE report schedule
 app.delete("/api/reports/:id", (req, res) => {
   reports = reports.filter(r => r.id !== req.params.id);
-  writeJSONFile(REPORTS_FILE, reports);
+  
   res.json({ success: true });
 });
 
@@ -2417,3 +2428,7 @@ if (process.env.NODE_ENV !== "production") {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+let reports: any[] = [];
+let logs: any[] = [];
+let devices: any[] = [];

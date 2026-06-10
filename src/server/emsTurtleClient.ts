@@ -41,15 +41,9 @@ export let cacheEmsBaseUrl: string | null = null;
 export let cacheCreatedAt: string | null = null;
 export let cacheLastUpdatedAt: string | null = null;
 
-export function isDemoActive(): boolean {
-  return isDemoModeActive;
-}
+export function isDemoActive(): boolean { return false; }
 
-export function setDemoMode(active: boolean) {
-  if (process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true") {
-    isDemoModeActive = active;
-  }
-}
+export function setDemoMode(active: boolean) {}
 
 
 interface EmsCache {
@@ -69,7 +63,7 @@ interface EmsCache {
 }
 
 // Strict Real-Time Cache for Actual LAN Ethernet Polling
-const emsCache: EmsCache = {
+export const emsCache: EmsCache = {
   status: null,
   block: null,
   lastCall: null,
@@ -496,7 +490,7 @@ export function getEmsMode() {
     configuredMode: process.env.EMS_MODE || "production",
     activeMode: source,
     isDemoFallback: isDemo,
-    enableDemoToggle: process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true",
+    
     reason: isDemo 
       ? "Demo mode manual toggle is enabled. Hosting full-scale local telemetry datasets." 
       : (source === "live"
@@ -817,7 +811,7 @@ export function getEmsConnectionStatus() {
     configuredMode: process.env.EMS_MODE || "production",
     activeMode: source,
     isDemoFallback: isDemo,
-    enableDemoToggle: process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true",
+    
     reason: isDemo 
       ? "Demo mode manual toggle is enabled. Hosting full-scale local telemetry datasets." 
       : (source === "live"
