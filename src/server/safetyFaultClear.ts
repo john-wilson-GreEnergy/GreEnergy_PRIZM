@@ -11,6 +11,10 @@ import { buildEmsBaseUrl } from "./profiles/profileManager";
 const router = Router();
 
 // Load proto definitions dynamically
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const protoPath = path.join(__dirname, "safetyFaultClearProto.proto");
 let root: protobuf.Root | null = null;
 try {
