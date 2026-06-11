@@ -14,6 +14,7 @@ import { ProfileStore } from "./profiles/profileStore";
 
 import * as prizmCache from "./cache/prizmCache";
 import * as prizmHistory from "./history/prizmHistory";
+import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } from "../lib/bessStatusCodes";
 
 const router = Router();
 
@@ -293,6 +294,9 @@ router.get("/", async (req, res) => {
             
             if (typeof warnings === "string") warnings = (warnings as string).split(",").map(v=>v.trim()).filter(Boolean);
             if (typeof alarms === "string") alarms = (alarms as string).split(",").map(v=>v.trim()).filter(Boolean);
+            
+            if (Array.isArray(warnings)) warnings = warnings.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+            if (Array.isArray(alarms)) alarms = alarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
 
             // Extract BPC data
             let bpcs: any[] = [];
@@ -315,6 +319,11 @@ router.get("/", async (req, res) => {
                 const cgs: any[] = [];
                 let bpcWarns = bpcBase.warnings || bpcBase.warningList || [];
                 let bpcAlarms = bpcBase.alarms || bpcBase.alarmList || [];
+                
+                if (typeof bpcWarns === "string") bpcWarns = (bpcWarns as string).split(",").map(v=>v.trim()).filter(Boolean);
+                if (typeof bpcAlarms === "string") bpcAlarms = (bpcAlarms as string).split(",").map(v=>v.trim()).filter(Boolean);
+                if (Array.isArray(bpcWarns)) bpcWarns = bpcWarns.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+                if (Array.isArray(bpcAlarms)) bpcAlarms = bpcAlarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
                 
                 if (bpcBase.firmwareVersion) bpcFirmwares.add(String(bpcBase.firmwareVersion));
 
@@ -691,6 +700,8 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
         
         const balanceRelatedPaths: Array<{path: string, value: any}> = [];
         const notificationRelatedPaths: Array<{path: string, value: any}> = [];
+        const rawBalanceCandidates: Array<{path: string, value: any}> = [];
+        const rawNotificationCandidates: Array<{path: string, value: any}> = [];
 
         const scanPaths = (obj: any, currentPath: string = "", depth: number = 0) => {
             if (!obj || typeof obj !== 'object' || depth > 8) return;
@@ -699,16 +710,23 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
                 const v = obj[key];
                 const fullPath = currentPath ? `${currentPath}.${key}` : key;
                 
-                const isBalanceRelated = ['balanc', 'provided', 'target', 'cellgroup', 'cg'].some(k => lower.includes(k));
-                const isNotificationRelated = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message'].some(k => lower.includes(k));
+                const isBalanceRelated = ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k));
+                const isNotificationRelated = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => lower.includes(k));
                 
-                const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 50) : String(v);
+                const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 150) : String(v);
+                
+                const valLower = typeof v === 'string' ? v.toLowerCase() : '';
+                const valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => valLower.includes(k));
+                const valIsNotificationRelated = typeof v === 'string' && ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => valLower.includes(k));
+                const valIsSpecificCode = typeof v === 'number' && (v === 2534 || v === 2561);
 
-                if (isBalanceRelated && typeof v !== 'object') {
+                if ((isBalanceRelated || valIsBalanceRelated) && typeof v !== 'object') {
                     balanceRelatedPaths.push({ path: fullPath, value: strValue });
+                    rawBalanceCandidates.push({ path: fullPath, value: v });
                 }
-                if (isNotificationRelated && typeof v !== 'object') {
+                if ((isNotificationRelated || valIsNotificationRelated || valIsSpecificCode) && typeof v !== 'object') {
                     notificationRelatedPaths.push({ path: fullPath, value: strValue });
+                    rawNotificationCandidates.push({ path: fullPath, value: v });
                 }
                 
                 if (typeof v === 'object' && v !== null) {
@@ -728,6 +746,8 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
             modelKeys,
             balanceRelatedPaths,
             notificationRelatedPaths,
+            rawBalanceCandidates,
+            rawNotificationCandidates,
             rawPreview: data ? Object.keys(data).reduce((acc: any, k) => {
                 acc[k] = typeof data[k] === 'object' ? '{...}' : data[k];
                 return acc;
@@ -837,6 +857,20 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         let bpcs: any[] = [];
         let summary: any = {};
         
+        // Helper for lastCall fallback notifications
+        const handleFallbackNotif = (defaultLevel: string, w: string, source: string) => {
+            const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
+            if (match) {
+                const code = match[1];
+                const msgPart = match[2];
+                let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
+                const displayLevel = classifyBessStatusCode(code) || defaultLevel;
+                notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
+            } else {
+                notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
+            }
+        };
+
         if (stringViewerData && stringViewerData.stringViewerDataModel) {
             extractDebugKeys(stringViewerData.stringViewerDataModel, "sv");
             const sv = stringViewerData.stringViewerDataModel;
@@ -896,7 +930,12 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 sv.balancing?.batteryPacks,
                 sv.balance?.batteryPacks,
                 sv.batteryPacks, // sometimes embedded here
-                sv.batteryPackBalance
+                sv.batteryPackBalance,
+                sv.voltageMap?.batteryPacks,
+                sv.temperatureMap?.batteryPacks,
+                sv.balanceModeMap,
+                sv.balancingCgIndexMap,
+                sv.balanceTargetVoltageMap
             ].filter(Boolean);
 
             const bpcSeen = new Set<number>();
@@ -909,8 +948,10 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                             const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
                             const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
                             const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
-                            if (rawMode || state !== undefined || tcg !== undefined || tv !== null) {
-                                balancingDetails.push({ bpcNumber: bpcN, mode: parseBalMode(rawMode), state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
+                            if (rawMode !== undefined || state !== undefined || tcg !== undefined || tv !== null) {
+                                const m = parseBalMode(rawMode);
+                                const dm = m && m.toLowerCase().includes('provided') && tv !== null ? `Provided (${tv})` : (m || "--");
+                                balancingDetails.push({ bpcNumber: bpcN, mode: m, displayMode: dm, state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
                                 bpcSeen.add(bpcN);
                             }
                         }
@@ -924,8 +965,10 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                             const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
                             const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
                             const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
-                            if (rawMode || state !== undefined || tcg !== undefined || tv !== null) {
-                                balancingDetails.push({ bpcNumber: bpcN, mode: parseBalMode(rawMode), state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
+                            if (rawMode !== undefined || state !== undefined || tcg !== undefined || tv !== null) {
+                                const m = parseBalMode(rawMode);
+                                const dm = m && m.toLowerCase().includes('provided') && tv !== null ? `Provided (${tv})` : (m || "--");
+                                balancingDetails.push({ bpcNumber: bpcN, mode: m, displayMode: dm, state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
                                 bpcSeen.add(bpcN);
                             }
                         }
@@ -934,25 +977,33 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             }
 
             // --- Normalize Notifications ---
-            const codeToMsgMap = (getEmsCachedStatusCodes().data as Record<string, string>) || {};
+            const codeToMsgMap = { ...(getEmsCachedStatusCodes().data as Record<string, string>), ...BESS_STATUS_CODE_MAP };
             const parseNotif = (level: string, item: any, src: string) => {
                 if (typeof item === 'string') {
                     // Try to parse "2534 Contactor Open Warning"
-                    const match = item.match(/^(\d+)\s+(.+)$/);
+                    const match = item.match(/^(\d+)(?:\s+(.+))?$/);
                     if (match) {
-                        notifications.push({ level, code: match[1], message: match[2], source: src });
+                        const code = match[1];
+                        const msgPart = match[2];
+                        let msg = msgPart || codeToMsgMap[code] || describeBessStatusCode(code);
+                        if (!msg) msg = `Code ${code}`;
+                        const displayLevel = classifyBessStatusCode(code) || level || 'INFO';
+                        notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source: src });
                     } else {
-                        notifications.push({ level, code: null, message: item, source: src });
+                        notifications.push({ level, code: null, message: item, displayText: item, source: src });
                     }
                 } else if (typeof item === 'object') {
-                    const code = item.code || item.status || item.messageCode;
-                    let msg = item.message || item.text || item.description || (code ? codeToMsgMap[String(code)] : null) || `Code ${code}`;
+                    const codeRaw = item.code || item.status || item.messageCode;
+                    const code = codeRaw ? String(codeRaw) : null;
+                    let msg = item.message || item.text || item.description || (code ? codeToMsgMap[code] : null) || describeBessStatusCode(code);
                     if (!msg && code) msg = `Code ${code}`;
                     if (code || msg) {
+                        const displayLevel = code ? (classifyBessStatusCode(code) || item.level || level) : (item.level || level);
                         notifications.push({
-                            level: item.level || level,
+                            level: displayLevel,
                             code,
                             message: msg,
+                            displayText: code && msg && msg !== `Code ${code}` && !msg.startsWith(code) ? `${code} - ${msg}` : (msg || code),
                             timestamp: item.timestamp || item.time || item.created,
                             trigger: item.trigger || item.triggerValue,
                             source: src,
@@ -1096,23 +1147,36 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                     });
                 }
                 
+                const handleFallbackNotif = (defaultLevel: string, w: string, source: string) => {
+                    const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
+                    if (match) {
+                        const code = match[1];
+                        const msgPart = match[2];
+                        let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
+                        const displayLevel = classifyBessStatusCode(code) || defaultLevel;
+                        notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
+                    } else {
+                        notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
+                    }
+                };
+
                 if (bpc.warnings && Array.isArray(bpc.warnings) && bpc.warnings.length > 0) {
-                     bpc.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpcIdx}` }));
+                     bpc.warnings.forEach(w => handleFallbackNotif("WARNING", w, `BPC ${bpcIdx}`));
                 } else if (bpc.warningList && Array.isArray(bpc.warningList) && bpc.warningList.length > 0) {
-                     bpc.warningList.forEach(w => notifications.push({ level: "WARNING", message: w, source: `BPC ${bpcIdx}` }));
+                     bpc.warningList.forEach(w => handleFallbackNotif("WARNING", w, `BPC ${bpcIdx}`));
                 }
                 if (bpc.alarms && Array.isArray(bpc.alarms) && bpc.alarms.length > 0) {
-                     bpc.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpcIdx}` }));
+                     bpc.alarms.forEach(a => handleFallbackNotif("ALARM", a, `BPC ${bpcIdx}`));
                 } else if (bpc.alarmList && Array.isArray(bpc.alarmList) && bpc.alarmList.length > 0) {
-                     bpc.alarmList.forEach(a => notifications.push({ level: "ALARM", message: a, source: `BPC ${bpcIdx}` }));
+                     bpc.alarmList.forEach(a => handleFallbackNotif("ALARM", a, `BPC ${bpcIdx}`));
                 }
             });
             
             if (lcBaseData.warnings && Array.isArray(lcBaseData.warnings) && lcBaseData.warnings.length > 0) {
-                lcBaseData.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `lastCall String` }));
+                lcBaseData.warnings.forEach(w => handleFallbackNotif("WARNING", w, `lastCall String`));
             }
             if (lcBaseData.alarms && Array.isArray(lcBaseData.alarms) && lcBaseData.alarms.length > 0) {
-                lcBaseData.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `lastCall String` }));
+                lcBaseData.alarms.forEach(a => handleFallbackNotif("ALARM", a, `lastCall String`));
             }
         }
 
@@ -1134,14 +1198,27 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                         });
                     }
                     if (notifications.length === 0) {
+                        const handleRefNotif = (defaultLevel: string, w: string, source: string) => {
+                            const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
+                            if (match) {
+                                const code = match[1];
+                                const msgPart = match[2];
+                                let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
+                                const displayLevel = classifyBessStatusCode(code) || defaultLevel;
+                                notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
+                            } else {
+                                notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
+                            }
+                        };
+                        
                         if (Array.isArray(mainRow.warnings) && mainRow.warnings.length > 0) {
                             mainRow.warnings.forEach((w: string) => {
-                                notifications.push({ level: "WARNING", message: w, source: "strings_dashboard" });
+                                handleRefNotif("WARNING", w, "strings_dashboard");
                             });
                         }
                         if (Array.isArray(mainRow.alarms) && mainRow.alarms.length > 0) {
                             mainRow.alarms.forEach((a: string) => {
-                                notifications.push({ level: "ALARM", message: a, source: "strings_dashboard" });
+                                handleRefNotif("ALARM", a, "strings_dashboard");
                             });
                         }
                     }

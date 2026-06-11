@@ -400,7 +400,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                    return (
                                    <tr key={i} className="hover:bg-black/10 transition-colors">
                                        <td className="p-2 font-bold text-prizm-text-muted">BPC{b.bpcNumber ?? b.index ?? (i+1)}</td>
-                                       <td className="p-2">{b.mode !== undefined ? (b.mode === "Provided" && b.targetVoltage !== undefined && b.targetVoltage !== null ? `Provided (${b.targetVoltage})` : b.mode) : "--"}</td>
+                                       <td className="p-2">{b.displayMode !== undefined && b.displayMode !== null ? b.displayMode : (b.mode !== undefined && b.mode !== null ? b.mode : "--")}</td>
                                        <td className="p-2">
                                            {isBalancing ? <span className="text-emerald-400 font-bold animate-pulse uppercase">{stateStr}</span> : <span className="text-prizm-text-muted">{stateStr}</span>}
                                        </td>
@@ -431,20 +431,27 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                  <th className="p-2 border-b border-prizm-border">Code/Level</th>
                                  <th className="p-2 border-b border-prizm-border">Message</th>
                                  <th className="p-2 border-b border-prizm-border">Timestamp</th>
+                                 <th className="p-2 border-b border-prizm-border">Trigger</th>
                               </tr>
                            </thead>
                            <tbody className="divide-y divide-prizm-border/20">
-                               {notifications.map((n: any, i: number) => (
+                               {notifications.map((n: any, i: number) => {
+                                   const isAlarm = n.level === 'ALARM';
+                                   return (
                                    <tr key={i} className="hover:bg-black/10">
                                        <td className="p-2">
-                                           <span className={`px-1.5 py-0.5 rounded font-bold ${n.code === 'ALARM' ? 'bg-prizm-danger/20 text-prizm-danger' : 'bg-prizm-warning/20 text-prizm-warning'}`}>
-                                               {n.code || n.level || "WARN"}
-                                           </span>
+                                           <div className="flex items-center gap-2">
+                                                <span className={`px-1.5 py-0.5 rounded font-bold ${isAlarm ? 'bg-prizm-danger/20 text-prizm-danger' : 'bg-prizm-warning/20 text-prizm-warning'}`}>
+                                                    {n.level || "WARN"}
+                                                </span>
+                                                {n.code && <span className="text-prizm-text ml-1 opacity-80">{n.code}</span>}
+                                           </div>
                                        </td>
-                                       <td className="p-2 whitespace-normal break-words">{n.message || n.text || String(n)}</td>
+                                       <td className="p-2 whitespace-normal break-words text-prizm-text">{n.displayText || n.message || n.text || String(n)}</td>
                                        <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(n.timestamp || s.timestampUtc)}</td>
+                                       <td className="p-2 text-prizm-text-muted font-bold">{n.trigger !== undefined ? n.trigger : "--"}</td>
                                    </tr>
-                               ))}
+                               )})}
                            </tbody>
                         </table>
                      </div>
