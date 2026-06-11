@@ -1,6 +1,8 @@
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { getFeatherCache } from "./featherClient";
+import { formatLostCommsEntry, formatFeatherDiagnosticValue } from "../../lib/featherErrorFormatter";
+import { formatPrizmUtcTimestamp } from "../../lib/timeFormat";
 
 export interface FeatherHvacDevice {
   ip: string;
@@ -118,6 +120,17 @@ export interface FeatherHvacDevice {
   };
 
   devicesWithLostComms?: string[];
+  lostCommsDevices?: Array<{
+    device: string;
+    lastCommsTimestampMillis?: string | number | null;
+    lastCommsTimestampUtc?: string | null;
+    displayText: string;
+    raw?: any;
+  }>;
+  activeWarningInterlocks?: any[];
+  activeTripFaultLog?: any[];
+  warningMessages?: string[];
+  faultMessages?: string[];
 
   hvacSummary?: string;
   hvacMode?: string;
@@ -336,7 +349,28 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
     monitorsTopCap: true,
   };
 
-  partial.devicesWithLostComms = raw.devicesWithLostComms || [];
+  const rawLostComms = raw.devicesWithLostComms || raw.deviceStatusComms || raw.diagnosticStatus?.deviceStatusComms || [];
+  partial.lostCommsDevices = [];
+  partial.devicesWithLostComms = [];
+  
+  if (Array.isArray(rawLostComms)) {
+    for (const item of rawLostComms) {
+       const formatted = formatLostCommsEntry(item);
+       if (formatted && formatted.label !== "--") {
+           partial.devicesWithLostComms.push(formatted.label);
+           partial.lostCommsDevices.push({
+               device: formatted.label,
+               lastCommsTimestampMillis: item?.lastCommsTimestampMillis || item?.lastCommsMs || item?.timestampMillis,
+               lastCommsTimestampUtc: item?.lastCommsTimestampMillis ? formatPrizmUtcTimestamp(Number(item.lastCommsTimestampMillis)) : null,
+               displayText: formatted.tooltip || formatted.label,
+               raw: item
+           });
+       }
+    }
+  }
+
+  partial.activeWarningInterlocks = raw.activeWarningInterlocks || raw.warningInterlocks || raw.diagnosticStatus?.activeWarningInterlocks || [];
+  partial.activeTripFaultLog = raw.activeTripFaultLog || raw.tripFaultLog || raw.diagnosticStatus?.activeTripFaultLog || [];
 
   return partial;
 }
@@ -614,6 +648,24 @@ export async function fetchEnrichedDevices() {
                      d.alarmFaults.push("Lost Comms");
                      d.warnInfo.push(`Lost Comms with: ${normalized.devicesWithLostComms.join(", ")}`);
                  }
+                 if (normalized.activeWarningInterlocks && normalized.activeWarningInterlocks.length > 0) {
+                     normalized.activeWarningInterlocks.forEach((w: any) => {
+                         const msg = typeof w === "object" && w !== null && (w.device || w.lastCommsTimestampMillis) ?
+                             (formatLostCommsEntry(w).tooltip ? formatLostCommsEntry(w).tooltip! : formatFeatherDiagnosticValue(w))
+                             : formatFeatherDiagnosticValue(w);
+                         if (!d.warnInfo.includes(msg)) d.warnInfo.push(msg);
+                     });
+                 }
+                 if (normalized.activeTripFaultLog && normalized.activeTripFaultLog.length > 0) {
+                     normalized.activeTripFaultLog.forEach((f: any) => {
+                         const msg = typeof f === "object" && f !== null && (f.device || f.lastCommsTimestampMillis) ?
+                             (formatLostCommsEntry(f).tooltip ? formatLostCommsEntry(f).tooltip! : formatFeatherDiagnosticValue(f))
+                             : formatFeatherDiagnosticValue(f);
+                         if (!d.alarmFaults.includes(msg)) d.alarmFaults.push(msg);
+                     });
+                 }
+                 d.warningMessages = [...d.warnInfo];
+                 d.faultMessages = [...d.alarmFaults];
 
 
                  if (normalized.thermostatStage) d.hvacMode = normalized.thermostatStage;

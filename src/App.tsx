@@ -16,7 +16,7 @@ import {
   Lock
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
-import SiteTelemetryDashboard from "./components/SiteTelemetryDashboard";
+import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
 import StringDashboard from "./components/StringDashboard";
 import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
@@ -164,7 +164,7 @@ export default function App() {
         ) : (
           <div className="animate-fade-in duration-300 h-full">
             {activeTab === "overview" && (
-              <SiteTelemetryDashboard />
+              <SiteOperationsDashboard setActiveTab={setActiveTab} />
             )}
 
             {activeTab === "ems-health" && (

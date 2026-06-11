@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { formatFeatherDiagnosticValue } from "../lib/featherErrorFormatter";
 import {
   Activity,
   AlertTriangle,
@@ -938,8 +939,8 @@ export default function FeatherDashboard() {
                         {isWarned && d.warnInfo && d.warnInfo.length > 0 ? (
                            <div className="flex flex-col gap-1 items-center">
                              {d.warnInfo.map((n, i) => (
-                               <span key={i} className="px-1.5 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px] whitespace-nowrap">
-                                 {n}
+                               <span key={i} title={typeof n === 'object' ? JSON.stringify((n as any).raw ?? n) : undefined} className="px-1.5 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px] whitespace-nowrap">
+                                 {formatFeatherDiagnosticValue(n)}
                                </span>
                              ))}
                            </div>
@@ -952,8 +953,8 @@ export default function FeatherDashboard() {
                         {isTripped && d.alarmFaults && d.alarmFaults.length > 0 ? (
                            <div className="flex flex-col gap-1 items-center">
                                {d.alarmFaults.map((f, i) => (
-                                 <span key={i} className="px-1.5 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse whitespace-nowrap">
-                                   {f}
+                                 <span key={i} title={typeof f === 'object' ? JSON.stringify((f as any).raw ?? f) : undefined} className="px-1.5 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse whitespace-nowrap">
+                                   {formatFeatherDiagnosticValue(f)}
                                  </span>
                                ))}
                            </div>
@@ -1138,7 +1139,9 @@ export default function FeatherDashboard() {
                     </span>
                     <ul className="list-disc pl-4 space-y-1 text-prizm-text text-[10px]">
                       {(selectedDevice.warnInfo || []).map((w, idx) => (
-                         <li key={idx}>{w}</li>
+                         <li key={idx} title={typeof w === 'object' ? JSON.stringify((w as any).raw ?? w) : undefined}>
+                             {formatFeatherDiagnosticValue(w)}
+                         </li>
                       ))}
                     </ul>
                   </div>
@@ -1151,7 +1154,9 @@ export default function FeatherDashboard() {
                     </span>
                     <ul className="list-disc pl-4 space-y-1 text-prizm-text text-[10px]">
                       {(selectedDevice.alarmFaults || []).map((a, idx) => (
-                         <li key={idx}>{a}</li>
+                         <li key={idx} title={typeof a === 'object' ? JSON.stringify((a as any).raw ?? a) : undefined}>
+                             {formatFeatherDiagnosticValue(a)}
+                         </li>
                       ))}
                     </ul>
                   </div>
