@@ -60,6 +60,8 @@ interface EmsCache {
   lastUpdated: string | null;
   lastError: string | null;
   hasAttemptedPoll: boolean;
+  discoveredStationCode: string | null;
+  siteCodeSource: string | null;
 }
 
 // Strict Real-Time Cache for Actual LAN Ethernet Polling
@@ -89,7 +91,9 @@ export const emsCache: EmsCache = {
   stringIPMap: null,
   lastUpdated: null,
   lastError: null,
-  hasAttemptedPoll: false
+  hasAttemptedPoll: false,
+  discoveredStationCode: null,
+  siteCodeSource: null
 };
 
 // High-fidelity pre-filled simulation template (Only served when Demo Mode is explicitly active)
@@ -434,15 +438,19 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
 
   // Verify Cache Ownership matching constraints
   const cacheMatches = isDemo || (cacheProfileId === activeProfileId && cacheEmsBaseUrl === rawUrl);
-  const isStale = isDemo ? false : (!cacheMatches || !!emsCache.lastError);
+  const isStale = isDemo ? false : (!cacheMatches || (!!emsCache.lastError && !emsCache.lastError.startsWith("partial")));
   
-  let source: "live" | "cached" | "offline" | "demo" = "offline";
+  let source: "live" | "cached" | "offline" | "demo" | "partial" = "offline";
   if (isDemo) {
     source = "demo";
-  } else if (cacheMatches && !emsCache.lastError && emsCache.lastUpdated) {
-    source = "live";
   } else if (cacheMatches && emsCache.lastUpdated) {
-    source = "cached";
+    if (!emsCache.lastError) {
+      source = "live";
+    } else if (emsCache.lastError.startsWith("partial")) {
+      source = "partial";
+    } else {
+      source = "cached";
+    }
   } else {
     source = "offline";
   }
@@ -450,7 +458,7 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
   let data = null;
   if (source === "demo") {
     data = (DEMO_TEMPLATES as any)[key];
-  } else if ((source === "live" || source === "cached") && cacheMatches) {
+  } else if ((source === "live" || source === "partial" || source === "cached") && cacheMatches) {
     data = getLiveVal();
   } else {
     data = (OFFLINE_TEMPLATES as any)[key];
@@ -464,6 +472,8 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
     activeProfileName,
     activeProfileId,
     stationCode,
+    discoveredStationCode: emsCache.discoveredStationCode,
+    siteCodeSource: emsCache.siteCodeSource,
     blockIndex,
     lastError: isDemo ? null : (cacheMatches ? emsCache.lastError : "Telemetry cache profile mismatch or missing"),
     cacheProfileId,
@@ -485,15 +495,19 @@ export function getEmsMode() {
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
   const cacheMatches = isDemo || (cacheProfileId === activeProfileId && cacheEmsBaseUrl === rawUrl);
-  const isStale = isDemo ? false : (!cacheMatches || !!emsCache.lastError);
+  const isStale = isDemo ? false : (!cacheMatches || (!!emsCache.lastError && !emsCache.lastError.startsWith("partial")));
   
-  let source: "live" | "cached" | "offline" | "demo" = "offline";
+  let source: "live" | "cached" | "offline" | "demo" | "partial" = "offline";
   if (isDemo) {
     source = "demo";
-  } else if (cacheMatches && !emsCache.lastError && emsCache.lastUpdated) {
-    source = "live";
   } else if (cacheMatches && emsCache.lastUpdated) {
-    source = "cached";
+    if (!emsCache.lastError) {
+      source = "live";
+    } else if (emsCache.lastError.startsWith("partial")) {
+      source = "partial";
+    } else {
+      source = "cached";
+    }
   } else {
     source = "offline";
   }
@@ -506,6 +520,8 @@ export function getEmsMode() {
     activeProfileName,
     activeProfileId,
     stationCode,
+    discoveredStationCode: emsCache.discoveredStationCode,
+    siteCodeSource: emsCache.siteCodeSource,
     blockIndex,
     lastError: isDemo ? null : (cacheMatches ? emsCache.lastError : "Telemetry cache profile mismatch or missing"),
     cacheProfileId,
@@ -619,6 +635,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   emsCache.hasAttemptedPoll = true;
   let overallError: string | null = null;
   let criticalEndpointsFailed = 0;
+  let coreEndpointsSucceeded = 0;
 
   // sequential polling of endpoints for diagnostic tracking
 
@@ -626,6 +643,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   try {
     const res = await fetchAndRecord("/status");
     emsCache.status = await res.json();
+    coreEndpointsSucceeded++;
   } catch (err: any) {
     // Optional endpoint
   }
@@ -636,6 +654,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     const data = await res.json();
     if (data) {
       emsCache.status = { ...emsCache.status, ...data };
+      coreEndpointsSucceeded++;
     }
   } catch (err: any) {
     overallError = err.message || String(err);
@@ -646,6 +665,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   try {
     const res = await fetchAndRecord("/tools/monitor/ems/blockviewer/data");
     emsCache.block = await res.json();
+    coreEndpointsSucceeded++;
   } catch (err: any) {
     overallError = err.message || String(err);
     criticalEndpointsFailed++;
@@ -664,6 +684,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   try {
     const res = await fetchAndRecord("/tools/report/ems/lastCall.json");
     emsCache.lastCall = await res.json();
+    coreEndpointsSucceeded++;
   } catch (err: any) {
     // Optional endpoint
   }
@@ -681,6 +702,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     const res = await fetchAndRecord("/tools/report/ems/strings.csv");
     const text = await res.text();
     emsCache.strings = parseCsv(text);
+    coreEndpointsSucceeded++;
   } catch (err: any) {
     // Optional endpoint, silently handle timeout/offline
   }
@@ -765,10 +787,41 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   cacheProfileId = activeId;
   cacheEmsBaseUrl = rawUrl;
 
-  if (criticalEndpointsFailed === 0) {
+  let discovered = emsCache.discoveredStationCode;
+  let source = emsCache.siteCodeSource;
+
+  if (emsCache.status && emsCache.status.stationCode) {
+    discovered = emsCache.status.stationCode;
+    source = "status.json:stationCode";
+  } else if (emsCache.strings && emsCache.strings.length > 0) {
+    const firstStr = emsCache.strings[0];
+    const stringKey = firstStr.StringKey || '';
+    const stMatch = stringKey.match(/ST:([A-Z0-9_-]+)/i);
+    if (stMatch) {
+       discovered = stMatch[1];
+       source = "strings.csv:StringKey";
+    } else {
+       const wordMatch = stringKey.match(/\b(BHE\d{4})\b/i);
+       if (wordMatch) {
+          discovered = wordMatch[1];
+          source = "strings.csv:StringKey";
+       }
+    }
+  }
+
+  if (discovered) {
+    emsCache.discoveredStationCode = discovered;
+    emsCache.siteCodeSource = source;
+  }
+
+  if (coreEndpointsSucceeded > 0 && criticalEndpointsFailed === 0) {
     emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = null;
     return { success: true, error: null };
+  } else if (coreEndpointsSucceeded > 0 && criticalEndpointsFailed > 0) {
+    emsCache.lastUpdated = cacheLastUpdatedAt;
+    emsCache.lastError = "partial: " + (overallError || "Some endpoints failed");
+    return { success: true, error: emsCache.lastError };
   } else {
     emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = overallError || "Multiple critical EMS endpoints are unreachable";
@@ -802,15 +855,19 @@ export function getEmsConnectionStatus() {
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
   const cacheMatches = isDemo || (cacheProfileId === activeProfileId && cacheEmsBaseUrl === rawUrl);
-  const isStale = isDemo ? false : (!cacheMatches || !!emsCache.lastError);
+  const isStale = isDemo ? false : (!cacheMatches || (!!emsCache.lastError && !emsCache.lastError.startsWith("partial")));
 
-  let source: "live" | "cached" | "offline" | "demo" = "offline";
+  let source: "live" | "cached" | "offline" | "demo" | "partial" = "offline";
   if (isDemo) {
     source = "demo";
-  } else if (cacheMatches && !emsCache.lastError && emsCache.lastUpdated) {
-    source = "live";
   } else if (cacheMatches && emsCache.lastUpdated) {
-    source = "cached";
+    if (!emsCache.lastError) {
+      source = "live";
+    } else if (emsCache.lastError.startsWith("partial")) {
+      source = "partial";
+    } else {
+      source = "cached";
+    }
   } else {
     source = "offline";
   }
@@ -823,6 +880,8 @@ export function getEmsConnectionStatus() {
     activeProfileName,
     activeProfileId,
     stationCode,
+    discoveredStationCode: emsCache.discoveredStationCode,
+    siteCodeSource: emsCache.siteCodeSource,
     blockIndex,
     lastError: isDemo ? null : (cacheMatches ? emsCache.lastError : "Telemetry cache profile mismatch or missing"),
     cacheProfileId,

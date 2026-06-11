@@ -66,7 +66,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     ...(data?.summary || {})
   };
 
-  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
+  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
 
   const stringViewerHealth = sourceHealth?.stringviewer;
 

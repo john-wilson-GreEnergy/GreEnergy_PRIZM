@@ -313,31 +313,31 @@ export default function StringDashboard() {
 
       {/* Main Strings Table Engine */}
       <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg overflow-y-auto no-scrollbar relative min-h-0" id="strings-dashboard-scroll">
-         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
-             <thead className="bg-prizm-surface-strong sticky top-0 z-30 shadow-md">
+         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap border-collapse">
+             <thead className="sticky top-0 z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-40 whitespace-nowrap">ARR</th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[54px] sm:left-[64px] bg-prizm-surface-strong z-40 whitespace-nowrap">STR</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Contactors</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Rotation</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Meas V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Calc V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Bus V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Amps</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">kW</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">SOC %</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Ah</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Min Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Max Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Δ Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Min Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Max Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Δ Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">BAL CT</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">BAL MODE</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Location</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Fans</th>
-                  <th className="px-3 py-2 border-b border-prizm-border text-right sticky top-0 bg-prizm-surface-strong z-30">Timestamp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[54px] sm:left-[64px] bg-prizm-surface-strong z-[80] whitespace-nowrap">STR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Contactors</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Rotation</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Meas V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Calc V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Bus V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Amps</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">kW</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">SOC %</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Ah</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Min Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Max Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Δ Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Min Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Max Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Δ Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">BAL CT</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">BAL MODE</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Location</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Fans</th>
+                  <th className="px-3 py-2 border-b border-prizm-border text-right sticky top-0 bg-prizm-surface-strong z-[50]">Timestamp</th>
                </tr>
             </thead>
             <tbody className="divide-y divide-prizm-border/20">
@@ -385,12 +385,16 @@ export default function StringDashboard() {
                   }
 
                   const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
+                  
+                  let borderClass = "";
+                  if (s.alarmCount > 0) borderClass = "border-l-[3px] border-l-prizm-danger/60";
+                  else if (s.warningCount > 0) borderClass = "border-l-[3px] border-l-prizm-warning/60";
+                  else borderClass = "border-l-[3px] border-l-transparent";
+
                   return (
-                  <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-prizm-primary/10 cursor-pointer transition-colors relative">
-                    <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-text min-w-[54px] sm:min-w-[64px]" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
-                       <span className={s.warningCount > 0 || s.alarmCount > 0 ? (s.alarmCount > 0 ? "text-prizm-danger" : "text-prizm-warning") : "text-prizm-primary font-mono font-bold"}>{s.arrayNumber}</span>
-                       {s.alarmCount > 0 && <span className="text-prizm-danger ml-1" title="Alarms Active">⚠️</span>}
-                       {s.warningCount > 0 && s.alarmCount === 0 && <span className="text-prizm-warning ml-1" title="Warnings Active">⚠️</span>}
+                  <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-prizm-primary/5 cursor-pointer transition-colors relative">
+                    <td className={`px-3 py-1.5 border-r border-prizm-border/20 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 min-w-[54px] sm:min-w-[64px] ${borderClass}`} title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
+                       <span className="text-prizm-primary font-mono font-bold">{s.arrayNumber}</span>
                     </td>
                     <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[54px] sm:left-[64px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
                        {s.stringNumber}

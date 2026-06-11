@@ -61,6 +61,7 @@ export default function SiteTelemetryDashboard() {
           <h2 className="text-sm font-bold text-prizm-text uppercase tracking-tight flex items-center gap-2">
             Active: Site Telemetry Trends
             {metrics.staleData && <span className="bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 px-2 py-0.5 rounded text-[9px] font-mono whitespace-nowrap">STALE CACHE</span>}
+            {metrics.source === "partial" && <span className="bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 px-2 py-0.5 rounded text-[9px] font-mono whitespace-nowrap">PARTIAL SITE DATA</span>}
           </h2>
         </div>
         <div className="flex flex-wrap gap-2 text-[10px] font-mono">

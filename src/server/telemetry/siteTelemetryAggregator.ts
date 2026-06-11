@@ -5,7 +5,7 @@ export interface SiteMetricHistorySample {
   timestamp: string;
   activeProfileId: string;
   activeEmsBaseUrl: string;
-  source: "live" | "cached" | "offline" | "demo";
+  source: "live" | "cached" | "offline" | "demo" | "partial";
   staleData: boolean;
   
   avgSoc: number | null;

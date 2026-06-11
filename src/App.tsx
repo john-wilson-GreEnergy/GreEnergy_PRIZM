@@ -25,6 +25,7 @@ import FeatherDashboard from "./components/FeatherDashboard";
 import ConnectionSettings from "./components/ConnectionSettings";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
+import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
@@ -84,20 +85,21 @@ export default function App() {
           <div className="h-4 w-[1px] bg-prizm-border mx-1 sm:mx-2"></div>
           <div className="hidden md:flex items-center gap-6 text-[11px] font-mono uppercase tracking-widest text-prizm-text-muted cursor-default select-none">
             {emsMetadata?.activeMode === "live" && <span className="text-emerald-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>}
+            {emsMetadata?.activeMode === "partial" && <span className="text-prizm-warning font-bold flex items-center gap-1.5" title={emsMetadata?.lastError || "Some EMS endpoints failing"}><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning animate-pulse"></span>PARTIAL LIVE</span>}
             {emsMetadata?.activeMode === "cached" && <span className="text-amber-500 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>CACHED</span>}
             {emsMetadata?.activeMode === "demo" && <span className="text-prizm-demo font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-demo animate-pulse"></span>DEMO</span>}
             {emsMetadata?.activeMode === "offline" && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>OFFLINE</span>}
             
             <span title={emsMetadata?.activeEmsBaseUrl || "No site linked"} className="truncate max-w-[200px]">NODE: {emsMetadata ? (emsMetadata.activeProfileName || "UNLINKED") : '...'}</span>
             
-            {emsMetadata?.stationCode && <span>SITE: {emsMetadata.stationCode}</span>}
+            {(emsMetadata?.discoveredStationCode || emsMetadata?.stationCode) && <span>SITE: {emsMetadata?.discoveredStationCode || emsMetadata?.stationCode}</span>}
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right">
             <div className="text-[11px] text-prizm-text-muted font-mono tracking-widest">
-              {currentTime.toISOString().replace('T', ' ').slice(0, 19)} UTC
+              {formatPrizmUtcTimestamp(currentTime)}
             </div>
           </div>
         </div>
@@ -223,7 +225,7 @@ export default function App() {
             LINK: {emsMetadata ? (emsMetadata.activeEmsBaseUrl || 'LOCAL LAN') : 'CHECKING'}
           </span>
           <span className="hidden lg:inline text-prizm-text-muted">
-            {emsMetadata?.lastUpdated ? `LAST UPDATED: ${new Date(emsMetadata.lastUpdated).toISOString().replace('T', ' ').slice(0, 19)}` : 'POLLING PENDING...'}
+            {emsMetadata?.lastUpdated ? `LAST UPDATED: ${formatPrizmUtcTimestamp(emsMetadata.lastUpdated)}` : 'POLLING PENDING...'}
           </span>
         </div>
         <div className="flex gap-4">
