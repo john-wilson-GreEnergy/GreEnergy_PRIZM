@@ -241,7 +241,7 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
   try {
       if (options?.isRaw) {
           let outData = data;
-          if (options.rawExt === '.json' && typeof data !== 'string') outData = JSON.stringify(data, null, 2);
+          if (options.rawExt === '.json' && typeof data !== 'string') (outData as any) = JSON.stringify(data, null, 2);
           fs.writeFileSync(path.join(p, 'raw', `${key}${options.rawExt || '.json'}`), outData as any);
           diskEntry.data = null as any; 
       }

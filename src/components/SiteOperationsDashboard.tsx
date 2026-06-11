@@ -140,7 +140,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     fetch("/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=15000").then(r => r.json()),
                     fetch("/api/feather/devices").then(r => r.json()),
                     fetch("/api/local/safety-fault-clear/candidates").then(r => r.json()),
-                    fetch("/api/local/overview/discovery?fullTables=true").then(r => r.json()),
+                    fetch("/api/local/overview/(state.overviewDiscovery?.discoveredSections || {})?fullTables=true").then(r => r.json()),
                     fetch("/api/local/site-operations/summary").then(r => r.json()),
                     fetch("/api/local/history/events?range=24h").then(r => r.json())
                 ]);
@@ -179,264 +179,42 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
         );
     }
 
-    // Determine Global Site Status
-    const isStringsLiveOrCached = state.stringsDashboard && state.stringsDashboard.stringsReturned > 0;
-    const isOverviewLiveOrCached = state.overviewDiscovery && Object.values(state.overviewDiscovery.sourceHealth || {}).some((s: any) => s.ok);
+    const sum = state.siteSummary;
+    let siteState: string = sum?.site?.connectionState === "disconnected" ? "OFFLINE" : "LIVE";
     
-    // Partial: some source is missing or offline
-    const isStringsOffline = !state.stringsDashboard || state.stringsDashboard.stringsReturned === 0;
-    const isOverviewOffline = !state.overviewDiscovery || !Object.values(state.overviewDiscovery.sourceHealth || {}).some((s: any) => s.ok);
+    const stationCode = sum?.site?.stationCode || "UNKNOWN";
+    const emsBaseUrl = sum?.site?.emsBaseUrl || "--";
+    const blockIndex = sum?.site?.blockIndex || "--";
+    const profileId = sum?.site?.profileId || "--";
 
-    let siteState = "OFFLINE";
-    if (isStringsLiveOrCached && isOverviewLiveOrCached) siteState = "LIVE";
-    else if (isStringsLiveOrCached || isOverviewLiveOrCached) siteState = "PARTIAL";
-
-    // Extract Discovery Sections
-    const discovery = state.overviewDiscovery?.discoveredSections || {};
-    const emsAppsData = state.siteSummary?.dragonApps || discovery.emsApps?.sampleItems || [];
-    const blockTopologyData = state.siteSummary?.topology || discovery.blockTopology?.sampleItems || [];
-    const pcsData = state.siteSummary?.pcsSummary || discovery.pcs?.sampleItems || [];
-    const hvacCentipedeData = discovery.hvacCentipede?.sampleItems || [];
-    const htsData = state.siteSummary?.humidityTemperatureSensors || discovery.humidityTemperatureSensors?.sampleItems || [];
+    const emsAppsData = sum?.emsApps || [];
+    const pcsData = sum?.pcsSummary || [];
+    const htsData = sum?.humidityTemperatureSensors || [];
+    const featherSummary = sum?.featherSummary || {};
     
-    const arraySummaryData = state.siteSummary?.arrays || state.stringsDashboard?.arrays || [];
+    const arraySummaryData = sum?.arraySummary || [];
+    const stringBuckets = sum?.stringSummary?.buckets || { online: 0, nearline: 0, offline: 0, notCommunicating: 0 };
+    const onlineStats = { count: stringBuckets.online };
+    const nearlineStats = { count: stringBuckets.nearline };
+    const offlineStats = { count: stringBuckets.offline };
+    const notCommStats = { count: stringBuckets.notCommunicating };
+    const rollups = state.stringsDashboard?.rollups || { totalStrings: (stringBuckets.online + stringBuckets.nearline + stringBuckets.offline + stringBuckets.notCommunicating) || 0 };
 
-    const rollups = state.stringsDashboard?.rollups || {};
-    
-    // Determine Station Code (Global Source of Truth from backend summary)
-    let stationCode = state.siteSummary?.site?.stationCode || state.overviewDiscovery?.stationCode || state.stringsDashboard?.stationCode || "UNKNOWN";
-    if (stationCode === "UNKNOWN" || stationCode === "--") {
-        const scadaApp = emsAppsData.find((a: any) => a.appName?.toUpperCase().includes("SCADA") || a.appCode === "SCADA");
-        if (scadaApp && scadaApp.configName) {
-            const match = scadaApp.configName.match(/-([A-Z0-9]{3,4})_/);
-            if (match && match[1]) {
-                stationCode = match[1];
-            }
-        }
-        // Fallback checks
-        if (stationCode === "UNKNOWN" && state.stringsDashboard?.strings?.length > 0) {
-           const sKey = state.stringsDashboard.strings[0].id || "";
-           const match = sKey.match(/\b(BHE\d{4})\b/i);
-           if (match) stationCode = match[1];
-        }
-    }
-    
-    const emsBaseUrl = state.overviewDiscovery?.emsBaseUrl || state.stringsDashboard?.emsBaseUrl || "--";
-    const blockIndex = state.overviewDiscovery?.blockIndex !== undefined ? state.overviewDiscovery?.blockIndex : "--";
-    const profileId = state.stringsDashboard?.profileId || "--";
-
-    // Build String Buckets matching cloud logic
-    const strBuckets = {
-        online: [],
-        nearline: [],
-        offline: [],
-        notComm: []
-    };
-
-    if (state.stringsDashboard?.strings?.length > 0) {
-        state.stringsDashboard.strings.forEach((str: any) => {
-            if (str.communicating === false) {
-                strBuckets.notComm.push(str);
-            } else if (str.outRotation || str.operationalState === 'OFFLINE' || str.rotationEnabled === false) {
-                strBuckets.offline.push(str);
-            } else if (str.contactorStatus === 'CLOSED' || str.contactorClosed || str.positiveContactorClosed) {
-                strBuckets.online.push(str);
-            } else {
-                strBuckets.nearline.push(str);
-            }
-        });
-    }
-
-    const computeBucketStats = (bucket: any[]) => {
-        if (bucket.length === 0) return null;
-        let socSum = 0;
-        let pwrSum = 0;
-        let maxCurrent = null;
-        let minCurrent = null;
-        let maxCellV = null;
-        let minCellV = null;
-        let avgCellVSum = 0;
-        let avgCellVCount = 0;
-        let maxCellVDelta = null;
-        let maxCellTemp = null;
-        let minCellTemp = null;
-        let avgCellTempSum = 0;
-        let avgCellTempCount = 0;
-        let maxCellTempDelta = null;
-
-        bucket.forEach(s => {
-            if (s.socPct !== null && s.socPct !== undefined) socSum += s.socPct;
-            if (s.kw !== null && s.kw !== undefined) pwrSum += s.kw;
-            if (s.kwh !== null && s.kwh !== undefined) socSum += s.kwh; // If kWh exists, use it? Prompt says: "SOC (kWh): sum kWh" or sum SOC. We'll use socPct if kwh is not available. Wait, I will just sum kwH if possible, or leave as count for now.
-            
-            const cur = s.current ?? s.amps;
-            if (cur !== null && cur !== undefined) {
-                if (maxCurrent === null || cur > maxCurrent) maxCurrent = cur;
-                if (minCurrent === null || cur < minCurrent) minCurrent = cur;
-            }
-
-            if (s.maxCellVoltage !== null && s.maxCellVoltage !== undefined) {
-                if (maxCellV === null || s.maxCellVoltage > maxCellV) maxCellV = s.maxCellVoltage;
-            }
-            if (s.minCellVoltage !== null && s.minCellVoltage !== undefined) {
-                if (minCellV === null || s.minCellVoltage < minCellV) minCellV = s.minCellVoltage;
-            }
-            if (s.avgCellVoltage !== null && s.avgCellVoltage !== undefined) {
-                avgCellVSum += s.avgCellVoltage;
-                avgCellVCount++;
-            }
-            if (s.cellVoltageDelta !== null && s.cellVoltageDelta !== undefined) {
-                if (maxCellVDelta === null || s.cellVoltageDelta > maxCellVDelta) maxCellVDelta = s.cellVoltageDelta;
-            }
-
-            if (s.maxCellTemperature !== null && s.maxCellTemperature !== undefined) {
-                if (maxCellTemp === null || s.maxCellTemperature > maxCellTemp) maxCellTemp = s.maxCellTemperature;
-            }
-            if (s.minCellTemperature !== null && s.minCellTemperature !== undefined) {
-                if (minCellTemp === null || s.minCellTemperature < minCellTemp) minCellTemp = s.minCellTemperature;
-            }
-            if (s.avgCellTemperature !== null && s.avgCellTemperature !== undefined) {
-                avgCellTempSum += s.avgCellTemperature;
-                avgCellTempCount++;
-            }
-            if (s.cellTemperatureDelta !== null && s.cellTemperatureDelta !== undefined) {
-                if (maxCellTempDelta === null || s.cellTemperatureDelta > maxCellTempDelta) maxCellTempDelta = s.cellTemperatureDelta;
-            }
-        });
-
-        return {
-            count: bucket.length,
-            socKwH: bucket.length > 0 ? (socSum / bucket.length).toFixed(1) : '--',
-            maxCurrent,
-            minCurrent,
-            maxCellV,
-            minCellV,
-            avgCellV: avgCellVCount > 0 ? (avgCellVSum / avgCellVCount).toFixed(1) : null,
-            maxCellVDelta,
-            maxCellTemp,
-            minCellTemp,
-            avgCellTemp: avgCellTempCount > 0 ? (avgCellTempSum / avgCellTempCount).toFixed(1) : null,
-            maxCellTempDelta
-        };
-    };
-
-    const onlineStats = computeBucketStats(strBuckets.online);
-    const nearlineStats = computeBucketStats(strBuckets.nearline);
-    const offlineStats = computeBucketStats(strBuckets.offline);
-    const notCommStats = computeBucketStats(strBuckets.notComm);
-
-    // Build timeline/issues
-    const activeIssues = [];
-
-    // Group String Issues
-    const stringWarnMap: Record<string, number> = {};
-    const stringAlarmMap: Record<string, number> = {};
-    
-    if (state.stringsDashboard?.strings?.length) {
-        state.stringsDashboard.strings.forEach((s: any) => {
-            if (s.warnings && Array.isArray(s.warnings)) {
-                s.warnings.forEach((w: string) => {
-                    stringWarnMap[w] = (stringWarnMap[w] || 0) + 1;
-                });
-            }
-            if (s.alarms && Array.isArray(s.alarms)) {
-                s.alarms.forEach((a: string) => {
-                    stringAlarmMap[a] = (stringAlarmMap[a] || 0) + 1;
-                });
-            }
-        });
-    }
-
-    Object.entries(stringAlarmMap).forEach(([msg, count]) => {
-        activeIssues.push({ severity: "ALARM", source: "Strings Dashboard", message: `[${count} Strings] ${msg}` });
-    });
-    Object.entries(stringWarnMap).forEach(([msg, count]) => {
-        activeIssues.push({ severity: "WARNING", source: "Strings Dashboard", message: `[${count} Strings] ${msg}` });
-    });
-
-    if (state.stringsDashboard?.arrays) {
-        let genericAlarms = 0;
-        let genericWarns = 0;
-        state.stringsDashboard.arrays.forEach((a: any) => {
-            genericAlarms += a.alarmCount || 0;
-            genericWarns += a.warningCount || 0;
-        });
-        if (genericAlarms > 0 && Object.keys(stringAlarmMap).length === 0) {
-           activeIssues.push({ severity: "ALARM", source: "Strings Dashboard", message: `${genericAlarms} string alarms reported` });
-        }
-        if (genericWarns > 0 && Object.keys(stringWarnMap).length === 0) {
-           activeIssues.push({ severity: "WARNING", source: "Strings Dashboard", message: `${genericWarns} string warnings reported` });
-        }
-    }
-
-    // Group Feather / HVAC Issues
-    if (state.featherDevices?.devices) {
-        let fssInvalidCount = 0;
-        let doorsInvalidCount = 0;
-        let hvacInvalidCount = 0;
-        let totalLostComms = 0;
-
-        state.featherDevices.devices.forEach((d: any) => {
-            if (d.devicesWithLostComms?.length > 0) {
-                totalLostComms += d.devicesWithLostComms.length;
-            }
-            if (d.fssValid === false) fssInvalidCount++;
-            if (d.doorsValid === false) doorsInvalidCount++;
-            if (d.hvacValid === false) hvacInvalidCount++;
-        });
-
-        if (totalLostComms > 0) activeIssues.push({ severity: "WARNING", source: "Feather / HVAC", message: `Lost Comms with ${totalLostComms} child devices` });
-        if (fssInvalidCount > 0) activeIssues.push({ severity: "ALARM", source: "Feather / HVAC", message: `FSS Data Invalid on ${fssInvalidCount} Feather controllers` });
-        if (doorsInvalidCount > 0) activeIssues.push({ severity: "ALARM", source: "Feather / HVAC", message: `Doors Data Invalid on ${doorsInvalidCount} Feather controllers` });
-        if (hvacInvalidCount > 0) activeIssues.push({ severity: "WARNING", source: "Feather / HVAC", message: `HVAC Data Invalid on ${hvacInvalidCount} Feather controllers` });
-    }
-
-    if (state.safetyFaults?.eligible?.length > 0) {
-        activeIssues.push({ severity: "ALARM", source: "Safety Fault Clear", message: `${state.safetyFaults.eligible.length} reset-eligible safety faults` });
-    }
-
-    if (isStringsOffline) activeIssues.push({ severity: "STALE", source: "Strings Dashboard", message: "Strings data offline or missing" });
-    if (isOverviewOffline) activeIssues.push({ severity: "STALE", source: "Overview Discovery", message: "EMS Local API sources offline" });
-
-    // Sort active issues ALARM -> WARNING -> STALE -> INFO
-    activeIssues.sort((a, b) => {
+    const activeIssues = sum?.activeIssueGroups || [];
+    activeIssues.sort((a: any, b: any) => {
         const severityRank: Record<string, number> = { "ALARM": 1, "WARNING": 2, "STALE": 3, "INFO": 4 };
         return (severityRank[a.severity] || 5) - (severityRank[b.severity] || 5);
     });
 
-    // Safety Summary
-    const safetyEligible = state.safetyFaults?.eligible?.length || 0;
-    const safetyNotEligible = state.safetyFaults?.notEligible?.length || 0;
+    const clearableFaults = sum?.safetySummary?.clearableFaults || [];
+    const safetyEligible = sum?.safetySummary?.clearableCount || 0;
+    const safetyNotEligible = 0; // Not eligible faults no longer primarily tracked here
 
-    // Feather Summary
-    const featherTotal = state.featherDevices?.devices?.length || 0;
-    let featherLostComms = 0;
-    let featherFssInvalid = 0;
-    let featherDoorsInvalid = 0;
-    if (state.featherDevices?.devices) {
-        state.featherDevices.devices.forEach((d: any) => {
-             if (d.devicesWithLostComms?.length > 0 || d.warnInfo?.some((w:string) => w.includes("Lost Comms"))) featherLostComms++;
-             if (d.fssValid === false) featherFssInvalid++;
-             if (d.doorsValid === false) featherDoorsInvalid++;
-        });
-    }
-
-    // Source health
-    const buildSourceHealth = () => {
-        const sources = [];
-        if (state.stringsDashboard?.sourceHealth) {
-           Object.entries(state.stringsDashboard.sourceHealth).forEach(([k, v]: any) => {
-               sources.push({ name: k, ok: v.ok, error: v.error, type: "Strings" });
-           });
-        }
-        if (state.overviewDiscovery?.sourceHealth) {
-           Object.entries(state.overviewDiscovery.sourceHealth).forEach(([k, v]: any) => {
-               sources.push({ name: k, ok: v.ok, error: v.error, type: "Overview" });
-           });
-        }
-        return sources;
-    };
-    const combinedSources = buildSourceHealth();
+    const combinedSources = sum?.sourceHealth || [];
+    const featherTotal = sum?.featherSummary?.totalDevices || 0;
+    const featherLostComms = sum?.featherSummary?.lostCommsCount || 0;
+    const featherFssInvalid = sum?.featherSummary?.fssInvalidCount || 0;
+    const featherDoorsInvalid = sum?.featherSummary?.doorsInvalidCount || 0;
 
     const navigate = (tab: string) => {
         if (setActiveTab) setActiveTab(tab);
@@ -556,7 +334,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
 
             <CollapsibleSection title="Equipment: Block Meters" icon={RadioTower} defaultExpanded={false}>
-                 {discovery.blockMeters?.sampleItems?.length > 0 ? (
+                 {(state.overviewDiscovery?.discoveredSections || {}).blockMeters?.sampleItems?.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
@@ -566,7 +344,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
-                             {discovery.blockMeters.sampleItems.map((item: any, idx: number) => (
+                             {(state.overviewDiscovery?.discoveredSections || {}).blockMeters.sampleItems.map((item: any, idx: number) => (
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors">
                                      <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
                                      <td className="p-2 text-prizm-text">{item.kw !== undefined ? item.kw : "--"}</td>
@@ -617,7 +395,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                          </table>
                     </div>
                  ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No PCS data discovered</div>
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No PCS data available from local EMS source.</div>
                  )}
             </CollapsibleSection>
 
@@ -634,34 +412,15 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
-                             {htsData.map((item: any, idx: number) => {
-                                 let enclosure = "--";
-                                 const ipMatch = (item.ip || item.hostAddress || item.address || "").match(/\d+\.\d+\.(\d+)\.(\d+)/);
-                                 if (ipMatch) {
-                                     const arrNum = ipMatch[1];
-                                     const host = parseInt(ipMatch[2], 10);
-                                     if (host === 3) enclosure = `Array ${arrNum} CS`;
-                                     else if (host >= 10 && host <= 50 && host % 5 === 0) {
-                                         enclosure = `Array ${arrNum} ES${host}`;
-                                     } else {
-                                         enclosure = `Array ${arrNum} (.${host})`;
-                                     }
-                                 }
-                                 // Fallback if there's an entityDescription from Feather
-                                 if (item.entityDescription && enclosure === "--") {
-                                     enclosure = item.entityDescription;
-                                 }
-
-                                 return (
-                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-prizm-primary font-bold">{enclosure}</td>
-                                     <td className="p-2 text-prizm-text">{item.id || item.name || "--"}</td>
-                                     <td className="p-2 text-prizm-text-muted">{item.ip || item.hostAddress || item.address || item.deviceName || "--"}</td>
-                                     <td className="p-2 text-prizm-text">{item.temperature !== undefined ? `${item.temperature} °C` : "--"}</td>
-                                     <td className="p-2 text-prizm-text-muted">{item.humidity !== undefined ? `${item.humidity} %` : "--"}</td>
-                                 </tr>
-                                 );
-                             })}
+                             {htsData.map((item: any, idx: number) => (
+                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                         <td className="p-2 text-prizm-primary font-bold">{item.enclosureLabel || "--"}</td>
+                                         <td className="p-2 text-prizm-text">{item.sensorId || "--"}</td>
+                                         <td className="p-2 text-prizm-text-muted">{item.sourceIp || item.deviceName || "--"}</td>
+                                         <td className="p-2 text-cyan-400 font-bold">{item.temperatureC !== undefined && item.temperatureC !== null ? `${Number(item.temperatureC).toFixed(1)}°C` : "--"}</td>
+                                         <td className="p-2 text-emerald-400 font-bold">{item.humidityPct !== undefined && item.humidityPct !== null ? `${Number(item.humidityPct).toFixed(1)}%` : "--"}</td>
+                                     </tr>
+                                 ))}
                          </tbody>
                      </table>
                  ) : (
@@ -795,7 +554,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             </CollapsibleSection>
 
                 <CollapsibleSection title="Feather / HVAC Health" icon={Wind} defaultExpanded={false}>
-                    {state.featherDevices === null ? (
+                    {!sum?.featherSummary ? (
                          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border">Feather API Unavailable</div>
                     ) : (
                         <div className="grid grid-cols-2 gap-px bg-prizm-border flex-1">
@@ -842,7 +601,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-prizm-border">
-                                    {state.safetyFaults.eligible.map((f: any, idx: number) => (
+                                    {clearableFaults.map((f: any, idx: number) => (
                                          <tr key={idx} className="hover:bg-prizm-surface transition-colors">
                                              <td className="p-2 font-bold text-prizm-primary">{f.displayKey || f.entityKey}</td>
                                              <td className="p-2 text-prizm-text whitespace-pre-wrap max-w-sm">{f.statusMessageText || f.statusMessage}</td>
@@ -859,7 +618,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     </div>
                 ) : (
                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border">
-                        {state.safetyFaults === null ? "Safety Faults API Unavailable" : "No clearable safety faults detected."}
+                        {clearableFaults.length === 0 ? "Safety Faults API Unavailable" : "No clearable safety faults detected."}
                     </div>
                 )}
                 <div className="bg-prizm-surface p-3 flex justify-end border-t border-prizm-border">
