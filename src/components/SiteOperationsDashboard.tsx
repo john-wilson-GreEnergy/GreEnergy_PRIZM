@@ -175,7 +175,14 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     
 
     const sum = state.siteSummary;
-    let siteState: string = sum?.site?.connectionState === "disconnected" ? "OFFLINE" : "LIVE";
+    let siteState = "UNAVAILABLE";
+    if (sum?.site?.connectionState === "disconnected") {
+      siteState = "OFFLINE";
+    } else if (sum?.site?.source === "partial" || sum?.cacheMeta?.cacheState === "STALE") {
+      siteState = "PARTIAL";
+    } else if (sum?.site?.connectionState || sum?.site?.source || sum?.cacheMeta?.cacheState) {
+      siteState = "LIVE";
+    }
     
     const stationCode = sum?.site?.stationCode || "UNKNOWN";
     const emsBaseUrl = sum?.site?.emsBaseUrl || "--";
@@ -206,10 +213,14 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     const safetyNotEligible = 0; // Not eligible faults no longer primarily tracked here
 
     const combinedSources = sum?.sourceHealth || [];
-    const featherTotal = sum?.featherSummary?.totalDevices || 0;
-    const featherLostComms = sum?.featherSummary?.lostCommsCount || 0;
-    const featherFssInvalid = sum?.featherSummary?.fssInvalidCount || 0;
-    const featherDoorsInvalid = sum?.featherSummary?.doorsInvalidCount || 0;
+    let featherTotal: any = sum?.featherSummary?.totalDevices;
+    if (featherTotal === null || featherTotal === undefined) featherTotal = "--";
+    let featherLostComms: any = sum?.featherSummary?.lostCommsCount;
+    if (featherLostComms === null || featherLostComms === undefined) featherLostComms = "--";
+    let featherFssInvalid: any = sum?.featherSummary?.fssInvalidCount;
+    if (featherFssInvalid === null || featherFssInvalid === undefined) featherFssInvalid = "--";
+    let featherDoorsInvalid: any = sum?.featherSummary?.doorsInvalidCount;
+    if (featherDoorsInvalid === null || featherDoorsInvalid === undefined) featherDoorsInvalid = "--";
 
     const navigate = (tab: string) => {
         if (setActiveTab) setActiveTab(tab);
@@ -566,8 +577,10 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             </CollapsibleSection>
 
                 <CollapsibleSection title="Feather / HVAC Health" icon={Wind} defaultExpanded={false}>
-                    {!sum?.featherSummary ? (
-                         <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border">Feather API Unavailable</div>
+                    {sum?.featherSummary?.totalDevices === null ? (
+                         <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border flex justify-center">Feather API Unavailable</div>
+                    ) : !sum?.featherSummary ? (
+                         <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border flex justify-center">Feather API Unavailable</div>
                     ) : (
                         <div className="grid grid-cols-2 gap-px bg-prizm-border flex-1">
                             <div className="bg-prizm-surface p-4 text-center">

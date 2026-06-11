@@ -245,8 +245,17 @@ export function buildSiteOperationsSummaryFromCache() {
             ...(status.dragonApps || []),
             ...(lastCall.dragonApps || [])
         ];
-        if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(block, ["appCode", "appName"]));
-        if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(status, ["appCode", "appName"]));
+        const appSearchShapes = [
+            ["appCode", "appName"],
+            ["appCode", "priority"],
+            ["appCode", "configName"],
+            ["appName", "configName"],
+        ];
+        for (const shape of appSearchShapes) {
+            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(block, shape));
+            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(status, shape));
+            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(lastCall, shape));
+        }
         
         const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode) === i).map((app: any) => {
             const appName = app.appName || app.applicationName || app.application || app.name || app.appCode;
@@ -279,24 +288,30 @@ export function buildSiteOperationsSummaryFromCache() {
         
         // Count accurately based on devices array. If !fCache.success or stale, keep the real counts but mark stale
         let fOnline = 0, fOffline = 0, fLostComms = 0, fFssInv = 0, fDoorsInv = 0, fHvacInv = 0, fWarn = 0, fFault = 0;
-        let maxH = 0, maxST = -999, maxCT = -999;
+        let maxH = 0;
+        let maxST: number | null = null;
+        let maxCT: number | null = null;
         const devicesWithIssues: any[] = [];
 
         fDevices.forEach((f: any) => {
+            const hasLost = hasLostComms(f);
             if (f.reachable || f.online || f.sourceOk) fOnline++; else fOffline++;
-            if (hasLostComms(f)) fLostComms++;
-            if (f.fssValid === false || f.thermalData?.fssSignals?.valid === false) fFssInv++;
-            if (f.doorsValid === false || f.doors?.valid === false) fDoorsInv++;
-            if (f.mioValid === false || f.hvacDataValid === false || f.hvacValid === false) fHvacInv++;
+            if (hasLost) fLostComms++;
+            const isFssInv = f.fssValid === false || f.thermalData?.fssSignals?.valid === false;
+            const isDoorsInv = f.doorsValid === false || f.doors?.valid === false;
+            const isHvacInv = f.mioValid === false || f.hvacDataValid === false || f.hvacValid === false;
+            if (isFssInv) fFssInv++;
+            if (isDoorsInv) fDoorsInv++;
+            if (isHvacInv) fHvacInv++;
             fWarn += (f.warningCount || f.warningMessages?.length || f.warnInfo?.length || f.activeWarningInterlocks?.length || 0);
             fFault += (f.alarmCount || f.faultMessages?.length || f.activeTripFaultLog?.length || f.activeAlarms?.length || 0);
             if ((f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) && (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) > maxH) maxH = (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM);
-            const st = getFeatherSpaceTemp(f) ?? -999;
-            if (st && st > maxST) maxST = st;
-            const ct = getFeatherCellTemp(f) ?? -999;
-            if (ct && ct > maxCT) maxCT = ct;
+            const st = getFeatherSpaceTemp(f);
+            if (st !== null && !Number.isNaN(st)) maxST = maxST === null ? st : Math.max(maxST, st);
+            const ct = getFeatherCellTemp(f);
+            if (ct !== null && !Number.isNaN(ct)) maxCT = maxCT === null ? ct : Math.max(maxCT, ct);
             
-            if (!f.reachable || hasLostComms(f) || f.fssValid === false || f.thermalData?.fssSignals?.valid === false || f.doorsValid === false || f.doors?.valid === false || (f.warningCount > 0) || (f.alarmCount > 0)) {
+            if (!f.reachable || hasLost || isFssInv || isDoorsInv || isHvacInv || (f.warningCount > 0) || (f.alarmCount > 0)) {
                  devicesWithIssues.push(f);
             }
         });
@@ -591,13 +606,6 @@ export function buildSiteOperationsSummaryFromCache() {
             activeIssues: activeIssueGroups
         };
 
-        try {
-            
-            prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
-            if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', responseData);
-        } catch(e) {}
-        
-
         return responseData;
     } catch (err: any) { throw err; }
 }
@@ -628,34 +636,32 @@ router.get("/summary", async (req, res) => {
     const forceRefresh = req.query.refresh === 'true';
 
     try {
-        
         let cachedEntry = prizmCache.get('site-operations-summary');
         
-        if (!cachedEntry && lastSummaryCache && (Date.now() - lastSummaryTime < 15000)) {
-            cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true } as any;
+        let tCacheRead = Date.now() - tStart;
+        
+        let shouldRefresh = forceRefresh;
+        let responseData: any = null;
+
+        if (forceRefresh) {
+             shouldRefresh = true;
+        } else if (preferCache) {
+             if (cachedEntry) {
+                 responseData = cachedEntry.data;
+                 if (cachedEntry.isStale || cachedEntry.ageMs > 15000) shouldRefresh = true;
+             } else if (lastSummaryCache && (Date.now() - lastSummaryTime < 15000)) {
+                 responseData = lastSummaryCache;
+                 cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true } as any;
+             } else {
+                 responseData = buildSiteOperationsSummaryFromCache();
+                 shouldRefresh = true;
+             }
+        } else {
+             // preferCache=false
+             responseData = buildSiteOperationsSummaryFromCache();
+             shouldRefresh = true;
         }
 
-        const tCacheRead = Date.now() - tStart;
-        
-        let shouldRefresh = forceRefresh || !cachedEntry || cachedEntry.ageMs > 15000;
-        let responseData = cachedEntry ? cachedEntry.data : null;
-
-        if (!responseData && !forceRefresh) {
-            responseData = buildSiteOperationsSummaryFromCache();
-            if (responseData) {
-                prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
-                lastSummaryCache = responseData;
-                lastSummaryTime = Date.now();
-            }
-        }
-
-        let cacheState = "UNAVAILABLE";
-        if (responseData) cacheState = (siteOpsInFlight || shouldRefresh) ? "STALE" : "LIVE";
-        if (cachedEntry) cacheState = "CACHED";
-        if (forceRefresh || shouldRefresh) cacheState = "REFRESHING";
-
-        const tBuild = Date.now() - tStart;
-        
         let refreshing = false;
         if (shouldRefresh) {
             refreshing = true;
@@ -664,17 +670,31 @@ router.get("/summary", async (req, res) => {
             refreshing = true;
         }
 
-        if (forceRefresh && !responseData) {
+        if (forceRefresh) {
              await Promise.race([
                  siteOpsInFlight,
                  new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
              ]).catch(() => null);
              
              responseData = buildSiteOperationsSummaryFromCache();
-             if (responseData) cacheState = "LIVE";
         }
 
         if (!responseData) responseData = {};
+
+        let cacheState = "UNAVAILABLE";
+        if (Object.keys(responseData).length > 0) {
+            if (siteOpsInFlight) {
+                cacheState = "REFRESHING";
+            } else if (cachedEntry?.isStale || (cachedEntry && cachedEntry.ageMs > 15000)) {
+                cacheState = "STALE";
+            } else if (cachedEntry || (!preferCache && !forceRefresh)) {
+                cacheState = "CACHED";
+            } else {
+                cacheState = "LIVE";
+            }
+        }
+
+        const tBuild = Date.now() - tStart;
 
         (responseData as any).cacheMeta = {
             cacheState,
@@ -687,6 +707,7 @@ router.get("/summary", async (req, res) => {
 
         const totalMs = Date.now() - tStart;
         (responseData as any).debug = {
+             ...((responseData as any).debug || {}),
              timings: { totalMs, cacheReadMs: tCacheRead, buildMs: tBuild - tCacheRead, sourceHealthMs: 0, refreshTriggered: shouldRefresh }
         };
 

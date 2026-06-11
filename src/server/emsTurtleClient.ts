@@ -655,9 +655,9 @@ export function getEmsStringIpMap() {
 
 // Primary polling tick function that updates in-memory cache from active LAN endpoints
 
-const EMS_FAST_TIMEOUT_MS = 2500;
-const EMS_NORMAL_TIMEOUT_MS = 5000;
-const EMS_SLOW_TIMEOUT_MS = 15000;
+const EMS_FAST_TIMEOUT_MS = Number(process.env.EMS_FAST_TIMEOUT_MS) || 2500;
+const EMS_NORMAL_TIMEOUT_MS = Number(process.env.EMS_NORMAL_TIMEOUT_MS) || 5000;
+const EMS_SLOW_TIMEOUT_MS = Number(process.env.EMS_SLOW_TIMEOUT_MS) || 15000;
 
 let lastSlowFetchTime = 0;
 

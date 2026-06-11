@@ -52,8 +52,8 @@ router.post("/clear-all", (req, res) => {
         return res.status(400).json({ error: "Missing confirmation: CLEAR_ALL_PRIZM_CACHE" });
     }
     
-    // Explicitly delete contents in .prizm-cache only
-    const cacheDir = path.resolve(process.cwd(), '.prizm-cache');
+    // Explicitly delete contents in PRZIM cache dir only
+    const cacheDir = path.resolve(prizmCache.CACHE_ROOT || path.resolve(process.cwd(), '.prizm-cache'));
     let clearedCount = 0;
     
     if (fs.existsSync(cacheDir) && fs.statSync(cacheDir).isDirectory()) {
