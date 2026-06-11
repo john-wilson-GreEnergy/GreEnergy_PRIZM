@@ -1,0 +1,514 @@
+1:import { Router } from "express";
+2:import { 
+3:    getEmsCachedBlock, 
+4:    getEmsCachedStatus, 
+5:    getEmsCachedLastCall, 
+6:    getEmsCachedRawStrings, 
+7:    getEmsCachedControllerStatistics,
+8:    getEmsCachedStatusCodes,
+9:    getEmsConnectionStatus, 
+10:    getEmsSourcesDebugInfo 
+11:} from "./emsTurtleClient";
+12:import { getFeatherCache } from "./feather/featherClient";
+13:
+14:const router = Router();
+15:
+16:// generic deep finder
+17:function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
+18:    if (!obj || typeof obj !== 'object') return results;
+19:    if (Array.isArray(obj)) {
+20:        if (obj.length > 0 && typeof obj[0] === 'object' && requiredKeys.every(k => k in obj[0])) {
+21:            results.push(...obj);
+22:        } else {
+23:            obj.forEach(o => findArraysByObjectKeys(o, requiredKeys, results));
+24:        }
+25:    } else {
+26:        for (const [k, v] of Object.entries(obj)) {
+27:            findArraysByObjectKeys(v, requiredKeys, results);
+28:        }
+29:    }
+30:    return results;
+31:}
+32:
+33:export function buildStringBucketSummary(stringsData: any[]) {
+34:    const buckets = {
+35:        online: 0,
+36:        nearline: 0,
+37:        offline: 0,
+38:        notCommunicating: 0
+39:    };
+40:    
+41:    let totalStrings = 0;
+42:
+43:    const tableRows = stringsData.map(st => {
+44:        totalStrings++;
+45:        const communicating = 
+46:            st.communicating === true || 
+47:            st.Comms === true || 
+48:            st.communication === true || 
+49:            st.connectionState === "Online" || 
+50:            st.connectionState === "ONLINE" || 
+51:            st.StringConnectionState === "Online" || 
+52:            st.LossOfComms === false || 
+53:            st.lossOfComms === false;
+54:            
+55:        const rawNotComm = 
+56:            st.communicating === false || 
+57:            st.LossOfComms === true || 
+58:            st.lossOfComms === true || 
+59:            st.connectionState === "Offline" || 
+60:            st.connectionState === "OFFLINE";
+61:            
+62:        const isComm = communicating || !rawNotComm; // Default to communicating if not explicitly offline and missing true flags
+63:        const notComm = rawNotComm || !isComm;
+64:
+65:        const inRot = 
+66:            st.inRotation === true || 
+67:            st.rotationEnabled === true || 
+68:            st.outRotation === false || 
+69:            st.OutRotation === false || 
+70:            st.out_rotation === false || 
+71:            st.rotation === "in" || 
+72:            st.outOfRotation === false;
+73:
+74:        const rawOutRot = 
+75:            st.outRotation === true || 
+76:            st.out_rotation === true || 
+77:            st.OutRotation === true || 
+78:            st.rotationEnabled === false || 
+79:            st.outOfRotation === true ||
+80:            st.rotation === "fault";
+81:
+82:        const isInRot = inRot || !rawOutRot; // Default to in rotation if absent
+83:
+84:        const contClosed = 
+85:            st.contactorClosed === true || 
+86:            st.contactorStatus === "CLOSED" || 
+87:            st.contactorsClosed === true || 
+88:            (st.positiveContactorClosed === true && st.negativeContactorClosed === true) || 
+89:            (st.positive_contactor_closed === true && st.negative_contactor_closed === true);
+90:
+91:        let bucket = "offline";
+92:        if (notComm) {
+93:            bucket = "notCommunicating";
+94:        } else if (!isInRot) {
+95:            bucket = "offline";
+96:        } else if (!contClosed) {
+97:            bucket = "nearline";
+98:        } else {
+99:            bucket = "online";
+100:        }
+101:        
+102:        (buckets as any)[bucket]++;
+103:        
+104:        return {
+105:            ...st,
+106:            bucket,
+107:            communicating: isComm,
+108:            inRotation: isInRot,
+109:            contactorsClosed: contClosed
+110:        };
+111:    });
+112:    
+113:    return { 
+114:        buckets, 
+115:        tableRows,
+116:        rollups: { totalStrings } 
+117:    };
+118:}
+119:
+120:
+121:function buildStatusCodeDescriptionMap(raw: any): Record<string, string> {
+122:    const defaultMap: Record<string, string> = {
+123:        "1004": "CellGroup Low Voltage Alarm",
+124:        "2024": "BPC Disconnect Warning",
+125:        "2073": "CellGroup Discharge Balancer Warning",
+126:        "2074": "CellGroup Charge Balancer Warning",
+127:        "2534": "Contactors Open Warning",
+128:        "2561": "String OOR Warning"
+129:    };
+130:    
+131:    if (!raw) return defaultMap;
+132:
+133:    let target = raw.bessStatusCodes || raw.statusCodes || raw.registeredStatusCodes || raw;
+134:    if (Array.isArray(target)) {
+135:        for (const item of target) {
+136:            if (typeof item === 'object' && item.code) {
+137:                defaultMap[String(item.code)] = item.description || item.desc || `Code ${item.code}`;
+138:            } else if (typeof item === 'string' && item.includes(':')) {
+139:                 const [k, v] = item.split(':');
+140:                 defaultMap[k.trim()] = v.trim();
+141:            }
+142:        }
+143:    } else if (typeof target === 'object') {
+144:        for (const [k, v] of Object.entries(target)) {
+145:            defaultMap[String(k)] = String(v);
+146:        }
+147:    }
+148:    return defaultMap;
+149:}
+150:
+151:function extractCodes(value: any): string[] {
+152:    const codes: string[] = [];
+153:    if (!value) return codes;
+154:    if (Array.isArray(value)) {
+155:        for (const v of value) {
+156:            if (typeof v === 'object' && v.code) codes.push(String(v.code));
+157:            else codes.push(String(v));
+158:        }
+159:    } else if (typeof value === 'string') {
+160:        codes.push(...value.split(',').map(s => s.trim()).filter(Boolean));
+161:    } else if (typeof value === 'object' && value.code) {
+162:        codes.push(String(value.code));
+163:    }
+164:    return codes;
+165:}
+166:
+167:router.get("/summary", (req, res) => {
+168:    try {
+169:        const block = getEmsCachedBlock().data || {};
+170:        const status = getEmsCachedStatus().data || {};
+171:        const lastCall = getEmsCachedLastCall().data || {};
+172:        const stringsData = getEmsCachedRawStrings().data || [];
+173:        const conn = getEmsConnectionStatus();
+174:        
+175:        const arrays = block.arrays || status.arrays || lastCall.arrays || [];
+176:
+177:        // Part C - SITE CODE
+178:        let siteCodeSource = "Unknown";
+179:        let stationCode = "UNKNOWN";
+180:        if (conn.discoveredStationCode) {
+181:            stationCode = conn.discoveredStationCode;
+182:            siteCodeSource = conn.siteCodeSource || "Connection Context";
+183:        } else {
+184:             stationCode = conn.stationCode || "UNKNOWN";
+185:             siteCodeSource = "Active Profile";
+186:        }
+187:
+188:        const site = {
+189:            stationCode,
+190:            discoveredStationCode: conn.discoveredStationCode || null,
+191:            siteCodeSource,
+192:            blockIndex: conn.blockIndex || 1,
+193:            profileId: conn.activeProfileId,
+194:            profileName: conn.activeProfileName,
+195:            emsBaseUrl: conn.activeEmsBaseUrl,
+196:            connectionState: conn.connectionState,
+197:            source: conn.source,
+198:            staleData: conn.staleData,
+199:            lastUpdated: conn.lastUpdated
+200:        };
+201:
+202:        // Part D - EMS APPS Normalization
+203:        let appsCandidates = [
+204:            ...(block.dragonApps || []),
+205:            ...(status.dragonApps || []),
+206:            ...(lastCall.dragonApps || [])
+207:        ];
+208:        if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(block, ["appCode", "appName"]));
+209:        if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(status, ["appCode", "appName"]));
+210:        
+211:        const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode) === i).map((app: any) => {
+212:            const appName = app.appName || app.applicationName || app.application || app.name || app.appCode;
+213:            let st = "Unknown";
+214:            if (app.enabled === true) st = "Enabled";
+215:            if (app.enabled === false) st = "Not Enabled";
+216:            if (app.health === "HEALTH_HEALTHY" && app.enabled !== false) st = "Enabled";
+217:            if (app.health === "HEALTH_NOT_ENABLED") st = "Not Enabled";
+218:            if (app.health === "HEALTH_FAULT") st = "Faulted";
+219:            if (app.health === "HEALTH_WARNING") st = "Warning";
+220:            
+221:            return {
+222:               priority: app.priority ?? null,
+223:               appCode: app.appCode,
+224:               appName,
+225:               configName: app.configName ?? null,
+226:               enabled: app.enabled ?? null,
+227:               status: st,
+228:               healthRaw: app.health ?? null,
+229:               shortAppStatus: app.shortAppStatus ?? null,
+230:               appStatus: app.appStatus ?? null,
+231:               sourcePath: app.sourcePath || "discovered",
+232:               raw: app
+233:            };
+234:        });
+235:
+236:        // Part E - FEATHER/HVAC
+237:        const fCache = getFeatherCache();
+238:        const fDevices = fCache.devices || [];
+239:        
+240:        // Count accurately based on devices array. If !fCache.success or stale, keep the real counts but mark stale
+241:        let fOnline = 0, fOffline = 0, fLostComms = 0, fFssInv = 0, fDoorsInv = 0, fHvacInv = 0, fWarn = 0, fFault = 0;
+242:        let maxH = 0, maxST = 0, maxCT = 0;
+243:        const devicesWithIssues: any[] = [];
+244:
+245:        fDevices.forEach((f: any) => {
+246:            if (f.reachable || f.online || f.sourceOk) fOnline++; else fOffline++;
+247:            if (f.lostComms || f.devicesWithLostComms?.length > 0 || f.lostCommsDevices?.length > 0 || f.deviceStatusComms?.includes('Lost')) fLostComms++;
+248:            if (f.fssValid === false || f.thermalData?.fssSignals?.valid === false) fFssInv++;
+249:            if (f.doorsValid === false || f.doors?.valid === false) fDoorsInv++;
+250:            if (f.mioValid === false || f.hvacDataValid === false || f.hvacValid === false) fHvacInv++;
+251:            fWarn += (f.warningCount || f.warningMessages?.length || f.warnInfo?.length || f.activeWarningInterlocks?.length || 0);
+252:            fFault += (f.alarmCount || f.faultMessages?.length || f.activeTripFaultLog?.length || f.activeAlarms?.length || 0);
+253:            if ((f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) && (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) > maxH) maxH = (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM);
+254:            const st = f.spaceTemperature || (f.rawResponse?.thermalData?.spaceTemperature) || (f.rawResponse?.thermalData?.spaceTemp) || 0;
+255:            if (st && st > maxST) maxST = st;
+256:            if (f.avgCellTemperature && f.avgCellTemperature > maxCT) maxCT = f.avgCellTemperature;
+257:            
+258:            if (!f.reachable || f.lostComms || f.fssValid === false || f.thermalData?.fssSignals?.valid === false || f.doorsValid === false || f.doors?.valid === false || (f.warningCount > 0) || (f.alarmCount > 0)) {
+259:                 devicesWithIssues.push(f);
+260:            }
+261:        });
+262:
+263:        const totalFeather = fDevices.length;
+264:        const featherSummary = {
+265:             sourceOk: fCache.success,
+266:             isStale: fCache.isStale,
+267:             totalDevices: totalFeather > 0 ? totalFeather : null,
+268:             onlineDevices: totalFeather > 0 ? fOnline : null,
+269:             offlineDevices: totalFeather > 0 ? fOffline : null,
+270:             lostCommsCount: totalFeather > 0 ? fLostComms : null,
+271:             fssInvalidCount: totalFeather > 0 ? fFssInv : null,
+272:             doorsInvalidCount: totalFeather > 0 ? fDoorsInv : null,
+273:             hvacDataInvalidCount: totalFeather > 0 ? fHvacInv : null,
+274:             activeWarningCount: totalFeather > 0 ? fWarn : null,
+275:             activeFaultCount: totalFeather > 0 ? fFault : null,
+276:             maxHydrogenPpm: totalFeather > 0 ? maxH || null : null,
+277:             maxSpaceTempC: totalFeather > 0 ? maxST || null : null,
+278:             maxCellTempC: totalFeather > 0 ? maxCT || null : null,
+279:             devicesWithIssues,
+280:             devices: fDevices
+281:        };
+282:
+283:        // Part F - Humidity Temp
+284:                const htsSummary: any[] = [];
+285:        fDevices.forEach((f: any) => {
+286:             const rt = f.rawResponse?.thermalData || f.rawResponse || {};
+287:             const tempC = f.spaceTemperature ?? f.spaceTemp ?? f.temperature ?? rt.spaceTemperature ?? rt.spaceTemp ?? rt.airTemp ?? rt.temperature;
+288:             const hum = f.spaceHumidity ?? f.humidity ?? rt.spaceHumidity ?? rt.humidity ?? rt.relativeHumidity;
+289:             if (tempC !== undefined || hum !== undefined) {
+290:                 const srcIp = f.deviceIp || f.ip;
+291:                 let enc = f.enclosureLabel || f.entityDescription || f.entityName;
+292:                 if (!enc) {
+293:                     if (f.arrayIndex != null && f.stringIndex != null) {
+294:                        enc = `Array ${f.arrayIndex} ES${f.stringIndex}`;
+295:                     } else if (srcIp) {
+296:                        const parts = srcIp.split('.');
+297:                        if (parts.length === 4) {
+298:                             const arr = parseInt(parts[2], 10);
+299:                             const h = parseInt(parts[3], 10);
+300:                             if (!isNaN(arr) && !isNaN(h)) {
+301:                                  if (h === 3) enc = `Array ${arr} CS`;
+302:                                  else if (h >= 10 && h <= 50 && (h - 10) % 5 === 0) {
+303:                                       enc = `Array ${arr} ES${((h - 10) / 5) + 1}`;
+304:                                  }
+305:                             }
+306:                        }
+307:                     }
+308:                 }
+309:                 htsSummary.push({
+310:                     enclosureLabel: enc || "Unknown Enclosure",
+311:                     sensorId: srcIp,
+312:                     sourceIp: srcIp,
+313:                     deviceName: f.deviceType || "Feather",
+314:                     entityDescription: f.entityName || null,
+315:                     arrayIndex: f.arrayIndex ?? null,
+316:                     stringIndex: f.stringIndex ?? null,
+317:                     temperatureC: tempC,
+318:                     humidityPct: hum,
+319:                     source: "feather",
+320:                     raw: f
+321:                 });
+322:             }
+323:        });
+324:
+325:        // Part G - PCS
+326:        const pcsDebugKeys: string[] = [];
+327:        const pcsCandidates: any[] = [];
+328:        function dig(obj: any, path: string = "") {
+329:            if (!obj || typeof obj !== 'object') return;
+330:            if (Array.isArray(obj)) {
+331:                 obj.forEach((o, i) => dig(o, `${path}[${i}]`));
+332:            } else {
+333:                 for (const [k, v] of Object.entries(obj)) {
+334:                     const tl = k.toLowerCase();
+335:                     if (tl.includes('pcs') || tl.includes('inverter') || tl.includes('converter')) {
+336:                         pcsDebugKeys.push(`${path ? path + '.' : ''}${k}`);
+337:                         if (Array.isArray(v)) pcsCandidates.push(...v);
+338:                         else if (typeof v === 'object' && v !== null) pcsCandidates.push(v);
+339:                     }
+340:                     dig(v, `${path ? path + '.' : ''}${k}`);
+341:                 }
+342:            }
+343:        }
+344:        dig(block, "block");
+345:        dig(status, "status");
+346:        dig(lastCall, "lastCall");
+347:        
+348:        const pcsCnds = [
+349:            ...(block.arrays || []).flatMap((a:any) => a.pcs || a.arrayPcs || []),
+350:            ...(status.arrays || []).flatMap((a:any) => a.pcs || a.arrayPcs || []),
+351:            ...(lastCall.arrays || []).flatMap((a:any) => a.pcs || a.arrayPcs || []),
+352:            ...pcsCandidates
+353:        ];
+354:        function numOrNull(v: any): number | null {
+355:            if (v === null || v === undefined) return null;
+356:            const n = Number(v);
+357:            return isNaN(n) ? null : n;
+358:        }
+359:        const pcsSummary = pcsCnds.map((p: any) => {
+360:             return {
+361:                 arrayIndex: p.arrayIndex ?? p.arrayNumber ?? null,
+362:                 pcsIndex: p.pcsIndex ?? p.index ?? null,
+363:                 dcVoltage: numOrNull(p.dcVoltage ?? p.dcVolt ?? p.dcV ?? p.dc_volt),
+364:                 dcCurrent: numOrNull(p.dcCurrent ?? p.dcCurr ?? p.dcA ?? p.dc_current),
+365:                 acVoltage: numOrNull(p.acVoltage ?? p.acVolt ?? p.acV ?? p.ac_voltage),
+366:                 acCurrent: numOrNull(p.acCurrent ?? p.acCurr ?? p.acA ?? p.ac_current),
+367:                 acRealPowerKw: numOrNull(p.acRealPowerKw ?? p.acRealPower ?? p.realPowerKw ?? p.kw ?? p.kW),
+368:                 acReactivePowerKvar: numOrNull(p.acReactivePowerKvar ?? p.acReactPower ?? p.reactivePowerKvar ?? p.kvar ?? p.kVAr),
+369:                 frequencyHz: numOrNull(p.frequencyHz ?? p.freq ?? p.hz),
+370:                 rotation: p.rotation ?? p.rotationStatus ?? null,
+371:                 sourcePath: p.sourcePath || "discovered",
+372:                 raw: p
+373:             };
+374:        }).filter((v:any,i:any,a:any) => a.findIndex((t: any) =>(t.arrayIndex === v.arrayIndex && t.pcsIndex === v.pcsIndex && v.arrayIndex != null))===i);
+375:
+376:
+377:        // Part H - Arrays
+378:        let arrCands = arrays.length ? arrays : findArraysByObjectKeys(block, ["arrayIndex", "onlineSOC", "communicating"]);
+379:        if (!arrCands.length) arrCands = findArraysByObjectKeys(status, ["arrayIndex", "onlineSOC", "communicating"]);
+380:        
+381:        let arraySummary = arrCands.map((a: any) => ({
+382:             arrayIndex: a.arrayIndex ?? a.arrayNumber ?? null,
+383:             communicating: a.communicating ?? null,
+384:             onlineSOC: a.onlineSOC ?? null,
+385:             nearlineSOC: a.nearlineSOC ?? null,
+386:             offlineSOC: a.offlineSOC ?? null,
+387:             onlineAvailableKWh: a.onlineAvailableKWh ?? null,
+388:             nearlineAvailableKWh: a.nearlineAvailableKWh ?? null,
+389:             offlineAvailableKWh: a.offlineAvailableKWh ?? null,
+390:             availableACChargekW: a.availableACChargekW ?? null,
+391:             availableACDischargekW: a.availableACDischargekW ?? null,
+392:             commandedkW: a.commandedkW ?? null,
+393:             measuredkW: a.measuredkW ?? null,
+394:             maxAllowedChargeCurrent: a.maxAllowedChargeCurrent ?? null,
+395:             maxAllowedDischargeCurrent: a.maxAllowedDischargeCurrent ?? null,
+396:             notCommunicatingStackCount: a.notCommunicatingStackCount ?? null,
+397:             communicatingStackCount: a.communicatingStackCount ?? null,
+398:             friendlyString: a.friendlyString || `Array ${a.arrayIndex ?? 'Unknown'}`,
+399:             sourcePath: a.sourcePath || "discovered",
+400:             raw: a
+401:        }));
+402:
+403:        // Part I - Strings
+404:        const stringSummary = buildStringBucketSummary(stringsData);
+405:
+406:        // Part J - Safety Summary
+407:        let topology = block.topology || status.topology || lastCall.topology || [];
+408:        if (!Array.isArray(topology) && topology.lineups) topology = topology.lineups; 
+409:        const clearableFaults = Array.isArray(topology) ? topology.filter((t: any) => t.allowFaultReset === true).map((t: any) => ({ ...t, entityKeyToken: t.entityKeyToken || t.id || t.name || "UNKNOWN_TOKEN" })) : [];
+410:        const safetySummary = {
+411:             clearableFaults,
+412:             clearableCount: clearableFaults.length,
+413:             sourceOk: true,
+414:             lastUpdated: new Date().toISOString()
+415:        };
+416:
+417:        // Part K - Active Issue Groups
+418:        const activeIssueGroups: any[] = [];
+419:        // Map Bess Status Codes to get descriptions
+420:        const scMap = buildStatusCodeDescriptionMap(getEmsCachedStatusCodes().data || {});
+421:        
+422:        const groupMap = new Map<string, any>();
+423:        fDevices.forEach((f: any) => {
+424:             if (f.warningCount > 0 && f.activeWarnings) {
+425:                 f.activeWarnings.forEach((aw: string) => {
+426:                     const key = `feather_warn_${aw}`;
+427:                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: aw, message: `Feather ${aw}`, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+428:                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
+429:                 });
+430:             }
+431:             if (f.alarmCount > 0 && f.activeAlarms) {
+432:                 f.activeAlarms.forEach((aa: string) => {
+433:                     const key = `feather_alarm_${aa}`;
+434:                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: aa, message: `Feather ${aa}`, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+435:                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
+436:                 });
+437:             }
+438:        });
+439:        
+440:        
+441:        stringsData.forEach((st: any) => {
+442:             const alarms = extractCodes(st.alarmCodes || st.alarms || st.alarmsList || st.alarmCount);
+443:             const warnings = extractCodes(st.warningCodes || st.warnCodes || st.warnings || st.warns || st.warningsList || st.warningCount);
+444:             
+445:             const enclosureLabel = `Array ${st.arrayNumber || st.array || st.arrayIndex || st.Array || '?'} ES${st.stringNumber || st.string || st.stringIndex || st.String || '?'}`;
+446:             
+447:             alarms.forEach(ac => {
+448:                 const codeDesc = scMap[ac] || `Alarm Code ${ac}`;
+449:                 const key = `string_alarm_${ac}`;
+450:                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: `${ac}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+451:                 groupMap.get(key).occurrences.push({ arrayNumber: st.arrayNumber, stringNumber: st.stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+452:             });
+453:             
+454:             warnings.forEach(wc => {
+455:                 const codeDesc = scMap[wc] || `Warning Code ${wc}`;
+456:                 const key = `string_warn_${wc}`;
+457:                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: `${wc}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+458:                 groupMap.get(key).occurrences.push({ arrayNumber: st.arrayNumber, stringNumber: st.stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+459:             });
+460:        });
+461:
+462:        
+463:        for (const g of groupMap.values()) {
+464:             g.occurrenceCount = g.occurrences.length;
+465:             g.affectedEnclosureCount = new Set(g.occurrences.map((o: any) => o.enclosureLabel)).size;
+466:             activeIssueGroups.push(g);
+467:        }
+468:
+469:        const sourceHealth = getEmsSourcesDebugInfo().map((d: any) => ({
+470:            name: d.endpoint.split('/').pop() || d.endpoint,
+471:            type: d.endpoint.includes('feather') ? 'Feather' : 'EMS',
+472:            ok: d.success,
+473:            error: d.lastError === "NONE" ? undefined : d.lastError
+474:        }));
+475:
+476:        const responseData = {
+477:            site,
+478:            emsApps,
+479:            bessFleetSummary: {},
+480:            stringSummary,
+481:            arraySummary,
+482:            pcsSummary,
+483:            featherSummary,
+484:            humidityTemperatureSensors: htsSummary,
+485:            safetySummary,
+486:            activeIssueGroups,
+487:            sourceHealth,
+488:            debug: {
+489:               pcsDebugKeys: Array.from(new Set(pcsDebugKeys)),
+490:               appDebugKeys: []
+491:            },
+492:            
+493:            // Legacy fallbacks
+494:            arrays: arraySummary,
+495:            dragonApps: emsApps,
+496:            topology,
+497:            activeIssues: activeIssueGroups
+498:        };
+499:
+500:        try {
+501:            const prizmCache = require('./cache/prizmCache');
+502:            prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
+503:            if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', responseData);
+504:        } catch(e) {}
+505:        
+506:        res.json(responseData);
+507:    } catch (err: any) {
+508:        console.error("Summary aggregator error:", err);
+509:        res.status(500).json({ error: err.message });
+510:    }
+511:});
+512:
+513:export default router;
+514:
