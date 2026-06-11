@@ -190,7 +190,7 @@ router.get("/discovery", async (req, res) => {
         // Analyze arrays and strings from stringsCsv + block
         const arraySummariesFromBlock = blockData.data?.arrays || [];
 
-        res.json({
+        const responseData = {
             profileId: connectionStatus.activeProfileId,
             emsBaseUrl: connectionStatus.activeEmsBaseUrl,
             stationCode: connectionStatus.stationCode,
@@ -244,7 +244,13 @@ router.get("/discovery", async (req, res) => {
                sections: ["emsApps", "blockTopology", "pcs", "hvacCentipede", "ups", "arraySummary"],
                notes: ["Data discovered locally maps accurately to cloud summary features."]
             }
-        });
+        };
+        try {
+            const prizmCache = require('./cache/prizmCache');
+            prizmCache.set('overview-discovery', responseData, { ttlMs: 15000 });
+            if (prizmCache.writeHistory) prizmCache.writeHistory('overview-discovery', responseData);
+        } catch(e) {}
+        res.json(responseData);
 
     } catch (err: any) {
         console.error("Overview discovery error:", err);

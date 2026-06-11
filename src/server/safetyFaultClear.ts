@@ -332,7 +332,7 @@ router.get("/candidates", async (req, res) => {
         const safeEligible = eligible.map(({ raw, ...rest }) => rest);
         const safeNotEligible = notEligible.map(({ raw, ...rest }) => rest);
 
-        res.json({
+        const responseData = {
             profileId: profile.id,
             emsBaseUrl: baseUrl,
             stationCode: blockData.stationCode || "Default",
@@ -344,7 +344,13 @@ router.get("/candidates", async (req, res) => {
             },
             eligible: safeEligible,
             notEligible: safeNotEligible
-        });
+        };
+        try {
+            const prizmCache = require('./cache/prizmCache');
+            prizmCache.set('safety-candidates', responseData, { ttlMs: 15000 });
+            if (prizmCache.writeHistory) prizmCache.writeHistory('safety-candidates', responseData);
+        } catch(e) {}
+        res.json(responseData);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }

@@ -370,7 +370,7 @@ const endpointDebugMap: Record<string, EndpointDebugInfo> = {
 };
 
 // Execute a fetch with absolute timeout wrapping and trace diagnostics
-async function fetchAndRecord(endpoint: string, customTimeoutMs?: number): Promise<any> {
+async function fetchAndRecord(endpoint: string, customTimeoutMs?: number, returnType: 'response' | 'json' | 'text' = 'response'): Promise<any> {
   const baseUrl = getNormalizedBaseUrl();
   const url = `${baseUrl}${endpoint}`;
   const controller = new AbortController();
@@ -411,6 +411,29 @@ async function fetchAndRecord(endpoint: string, customTimeoutMs?: number): Promi
     debugItem.success = true;
     debugItem.lastSuccessAt = new Date().toISOString();
     debugItem.lastError = null;
+
+    if (returnType === 'json') {
+      const data = await response.json();
+      const ext = endpoint.endsWith('.csv') ? '.csv' : (endpoint.endsWith('.txt') ? '.txt' : '.json');
+      const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+      try {
+        const prizmCache = require('./cache/prizmCache');
+        prizmCache.set('raw_' + safeKey, data, { sourceUrl: url, isRaw: true, rawExt: ext, ttlMs: 15000 });
+      } catch(e) {}
+      return data;
+    }
+
+    if (returnType === 'text') {
+      const data = await response.text();
+      const ext = endpoint.endsWith('.csv') ? '.csv' : (endpoint.endsWith('.txt') ? '.txt' : '.json');
+      const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+      try {
+        const prizmCache = require('./cache/prizmCache');
+        prizmCache.set('raw_' + safeKey, data, { sourceUrl: url, isRaw: true, rawExt: ext, ttlMs: 15000 });
+      } catch(e) {}
+      return data;
+    }
+
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);
@@ -641,17 +664,13 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
   // 1. /status
   try {
-    const res = await fetchAndRecord("/status");
-    emsCache.status = await res.json();
+    emsCache.status = await fetchAndRecord("/status", undefined, 'json');
     coreEndpointsSucceeded++;
-  } catch (err: any) {
-    // Optional endpoint
-  }
+  } catch (err: any) {}
 
   // 2. /tools/report/ems/status.json
   try {
-    const res = await fetchAndRecord("/tools/report/ems/status.json");
-    const data = await res.json();
+    const data = await fetchAndRecord("/tools/report/ems/status.json", undefined, 'json');
     if (data) {
       emsCache.status = { ...emsCache.status, ...data };
       coreEndpointsSucceeded++;
@@ -663,8 +682,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
   // 3. /tools/monitor/ems/blockviewer/data
   try {
-    const res = await fetchAndRecord("/tools/monitor/ems/blockviewer/data");
-    emsCache.block = await res.json();
+    emsCache.block = await fetchAndRecord("/tools/monitor/ems/blockviewer/data", undefined, 'json');
     coreEndpointsSucceeded++;
   } catch (err: any) {
     overallError = err.message || String(err);
@@ -673,8 +691,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
   // 4. /tools/report/ems/bessStatusCodes.json
   try {
-    const res = await fetchAndRecord("/tools/report/ems/bessStatusCodes.json");
-    emsCache.bessStatusCodes = await res.json();
+    emsCache.bessStatusCodes = await fetchAndRecord("/tools/report/ems/bessStatusCodes.json", undefined, 'json');
   } catch (err: any) {
     overallError = err.message || String(err);
     criticalEndpointsFailed++;
@@ -682,84 +699,63 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
   // 5. /tools/report/ems/lastCall.json
   try {
-    const res = await fetchAndRecord("/tools/report/ems/lastCall.json");
-    emsCache.lastCall = await res.json();
+    emsCache.lastCall = await fetchAndRecord("/tools/report/ems/lastCall.json", undefined, 'json');
     coreEndpointsSucceeded++;
-  } catch (err: any) {
-    // Optional endpoint
-  }
+  } catch (err: any) {}
 
   // 6. /tools/report/ems/controllerStatistics.json
   try {
-    const res = await fetchAndRecord("/tools/report/ems/controllerStatistics.json");
-    emsCache.controllerStatistics = await res.json();
-  } catch (err: any) {
-    // Optional endpoint
-  }
+    emsCache.controllerStatistics = await fetchAndRecord("/tools/report/ems/controllerStatistics.json", undefined, 'json');
+  } catch (err: any) {}
 
   // 7. /tools/report/ems/strings.csv
   try {
-    const res = await fetchAndRecord("/tools/report/ems/strings.csv");
-    const text = await res.text();
+    const text = await fetchAndRecord("/tools/report/ems/strings.csv", undefined, 'text');
     emsCache.strings = parseCsv(text);
     coreEndpointsSucceeded++;
-  } catch (err: any) {
-    // Optional endpoint, silently handle timeout/offline
-  }
+  } catch (err: any) {}
 
   // 8. /tools/report/ems/ipMap
   try {
-    let res = await fetchAndRecord("/tools/report/ems/ipMap.json").catch(() => null);
-    if (!res || !res.ok) {
-      res = await fetchAndRecord("/tools/report/ems/ipMap.csv").catch(() => null);
+    let text = await fetchAndRecord("/tools/report/ems/ipMap.json", undefined, 'text').catch(() => null);
+    if (!text) {
+      text = await fetchAndRecord("/tools/report/ems/ipMap.csv", undefined, 'text').catch(() => null);
     }
-    if (res && res.ok) {
-        const text = await res.text();
+    if (text) {
         try {
             emsCache.ipMap = JSON.parse(text);
         } catch {
             emsCache.ipMap = text as any;
         }
     }
-  } catch (err: any) {
-    // Optional endpoint
-  }
+  } catch (err: any) {}
 
   // 9. /tools/report/ems/stringIPMap
   try {
-    let res = await fetchAndRecord("/tools/report/ems/stringIPMap.json").catch(() => null);
-    if (!res || !res.ok) {
-        res = await fetchAndRecord("/tools/report/ems/stringIPMap.csv").catch(() => null);
+    let text = await fetchAndRecord("/tools/report/ems/stringIPMap.json", undefined, 'text').catch(() => null);
+    if (!text) {
+        text = await fetchAndRecord("/tools/report/ems/stringIPMap.csv", undefined, 'text').catch(() => null);
     }
-    if (res && res.ok) {
-        const text = await res.text();
+    if (text) {
         try {
             emsCache.stringIPMap = JSON.parse(text);
         } catch {
             emsCache.stringIPMap = text as any;
         }
     }
-  } catch (err: any) {
-    // Optional endpoint
-  }
+  } catch (err: any) {}
 
   // 10. /firstresponder/data
   let respV1Data = null;
   try {
-    const res = await fetchAndRecord("/firstresponder/data");
-    respV1Data = await res.json();
-  } catch (err: any) {
-    // Optional endpoint
-  }
+    respV1Data = await fetchAndRecord("/firstresponder/data", undefined, 'json');
+  } catch (err: any) {}
 
   // 11. /v2/firstresponder/data
   let respV2Data = null;
   try {
-    const res = await fetchAndRecord("/v2/firstresponder/data");
-    respV2Data = await res.json();
-  } catch (err: any) {
-    // Optional endpoint
-  }
+    respV2Data = await fetchAndRecord("/v2/firstresponder/data", undefined, 'json');
+  } catch (err: any) {}
 
   if (respV1Data || respV2Data) {
     emsCache.firstResponder = {
@@ -770,11 +766,8 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
   // 12. /modbus_map.csv
   try {
-    const res = await fetchAndRecord("/modbus_map.csv");
-    emsCache.modbusMap = await res.text();
-  } catch (err: any) {
-    // Optional endpoint
-  }
+    emsCache.modbusMap = await fetchAndRecord("/modbus_map.csv", undefined, 'text');
+  } catch (err: any) {}
 
   const rawUrl = getNormalizedBaseUrl();
   const activeRef = ProfileStore.getActiveProfile();
@@ -941,4 +934,106 @@ export function getEmsCachedControllerStatistics() {
 
 export function getEmsCachedLastCall() {
   return wrapEmsResponse("lastCall", () => emsCache.lastCall);
+}
+
+
+// ==================== CACHE ORCHESTRATOR ====================
+
+export let cacheSeedState = {
+  running: false,
+  lastStartedAt: null as string | null,
+  lastCompletedAt: null as string | null,
+  completedKeys: [] as string[],
+  failedKeys: [] as string[],
+  percentComplete: 0
+};
+
+export async function bootstrapEmsAndSeedCache() {
+  if (cacheSeedState.running) {
+    return { success: true, message: 'Already running' };
+  }
+  
+  cacheSeedState.running = true;
+  cacheSeedState.lastStartedAt = new Date().toISOString();
+  cacheSeedState.completedKeys = [];
+  cacheSeedState.failedKeys = [];
+  cacheSeedState.percentComplete = 0;
+
+  console.log('[EMS Bootstrap] Starting cache seed...');
+  
+  // Try loading from local disk cache first in case EMS is offline
+  try {
+     const prizmCache = require('./cache/prizmCache');
+     const rawStatus = prizmCache.get('raw__tools_report_ems_status_json')?.data;
+     if (rawStatus && !emsCache.status) emsCache.status = rawStatus;
+     
+     const rawBlock = prizmCache.get('raw__tools_monitor_ems_blockviewer_data')?.data; // blockviewer/data
+     if (rawBlock && !emsCache.block) emsCache.block = rawBlock;
+     
+     const rawLastCall = prizmCache.get('raw__tools_report_ems_lastCall_json')?.data;
+     if (rawLastCall && !emsCache.lastCall) emsCache.lastCall = rawLastCall;
+     
+     const rawCsv = prizmCache.get('raw__tools_report_ems_strings_csv')?.data;
+     if (rawCsv && !emsCache.strings?.length) emsCache.strings = parseCsv(rawCsv);
+  } catch(e) {}
+
+  const priority1 = [
+    '/tools/report/ems/status.json',
+    '/tools/report/ems/strings.csv',
+    '/tools/report/ems/lastCall.json',
+    '/tools/report/ems/controllerStatistics.json',
+    '/tools/report/ems/bessStatusCodes.json',
+    '/tools/report/ems/ipMap.json',
+    '/tools/report/ems/stringIPMap.json',
+    '/tools/monitor/ems/blockviewer/data'
+  ];
+  
+  let completed = 0;
+  
+  for (const ep of priority1) {
+    try {
+      await fetchAndRecord(ep, 5000);
+      cacheSeedState.completedKeys.push(ep);
+    } catch(e) {
+      cacheSeedState.failedKeys.push(ep);
+    }
+    completed++;
+    cacheSeedState.percentComplete = Math.floor((completed / priority1.length) * 100);
+  }
+
+  await pollEmsTurtle();
+
+  cacheSeedState.running = false;
+  cacheSeedState.lastCompletedAt = new Date().toISOString();
+  cacheSeedState.percentComplete = 100;
+  
+  console.log('[EMS Bootstrap] Cache seed finished.');
+  return { success: true, cacheSeedState };
+}
+
+export function getExtendedConnectionStatus() {
+  const base = getEmsConnectionStatus();
+  
+  const reachable = base.source === 'live' || base.source === 'partial';
+  let statusStr = 'LIVE';
+  if (base.source === 'offline') statusStr = emsCache.lastError?.includes('HTML') ? 'MISCONFIGURED' : 'OFFLINE';
+  else if (base.source === 'partial') statusStr = 'PARTIAL';
+  else if (base.source === 'cached') statusStr = 'CACHED';
+  else if (base.source === 'demo') statusStr = 'DEMO';
+  
+  return {
+    profileId: base.activeProfileId,
+    profileName: base.activeProfileName,
+    emsBaseUrl: base.activeEmsBaseUrl,
+    reachable,
+    status: statusStr,
+    firstSuccessfulEndpoint: emsCache.hasAttemptedPoll && (base.source !== 'offline') ? '/tools/report/ems/status.json' : null,
+    lastSuccessfulAt: base.lastUpdated,
+    lastAttemptAt: new Date().toISOString(),
+    failureReason: !reachable ? emsCache.lastError || 'Unknown connection error' : null,
+    suggestedAction: !reachable ? 'RECONFIGURE_EMS' : null,
+    sourceHealth: base.reason || 'OK',
+    discoveredStationCode: base.discoveredStationCode,
+    cacheSeedState
+  };
 }

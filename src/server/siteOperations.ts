@@ -79,7 +79,7 @@ router.get("/summary", (req, res) => {
 
         const clearableFaults = Array.isArray(topology) ? topology.filter((t: any) => t.allowFaultReset === true) : [];
 
-        res.json({
+                const responseData = {
             site: {
                stationCode: conn.discoveredStationCode || conn.stationCode,
                activeProfileId: conn.activeProfileId,
@@ -99,7 +99,14 @@ router.get("/summary", (req, res) => {
             },
             featherSummary,
             recentEvents: []
-        });
+        };
+        try {
+            const prizmCache = require('./cache/prizmCache');
+            prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
+            if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', responseData);
+        } catch(e) {}
+        
+        res.json(responseData);
     } catch (err: any) {
         console.error("Summary aggregator error:", err);
         res.status(500).json({ error: err.message });

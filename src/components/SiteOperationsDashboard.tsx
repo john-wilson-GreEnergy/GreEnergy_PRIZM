@@ -935,6 +935,26 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                 </div>
             </CollapsibleSection>
 
+            {/* PRIZM Cache Orchestration Telemetry Footer */}
+            <div className="mt-6 mb-2 p-3 bg-prizm-surface-strong border border-prizm-border rounded-lg flex flex-col sm:flex-row flex-wrap sm:items-center justify-between gap-3 text-[10px] font-mono tracking-wide">
+                 <div className="flex items-center gap-2">
+                     <span className="text-prizm-text-muted">CACHE:</span>
+                     <span className="text-cyan-500 font-bold truncate max-w-[300px]">{state.cacheStatus?.activeSiteCachePath ? state.cacheStatus.activeSiteCachePath.replace(/.*\\.prizm-cache/, '.prizm-cache') : 'NOT DETERMINED'}</span>
+                 </div>
+                 <div className="flex flex-wrap items-center gap-4">
+                     <div className="flex items-center gap-2">
+                        <span className="text-prizm-text-muted">CACHE STATE:</span>
+                        <span className={`font-bold px-1.5 py-0.5 rounded ${state.siteSummary?.site?.connectionState === 'disconnected' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                            {state.siteSummary?.site?.connectionState === 'disconnected' ? 'CACHED / OFFLINE' : 'LIVE'}
+                        </span>
+                     </div>
+                     <div className="flex items-center gap-2">
+                        <span className="text-prizm-text-muted">LAST FETCHED:</span>
+                        <span className="text-prizm-text font-bold">{state.cacheStatus?.activeManifest?.lastUpdatedAt ? new Date(state.cacheStatus.activeManifest.lastUpdatedAt).toLocaleString() : 'N/A'}</span>
+                     </div>
+                 </div>
+            </div>
+
             {/* Quick Navigation Panel */}
             <div className="mt-4 pt-4 border-t border-prizm-border flex flex-wrap gap-4 items-center">
                 <span className="text-[10px] uppercase font-bold text-prizm-text-muted font-mono mr-2">Quick Navigation:</span>

@@ -5,7 +5,7 @@ import cacheRoutes from "./src/server/cache/cacheRoutes";
 import historyRoutes from "./src/server/history/historyRoutes";
 import siteOperationsRouter from "./src/server/siteOperations";
 
-import { emsCache } from "./src/server/emsTurtleClient";
+import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
 import express from "express";
 import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
 import path from "path";
@@ -402,14 +402,39 @@ setInterval(async () => {
   recordTelemetrySample(emsCache, getFeatherCache());
 }, emsPollInterval);
 
-// Kick off initial poll immediately on server start
-pollEmsTurtle().catch(err => {
-  console.log("[EMS LAN Info] Initial offline scan finished.");
+// Kick off initial bootstrap cache seed
+
+
+bootstrapEmsAndSeedCache().catch(err => {
+  console.log("[EMS LAN Info] Initial offline scan or bootstrap failed or finished.");
 });
 
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry
 app.get("/api/local/connection", (req, res) => {
   res.json(getEmsConnectionStatus());
+});
+
+// GET /api/local/ems/connection-status
+app.get("/api/local/ems/connection-status", (req, res) => {
+  const status = getExtendedConnectionStatus();
+  try {
+     const prizmCache = require('./src/server/cache/prizmCache');
+     prizmCache.set('connection-status', status, { ttlMs: 15000 });
+     if (prizmCache.writeHistory) prizmCache.writeHistory('connection-status', status);
+  } catch(e) {}
+  res.json(status);
+});
+
+// POST /api/local/ems/retry-connection
+app.post("/api/local/ems/retry-connection", async (req, res) => {
+  await bootstrapEmsAndSeedCache();
+  res.json(getExtendedConnectionStatus());
+});
+
+// POST /api/local/cache/seed
+app.post("/api/local/cache/seed", async (req, res) => {
+  const result = await bootstrapEmsAndSeedCache();
+  res.json(result);
 });
 
 app.get("/api/local/data-discovery/site-equipment", async (req, res) => {
@@ -1278,6 +1303,11 @@ app.get("/api/feather/devices", async (req, res) => {
       };
       
       lastEnrichedCache = responseData;
+      try {
+        const prizmCache = require('./src/server/cache/prizmCache');
+        prizmCache.set('feather-devices', responseData, { ttlMs: 15000 });
+        if (prizmCache.writeHistory) prizmCache.writeHistory('feather-devices', responseData);
+      } catch(e) {}
       return responseData;
     })();
 

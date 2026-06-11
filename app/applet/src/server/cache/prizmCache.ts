@@ -150,6 +150,7 @@ export function updateManifest(sourceKey: string, sourceOk: boolean, sourceUrl: 
 
 export function get<T>(key: string): PrizmCacheEntry<T> | null {
   const meta = getActiveSiteMetadata();
+  const siteCacheKey = getSiteCacheKey();
   
   const p = path.join(getActiveSiteCachePath(), `${key}.json`);
   if (!memoryCache.has(key) && fs.existsSync(p)) {
@@ -337,6 +338,7 @@ export function getStatus() {
     activeSiteCachePath: getActiveSiteCachePath(),
     activeManifest: getActiveManifest(),
     availableSiteCaches: getAvailableSiteCaches(),
+    // Keep backward compat
     enabled: true,
     cacheDir: CACHE_ROOT,
     entries: Array.from(memoryCache.values()).map(e => ({
@@ -351,23 +353,4 @@ export function getStatus() {
        emsBaseUrl: e.emsBaseUrl
     }))
   };
-}
-
-export function writeHistory(sourceKey: string, data: any) {
-    const siteKey = getSiteCacheKey();
-    const activeMeta = getActiveSiteMetadata();
-    const p = path.join(HISTORY_ROOT, "sites", siteKey);
-    if (!fs.existsSync(p)) {
-        try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
-    }
-    const record = {
-        timestampUtc: new Date().toISOString(),
-        siteCacheKey: siteKey,
-        stationCode: activeMeta.stationCode,
-        emsBaseUrl: activeMeta.emsBaseUrl,
-        data
-    };
-    try {
-        fs.appendFileSync(path.join(p, `${sourceKey}.jsonl`), JSON.stringify(record) + "\n");
-    } catch(e) {}
 }

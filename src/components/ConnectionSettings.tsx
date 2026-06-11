@@ -76,6 +76,33 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   const [customTestLoading, setCustomTestLoading] = useState(false);
   const [showTestResultModal, setShowTestResultModal] = useState(false);
 
+  // Cache States
+  const [cacheStatus, setCacheStatus] = useState<any>(null);
+  useEffect(() => {
+     fetch('/api/local/cache/status')
+        .then(r => r.json())
+        .then(setCacheStatus)
+        .catch(console.error);
+  }, [activeProfile]);
+
+  const handleClearActiveCache = async () => {
+      try {
+          await fetch('/api/local/cache/clear-active', { method: 'POST' });
+          const res = await fetch('/api/local/cache/status');
+          setCacheStatus(await res.json());
+      } catch(e) {}
+  };
+
+  const handleClearAllCache = async () => {
+      if (window.confirm('Are you sure you want to clear ALL PRIZM local site caches?')) {
+         try {
+             await fetch('/api/local/cache/clear-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: 'CLEAR_ALL_PRIZM_CACHE' }) });
+             const res = await fetch('/api/local/cache/status');
+             setCacheStatus(await res.json());
+         } catch(e) {}
+      }
+  };
+
   // File Upload Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -115,6 +142,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
       });
       if (res.ok) {
         await loadProfiles();
+        await fetch("/api/local/ems/retry-connection", { method: "POST" }).catch(()=>null);
         if (onProfileChanged) {
           onProfileChanged();
         }
@@ -811,6 +839,58 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* PRIZM Durable Local Cache Orchestration Diagnostics */}
+      {cacheStatus && (
+        <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6">
+           <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xs font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
+                 <Database size={14} className="text-cyan-500"/>
+                 Local Disk Cache System
+              </h3>
+              <div className="flex gap-2">
+                  <button onClick={handleClearActiveCache} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 transition-colors">
+                     Clear Active Cache
+                  </button>
+                  <button onClick={handleClearAllCache} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/50 text-red-500 bg-red-500/5 rounded hover:bg-red-500/20 transition-colors">
+                     Purge All Disk Caches
+                  </button>
+              </div>
+           </div>
+           
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+               <div className="bg-black/20 p-3 rounded border border-white/5">
+                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Active Site Cache Namespace</div>
+                  <div className="text-xs font-bold text-prizm-primary truncate">{cacheStatus.activeSiteCacheKey || 'UNKNOWN'}</div>
+               </div>
+               <div className="bg-black/20 p-3 rounded border border-white/5">
+                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Local Disk Path</div>
+                  <div className="text-xs font-mono text-prizm-text-muted truncate">{cacheStatus.cacheRoot}/sites</div>
+               </div>
+           </div>
+
+           <div className="space-y-2">
+               <div className="text-[11px] uppercase font-bold text-prizm-text mb-2">Available Offline Datasets By Site Namespace:</div>
+               {cacheStatus.availableSiteCaches?.length === 0 ? (
+                  <div className="text-xs text-prizm-text-muted p-2 bg-black/10 rounded border border-prizm-border/50">No durable cache namespaces discovered locally.</div>
+               ) : (
+                  cacheStatus.availableSiteCaches?.map((site: any) => (
+                      <div key={site.siteCacheKey} className="flex items-center justify-between p-2 rounded bg-black/20 border border-white/5">
+                         <div>
+                            <div className="text-xs font-bold text-prizm-text">{site.siteCacheKey}</div>
+                            <div className="text-[10px] text-prizm-text-muted mt-1">
+                               URL MAP: {site.emsBaseUrl} • LST UPDATE: {new Date(site.lastUpdatedAt).toLocaleString()}
+                            </div>
+                         </div>
+                         {site.siteCacheKey === cacheStatus.activeSiteCacheKey && (
+                            <div className="text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-prizm-primary/10 text-prizm-primary border border-prizm-primary/20">ACTIVE</div>
+                         )}
+                      </div>
+                  ))
+               )}
+           </div>
         </div>
       )}
 

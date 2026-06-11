@@ -7,3 +7,10 @@ coverage/
 .env*
 !.env.example
 .prizm-cache/
+
+# PRIZM local runtime cache/history
+.prizm-cache/
+.prizm-history/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

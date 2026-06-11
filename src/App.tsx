@@ -45,17 +45,32 @@ export default function App() {
   }, []);
 
   // Fetch full telemetry, reports & alerts
+  const [connectionStatus, setConnectionStatus] = useState<any>(null);
+  const [showConnectionConfig, setShowConnectionConfig] = useState(false);
+
   const fetchAllData = async (silent = false) => {
-    if (!silent) setLoading(true);
+    if (!silent && !connectionStatus) setLoading(true);
     try {
-      const modeRes = await fetch("/api/local/mode").catch(err => null);
+      const modeRes = await fetch('/api/local/ems/connection-status').catch(err => null);
 
       if (modeRes && modeRes.ok) {
         const mode = await modeRes.json().catch(() => null);
-        if (mode) setEmsMetadata(mode);
+        if (mode) {
+           setEmsMetadata(mode);
+           setConnectionStatus(mode);
+           
+           // If reachable, auto-close the modal if it was open
+           if (mode.reachable && showConnectionConfig) {
+               setShowConnectionConfig(false);
+           }
+
+           if (!silent && !mode.reachable && (!mode.cacheSeedState || (mode.cacheSeedState.completedKeys?.length === 0 && !mode.cacheSeedState.running))) {
+               setShowConnectionConfig(true);
+           }
+        }
       }
     } catch (err) {
-      console.log("[App Telemetry Info] Telemetry gateway offline standby:", err);
+      console.log('[App Telemetry Info] Telemetry gateway offline standby:', err);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -87,12 +102,17 @@ export default function App() {
             {emsMetadata?.activeMode === "live" && <span className="text-emerald-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>}
             {emsMetadata?.activeMode === "partial" && <span className="text-prizm-warning font-bold flex items-center gap-1.5" title={emsMetadata?.lastError || "Some EMS endpoints failing"}><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning animate-pulse"></span>PARTIAL LIVE</span>}
             {emsMetadata?.activeMode === "cached" && <span className="text-amber-500 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>CACHED</span>}
-            {emsMetadata?.activeMode === "demo" && <span className="text-prizm-demo font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-demo animate-pulse"></span>DEMO</span>}
-            {emsMetadata?.activeMode === "offline" && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>OFFLINE</span>}
+            {connectionStatus?.status === 'LIVE' && <span className="text-emerald-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>}
+            {connectionStatus?.status === 'PARTIAL' && <span className="text-prizm-warning font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning"></span>PARTIAL</span>}
+            {connectionStatus?.status === 'CACHED' && <span className="text-prizm-warning font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning animate-pulse"></span>CACHED</span>}
+            {connectionStatus?.status === 'DEMO' && <span className="text-prizm-demo font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-demo animate-pulse"></span>DEMO</span>}
+            {(!connectionStatus || connectionStatus?.status === 'OFFLINE') && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>OFFLINE</span>}
+            {connectionStatus?.status === 'MISCONFIGURED' && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>MISCONFIGURED</span>}
             
             <span title={emsMetadata?.activeEmsBaseUrl || "No site linked"} className="truncate max-w-[200px]">NODE: {emsMetadata ? (emsMetadata.activeProfileName || "UNLINKED") : '...'}</span>
             
-            {(emsMetadata?.discoveredStationCode || emsMetadata?.stationCode) && <span>SITE: {emsMetadata?.discoveredStationCode || emsMetadata?.stationCode}</span>}
+            <span>SITE: {connectionStatus?.discoveredStationCode || connectionStatus?.stationCode || 'Unknown'}</span>
+            {connectionStatus?.status === 'MISCONFIGURED' && <span className="ml-2 text-prizm-danger uppercase">| EMS Settings Required</span>}
           </div>
         </div>
 
