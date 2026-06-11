@@ -31,9 +31,14 @@ router.post("/clear", (req, res) => {
     res.json({ success: true, cleared: key || "all" });
 });
 
+
 router.post("/seed", (req, res) => {
-    // triggers safe read-only refresh only
-    res.json({ success: true, message: "Cache seed background process triggered." });
+    const { bootstrapEmsAndSeedCache, cacheSeedState } = require('../emsTurtleClient');
+    if (cacheSeedState.running) {
+        return res.json({ started: false, alreadyRunning: true, cacheState: cacheSeedState });
+    }
+    bootstrapEmsAndSeedCache().catch(() => {});
+    res.json({ started: true, alreadyRunning: false, cacheState: cacheSeedState });
 });
 
 router.post("/clear-active", (req, res) => {

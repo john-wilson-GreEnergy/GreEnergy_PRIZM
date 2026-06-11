@@ -1,210 +1,5 @@
-import { Router } from "express";
-import { 
-    getEmsCachedBlock, 
-    getEmsCachedStatus, 
-    getEmsCachedLastCall, 
-    getEmsCachedRawStrings, 
-    
-    getEmsCachedStatusCodes,
-    getEmsConnectionStatus, 
-    getEmsSourcesDebugInfo 
-} from "./emsTurtleClient";
-import { getFeatherCache } from "./feather/featherClient";
-
-const router = Router();
-
-// generic deep finder
-function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
-    if (!obj || typeof obj !== 'object') return results;
-    if (Array.isArray(obj)) {
-        if (obj.length > 0 && typeof obj[0] === 'object' && requiredKeys.every(k => k in obj[0])) {
-            results.push(...obj);
-        } else {
-            obj.forEach(o => findArraysByObjectKeys(o, requiredKeys, results));
-        }
-    } else {
-        for (const [k, v] of Object.entries(obj)) {
-            findArraysByObjectKeys(v, requiredKeys, results);
-        }
-    }
-    return results;
-}
-
-export function buildStringBucketSummary(stringsData: any[]) {
-    const buckets = {
-        online: 0,
-        nearline: 0,
-        offline: 0,
-        notCommunicating: 0
-    };
-    
-    let totalStrings = 0;
-
-    const tableRows = stringsData.map(st => {
-        totalStrings++;
-        const communicating = 
-            st.communicating === true || 
-            st.Comms === true || 
-            st.communication === true || 
-            st.connectionState === "Online" || 
-            st.connectionState === "ONLINE" || 
-            st.StringConnectionState === "Online" || 
-            st.LossOfComms === false || 
-            st.lossOfComms === false;
-            
-        const rawNotComm = 
-            st.communicating === false || 
-            st.LossOfComms === true || 
-            st.lossOfComms === true || 
-            st.connectionState === "Offline" || 
-            st.connectionState === "OFFLINE";
-            
-        const isComm = communicating || !rawNotComm; // Default to communicating if not explicitly offline and missing true flags
-        const notComm = rawNotComm || !isComm;
-
-        const inRot = 
-            st.inRotation === true || 
-            st.rotationEnabled === true || 
-            st.outRotation === false || 
-            st.OutRotation === false || 
-            st.out_rotation === false || 
-            st.rotation === "in" || 
-            st.outOfRotation === false;
-
-        const rawOutRot = 
-            st.outRotation === true || 
-            st.out_rotation === true || 
-            st.OutRotation === true || 
-            st.rotationEnabled === false || 
-            st.outOfRotation === true ||
-            st.rotation === "fault";
-
-        const isInRot = inRot || !rawOutRot; // Default to in rotation if absent
-
-        const contClosed = 
-            st.contactorClosed === true || 
-            st.contactorStatus === "CLOSED" || 
-            st.contactorsClosed === true || 
-            (st.positiveContactorClosed === true && st.negativeContactorClosed === true) || 
-            (st.positive_contactor_closed === true && st.negative_contactor_closed === true);
-
-        let bucket = "offline";
-        if (notComm) {
-            bucket = "notCommunicating";
-        } else if (!isInRot) {
-            bucket = "offline";
-        } else if (!contClosed) {
-            bucket = "nearline";
-        } else {
-            bucket = "online";
-        }
-        
-        (buckets as any)[bucket]++;
-        
-        return {
-            ...st,
-            bucket,
-            communicating: isComm,
-            inRotation: isInRot,
-            contactorsClosed: contClosed
-        };
-    });
-    
-    return { 
-        buckets, 
-        tableRows,
-        rollups: { totalStrings } 
-    };
-}
-
-
-function buildStatusCodeDescriptionMap(raw: any): Record<string, string> {
-    const defaultMap: Record<string, string> = {
-        "1004": "CellGroup Low Voltage Alarm",
-        "2024": "BPC Disconnect Warning",
-        "2073": "CellGroup Discharge Balancer Warning",
-        "2074": "CellGroup Charge Balancer Warning",
-        "2534": "Contactors Open Warning",
-        "2561": "String OOR Warning"
-    };
-    
-    if (!raw) return defaultMap;
-
-    let target = raw.bessStatusCodes || raw.statusCodes || raw.registeredStatusCodes || raw;
-    if (Array.isArray(target)) {
-        for (const item of target) {
-            if (typeof item === 'object' && item.code) {
-                defaultMap[String(item.code)] = item.description || item.desc || `Code ${item.code}`;
-            } else if (typeof item === 'string' && item.includes(':')) {
-                 const [k, v] = item.split(':');
-                 defaultMap[k.trim()] = v.trim();
-            }
-        }
-    } else if (typeof target === 'object') {
-        for (const [k, v] of Object.entries(target)) {
-            defaultMap[String(k)] = String(v);
-        }
-    }
-    return defaultMap;
-}
-
-
-function hasLostComms(f: any): boolean {
-    if (f.lostComms === true) return true;
-    if (f.devicesWithLostComms?.length > 0) return true;
-    if (f.lostCommsDevices?.length > 0) return true;
-    if (Array.isArray(f.deviceStatusComms)) {
-        if (f.deviceStatusComms.some((d: any) => typeof d === 'string' && d.includes('Lost'))) return true;
-        if (f.deviceStatusComms.some((d: any) => typeof d === 'object' && d.lastCommsTimestampMillis)) return true;
-    }
-    if (f.warningMessages && Array.isArray(f.warningMessages) && f.warningMessages.some((w: any) => typeof w === 'string' && w.includes('Lost Comms'))) return true;
-    return false;
-}
-
-function getFeatherSpaceTemp(f: any): number | null {
-    const rt = f.rawResponse?.thermalData || f.rawResponse || {};
-    const t = f.spaceTemp ?? f.spaceTemperature ?? f.temperature ?? rt.spaceTemperature ?? rt.spaceTemp ?? rt.airTemp ?? rt.temperature;
-    return t !== undefined && t !== null ? Number(t) : null;
-}
-
-function getFeatherSpaceHumidity(f: any): number | null {
-    const rt = f.rawResponse?.thermalData || f.rawResponse || {};
-    const h = f.spaceHumidity ?? f.humidity ?? rt.spaceHumidity ?? rt.humidity ?? rt.relativeHumidity;
-    return h !== undefined && h !== null ? Number(h) : null;
-}
-
-function getFeatherCellTemp(f: any): number | null {
-    const rt = f.rawResponse?.thermalData || f.rawResponse || {};
-    const t = f.cellTemp ?? f.avgCellTemperature ?? f.avgCellTemp ?? rt.cellTemp ?? rt.avgCellTemperature;
-    return t !== undefined && t !== null ? Number(t) : null;
-}
-
-function extractCodes(value: any): string[] {
-    const codes: string[] = [];
-    if (!value) return codes;
-    if (Array.isArray(value)) {
-        for (const v of value) {
-            if (typeof v === 'object' && v.code) codes.push(String(v.code));
-            else codes.push(String(v));
-        }
-    } else if (typeof value === 'string') {
-        codes.push(...value.split(',').map(s => s.trim()).filter(Boolean));
-    } else if (typeof value === 'object' && value.code) {
-        codes.push(String(value.code));
-    }
-    return codes;
-}
-
-
-import { pollEmsTurtle } from "./emsTurtleClient";
-
-let siteOpsInFlight: Promise<any> | null = null;
-let lastSummaryCache: any = null;
-let lastSummaryTime = 0;
-
-export function buildSiteOperationsSummaryFromCache() {
+router.get("/summary", (req, res) => {
     try {
-        
         const block = getEmsCachedBlock().data || {};
         const status = getEmsCachedStatus().data || {};
         const lastCall = getEmsCachedLastCall().data || {};
@@ -331,16 +126,16 @@ export function buildSiteOperationsSummaryFromCache() {
                  let enc = f.enclosureLabel || f.entityDescription || f.entityName;
                  if (!enc) {
                      if (f.arrayIndex != null && f.stringIndex != null) {
-                        enc = `Array \${f.arrayIndex} ES\${f.stringIndex}`;
+                        enc = `Array ${f.arrayIndex} ES${f.stringIndex}`;
                      } else if (srcIp) {
                         const parts = srcIp.split('.');
                         if (parts.length === 4) {
                              const arr = parseInt(parts[2], 10);
                              const h = parseInt(parts[3], 10);
                              if (!isNaN(arr) && !isNaN(h)) {
-                                  if (h === 3) enc = `Array \${arr} CS`;
+                                  if (h === 3) enc = `Array ${arr} CS`;
                                   else if (h >= 10 && h <= 50 && (h - 10) % 5 === 0) {
-                                       enc = `Array \${arr} ES\${((h - 10) / 5) + 1}`;
+                                       enc = `Array ${arr} ES${((h - 10) / 5) + 1}`;
                                   }
                              }
                         }
@@ -368,16 +163,16 @@ export function buildSiteOperationsSummaryFromCache() {
         function dig(obj: any, path: string = "") {
             if (!obj || typeof obj !== 'object') return;
             if (Array.isArray(obj)) {
-                 obj.forEach((o, i) => dig(o, `\${path}[\${i}]`));
+                 obj.forEach((o, i) => dig(o, `${path}[${i}]`));
             } else {
                  for (const [k, v] of Object.entries(obj)) {
                      const tl = k.toLowerCase();
                      if (tl.includes('pcs') || tl.includes('inverter') || tl.includes('converter')) {
-                         pcsDebugKeys.push(`\${path ? path + '.' : ''}\${k}`);
+                         pcsDebugKeys.push(`${path ? path + '.' : ''}${k}`);
                          if (Array.isArray(v)) pcsCandidates.push(...v);
                          else if (typeof v === 'object' && v !== null) pcsCandidates.push(v);
                      }
-                     dig(v, `\${path ? path + '.' : ''}\${k}`);
+                     dig(v, `${path ? path + '.' : ''}${k}`);
                  }
             }
         }
@@ -435,7 +230,7 @@ export function buildSiteOperationsSummaryFromCache() {
              maxAllowedDischargeCurrent: a.maxAllowedDischargeCurrent ?? null,
              notCommunicatingStackCount: a.notCommunicatingStackCount ?? null,
              communicatingStackCount: a.communicatingStackCount ?? null,
-             friendlyString: a.friendlyString || `Array \${a.arrayIndex ?? 'Unknown'}`,
+             friendlyString: a.friendlyString || `Array ${a.arrayIndex ?? 'Unknown'}`,
              sourcePath: a.sourcePath || "discovered",
              raw: a
         }));
@@ -463,15 +258,15 @@ export function buildSiteOperationsSummaryFromCache() {
         fDevices.forEach((f: any) => {
              if (f.warningCount > 0 && f.activeWarnings) {
                  f.activeWarnings.forEach((aw: string) => {
-                     const key = `feather_warn_\${aw}`;
-                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: aw, message: `Feather \${aw}`, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                     const key = `feather_warn_${aw}`;
+                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: aw, message: `Feather ${aw}`, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                      groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
                  });
              }
              if (f.alarmCount > 0 && f.activeAlarms) {
                  f.activeAlarms.forEach((aa: string) => {
-                     const key = `feather_alarm_\${aa}`;
-                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: aa, message: `Feather \${aa}`, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                     const key = `feather_alarm_${aa}`;
+                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: aa, message: `Feather ${aa}`, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                      groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
                  });
              }
@@ -502,16 +297,16 @@ export function buildSiteOperationsSummaryFromCache() {
 
              
              alarms.forEach(ac => {
-                 const codeDesc = scMap[ac] || `Alarm Code \${ac}`;
-                 const key = `string_alarm_\${ac}`;
-                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: `\${ac}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                 const codeDesc = scMap[ac] || `Alarm Code ${ac}`;
+                 const key = `string_alarm_${ac}`;
+                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: `${ac}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                  groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
              });
              
              warnings.forEach(wc => {
-                 const codeDesc = scMap[wc] || `Warning Code \${wc}`;
-                 const key = `string_warn_\${wc}`;
-                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: `\${wc}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                 const codeDesc = scMap[wc] || `Warning Code ${wc}`;
+                 const key = `string_warn_${wc}`;
+                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: `${wc}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                  groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
              });
         });
@@ -596,105 +391,10 @@ export function buildSiteOperationsSummaryFromCache() {
             if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', responseData);
         } catch(e) {}
         
-
-        return responseData;
-    } catch (err: any) { throw err; }
-}
-
-export async function refreshSiteOperationsSources() {
-    if (siteOpsInFlight) return siteOpsInFlight;
-    siteOpsInFlight = (async () => {
-        try {
-            await pollEmsTurtle();
-            const prizmCache = require('./cache/prizmCache');
-            const data = buildSiteOperationsSummaryFromCache();
-            if (data) {
-                prizmCache.set('site-operations-summary', data, { ttlMs: 15000 });
-                if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', data);
-                lastSummaryCache = data;
-                lastSummaryTime = Date.now();
-            }
-        } finally {
-            siteOpsInFlight = null;
-        }
-    })();
-    return siteOpsInFlight;
-}
-
-router.get("/summary", async (req, res) => {
-    const tStart = Date.now();
-    const preferCache = req.query.preferCache !== 'false';
-    const forceRefresh = req.query.refresh === 'true';
-
-    try {
-        const prizmCache = require('./cache/prizmCache');
-        let cachedEntry = prizmCache.get('site-operations-summary');
-        
-        if (!cachedEntry && lastSummaryCache && (Date.now() - lastSummaryTime < 15000)) {
-            cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true };
-        }
-
-        const tCacheRead = Date.now() - tStart;
-        
-        let shouldRefresh = forceRefresh || !cachedEntry || cachedEntry.ageMs > 15000;
-        let responseData = cachedEntry ? cachedEntry.data : null;
-
-        if (!responseData && !forceRefresh) {
-            responseData = buildSiteOperationsSummaryFromCache();
-            if (responseData) {
-                prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
-                lastSummaryCache = responseData;
-                lastSummaryTime = Date.now();
-            }
-        }
-
-        let cacheState = "UNAVAILABLE";
-        if (responseData) cacheState = (siteOpsInFlight || shouldRefresh) ? "STALE" : "LIVE";
-        if (cachedEntry) cacheState = "CACHED";
-        if (forceRefresh || shouldRefresh) cacheState = "REFRESHING";
-
-        const tBuild = Date.now() - tStart;
-        
-        let refreshing = false;
-        if (shouldRefresh) {
-            refreshing = true;
-            refreshSiteOperationsSources().catch(() => {});
-        } else if (siteOpsInFlight) {
-            refreshing = true;
-        }
-
-        if (forceRefresh && !responseData) {
-             await Promise.race([
-                 siteOpsInFlight,
-                 new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-             ]).catch(() => null);
-             
-             responseData = buildSiteOperationsSummaryFromCache();
-             if (responseData) cacheState = "LIVE";
-        }
-
-        if (!responseData) responseData = {};
-
-        responseData.cacheMeta = {
-            cacheState,
-            fetchedAt: cachedEntry ? cachedEntry.fetchedAt : new Date().toISOString(),
-            ageMs: cachedEntry ? cachedEntry.ageMs : 0,
-            ttlMs: 15000,
-            sourceOk: true,
-            refreshing
-        };
-
-        const totalMs = Date.now() - tStart;
-        responseData.debug = {
-             timings: { totalMs, cacheReadMs: tCacheRead, buildMs: tBuild - tCacheRead, sourceHealthMs: 0, refreshTriggered: shouldRefresh }
-        };
-
-        if (totalMs > 500) console.log('[SiteOps] Slow summary response: ' + totalMs + 'ms');
-
         res.json(responseData);
     } catch (err: any) {
+        console.error("Summary aggregator error:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-export default router;

@@ -1,0 +1,1 @@
+const fs = require("fs"); const content = fs.readFileSync("src/server/siteOperations.ts", "utf8"); console.log(content.length); fs.writeFileSync("tmp_content.txt", content.slice(0, 1000));

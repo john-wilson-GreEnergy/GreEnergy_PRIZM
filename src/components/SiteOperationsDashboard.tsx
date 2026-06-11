@@ -74,6 +74,22 @@ type DashboardState = {
     historyEvents: any;
 };
 
+
+export async function fetchJsonWithTimeout(url: string, options: RequestInit & { timeoutMs?: number } = {}) {
+    const { timeoutMs = 5000, ...fetchOptions } = options;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
+        clearTimeout(id);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (e) {
+        clearTimeout(id);
+        throw e;
+    }
+}
+
 export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab?: (tab: string) => void }) {
     const [state, setState] = useState<DashboardState>({
         loading: true,
@@ -123,10 +139,19 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     };
 
 
+    const triggerRefresh = (sectionRefresh = false) => {
+         const url = sectionRefresh ? "/api/local/site-operations/summary?refresh=true" : "/api/local/site-operations/summary";
+         fetchJsonWithTimeout(url, { timeoutMs: sectionRefresh ? 5000 : 3000 }).then(summaryRes => {
+             setState(prev => ({ ...prev, siteSummary: summaryRes, loading: false }));
+         }).catch(err => {
+             setState(prev => ({ ...prev, loading: false }));
+         });
+    };
+
     useEffect(() => {
         let unmounted = false;
         const fetchData = async () => {
-             fetch("/api/local/site-operations/summary").then(r => r.json()).then(summaryRes => {
+             fetchJsonWithTimeout("/api/local/site-operations/summary", { timeoutMs: 3000 }).then(summaryRes => {
                  if (!unmounted) setState(prev => ({ ...prev, siteSummary: summaryRes, loading: false }));
              }).catch(err => {
                  if (!unmounted) setState(prev => ({ ...prev, loading: false }));
@@ -134,31 +159,20 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
              // Side fetches
              if (!unmounted) {
-                 fetch("/api/local/cache/status").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, cacheStatus: v}))}).catch(()=>{});
-                 fetch("/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=15000").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, stringsDashboard: v}))}).catch(()=>{});
-                 fetch("/api/feather/devices").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, featherDevices: v}))}).catch(()=>{});
-                 fetch("/api/local/safety-fault-clear/candidates").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, safetyFaults: v}))}).catch(()=>{});
-                 fetch("/api/local/overview/discovery?fullTables=true").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, overviewDiscovery: v}))}).catch(()=>{});
-                 fetch("/api/local/history/events?range=24h").then(r => r.json()).then(v => { if(!unmounted) setState(p => ({...p, historyEvents: v}))}).catch(()=>{});
+                 fetchJsonWithTimeout("/api/local/cache/status", { timeoutMs: 1500 }).then(v => { if(!unmounted) setState(p => ({...p, cacheStatus: v}))}).catch(()=>{});
+                 fetchJsonWithTimeout("/api/local/history/events?range=24h", { timeoutMs: 1500 }).then(v => { if(!unmounted) setState(p => ({...p, historyEvents: v}))}).catch(()=>{});
              }
         };
 
         fetchData();
-        const interval = setInterval(fetchData, 10000);
+        const interval = setInterval(fetchData, 15000);
         return () => {
             unmounted = true;
             clearInterval(interval);
         };
     }, []);
 
-    if (state.loading && !state.stringsDashboard && !state.overviewDiscovery) {
-        return (
-            <div className="flex-1 flex flex-col items-center justify-center p-8">
-                <Activity size={48} className="animate-spin text-prizm-primary mb-4" />
-                <h2 className="text-xl font-bold uppercase tracking-widest text-prizm-text mb-2">LOADING SITE OPERATIONS...</h2>
-            </div>
-        );
-    }
+    
 
     const sum = state.siteSummary;
     let siteState: string = sum?.site?.connectionState === "disconnected" ? "OFFLINE" : "LIVE";
@@ -212,8 +226,18 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                    </div>
                 </div>
                 <div className="flex flex-col gap-1 text-[10px] font-mono text-right">
+                   <div className="flex justify-end mb-2">
+                       <button onClick={() => triggerRefresh(true)} className="px-3 py-1 bg-prizm-primary/20 hover:bg-prizm-primary/40 text-prizm-primary rounded border border-prizm-primary/50 flex items-center gap-2 transition-colors">
+                           <Activity size={12} /> MANUAL REFRESH
+                       </button>
+                   </div>
                    <div className="flex items-center gap-2 justify-end">
-                      <span className={`px-2 py-0.5 rounded font-bold ${siteState === "LIVE" ? "bg-emerald-500/20 text-emerald-500" : siteState === "PARTIAL" ? "bg-prizm-warning/20 text-prizm-warning" : "bg-prizm-danger/20 text-prizm-danger"}`}>
+                      {sum?.cacheMeta?.cacheState && sum.cacheMeta.cacheState !== "LIVE" && (
+ <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-500 mr-2">
+     {sum.cacheMeta.cacheState}
+ </span>
+)}
+<span className={`px-2 py-0.5 rounded font-bold ${siteState === "LIVE" ? "bg-emerald-500/20 text-emerald-500" : siteState === "PARTIAL" ? "bg-prizm-warning/20 text-prizm-warning" : "bg-prizm-danger/20 text-prizm-danger"}`}>
                          {siteState}
                       </span>
                    </div>
