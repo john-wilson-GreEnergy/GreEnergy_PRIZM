@@ -1,3 +1,4 @@
+import * as prizmCache from "./src/server/cache/prizmCache";
 import safetyFaultClearRouter from "./src/server/safetyFaultClear";
 import stringsDashboardRouter from "./src/server/stringsDashboard";
 import overviewDiscoveryRouter from "./src/server/overviewDiscovery";
@@ -418,7 +419,7 @@ app.get("/api/local/connection", (req, res) => {
 app.get("/api/local/ems/connection-status", (req, res) => {
   const status = getExtendedConnectionStatus();
   try {
-     const prizmCache = require('./src/server/cache/prizmCache');
+     
      prizmCache.set('connection-status', status, { ttlMs: 15000 });
      if (prizmCache.writeHistory) prizmCache.writeHistory('connection-status', status);
   } catch(e) {}
@@ -1304,7 +1305,7 @@ app.get("/api/feather/devices", async (req, res) => {
       
       lastEnrichedCache = responseData;
       try {
-        const prizmCache = require('./src/server/cache/prizmCache');
+        
         prizmCache.set('feather-devices', responseData, { ttlMs: 15000 });
         if (prizmCache.writeHistory) prizmCache.writeHistory('feather-devices', responseData);
       } catch(e) {}

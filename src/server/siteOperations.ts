@@ -1,3 +1,4 @@
+import * as prizmCache from "./cache/prizmCache";
 import { Router } from "express";
 import { 
     getEmsCachedBlock, 
@@ -591,7 +592,7 @@ export function buildSiteOperationsSummaryFromCache() {
         };
 
         try {
-            const prizmCache = require('./cache/prizmCache');
+            
             prizmCache.set('site-operations-summary', responseData, { ttlMs: 15000 });
             if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', responseData);
         } catch(e) {}
@@ -606,7 +607,7 @@ export async function refreshSiteOperationsSources() {
     siteOpsInFlight = (async () => {
         try {
             await pollEmsTurtle();
-            const prizmCache = require('./cache/prizmCache');
+            
             const data = buildSiteOperationsSummaryFromCache();
             if (data) {
                 prizmCache.set('site-operations-summary', data, { ttlMs: 15000 });
@@ -627,11 +628,11 @@ router.get("/summary", async (req, res) => {
     const forceRefresh = req.query.refresh === 'true';
 
     try {
-        const prizmCache = require('./cache/prizmCache');
+        
         let cachedEntry = prizmCache.get('site-operations-summary');
         
         if (!cachedEntry && lastSummaryCache && (Date.now() - lastSummaryTime < 15000)) {
-            cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true };
+            cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true } as any;
         }
 
         const tCacheRead = Date.now() - tStart;
@@ -675,7 +676,7 @@ router.get("/summary", async (req, res) => {
 
         if (!responseData) responseData = {};
 
-        responseData.cacheMeta = {
+        (responseData as any).cacheMeta = {
             cacheState,
             fetchedAt: cachedEntry ? cachedEntry.fetchedAt : new Date().toISOString(),
             ageMs: cachedEntry ? cachedEntry.ageMs : 0,
@@ -685,7 +686,7 @@ router.get("/summary", async (req, res) => {
         };
 
         const totalMs = Date.now() - tStart;
-        responseData.debug = {
+        (responseData as any).debug = {
              timings: { totalMs, cacheReadMs: tCacheRead, buildMs: tBuild - tCacheRead, sourceHealthMs: 0, refreshTriggered: shouldRefresh }
         };
 

@@ -1,3 +1,4 @@
+import { bootstrapEmsAndSeedCache, cacheSeedState } from "../emsTurtleClient";
 import { Router } from "express";
 import * as prizmCache from "./prizmCache";
 import * as fs from "fs";
@@ -33,7 +34,7 @@ router.post("/clear", (req, res) => {
 
 
 router.post("/seed", (req, res) => {
-    const { bootstrapEmsAndSeedCache, cacheSeedState } = require('../emsTurtleClient');
+    
     if (cacheSeedState.running) {
         return res.json({ started: false, alreadyRunning: true, cacheState: cacheSeedState });
     }
