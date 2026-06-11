@@ -10,11 +10,35 @@ import {
     getEmsConnectionStatus, 
     getEmsSourcesDebugInfo 
 } from "./emsTurtleClient";
-import { getFeatherCache } from "./feather/featherClient";
+import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 
 const router = Router();
 
 // generic deep finder
+
+function scoreArrayCandidate(a: any): number {
+    let score = 0;
+    if (a.arrayIndex != null || a.arrayNumber != null) score += 10;
+    if (a.onlineSOC != null) score += 5;
+    if (a.nearlineSOC != null) score += 5;
+    if (a.offlineSOC != null) score += 5;
+    if (a.nearlineAvailableKWh != null) score += 2;
+    if (a.onlineAvailableKWh != null) score += 2;
+    if (a.availableACChargekW != null) score += 5;
+    if (a.availableACDischargekW != null) score += 5;
+    if (a.commandedkW != null) score += 2;
+    if (a.measuredkW != null) score += 2;
+    if (a.communicatingStackCount != null) score += 1;
+    if (a.notCommunicatingStackCount != null) score += 1;
+    if (a.friendlyString != null) score += 1;
+    return score;
+}
+function numOrNull(val: any): number | null {
+    if (val === null || val === undefined) return null;
+    const n = Number(val);
+    return isNaN(n) ? null : n;
+}
+
 function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
     if (!obj || typeof obj !== 'object') return results;
     if (Array.isArray(obj)) {
@@ -39,75 +63,55 @@ export function buildStringBucketSummary(stringsData: any[]) {
         notCommunicating: 0
     };
     
+    function bool(v: any) {
+        if (v === true || v === false) return v;
+        if (typeof v === 'string') return v.toLowerCase() === 'true' || v.toLowerCase() === '1' || v.toLowerCase() === 'yes';
+        if (typeof v === 'number') return v === 1;
+        return false;
+    }
+
+    function num(v: any) {
+        if (v === null || v === undefined || v === '') return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
+
     let totalStrings = 0;
 
-    const tableRows = stringsData.map(st => {
+    const tableRows = stringsData.map(row => {
         totalStrings++;
-        const communicating = 
-            st.communicating === true || 
-            st.Comms === true || 
-            st.communication === true || 
-            st.connectionState === "Online" || 
-            st.connectionState === "ONLINE" || 
-            st.StringConnectionState === "Online" || 
-            st.LossOfComms === false || 
-            st.lossOfComms === false;
-            
-        const rawNotComm = 
-            st.communicating === false || 
-            st.LossOfComms === true || 
-            st.lossOfComms === true || 
-            st.connectionState === "Offline" || 
-            st.connectionState === "OFFLINE";
-            
-        const isComm = communicating || !rawNotComm; // Default to communicating if not explicitly offline and missing true flags
-        const notComm = rawNotComm || !isComm;
 
-        const inRot = 
-            st.inRotation === true || 
-            st.rotationEnabled === true || 
-            st.outRotation === false || 
-            st.OutRotation === false || 
-            st.out_rotation === false || 
-            st.rotation === "in" || 
-            st.outOfRotation === false;
+        const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber);
+        const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber);
+        const connectionState = String(row.StringConnectionState ?? row.stringConnectionState ?? row.connectionState ?? '').toUpperCase();
+        const outRotation = bool(row.OutRotation ?? row.outRotation ?? row.outOfRotation);
+        const posClosed = bool(row.PositiveContactorClosed ?? row.positiveContactorClosed);
+        const negClosed = bool(row.NegativeContactorClosed ?? row.negativeContactorClosed);
+        const contactorsClosed = posClosed && negClosed;
 
-        const rawOutRot = 
-            st.outRotation === true || 
-            st.out_rotation === true || 
-            st.OutRotation === true || 
-            st.rotationEnabled === false || 
-            st.outOfRotation === true ||
-            st.rotation === "fault";
-
-        const isInRot = inRot || !rawOutRot; // Default to in rotation if absent
-
-        const contClosed = 
-            st.contactorClosed === true || 
-            st.contactorStatus === "CLOSED" || 
-            st.contactorsClosed === true || 
-            (st.positiveContactorClosed === true && st.negativeContactorClosed === true) || 
-            (st.positive_contactor_closed === true && st.negative_contactor_closed === true);
-
-        let bucket = "offline";
-        if (notComm) {
-            bucket = "notCommunicating";
-        } else if (!isInRot) {
-            bucket = "offline";
-        } else if (!contClosed) {
-            bucket = "nearline";
+        let bucket = 'offline';
+        if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM')) {
+            bucket = 'notCommunicating';
+        } else if (connectionState === 'OFFLINE' || outRotation) {
+            bucket = 'offline';
+        } else if (connectionState === 'ONLINE' && !outRotation && contactorsClosed) {
+            bucket = 'online';
+        } else if (connectionState === 'ONLINE' && !outRotation && !contactorsClosed) {
+            bucket = 'nearline';
         } else {
-            bucket = "online";
+            bucket = 'offline';
         }
-        
-        (buckets as any)[bucket]++;
-        
+
+        (buckets as Record<string, number>)[bucket]++;
+
         return {
-            ...st,
+            ...row,
+            arrayNumber,
+            stringNumber,
             bucket,
-            communicating: isComm,
-            inRotation: isInRot,
-            contactorsClosed: contClosed
+            communicating: bucket !== 'notCommunicating',
+            inRotation: !outRotation,
+            contactorsClosed
         };
     });
     
@@ -206,9 +210,18 @@ let lastSummaryTime = 0;
 export function buildSiteOperationsSummaryFromCache() {
     try {
         
-        const block = getEmsCachedBlock().data || {};
-        const status = getEmsCachedStatus().data || {};
-        const lastCall = getEmsCachedLastCall().data || {};
+        let block = getEmsCachedBlock().data || {};
+        if (block.blockReport) {
+            block = { ...block, ...block.blockReport };
+        }
+        let status = getEmsCachedStatus().data || {};
+        if (status.statusReport) {
+            status = { ...status, ...status.statusReport };
+        }
+        let lastCall = getEmsCachedLastCall().data || {};
+        if (lastCall.blockReport) {
+            lastCall = { ...lastCall, ...lastCall.blockReport };
+        }
         const stringsData = getEmsCachedRawStrings().data || [];
         const conn = getEmsConnectionStatus();
         
@@ -347,16 +360,16 @@ export function buildSiteOperationsSummaryFromCache() {
                  let enc = f.enclosureLabel || f.entityDescription || f.entityName;
                  if (!enc) {
                      if (f.arrayIndex != null && f.stringIndex != null) {
-                        enc = `Array \${f.arrayIndex} ES\${f.stringIndex}`;
+                        enc = `Array ${f.arrayIndex} ES${f.stringIndex}`;
                      } else if (srcIp) {
                         const parts = srcIp.split('.');
                         if (parts.length === 4) {
                              const arr = parseInt(parts[2], 10);
                              const h = parseInt(parts[3], 10);
                              if (!isNaN(arr) && !isNaN(h)) {
-                                  if (h === 3) enc = `Array \${arr} CS`;
+                                  if (h === 3) enc = `Array ${arr} CS`;
                                   else if (h >= 10 && h <= 50 && (h - 10) % 5 === 0) {
-                                       enc = `Array \${arr} ES\${((h - 10) / 5) + 1}`;
+                                       enc = `Array ${arr} ES${((h - 10) / 5) + 1}`;
                                   }
                              }
                         }
@@ -384,16 +397,16 @@ export function buildSiteOperationsSummaryFromCache() {
         function dig(obj: any, path: string = "") {
             if (!obj || typeof obj !== 'object') return;
             if (Array.isArray(obj)) {
-                 obj.forEach((o, i) => dig(o, `\${path}[\${i}]`));
+                 obj.forEach((o, i) => dig(o, `${path}[${i}]`));
             } else {
                  for (const [k, v] of Object.entries(obj)) {
                      const tl = k.toLowerCase();
                      if (tl.includes('pcs') || tl.includes('inverter') || tl.includes('converter')) {
-                         pcsDebugKeys.push(`\${path ? path + '.' : ''}\${k}`);
+                         pcsDebugKeys.push(`${path ? path + '.' : ''}${k}`);
                          if (Array.isArray(v)) pcsCandidates.push(...v);
                          else if (typeof v === 'object' && v !== null) pcsCandidates.push(v);
                      }
-                     dig(v, `\${path ? path + '.' : ''}\${k}`);
+                     dig(v, `${path ? path + '.' : ''}${k}`);
                  }
             }
         }
@@ -412,49 +425,102 @@ export function buildSiteOperationsSummaryFromCache() {
             const n = Number(v);
             return isNaN(n) ? null : n;
         }
+                function averageValid(vals: any[]) {
+            const valid = vals.map(numOrNull).filter(v => v !== null);
+            if (valid.length === 0) return null;
+            return valid.reduce((a, b) => a + b, 0) / valid.length;
+        }
+
         const pcsSummary = pcsCnds.map((p: any) => {
+             const arrayIndex = numOrNull(p.arrayIndex ?? p.arrayNumber);
+             const pcsIndex = numOrNull(p.arrayPcsIndex ?? p.pcsIndex ?? p.index);
              return {
-                 arrayIndex: p.arrayIndex ?? p.arrayNumber ?? null,
-                 pcsIndex: p.pcsIndex ?? p.index ?? null,
-                 dcVoltage: numOrNull(p.dcVoltage ?? p.dcVolt ?? p.dcV ?? p.dc_volt),
-                 dcCurrent: numOrNull(p.dcCurrent ?? p.dcCurr ?? p.dcA ?? p.dc_current),
-                 acVoltage: numOrNull(p.acVoltage ?? p.acVolt ?? p.acV ?? p.ac_voltage),
-                 acCurrent: numOrNull(p.acCurrent ?? p.acCurr ?? p.acA ?? p.ac_current),
-                 acRealPowerKw: numOrNull(p.acRealPowerKw ?? p.acRealPower ?? p.realPowerKw ?? p.kw ?? p.kW),
-                 acReactivePowerKvar: numOrNull(p.acReactivePowerKvar ?? p.acReactPower ?? p.reactivePowerKvar ?? p.kvar ?? p.kVAr),
-                 frequencyHz: numOrNull(p.frequencyHz ?? p.freq ?? p.hz),
-                 rotation: p.rotation ?? p.rotationStatus ?? null,
-                 sourcePath: p.sourcePath || "discovered",
+                 arrayIndex,
+                 pcsIndex,
+                 dcVoltage: numOrNull(p.dcVoltageVolt ?? p.dcVoltage ?? p.dcVolt ?? p.dcV),
+                 dcCurrent: numOrNull(p.dcCurrentAmp ?? p.dcCurrent ?? p.dcCurr ?? p.dcA),
+                 acRealPowerKw: numOrNull(p.acRealPowerKW ?? p.acRealPowerKw ?? p.acRealPower ?? p.kw ?? p.kW),
+                 acReactivePowerKvar: numOrNull(p.acReactivePowerKVAR ?? p.acReactivePowerKvar ?? p.acReactPower ?? p.kvar ?? p.kVAr),
+                 frequencyHz: numOrNull(p.acFrequencyHz ?? p.frequencyHz ?? p.freq ?? p.hz),
+                 acVoltage: averageValid([p.acPhaseABVoltageVolt, p.acPhaseBCVoltageVolt, p.acPhaseCAVoltageVolt, p.acVoltage]),
+                 acCurrent: averageValid([p.acPhaseACurrentAmp, p.acPhaseBCurrentAmp, p.acPhaseCCurrentAmp, p.acCurrent]),
+                 state: p.state ?? null,
+                 displayKey: p.displayKey || ('Array ' + arrayIndex + ' PCS ' + pcsIndex),
+                 rotation: p.outRotation === true ? 'Out' : 'In',
+                 sourcePath: p.sourcePath || 'discovered',
                  raw: p
              };
         }).filter((v:any,i:any,a:any) => a.findIndex((t: any) =>(t.arrayIndex === v.arrayIndex && t.pcsIndex === v.pcsIndex && v.arrayIndex != null))===i);
 
 
-        // Part H - Arrays
-        let arrCands = arrays.length ? arrays : findArraysByObjectKeys(block, ["arrayIndex", "onlineSOC", "communicating"]);
-        if (!arrCands.length) arrCands = findArraysByObjectKeys(status, ["arrayIndex", "onlineSOC", "communicating"]);
         
-        let arraySummary = arrCands.map((a: any) => ({
-             arrayIndex: a.arrayIndex ?? a.arrayNumber ?? null,
-             communicating: a.communicating ?? null,
-             onlineSOC: a.onlineSOC ?? null,
-             nearlineSOC: a.nearlineSOC ?? null,
-             offlineSOC: a.offlineSOC ?? null,
-             onlineAvailableKWh: a.onlineAvailableKWh ?? null,
-             nearlineAvailableKWh: a.nearlineAvailableKWh ?? null,
-             offlineAvailableKWh: a.offlineAvailableKWh ?? null,
-             availableACChargekW: a.availableACChargekW ?? null,
-             availableACDischargekW: a.availableACDischargekW ?? null,
-             commandedkW: a.commandedkW ?? null,
-             measuredkW: a.measuredkW ?? null,
-             maxAllowedChargeCurrent: a.maxAllowedChargeCurrent ?? null,
-             maxAllowedDischargeCurrent: a.maxAllowedDischargeCurrent ?? null,
-             notCommunicatingStackCount: a.notCommunicatingStackCount ?? null,
-             communicatingStackCount: a.communicatingStackCount ?? null,
-             friendlyString: a.friendlyString || `Array \${a.arrayIndex ?? 'Unknown'}`,
-             sourcePath: a.sourcePath || "discovered",
-             raw: a
-        }));
+        // Part H - Arrays
+        let allArrCands: any[][] = [];
+        if (arrays.length > 0) allArrCands.push(arrays);
+        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'nearlineSOC']));
+        allArrCands.push(findArraysByObjectKeys(status, ['arrayIndex', 'nearlineSOC']));
+        allArrCands.push(findArraysByObjectKeys(lastCall, ['arrayIndex', 'nearlineSOC']));
+        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'communicatingStackCount']));
+        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'availableACChargekW']));
+        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'onlineSOC']));
+        allArrCands.push(findArraysByObjectKeys(status, ['arrayIndex', 'onlineSOC']));
+        
+        let bestArrCand: any[] = [];
+        let bestScore = -1;
+        for (const candSet of allArrCands) {
+             if (!candSet || candSet.length === 0) continue;
+             const avgScore = candSet.reduce((sum, a) => sum + scoreArrayCandidate(a), 0) / candSet.length;
+             // Favor sets with around 8 arrays (typical for string systems with 8 arrays, or >0)
+             let lengthScore = 0;
+             if (candSet.length >= 4 && candSet.length <= 16) lengthScore += 5;
+             const totalScore = avgScore + lengthScore;
+             if (totalScore > bestScore) {
+                 bestScore = totalScore;
+                 bestArrCand = candSet;
+             }
+        }
+        let arrCands = bestArrCand;
+
+        let arraySummary = arrCands.map((a: any) => {
+             function num(v: any) {
+                 if (v === null || v === undefined || v === '') return null;
+                 const n = Number(v);
+                 return Number.isFinite(n) ? n : null;
+             }
+             const arrayIndex = num(a.arrayIndex ?? a.arrayNumber);
+             const stringCount = num(a.stringCount);
+             const notCommunicationStringCount = num(a.notCommunicationStringCount);
+             return {
+                 arrayIndex,
+                 communicating: notCommunicationStringCount === 0,
+                 onlineSOC: num(a.onlineSOC),
+                 nearlineSOC: num(a.nearlineSOC),
+                 offlineSOC: num(a.offlineSOC),
+                 onlineAvailableKWh: num(a.onlineAvailableKWh),
+                 nearlineAvailableKWh: num(a.nearlineAvailableKWh),
+                 offlineAvailableKWh: num(a.offlineAvailableKWh),
+                 availableACChargekW: num(a.availableACChargekW),
+                 availableACDischargekW: num(a.availableACDischargekW),
+                 commandedkW: num(a.commandedkW),
+                 measuredkW: num(a.measuredkW),
+                 voltageVolt: num(a.voltageVolt),
+                 storedDcEnergyKWh: num(a.storedDcEnergyKWh),
+                 powerkW: num(a.powerkW),
+                 currentAmp: num(a.currentAmp),
+                 maxAllowedChargeCurrent: a.maxAllowedChargeCurrent ?? null,
+                 maxAllowedDischargeCurrent: a.maxAllowedDischargeCurrent ?? null,
+                 stringCount,
+                 onlineStringCount: num(a.onlineStringCount),
+                 nearlineStringCount: num(a.nearlineStringCount),
+                 offlineStringCount: num(a.offlineStringCount),
+                 notCommunicationStringCount,
+                 inRotationCount: num(a.inRotationCount),
+                 outOfRotationCount: num(a.outOfRotationCount),
+                 friendlyString: a.displayKey || ('Array ' + (arrayIndex ?? 'Unknown')),
+                 sourcePath: a.sourcePath || 'discovered',
+                 raw: a
+             };
+        });
 
         // Part I - Strings
         const stringSummary = buildStringBucketSummary(stringsData);
@@ -476,59 +542,84 @@ export function buildSiteOperationsSummaryFromCache() {
         const scMap = buildStatusCodeDescriptionMap(getEmsCachedStatusCodes().data || {});
         
         const groupMap = new Map<string, any>();
+        
+        function formatFeatherIssue(item: any): string {
+            if (typeof item === 'string') return item;
+            if (item && typeof item === 'object') {
+                if (item.deviceType || item.deviceName) {
+                    return 'Lost Comms with: ' + (item.deviceName || item.deviceType);
+                }
+                const str = JSON.stringify(item);
+                if (str.length < 50) return str;
+            }
+            return 'Unknown Issue';
+        }
+
         fDevices.forEach((f: any) => {
-             if (f.warningCount > 0 && f.activeWarnings) {
-                 f.activeWarnings.forEach((aw: string) => {
-                     const key = `feather_warn_\${aw}`;
-                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: aw, message: `Feather \${aw}`, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
+             const activeWarnings = f.activeWarnings || f.warningMessages || [];
+             if (f.warningCount > 0 && Array.isArray(activeWarnings)) {
+                 activeWarnings.forEach((awRaw: any) => {
+                     const aw = formatFeatherIssue(awRaw);
+                     const key = 'feather_warn_' + encodeURIComponent(aw);
+                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: null, message: aw, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || 'Unknown', sourcePath: 'featherSummary' });
                  });
              }
-             if (f.alarmCount > 0 && f.activeAlarms) {
-                 f.activeAlarms.forEach((aa: string) => {
-                     const key = `feather_alarm_\${aa}`;
-                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: aa, message: `Feather \${aa}`, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || "Unknown", sourcePath: "featherSummary" });
+             const activeAlarms = f.activeAlarms || f.alarmMessages || f.faultMessages || [];
+             if (f.alarmCount > 0 && Array.isArray(activeAlarms)) {
+                 activeAlarms.forEach((aaRaw: any) => {
+                     const aa = formatFeatherIssue(aaRaw);
+                     const key = 'feather_alarm_' + encodeURIComponent(aa);
+                     if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: null, message: aa, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || 'Unknown', sourcePath: 'featherSummary' });
                  });
              }
         });
         
         
         stringsData.forEach((st: any) => {
-             const alarms = extractCodes(st.alarmCodes || st.alarms || st.alarmsList);
-             const warnings = extractCodes(st.warningCodes || st.warnCodes || st.warnings || st.warns || st.warningsList);
+             let rawAlarms = String(st.Alarms || st.alarms || st.alarmCodes || st.alarmsList || '');
+             let rawWarns = String(st.Warns || st.warns || st.warningCodes || st.warnCodes || st.warningsList || '');
              
+             let alarms = extractCodes(rawAlarms.split(','));
+             let warnings = extractCodes(rawWarns.split(','));
              
-             const arrayNumber = st.arrayNumber ?? st.arrayIndex ?? st.array ?? st.Array ?? null;
-             const stringNumber = st.stringNumber ?? st.stringIndex ?? st.string ?? st.String ?? null;
+             if (alarms.length === 0 && Array.isArray(st.alarms)) alarms = extractCodes(st.alarms);
+             if (warnings.length === 0 && Array.isArray(st.warns)) warnings = extractCodes(st.warns);
+             
+             alarms = Array.from(new Set(alarms));
+             warnings = Array.from(new Set(warnings));
+             
+             const arrayNumber = st.arrayNumber ?? st.arrayIndex ?? st.ArrayIndex ?? null;
+             const stringNumber = st.stringNumber ?? st.stringIndex ?? st.StringIndex ?? null;
              const enclosureLabel = arrayNumber != null && stringNumber != null
                ? 'Array ' + arrayNumber + ' ES' + stringNumber
-               : "Unknown String";
+               : 'Unknown String';
                
              if (warnings.length === 0 && Number(st.warningCount || st.warnCount || 0) > 0) {
                  const key = 'string_warn_generic_count';
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: null, message: 'String warnings present - codes unavailable', displayText: 'String warnings present - codes unavailable', occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });
              }
              if (alarms.length === 0 && Number(st.alarmCount || st.alarmsCount || 0) > 0) {
                  const key = 'string_alarm_generic_count';
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: null, message: 'String alarms present - codes unavailable', displayText: 'String alarms present - codes unavailable', occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });
              }
 
              
              alarms.forEach(ac => {
-                 const codeDesc = scMap[ac] || `Alarm Code \${ac}`;
-                 const key = `string_alarm_\${ac}`;
-                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: `\${ac}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+                 const codeDesc = scMap[ac] || 'Alarm Code ' + ac;
+                 const key = 'string_alarm_' + ac;
+                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: String(ac), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });
              });
              
              warnings.forEach(wc => {
-                 const codeDesc = scMap[wc] || `Warning Code \${wc}`;
-                 const key = `string_warn_\${wc}`;
-                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: `\${wc}`, message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: "stringsCsv" });
+                 const codeDesc = scMap[wc] || 'Warning Code ' + wc;
+                 const key = 'string_warn_' + wc;
+                 if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: String(wc), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
+                 groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });
              });
         });
 
@@ -615,6 +706,7 @@ export async function refreshSiteOperationsSources() {
     siteOpsInFlight = (async () => {
         try {
             await pollEmsTurtle();
+            refreshFeatherCache({ timeoutMs: 2500 }).catch(() => {});
             
             const data = buildSiteOperationsSummaryFromCache();
             if (data) {

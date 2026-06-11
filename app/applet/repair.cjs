@@ -88,7 +88,10 @@ const newStringBucket = `export function buildStringBucketSummary(stringsData: a
     };
     
     function bool(v: any): boolean {
-        return v === true || String(v).toLowerCase() === "true";
+        if (v === true || v === false) return v;
+        if (typeof v === "string") return v.toLowerCase() === "true" || v.toLowerCase() === "1" || v.toLowerCase() === "yes";
+        if (typeof v === "number") return v === 1;
+        return false;
     }
 
     function num(v: any): number | null {
@@ -193,11 +196,9 @@ const newActiveIssues = `// Part K - Active Issue Groups
              let alarms = extractCodes(rawAlarms.split(','));
              let warnings = extractCodes(rawWarns.split(','));
              
-             // Check fields directly if arrays aren't present
              if (alarms.length === 0 && Array.isArray(st.alarms)) alarms = extractCodes(st.alarms);
              if (warnings.length === 0 && Array.isArray(st.warns)) warnings = extractCodes(st.warns);
              
-             // Deduplicate
              alarms = Array.from(new Set(alarms));
              warnings = Array.from(new Set(warnings));
              

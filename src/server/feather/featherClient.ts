@@ -1,5 +1,6 @@
 import { FeatherNormalizedStatus, FeatherCacheEntry, DiscoveryCandidate } from "./featherTypes";
 import { normalizeFeatherStatus } from "./featherNormalizer";
+import { discoverTopologyCandidates } from "./featherDiscovery";
 import { ProfileStore } from "../profiles/profileStore";
 import { isDemoActive } from "../emsTurtleClient";
 
@@ -68,7 +69,10 @@ export function clearFeatherCache() {
 }
 
 /**
- * Fetches the status of a single Feather IP, normalizes it, and records it in cache.
+ * Fetches the status of 
+
+
+a single Feather IP, normalizes it, and records it in cache.
  */
 export async function queryFeatherDevice(
   deviceIp: string,
@@ -304,3 +308,18 @@ function generateMockFeatherRaw(deviceIp: string): any {
     deviceWithLostComms: hasDoorOpen ? ["String-8-Node"] : [],
   };
 }
+
+export async function refreshFeatherCache(opts: { timeoutMs?: number, force?: boolean } = {}) {
+    try {
+        const candidates = discoverTopologyCandidates();
+        if (candidates.length > 0) {
+            // limit to only candidates likely to exist, we could just do all
+            const limit = 320; // safe arbitrary limit
+            const batches = candidates.slice(0, limit).map(c => 
+                queryFeatherDevice(c.deviceIp, c.sourceDiscoveryMethod, opts.timeoutMs ?? 3000, c)
+            );
+            await Promise.allSettled(batches);
+        }
+    } catch(e) {}
+}
+

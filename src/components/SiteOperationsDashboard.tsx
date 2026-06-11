@@ -91,6 +91,8 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
 }
 
 export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab?: (tab: string) => void }) {
+    const hasVal = (val: any) => val !== null && val !== undefined && val !== "" && val !== "NaN" && !(typeof val === 'number' && Number.isNaN(val));
+
     const [state, setState] = useState<DashboardState>({
         loading: true,
         cacheStatus: null,
@@ -196,11 +198,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     
     const arraySummaryData = sum?.arraySummary || [];
     const stringBuckets = sum?.stringSummary?.buckets || { online: 0, nearline: 0, offline: 0, notCommunicating: 0 };
-    const onlineStats = { count: stringBuckets.online };
-    const nearlineStats = { count: stringBuckets.nearline };
-    const offlineStats = { count: stringBuckets.offline };
-    const notCommStats = { count: stringBuckets.notCommunicating };
-    const rollups = state.stringsDashboard?.rollups || { totalStrings: (stringBuckets.online + stringBuckets.nearline + stringBuckets.offline + stringBuckets.notCommunicating) || 0 };
+    const onlineStats = sum?.stringSummary?.buckets?.onlineStats || { count: stringBuckets.online };
+    const nearlineStats = sum?.stringSummary?.buckets?.nearlineStats || { count: stringBuckets.nearline };
+    const offlineStats = sum?.stringSummary?.buckets?.offlineStats || { count: stringBuckets.offline };
+    const notCommStats = sum?.stringSummary?.buckets?.notCommStats || { count: stringBuckets.notCommunicating };
+    const rollups = sum?.stringSummary?.rollups || state.stringsDashboard?.rollups || { totalStrings: (stringBuckets.online + stringBuckets.nearline + stringBuckets.offline + stringBuckets.notCommunicating) || 0 };
 
     const activeIssues = sum?.activeIssueGroups || [];
     activeIssues.sort((a: any, b: any) => {
@@ -402,15 +404,15 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              <tbody className="divide-y divide-prizm-border">
                                  {pcsData.map((item: any, idx: number) => (
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="p-2 text-prizm-primary font-bold">{item.pcsIndex !== undefined ? item.pcsIndex : (item.id || item.name || "--")}</td>
-                                         <td className="p-2 text-prizm-text">{item.arrayIndex !== undefined ? item.arrayIndex : "--"}</td>
-                                         <td className="p-2 text-right">{item.dcVoltage != null ? item.dcVoltage.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.dcCurrent != null ? item.dcCurrent.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acVoltage != null ? item.acVoltage.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acCurrent != null ? item.acCurrent.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text font-bold">{item.acRealPowerKw != null ? item.acRealPowerKw.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acReactivePowerKvar != null ? item.acReactivePowerKvar.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text-muted">{item.frequencyHz != null ? item.frequencyHz.toFixed(2) : "--"}</td>
+                                         <td className="p-2 text-prizm-primary font-bold">{hasVal(item.pcsIndex) ? item.pcsIndex : (item.id || item.name || "--")}</td>
+                                         <td className="p-2 text-prizm-text">{hasVal(item.arrayIndex) ? item.arrayIndex : "--"}</td>
+                                         <td className="p-2 text-right">{hasVal(item.dcVoltage) ? Number(item.dcVoltage).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{hasVal(item.dcCurrent) ? Number(item.dcCurrent).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{hasVal(item.acVoltage) ? Number(item.acVoltage).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{hasVal(item.acCurrent) ? Number(item.acCurrent).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right text-prizm-text font-bold">{hasVal(item.acRealPowerKw) ? Number(item.acRealPowerKw).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{hasVal(item.acReactivePowerKvar) ? Number(item.acReactivePowerKvar).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right text-prizm-text-muted">{hasVal(item.frequencyHz) ? Number(item.frequencyHz).toFixed(2) : "--"}</td>
                                          <td className="p-2 text-prizm-text-muted">{item.rotation || "--"}</td>
                                      </tr>
                                  ))}
@@ -469,21 +471,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
-                             {arraySummaryData.map((arr: any, idx: number) => {
-                                 const name = arr.friendlyString || `Array ${arr.arrayNumber || arr.arrayIndex || idx+1}`;
-                                 return (
-                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}>
-                                     <td className="p-2 text-prizm-primary font-bold">{name}</td>
-                                     <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? 'OK' : <XOctagon size={12} className="inline text-prizm-danger" />}</td>
-                                     <td className="p-2 text-center text-prizm-text">{arr.onlineSOC != null ? `${(arr.onlineSOC < 1 ? arr.onlineSOC * 100 : arr.onlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
-                                     <td className="p-2 text-center text-emerald-300">{arr.nearlineSOC != null ? `${(arr.nearlineSOC < 1 ? arr.nearlineSOC * 100 : arr.nearlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineSOC != null ? `${(arr.offlineSOC < 1 ? arr.offlineSOC * 100 : arr.offlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-text-muted">{arr.nearlineAvailableKWh !== undefined ? arr.nearlineAvailableKWh : '--'} kWh</td>
-                                     <td className="p-2 text-center text-prizm-text">{arr.availableACChargekW !== undefined ? `${arr.availableACChargekW} / ${arr.availableACDischargekW}` : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-warning">{arr.commandedkW !== undefined ? arr.commandedkW : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-text">{arr.measuredkW !== undefined ? arr.measuredkW : '--'}</td>
-                                 </tr>
-                             )})}
+{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="p-2 text-prizm-primary font-bold">{name}</td> <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="p-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="p-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="p-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="p-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="p-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
                          </tbody>
                      </table>
                  ) : (
@@ -493,7 +481,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
             {/* String Summary */}
             <CollapsibleSection title="String Summary" icon={Rows4} defaultExpanded={false}>
-                 {state.stringsDashboard?.strings?.length > 0 ? (
+                 {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
                      <div className="overflow-x-auto w-full">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                              <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
@@ -523,16 +511,16 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
                                          <td className="p-2 text-prizm-text uppercase">{row.label}</td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {onlineStats && onlineStats[row.key] !== null && onlineStats[row.key] !== undefined ? `${onlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {onlineStats && hasVal(onlineStats[row.key]) ? `${onlineStats[row.key]}${row.suffix || ''}` : '--'}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {nearlineStats && nearlineStats[row.key] !== null && nearlineStats[row.key] !== undefined ? `${nearlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {nearlineStats && hasVal(nearlineStats[row.key]) ? `${nearlineStats[row.key]}${row.suffix || ''}` : '--'}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {offlineStats && offlineStats[row.key] !== null && offlineStats[row.key] !== undefined ? `${offlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {offlineStats && hasVal(offlineStats[row.key]) ? `${offlineStats[row.key]}${row.suffix || ''}` : '--'}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {notCommStats && notCommStats[row.key] !== null && notCommStats[row.key] !== undefined ? `${notCommStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {notCommStats && hasVal(notCommStats[row.key]) ? `${notCommStats[row.key]}${row.suffix || ''}` : '--'}
                                          </td>
                                      </tr>
                                  ))}
