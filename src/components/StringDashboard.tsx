@@ -317,11 +317,19 @@ export default function StringDashboard() {
                   <th className="px-3 py-3 border-b border-prizm-border font-bold sticky left-0 bg-prizm-surface-strong z-20 whitespace-nowrap">Arr / Str</th>
                   <th className="px-3 py-3 border-b border-prizm-border">Contactors</th>
                   <th className="px-3 py-3 border-b border-prizm-border">Rotation</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Voltage</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Power</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Energy</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Cell Voltage</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Cell Temp</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Meas V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Calc V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Bus V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Amps</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">kW</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">SOC %</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Ah</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Min Cell V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Max Cell V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Δ Cell V</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Min Temp</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Max Temp</th>
+                  <th className="px-3 py-3 border-b border-prizm-border">Δ Temp</th>
                   <th className="px-3 py-3 border-b border-prizm-border">Balance</th>
                   <th className="px-3 py-3 border-b border-prizm-border">Location</th>
                   <th className="px-3 py-3 border-b border-prizm-border">Fans</th>
@@ -402,39 +410,19 @@ export default function StringDashboard() {
                           <div className={`w-2.5 h-2.5 rounded-full ${rotDot3}`}></div>
                        </div>
                     </td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5">
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Meas:</span> <span className="text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</span></div>
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Calc:</span> <span className="text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</span></div>
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Bus:</span> <span className="text-prizm-text">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</span></div>
-                       </div>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5">
-                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">A:</span> <span className="text-prizm-text">{s.amps !== null ? s.amps : "--"}</span></div>
-                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">kW:</span> <span className="text-prizm-text">{s.kw !== null ? s.kw : "--"}</span></div>
-                       </div>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5">
-                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">SOC:</span> <span className="text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</span></div>
-                          <div className="flex justify-between w-20"><span className="text-prizm-text-muted text-[9px]">Ah:</span> <span className="text-prizm-text">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</span></div>
-                       </div>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5" title={`Min: ${s.minCellVoltage ?? "--"} | Avg: ${s.avgCellVoltage ?? "--"} | Max: ${s.maxCellVoltage ?? "--"} | Delta: ${s.cellVoltageDelta ?? "--"}`}>
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Min:</span> <span className="text-prizm-text">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</span></div>
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">Max:</span> <span className="text-prizm-text">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</span></div>
-                          <div className="flex justify-between w-28"><span className="text-prizm-text-muted text-[9px]">\u0394:</span> <span className="text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</span></div>
-                       </div>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5" title={`Min: ${s.minCellTemperature ?? "--"} | Avg: ${s.avgCellTemperature ?? "--"} | Max: ${s.maxCellTemperature ?? "--"} | Delta: ${s.cellTemperatureDelta ?? "--"}`}>
-                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Min:</span> <span className="text-prizm-text">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</span></div>
-                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Max:</span> <span className="text-prizm-text">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</span></div>
-                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">\u0394:</span> <span className="text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</span></div>
-                       </div>
-                    </td>
+                    <td className="px-3 py-3 font-mono text-xs text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-warning">Δ: {s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-prizm-warning">Δ: {s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
                     <td className="px-3 py-3 font-mono text-xs">
                        <div className="flex flex-col gap-0.5">
                           <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Count:</span> <span className="text-prizm-text">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</span></div>

@@ -143,7 +143,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
     source: "offline",
     staleData: true,
     lastUpdated: null,
-    activeEmsBaseUrl: "http://10.0.0.3:3000",
+    activeEmsBaseUrl: "http://10.0.0.3:8080/turtle",
     activeProfileName: "PRIZM Core Hardware Bess Profile",
     lastError: "Initial poll pending..."
   });
@@ -328,7 +328,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
         let source = "offline";
         let staleData = true;
         let lastUpdated = null;
-        let activeEmsBaseUrl = "http://10.0.0.3:3000";
+        let activeEmsBaseUrl = "http://10.0.0.3:8080/turtle";
         let activeProfileName = "PRIZM Core Hardware Bess Profile";
         let lastError = null;
 
@@ -917,10 +917,14 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
                       <th className="p-2.5">SoC (%)</th>
                       <th className="p-2.5">Power Flow</th>
                       <th className="p-2.5">Capacity</th>
-                      <th className="p-2.5">String Voltage</th>
-                      <th className="p-2.5">Contactor State</th>
+                      <th className="p-2.5">Meas V</th>
+                      <th className="p-2.5">Calc V</th>
+                      <th className="p-2.5">Bus V</th>
+                      <th className="p-2.5">Pos Cont.</th>
+                      <th className="p-2.5">Neg Cont.</th>
                       <th className="p-2.5">Cell V (Min/Max)</th>
-                      <th className="p-2.5">Cell Temp (Max)</th>
+                      <th className="p-2.5">Δ V (mV)</th>
+                      <th className="p-2.5">Temp Max</th>
                       <th className="p-2.5">Alarms / Warnings</th>
                     </tr>
                   </thead>
@@ -959,25 +963,24 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
                             </td>
                             <td className="p-2.5 text-prizm-text-muted">{row.kw > 0 ? `+${row.kw} kW` : `${row.kw} kW`}</td>
                             <td className="p-2.5 text-prizm-text-muted">{row.kwh} kWh / {row.ah} Ah</td>
-                            <td className="p-2.5 text-prizm-text-muted">
-                              <div className="flex flex-col">
-                                <span>Meas: <strong className="text-prizm-text">{row.voltageMeasured}V</strong></span>
-                                <span className="text-[9px] text-prizm-text-muted">Calc: {row.voltageCalculated}V | Bus: {row.voltageDcBus}V</span>
-                              </div>
+                            <td className="p-2.5 text-prizm-text-muted"><strong className="text-prizm-text">{row.voltageMeasured}V</strong></td>
+                            <td className="p-2.5 text-prizm-text-muted">{row.voltageCalculated}V</td>
+                            <td className="p-2.5 text-prizm-text-muted">{row.voltageDcBus}V</td>
+                            <td className="p-2.5">
+                                <span className={row.positiveContactorClosed ? "text-green-400 font-semibold" : "text-prizm-text-muted"}>
+                                  {row.positiveContactorClosed ? "CLOSED" : "OPEN"}
+                                </span>
                             </td>
                             <td className="p-2.5">
-                              <div className="flex flex-col leading-tight">
-                                <span className={row.positiveContactorClosed ? "text-green-400 font-semibold" : "text-prizm-text-muted"}>
-                                  POS: {row.positiveContactorClosed ? "CLOSED" : "OPEN"}
-                                </span>
                                 <span className={row.negativeContactorClosed ? "text-green-400 font-semibold" : "text-prizm-text-muted"}>
-                                  NEG: {row.negativeContactorClosed ? "CLOSED" : "OPEN"}
+                                  {row.negativeContactorClosed ? "CLOSED" : "OPEN"}
                                 </span>
-                              </div>
                             </td>
                             <td className="p-2.5 text-prizm-text-muted">
                               <span>{row.cellGroupVoltageMin.toFixed(3)} - {row.cellGroupVoltageMax.toFixed(3)} V</span>
-                              <span className="block text-[8px] text-prizm-danger font-mono">Delta: {((row.cellGroupVoltageMax - row.cellGroupVoltageMin) * 1000).toFixed(0)}mV</span>
+                            </td>
+                            <td className="p-2.5 text-prizm-danger font-mono">
+                              Δ: {((row.cellGroupVoltageMax - row.cellGroupVoltageMin) * 1000).toFixed(0)}mV
                             </td>
                             <td className="p-2.5 text-prizm-text-muted font-mono text-right">{row.cellGroupTempMax.toFixed(1)}°C</td>
                             <td className="p-2.5 text-[8px]">

@@ -30,7 +30,7 @@ export function getNormalizedBaseUrl(): string {
   return rawUrl.replace(/\/$/, "");
 }
 
-const REQUEST_TIMEOUT_MS = Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 10000;
+const REQUEST_TIMEOUT_MS = Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 30000;
 
 // Dynamic Demo Mode Toggle state
 let isDemoModeActive = process.env.DEMO_MODE === "true";
@@ -366,11 +366,12 @@ const endpointDebugMap: Record<string, EndpointDebugInfo> = {
 };
 
 // Execute a fetch with absolute timeout wrapping and trace diagnostics
-async function fetchAndRecord(endpoint: string): Promise<any> {
+async function fetchAndRecord(endpoint: string, customTimeoutMs?: number): Promise<any> {
   const baseUrl = getNormalizedBaseUrl();
   const url = `${baseUrl}${endpoint}`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutMs = customTimeoutMs || Math.max(REQUEST_TIMEOUT_MS, 30000); 
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startTime = Date.now();
 
   if (!endpointDebugMap[endpoint]) {

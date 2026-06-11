@@ -252,7 +252,24 @@ router.get("/", async (req, res) => {
             const fanCommandRequested = lastFanCommand;
             const fanHealthy = true;
 
-            const timestampUtc = tryGetField(row, normalizedObject, ["timestamp", "datetime"]) || new Date().toISOString();
+            function safeParseDate(val: any): string {
+                if (!val) return new Date().toISOString();
+                const ts = new Date(val);
+                if (isNaN(ts.getTime())) {
+                    if (typeof val === 'string' && val.includes('/')) {
+                        // Attempt to parse some known bad formats if needed, e.g. DD/MM/YYYY
+                        const parts = val.split(/[\s/:]+/);
+                        if (parts.length >= 3) {
+                            const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T${parts[3]||'00'}:${parts[4]||'00'}:${parts[5]||'00'}Z`);
+                            if (!isNaN(d.getTime())) return d.toISOString();
+                        }
+                    }
+                    return new Date().toISOString();
+                }
+                return ts.toISOString();
+            }
+
+            const timestampUtc = safeParseDate(tryGetField(row, normalizedObject, ["timestamp", "datetime"]));
 
             const warningCount = pN(tryGetField(row, normalizedObject, ["warningcount", "warncount", "warnings"]), 0) || 0;
             const alarmCount = pN(tryGetField(row, normalizedObject, ["alarmcount", "alarms"]), 0) || 0;

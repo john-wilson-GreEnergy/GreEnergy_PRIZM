@@ -203,7 +203,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   <div className="flex justify-between items-center mb-4">
                      <h3 className="font-mono text-xs font-bold text-prizm-primary flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
                          <div className="flex items-center gap-2"><Zap size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Voltage Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Columns: BPCs)</span>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
                      </h3>
                      {hasVoltageMatrix && (
                         <button onClick={() => downloadMatrixCsv(voltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -220,26 +220,26 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">Cell Group</th>
-                                  {bpcList.map((bpc: any, bpcIdx: number) => (
-                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
+                                  {Array.from({ length: cgCount }, (_, cIdx) => (
+                                      <th key={cIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
+                                        CG{cIdx + 1}
                                       </th>
                                   ))}
                                </tr>
                             </thead>
                             <tbody>
-                             {Array.from({ length: cgCount }, (_, cIdx) => (
-                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
+                             {bpcList.map((bpc: any, bpcIdx: number) => (
+                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
                                      <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        CG{cIdx + 1}
+                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                      </td>
-                                     {bpcList.map((bpc: any, bpcIdx: number) => {
+                                     {Array.from({ length: cgCount }, (_, cIdx) => {
                                          if (hasBpcCellGroups) {
                                             const cg = bpc.cellGroups[cIdx];
-                                            if (!cg) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            if (!cg) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
-                                               <td key={bpcIdx} className="p-0.5">
+                                               <td key={cIdx} className="p-0.5">
                                                   <div 
                                                     title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.voltage} mV${cg.voltageColor ? ` (source color: ${cg.voltageColor})` : ''}`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getVoltageColor(cg.voltage)}`}
@@ -250,9 +250,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             );
                                          } else {
                                             const v = bpc[cIdx];
-                                            if (v === undefined) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            if (v === undefined) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
-                                               <td key={bpcIdx} className="p-0.5">
+                                               <td key={cIdx} className="p-0.5">
                                                  <div 
                                                     title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${v} mV`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getVoltageColor(v)}`}
@@ -281,7 +281,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                   <div className="flex justify-between items-center mb-4">
                      <h3 className="font-mono text-xs font-bold text-prizm-warning flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
                          <div className="flex items-center gap-2"><Thermometer size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Temperature Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: Cell Groups | Columns: BPCs)</span>
+                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
                      </h3>
                      {hasTempMatrix && (
                         <button onClick={() => downloadMatrixCsv(temperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
@@ -298,26 +298,26 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">Cell Group</th>
-                                  {bpcList.map((bpc: any, bpcIdx: number) => (
-                                      <th key={bpcIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
+                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
+                                  {Array.from({ length: cgCount }, (_, cIdx) => (
+                                      <th key={cIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
+                                        CG{cIdx + 1}
                                       </th>
                                   ))}
                                </tr>
                             </thead>
                             <tbody>
-                             {Array.from({ length: cgCount }, (_, cIdx) => (
-                                 <tr key={cIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
+                             {bpcList.map((bpc: any, bpcIdx: number) => (
+                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
                                      <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        CG{cIdx + 1}
+                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                      </td>
-                                     {bpcList.map((bpc: any, bpcIdx: number) => {
+                                     {Array.from({ length: cgCount }, (_, cIdx) => {
                                          if (hasBpcCellGroups) {
                                             const cg = bpc.cellGroups[cIdx];
-                                            if (!cg) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            if (!cg) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
-                                               <td key={bpcIdx} className="p-0.5">
+                                               <td key={cIdx} className="p-0.5">
                                                   <div 
                                                     title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.temperature}°C${cg.temperatureColor ? ` (source color: ${cg.temperatureColor})` : ''}`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getTempColor(cg.temperature)}`}
@@ -328,9 +328,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             );
                                          } else {
                                             const t = bpc[cIdx];
-                                            if (t === undefined) return <td key={bpcIdx} className="p-0.5"></td>;
+                                            if (t === undefined) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
-                                               <td key={bpcIdx} className="p-0.5">
+                                               <td key={cIdx} className="p-0.5">
                                                  <div 
                                                     title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${t}°C`}
                                                     className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getTempColor(t)}`}

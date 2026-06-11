@@ -438,6 +438,12 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
         </div>
       ) : (
         <div className="space-y-4">
+          {profiles.some(p => p.isActive && (p.emsHost.includes("127.0.0.1") || p.emsHost.includes("localhost")) && p.emsPort === 3000) && (
+            <div className="bg-prizm-danger/10 border border-prizm-danger p-3 rounded-lg text-prizm-danger text-xs font-bold flex items-center gap-2 mb-4">
+              <AlertTriangle size={16} />
+              EMS source is pointed at PRIZM itself. Use 10.0.0.3:8080/turtle.
+            </div>
+          )}
           
           {/* Loop over saved lists */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
