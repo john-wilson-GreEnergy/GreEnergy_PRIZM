@@ -66,7 +66,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     ...(data?.summary || {})
   };
 
-  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
+  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
 
   const stringViewerHealth = sourceHealth?.stringviewer;
 
@@ -182,11 +182,18 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                     <span className="text-prizm-text-muted">voltageRows: {voltageMatrix?.length || 0}</span>
                     <span className="text-prizm-text-muted">temperatureRows: {temperatureMatrix?.length || 0}</span>
                     <span className="text-prizm-text-muted">balancingDetails: {balancingDetails?.length || 0}</span>
+                    <span className="text-prizm-text-muted">notifications: {notifications?.length || 0}</span>
                 </div>
                 {balancingDebugKeys && balancingDebugKeys.length > 0 && (
                      <div className="bg-black/30 p-2 rounded text-[9px] font-mono text-prizm-text-muted mt-2 border border-prizm-border/50 max-h-[150px] overflow-y-auto">
                          <div className="font-bold text-prizm-primary mb-1">Detected Balancing Keys from Raw Data:</div>
                          {balancingDebugKeys.map((k: string, i: number) => <div key={i}>{k}</div>)}
+                     </div>
+                )}
+                {notificationDebugKeys && notificationDebugKeys.length > 0 && (
+                     <div className="bg-black/30 p-2 rounded text-[9px] font-mono text-prizm-text-muted mt-2 border border-prizm-border/50 max-h-[150px] overflow-y-auto">
+                         <div className="font-bold text-prizm-primary mb-1">Detected Notification Keys from Raw Data:</div>
+                         {notificationDebugKeys.map((k: string, i: number) => <div key={i}>{k}</div>)}
                      </div>
                 )}
                 {stringViewerHealth && (
@@ -393,7 +400,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                    return (
                                    <tr key={i} className="hover:bg-black/10 transition-colors">
                                        <td className="p-2 font-bold text-prizm-text-muted">BPC{b.bpcNumber ?? b.index ?? (i+1)}</td>
-                                       <td className="p-2">{b.mode !== undefined ? b.mode : "--"}</td>
+                                       <td className="p-2">{b.mode !== undefined ? (b.mode === "Provided" && b.targetVoltage !== undefined && b.targetVoltage !== null ? `Provided (${b.targetVoltage})` : b.mode) : "--"}</td>
                                        <td className="p-2">
                                            {isBalancing ? <span className="text-emerald-400 font-bold animate-pulse uppercase">{stateStr}</span> : <span className="text-prizm-text-muted">{stateStr}</span>}
                                        </td>

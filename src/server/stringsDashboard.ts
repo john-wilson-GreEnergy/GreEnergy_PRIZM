@@ -652,6 +652,92 @@ router.get("/", async (req, res) => {
     }
 });
 
+router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
+    try {
+        const arrayNumber = Number(req.params.arrayNumber);
+        const stringNumber = Number(req.params.stringNumber);
+        const profile = ProfileStore.getActiveProfile();
+        
+        if (!profile) return res.status(400).json({ error: "No active profile" });
+        const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
+
+        const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
+        
+        let ok = false;
+        let httpStatus = null;
+        let data: any = null;
+        let error = null;
+        
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const r = await fetch(stringViewerUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            httpStatus = r.status;
+            ok = r.ok;
+            
+            if (r.ok) {
+                data = await r.json();
+            } else {
+                error = `HTTP ${r.status}`;
+            }
+        } catch(e: any) {
+            error = e.message;
+        }
+
+        const topLevelKeys = data ? Object.keys(data) : [];
+        const modelKeys = data?.stringViewerDataModel ? Object.keys(data.stringViewerDataModel) : [];
+        
+        const balanceRelatedPaths: Array<{path: string, value: any}> = [];
+        const notificationRelatedPaths: Array<{path: string, value: any}> = [];
+
+        const scanPaths = (obj: any, currentPath: string = "", depth: number = 0) => {
+            if (!obj || typeof obj !== 'object' || depth > 8) return;
+            for (const key of Object.keys(obj)) {
+                const lower = key.toLowerCase();
+                const v = obj[key];
+                const fullPath = currentPath ? `${currentPath}.${key}` : key;
+                
+                const isBalanceRelated = ['balanc', 'provided', 'target', 'cellgroup', 'cg'].some(k => lower.includes(k));
+                const isNotificationRelated = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message'].some(k => lower.includes(k));
+                
+                const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 50) : String(v);
+
+                if (isBalanceRelated && typeof v !== 'object') {
+                    balanceRelatedPaths.push({ path: fullPath, value: strValue });
+                }
+                if (isNotificationRelated && typeof v !== 'object') {
+                    notificationRelatedPaths.push({ path: fullPath, value: strValue });
+                }
+                
+                if (typeof v === 'object' && v !== null) {
+                    scanPaths(v, fullPath, depth + 1);
+                }
+            }
+        };
+
+        if (data) scanPaths(data);
+
+        res.json({
+            sourceUrl: stringViewerUrl,
+            httpStatus,
+            ok,
+            error,
+            topLevelKeys,
+            modelKeys,
+            balanceRelatedPaths,
+            notificationRelatedPaths,
+            rawPreview: data ? Object.keys(data).reduce((acc: any, k) => {
+                acc[k] = typeof data[k] === 'object' ? '{...}' : data[k];
+                return acc;
+            }, {}) : null
+        });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
     try {
         const arrayNumber = Number(req.params.arrayNumber);
@@ -720,13 +806,20 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         let notifications: any[] = [];
         let eventLogs: any[] = [];
         const balancingDebugKeys: string[] = [];
+        const notificationDebugKeys: string[] = [];
 
         const extractDebugKeys = (obj: any, currentPath: string = "") => {
             if (!obj || typeof obj !== 'object') return;
             for (const key of Object.keys(obj)) {
                 const lower = key.toLowerCase();
-                if (lower.includes("balanc") || lower.includes("provided") || lower.includes("target")) {
+                const isBal = lower.includes("balanc") || lower.includes("provided") || lower.includes("target");
+                const isNotif = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message'].some(k => lower.includes(k));
+                
+                if (isBal) {
                     balancingDebugKeys.push(`${currentPath}.${key}: ${typeof obj[key] === 'object' ? 'object' : obj[key]}`);
+                }
+                if (isNotif) {
+                    notificationDebugKeys.push(`${currentPath}.${key}: ${typeof obj[key] === 'object' ? 'object' : obj[key]}`);
                 }
                 // Recurse at limited depth
                 if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
@@ -782,26 +875,116 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
 
             const vm = sv.voltageMap?.batteryPacks || {};
             const tm = sv.temperatureMap?.batteryPacks || {};
-            const bm = sv.balanceMap?.batteryPacks || sv.balancingMap?.batteryPacks || sv.balancing?.batteryPacks || sv.balance?.batteryPacks || {};
+
+            // --- Normalize Balancing Details ---
+            const parseBalMode = (modeRaw: any): string | null => {
+                if (!modeRaw) return null;
+                return String(modeRaw);
+            };
+            const parseTargetVoltage = (modeRaw: any, targetRaw: any): number | null => {
+                if (targetRaw !== undefined && targetRaw !== null && targetRaw !== "") return Number(targetRaw);
+                if (typeof modeRaw === 'string' && modeRaw.includes('Provided (')) {
+                    const match = modeRaw.match(/Provided\s+\((\d+)\)/);
+                    if (match) return Number(match[1]);
+                }
+                return null;
+            };
+
+            const bmSources = [
+                sv.balanceMap?.batteryPacks,
+                sv.balancingMap?.batteryPacks,
+                sv.balancing?.batteryPacks,
+                sv.balance?.batteryPacks,
+                sv.batteryPacks, // sometimes embedded here
+                sv.batteryPackBalance
+            ].filter(Boolean);
+
+            const bpcSeen = new Set<number>();
+            for (const source of bmSources) {
+                if (Array.isArray(source)) {
+                    source.forEach((item: any, i: number) => {
+                        const bpcN = item.bpcNumber || item.bpIndex || item.batteryPackIndex || item.packIndex || item.index || (i + 1);
+                        if (!bpcSeen.has(bpcN)) {
+                            const rawMode = item.mode || item.balanceMode || item.balancingMode || item.providedMode;
+                            const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
+                            const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
+                            const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
+                            if (rawMode || state !== undefined || tcg !== undefined || tv !== null) {
+                                balancingDetails.push({ bpcNumber: bpcN, mode: parseBalMode(rawMode), state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
+                                bpcSeen.add(bpcN);
+                            }
+                        }
+                    });
+                } else if (typeof source === 'object') {
+                    Object.keys(source).forEach(key => {
+                        const bpcN = Number(key);
+                        const item = source[key];
+                        if (!isNaN(bpcN) && !bpcSeen.has(bpcN)) {
+                            const rawMode = item.mode || item.balanceMode || item.balancingMode || item.providedMode;
+                            const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
+                            const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
+                            const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
+                            if (rawMode || state !== undefined || tcg !== undefined || tv !== null) {
+                                balancingDetails.push({ bpcNumber: bpcN, mode: parseBalMode(rawMode), state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
+                                bpcSeen.add(bpcN);
+                            }
+                        }
+                    });
+                }
+            }
+
+            // --- Normalize Notifications ---
+            const codeToMsgMap = (getEmsCachedStatusCodes().data as Record<string, string>) || {};
+            const parseNotif = (level: string, item: any, src: string) => {
+                if (typeof item === 'string') {
+                    // Try to parse "2534 Contactor Open Warning"
+                    const match = item.match(/^(\d+)\s+(.+)$/);
+                    if (match) {
+                        notifications.push({ level, code: match[1], message: match[2], source: src });
+                    } else {
+                        notifications.push({ level, code: null, message: item, source: src });
+                    }
+                } else if (typeof item === 'object') {
+                    const code = item.code || item.status || item.messageCode;
+                    let msg = item.message || item.text || item.description || (code ? codeToMsgMap[String(code)] : null) || `Code ${code}`;
+                    if (!msg && code) msg = `Code ${code}`;
+                    if (code || msg) {
+                        notifications.push({
+                            level: item.level || level,
+                            code,
+                            message: msg,
+                            timestamp: item.timestamp || item.time || item.created,
+                            trigger: item.trigger || item.triggerValue,
+                            source: src,
+                            raw: item
+                        });
+                    }
+                }
+            };
+
+            const notifLists = [
+                { data: sv.notifications, source: "stringviewer.notifications" },
+                { data: sv.notificationList, source: "stringviewer.notificationList" },
+                { data: sv.activeNotifications, source: "stringviewer.activeNotifications" },
+                { data: sv.warningList, source: "stringviewer.warningList", lev: "WARNING" },
+                { data: sv.warnings, source: "stringviewer.warnings", lev: "WARNING" },
+                { data: sv.alarms, source: "stringviewer.alarms", lev: "ALARM" },
+                { data: sv.stringWarnings, source: "stringviewer.stringWarnings", lev: "WARNING" },
+                { data: sv.stringAlarms, source: "stringviewer.stringAlarms", lev: "ALARM" }
+            ];
+
+            notifLists.forEach(nl => {
+                if (Array.isArray(nl.data)) {
+                    nl.data.forEach(n => parseNotif(nl.lev || "WARNING", n, nl.source));
+                } else if (nl.data && typeof nl.data === 'object') {
+                    Object.keys(nl.data).forEach(k => parseNotif(nl.lev || "WARNING", nl.data[k], `${nl.source}.${k}`));
+                }
+            });
             
             const bpKeys = Object.keys(vm).map(Number).sort((a,b) => a-b);
             bpKeys.forEach(bpIdx => {
                 const cgsV = vm[String(bpIdx)]?.cellGroups || {};
                 const cgsT = tm[String(bpIdx)]?.cellGroups || {};
-                const balInfo = bm[String(bpIdx)] || {};
-                
-                if (balInfo && (balInfo.mode || balInfo.state || balInfo.balancingActive || balInfo.targetVoltage || balInfo.targetCellGroup)) {
-                     balancingDetails.push({
-                         bpcNumber: bpIdx,
-                         mode: balInfo.mode || balInfo.balancingMode,
-                         state: balInfo.state || balInfo.balancingState,
-                         balancingCellGroupIndex: balInfo.balancingCellGroupIndex || balInfo.targetCellGroup || balInfo.activeCellGroup,
-                         targetVoltage: balInfo.targetVoltage || balInfo.providedBalanceVoltage || balInfo.targetCellVoltage,
-                         raw: balInfo
-                     });
-                }
-
-                
                 const cgKeys = Object.keys(cgsV).map(Number).sort((a,b) => a-b);
                 const vRow = cgKeys.map(cg => Number(cgsV[String(cg)]?.value));
                 const tRow = cgKeys.map(cg => Number(cgsT[String(cg)]?.value));
@@ -904,11 +1087,12 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 
                 if (bpc.balancing || bpc.balancingMode || bpc.balancingState) {
                     balancingDetails.push({
-                        index: bpcIdx,
+                        bpcNumber: bpcIdx,
                         mode: bpc.balancingMode,
                         state: bpc.balancingState,
-                        balancingActive: bpc.balancingActive || bpc.balancing,
-                        targetCellGroup: undefined
+                        balancingCellGroupIndex: undefined,
+                        targetVoltage: undefined,
+                        raw: bpc
                     });
                 }
                 
@@ -925,10 +1109,43 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             });
             
             if (lcBaseData.warnings && Array.isArray(lcBaseData.warnings) && lcBaseData.warnings.length > 0) {
-                lcBaseData.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `String` }));
+                lcBaseData.warnings.forEach(w => notifications.push({ level: "WARNING", message: w, source: `lastCall String` }));
             }
             if (lcBaseData.alarms && Array.isArray(lcBaseData.alarms) && lcBaseData.alarms.length > 0) {
-                lcBaseData.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `String` }));
+                lcBaseData.alarms.forEach(a => notifications.push({ level: "ALARM", message: a, source: `lastCall String` }));
+            }
+        }
+
+        // Check fallback from main strings dashboard cache
+        if (balancingDetails.length === 0 || notifications.length === 0) {
+            const cachedDash = prizmCache.get<any>('string_dashboard_base_ALL');
+            if (cachedDash && cachedDash.data && Array.isArray(cachedDash.data.strings)) {
+                const mainRow = cachedDash.data.strings.find((s: any) => s.arrayNumber === arrayNumber && s.stringNumber === stringNumber);
+                if (mainRow) {
+                    if (balancingDetails.length === 0 && (mainRow.balanceMode || mainRow.balanceRaw)) {
+                        // Create a faux balancing detail if we know there is balancing
+                        balancingDetails.push({
+                            bpcNumber: null,
+                            mode: mainRow.balanceMode || mainRow.balanceRaw,
+                            state: null,
+                            balancingCellGroupIndex: null,
+                            targetVoltage: null,
+                            raw: mainRow.raw || {}
+                        });
+                    }
+                    if (notifications.length === 0) {
+                        if (Array.isArray(mainRow.warnings) && mainRow.warnings.length > 0) {
+                            mainRow.warnings.forEach((w: string) => {
+                                notifications.push({ level: "WARNING", message: w, source: "strings_dashboard" });
+                            });
+                        }
+                        if (Array.isArray(mainRow.alarms) && mainRow.alarms.length > 0) {
+                            mainRow.alarms.forEach((a: string) => {
+                                notifications.push({ level: "ALARM", message: a, source: "strings_dashboard" });
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -949,7 +1166,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             notifications,
             eventLogs,
             sourceViewerUsed: !!stringViewerData,
-            balancingDebugKeys
+            balancingDebugKeys,
+            notificationDebugKeys
         };
         }; // end fetcher function
 
