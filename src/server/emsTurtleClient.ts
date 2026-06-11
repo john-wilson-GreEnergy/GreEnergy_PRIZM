@@ -682,7 +682,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     const text = await res.text();
     emsCache.strings = parseCsv(text);
   } catch (err: any) {
-    console.error("fetch strings csv error:", err);
+    // Optional endpoint, silently handle timeout/offline
   }
 
   // 8. /tools/report/ems/ipMap

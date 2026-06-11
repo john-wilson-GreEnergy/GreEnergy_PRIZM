@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
+import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const [data, setData] = useState<any>(null);
@@ -111,7 +112,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   return (
     <div className="flex-1 flex overflow-hidden flex-col font-sans transition-all h-full bg-prizm-bg">
-      <div className="flex-1 overflow-y-auto no-scrollbar p-4 sm:p-6 pb-20">
+      <div className="flex-1 overflow-y-auto no-scrollbar p-4 sm:p-6 pb-20" id="string-detail-scroll">
           <div className="flex justify-between items-center mb-6 shrink-0 font-mono">
             <button onClick={onBack} className="text-prizm-text-muted hover:text-prizm-text flex items-center gap-2 text-xs font-bold transition-colors">
                 <ArrowLeft size={14} /> BACK TO STRINGS
@@ -180,7 +181,14 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                     <span className="text-prizm-text-muted">firstBpcCellGroups: {bpcs?.[0]?.cellGroups?.length || 0}</span>
                     <span className="text-prizm-text-muted">voltageRows: {voltageMatrix?.length || 0}</span>
                     <span className="text-prizm-text-muted">temperatureRows: {temperatureMatrix?.length || 0}</span>
+                    <span className="text-prizm-text-muted">balancingDetails: {balancingDetails?.length || 0}</span>
                 </div>
+                {balancingDebugKeys && balancingDebugKeys.length > 0 && (
+                     <div className="bg-black/30 p-2 rounded text-[9px] font-mono text-prizm-text-muted mt-2 border border-prizm-border/50 max-h-[150px] overflow-y-auto">
+                         <div className="font-bold text-prizm-primary mb-1">Detected Balancing Keys from Raw Data:</div>
+                         {balancingDebugKeys.map((k: string, i: number) => <div key={i}>{k}</div>)}
+                     </div>
+                )}
                 {stringViewerHealth && (
                     <div className="flex gap-4 items-center bg-black/20 p-2 rounded">
                         <span className={`px-1.5 py-0.5 rounded font-bold ${stringViewerHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
@@ -220,9 +228,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 w-[44px] min-w-[44px] max-w-[44px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
                                   {Array.from({ length: cgCount }, (_, cIdx) => (
-                                      <th key={cIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
+                                      <th key={cIdx} className="min-w-[46px] w-[46px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
                                         CG{cIdx + 1}
                                       </th>
                                   ))}
@@ -231,7 +239,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                             <tbody>
                              {bpcList.map((bpc: any, bpcIdx: number) => (
                                  <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 w-[44px] min-w-[44px] max-w-[44px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
                                         BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                      </td>
                                      {Array.from({ length: cgCount }, (_, cIdx) => {
@@ -242,7 +250,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                                <td key={cIdx} className="p-0.5">
                                                   <div 
                                                     title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.voltage} mV${cg.voltageColor ? ` (source color: ${cg.voltageColor})` : ''}`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getVoltageColor(cg.voltage)}`}
+                                                    className={`w-full min-w-[46px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getVoltageColor(cg.voltage)}`}
                                                   >
                                                       {cg.voltage}
                                                   </div>
@@ -298,9 +306,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
                             <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
                                <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 min-w-[50px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
+                                  <th className="sticky left-0 bg-prizm-surface z-30 w-[44px] min-w-[44px] max-w-[44px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
                                   {Array.from({ length: cgCount }, (_, cIdx) => (
-                                      <th key={cIdx} className="min-w-[42px] w-[42px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
+                                      <th key={cIdx} className="min-w-[46px] w-[46px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
                                         CG{cIdx + 1}
                                       </th>
                                   ))}
@@ -309,7 +317,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                             <tbody>
                              {bpcList.map((bpc: any, bpcIdx: number) => (
                                  <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 min-w-[50px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
+                                     <td className="sticky left-0 bg-prizm-surface p-1 w-[44px] min-w-[44px] max-w-[44px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
                                         BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
                                      </td>
                                      {Array.from({ length: cgCount }, (_, cIdx) => {
@@ -319,8 +327,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                             return (
                                                <td key={cIdx} className="p-0.5">
                                                   <div 
-                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.temperature}°C${cg.temperatureColor ? ` (source color: ${cg.temperatureColor})` : ''}`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getTempColor(cg.temperature)}`}
+                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.temperature} °C${cg.temperatureColor ? ` (source color: ${cg.temperatureColor})` : ''}`}
+                                                    className={`w-full min-w-[46px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getTempColor(cg.temperature)}`}
                                                   >
                                                       {cg.temperature}
                                                   </div>
@@ -366,23 +374,33 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
                            <thead className="bg-black/20 text-prizm-text-muted">
                               <tr>
-                                 <th className="p-2 border-b border-prizm-border">BP Index</th>
-                                 <th className="p-2 border-b border-prizm-border">Mode</th>
-                                 <th className="p-2 border-b border-prizm-border">State</th>
-                                 <th className="p-2 border-b border-prizm-border">Active CG</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">BPC</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">MODE</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">STATE</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">BAL CG</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">TARGET V</th>
                               </tr>
                            </thead>
                            <tbody className="divide-y divide-prizm-border/20">
-                               {balancingDetails.map((b: any, i: number) => (
-                                   <tr key={i} className="hover:bg-black/10">
-                                       <td className="p-2">{b.index !== undefined ? `B${b.index}` : `B${i+1}`}</td>
+                               {balancingDetails.map((b: any, i: number) => {
+                                   let stateStr = "Off";
+                                   if (b.state === true || b.state === "true" || b.balancingActive) stateStr = "Active";
+                                   else if (b.state === false || b.state === "false") stateStr = "Off";
+                                   else if (b.state) stateStr = String(b.state);
+
+                                   const isBalancing = stateStr.toUpperCase() === "BALANCING" || stateStr.toUpperCase() === "ACTIVE";
+
+                                   return (
+                                   <tr key={i} className="hover:bg-black/10 transition-colors">
+                                       <td className="p-2 font-bold text-prizm-text-muted">BPC{b.bpcNumber ?? b.index ?? (i+1)}</td>
                                        <td className="p-2">{b.mode !== undefined ? b.mode : "--"}</td>
                                        <td className="p-2">
-                                           {b.state === "BALANCING" ? <span className="text-emerald-400 font-bold animate-pulse">BALANCING</span> : <span className="text-prizm-text-muted">{b.state || "IDLE"}</span>}
+                                           {isBalancing ? <span className="text-emerald-400 font-bold animate-pulse uppercase">{stateStr}</span> : <span className="text-prizm-text-muted">{stateStr}</span>}
                                        </td>
-                                       <td className="p-2">{b.targetCellGroup !== undefined ? `C${b.targetCellGroup}` : (b.balancingActive ? "ACTIVE" : "--")}</td>
+                                       <td className="p-2 font-mono text-prizm-warning">{b.balancingCellGroupIndex !== null && b.balancingCellGroupIndex !== undefined ? b.balancingCellGroupIndex : (b.targetCellGroup !== undefined ? b.targetCellGroup : "--")}</td>
+                                       <td className="p-2 text-prizm-info font-bold font-mono">{b.targetVoltage !== undefined && b.targetVoltage !== null ? b.targetVoltage : "--"}</td>
                                    </tr>
-                               ))}
+                               )})}
                            </tbody>
                         </table>
                      </div>
@@ -417,7 +435,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                            </span>
                                        </td>
                                        <td className="p-2 whitespace-normal break-words">{n.message || n.text || String(n)}</td>
-                                       <td className="p-2 text-prizm-text-muted">{n.timestamp || s.timestampUtc}</td>
+                                       <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(n.timestamp || s.timestampUtc)}</td>
                                    </tr>
                                ))}
                            </tbody>
@@ -452,7 +470,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                    <tr key={i} className="hover:bg-black/10">
                                        <td className="p-2 text-prizm-text-muted">{e.category || "General"}</td>
                                        <td className="p-2">{e.message || e.text || "Unknown Event"}</td>
-                                       <td className="p-2 text-prizm-text-muted">{e.timestamp || s.timestampUtc}</td>
+                                       <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(e.timestamp || s.timestampUtc)}</td>
                                    </tr>
                                ))}
                            </tbody>
@@ -465,6 +483,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
               )}
           </div>
       </div>
+      
+      <button
+        className="fixed bottom-6 right-6 z-50 bg-prizm-surface-strong text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary hover:text-prizm-bg px-4 py-2 rounded-full font-bold shadow-lg shadow-prizm-primary/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer outline-none"
+        onClick={() => document.getElementById('string-detail-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })}
+      >
+        <span className="text-xl leading-none">&uarr;</span> TOP
+      </button>
     </div>
   );
 }

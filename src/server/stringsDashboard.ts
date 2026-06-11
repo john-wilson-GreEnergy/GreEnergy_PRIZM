@@ -243,7 +243,18 @@ router.get("/", async (req, res) => {
             }
 
             const balanceCount = pN(tryGetField(row, normalizedObject, ["balancecount", "balancingcount"]));
-            const balanceMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
+            let balanceMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
+            const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
+            
+            let balanceProvided = false;
+            
+            if (balanceRaw.includes("Provided") || balanceMode.includes("Provided")) {
+                balanceProvided = true;
+                balanceMode = "Provided";
+            }
+            if (balanceRaw && !balanceMode && balanceRaw.includes("-")) {
+                balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+            }
             const container = String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
             const location = String(tryGetField(row, normalizedObject, ["location"]) || "");
             
@@ -708,11 +719,33 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         let balancingDetails: any[] = [];
         let notifications: any[] = [];
         let eventLogs: any[] = [];
+        const balancingDebugKeys: string[] = [];
+
+        const extractDebugKeys = (obj: any, currentPath: string = "") => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key of Object.keys(obj)) {
+                const lower = key.toLowerCase();
+                if (lower.includes("balanc") || lower.includes("provided") || lower.includes("target")) {
+                    balancingDebugKeys.push(`${currentPath}.${key}: ${typeof obj[key] === 'object' ? 'object' : obj[key]}`);
+                }
+                // Recurse at limited depth
+                if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+                    if (currentPath.split('.').length < 4) {
+                        extractDebugKeys(obj[key], `${currentPath}.${key}`);
+                    }
+                } else if (Array.isArray(obj[key]) && typeof obj[key][0] === 'object') {
+                    if (currentPath.split('.').length < 4) {
+                        extractDebugKeys(obj[key][0], `${currentPath}.${key}[0]`);
+                    }
+                }
+            }
+        };
 
         let bpcs: any[] = [];
         let summary: any = {};
         
         if (stringViewerData && stringViewerData.stringViewerDataModel) {
+            extractDebugKeys(stringViewerData.stringViewerDataModel, "sv");
             const sv = stringViewerData.stringViewerDataModel;
             summary = {
                 arrayNumber: sv.arrayIndex || arrayNumber,
@@ -749,11 +782,25 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
 
             const vm = sv.voltageMap?.batteryPacks || {};
             const tm = sv.temperatureMap?.batteryPacks || {};
+            const bm = sv.balanceMap?.batteryPacks || sv.balancingMap?.batteryPacks || sv.balancing?.batteryPacks || sv.balance?.batteryPacks || {};
             
             const bpKeys = Object.keys(vm).map(Number).sort((a,b) => a-b);
             bpKeys.forEach(bpIdx => {
                 const cgsV = vm[String(bpIdx)]?.cellGroups || {};
                 const cgsT = tm[String(bpIdx)]?.cellGroups || {};
+                const balInfo = bm[String(bpIdx)] || {};
+                
+                if (balInfo && (balInfo.mode || balInfo.state || balInfo.balancingActive || balInfo.targetVoltage || balInfo.targetCellGroup)) {
+                     balancingDetails.push({
+                         bpcNumber: bpIdx,
+                         mode: balInfo.mode || balInfo.balancingMode,
+                         state: balInfo.state || balInfo.balancingState,
+                         balancingCellGroupIndex: balInfo.balancingCellGroupIndex || balInfo.targetCellGroup || balInfo.activeCellGroup,
+                         targetVoltage: balInfo.targetVoltage || balInfo.providedBalanceVoltage || balInfo.targetCellVoltage,
+                         raw: balInfo
+                     });
+                }
+
                 
                 const cgKeys = Object.keys(cgsV).map(Number).sort((a,b) => a-b);
                 const vRow = cgKeys.map(cg => Number(cgsV[String(cg)]?.value));
@@ -901,7 +948,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             balancingDetails,
             notifications,
             eventLogs,
-            sourceViewerUsed: !!stringViewerData
+            sourceViewerUsed: !!stringViewerData,
+            balancingDebugKeys
         };
         }; // end fetcher function
 

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
 
+import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
+
 export default function StringDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -310,30 +312,32 @@ export default function StringDashboard() {
       </div>
 
       {/* Main Strings Table Engine */}
-      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg overflow-y-auto no-scrollbar relative min-h-0">
+      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg overflow-y-auto no-scrollbar relative min-h-0" id="strings-dashboard-scroll">
          <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
-            <thead className="bg-prizm-surface-strong sticky top-0 z-10 shadow-md">
-               <tr className="text-prizm-text-muted uppercase tracking-wider">
-                  <th className="px-3 py-3 border-b border-prizm-border font-bold sticky left-0 bg-prizm-surface-strong z-20 whitespace-nowrap">Arr / Str</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Contactors</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Rotation</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Meas V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Calc V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Bus V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Amps</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">kW</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">SOC %</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Ah</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Min Cell V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Max Cell V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Δ Cell V</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Min Temp</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Max Temp</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Δ Temp</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Balance</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Location</th>
-                  <th className="px-3 py-3 border-b border-prizm-border">Fans</th>
-                  <th className="px-3 py-3 border-b border-prizm-border text-right">Timestamp</th>
+             <thead className="bg-prizm-surface-strong sticky top-0 z-30 shadow-md">
+                <tr className="text-prizm-text-muted uppercase tracking-wider">
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-40 whitespace-nowrap">ARR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[54px] sm:left-[64px] bg-prizm-surface-strong z-40 whitespace-nowrap">STR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Contactors</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Rotation</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Meas V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Calc V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Bus V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Amps</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">kW</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">SOC %</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Ah</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Min Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Max Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Δ Cell V</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Min Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Max Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Δ Temp</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">BAL CT</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">BAL MODE</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Location</th>
+                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-30">Fans</th>
+                  <th className="px-3 py-2 border-b border-prizm-border text-right sticky top-0 bg-prizm-surface-strong z-30">Timestamp</th>
                </tr>
             </thead>
             <tbody className="divide-y divide-prizm-border/20">
@@ -381,75 +385,80 @@ export default function StringDashboard() {
                   }
 
                   const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
-
                   return (
-                  <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-black/20 cursor-pointer transition-colors relative">
-                    <td className="px-3 py-3 border-r border-prizm-border/20 sticky left-0 group-hover:bg-black/60 bg-prizm-surface z-10 font-bold text-prizm-text" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
-                       <span className={s.warningCount > 0 || s.alarmCount > 0 ? (s.alarmCount > 0 ? "text-prizm-danger" : "text-prizm-warning") : ""}>A{s.arrayNumber}-S{s.stringNumber}</span>
+                  <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-prizm-primary/10 cursor-pointer transition-colors relative">
+                    <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-text min-w-[54px] sm:min-w-[64px]" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
+                       <span className={s.warningCount > 0 || s.alarmCount > 0 ? (s.alarmCount > 0 ? "text-prizm-danger" : "text-prizm-warning") : "text-prizm-primary font-mono font-bold"}>{s.arrayNumber}</span>
                        {s.alarmCount > 0 && <span className="text-prizm-danger ml-1" title="Alarms Active">⚠️</span>}
                        {s.warningCount > 0 && s.alarmCount === 0 && <span className="text-prizm-warning ml-1" title="Warnings Active">⚠️</span>}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[54px] sm:left-[64px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
+                       {s.stringNumber}
+                    </td>
+                    <td className="px-3 py-1.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
                          title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected?"CLOSED":"OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed!==undefined?(s.positiveContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Negative: ${s.negativeContactorClosed!==undefined?(s.negativeContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Reclose Count: ${s.recloseCount ?? "--"}`}
                        >
-                           <div className={`w-2.5 h-2.5 rounded-full ${contDot1}`}></div>
-                           <div className={`w-2.5 h-2.5 rounded-full ${contDot2}`}></div>
-                           <div className={`w-2.5 h-2.5 rounded-full ${contDot3}`}></div>
+                           <div className={`w-2 h-2 rounded-full ${contDot1}`}></div>
+                           <div className={`w-2 h-2 rounded-full ${contDot2}`}></div>
+                           <div className={`w-2 h-2 rounded-full ${contDot3}`}></div>
                            <span className="ml-1 text-[9px] text-prizm-text-muted">R:{s.recloseCount ?? "--"}</span>
                        </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-1.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
                          title={`Comms: ${commsOk?"OK":"Stale"} | Rotation: ${inRotation?"IN":"OUT"} | Alerts: ${alertsState}`}
                        >
-                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot1}`}></div>
-                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot2}`}></div>
-                          <div className={`w-2.5 h-2.5 rounded-full ${rotDot3}`}></div>
+                          <div className={`w-2 h-2 rounded-full ${rotDot1}`}></div>
+                          <div className={`w-2 h-2 rounded-full ${rotDot2}`}></div>
+                          <div className={`w-2 h-2 rounded-full ${rotDot3}`}></div>
                        </div>
                     </td>
-                    <td className="px-3 py-3 font-mono text-xs text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-warning">Δ: {s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs text-prizm-warning">Δ: {s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
-                    <td className="px-3 py-3 font-mono text-xs">
-                       <div className="flex flex-col gap-0.5">
-                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Count:</span> <span className="text-prizm-text">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</span></div>
-                          <div className="flex justify-between w-24"><span className="text-prizm-text-muted text-[9px]">Mode:</span> <span className="text-prizm-text truncate" title={s.balanceMode}>{s.balanceMode || "--"}</span></div>
-                       </div>
-                    </td>
-                    <td className="px-3 py-3 font-bold text-prizm-text-muted">
+                    <td className="px-3 py-1.5 font-mono text-xs text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text truncate max-w-[100px]" title={s.balanceMode}>{s.balanceMode || "--"}</td>
+                    <td className="px-3 py-1.5 font-bold text-prizm-text-muted text-xs">
                         {locStr}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-1.5">
                        <div 
                            title={`Fan Requested: ${s.fanCommandRequested ?? "--"} | Match: ${fanMatch}`}
                            className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDot}`}
                        ></div>
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-1.5 text-right font-mono text-prizm-text-muted text-[10px]">
                        <div className="flex items-center justify-end gap-2">
-                           <span className="text-prizm-text-muted text-[9px]">{new Date(s.timestampUtc || 0).toLocaleString()}</span>
+                           <span>{s.rawTimestamp || s.timestampDisplay || formatPrizmUtcTimestamp(s.timestampUtc || 0)}</span>
                            <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-prizm-primary" />
                        </div>
                     </td>
                   </tr>
-                )})
+                  )})
               )}
             </tbody>
          </table>
       </div>
+
+      <button
+        className="fixed bottom-6 right-6 z-50 bg-prizm-surface-strong text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary hover:text-prizm-bg px-4 py-2 rounded-full font-bold shadow-lg shadow-prizm-primary/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer outline-none"
+        onClick={() => document.getElementById('strings-dashboard-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })}
+      >
+        <span className="text-xl leading-none">&uarr;</span> TOP
+      </button>
 
     </div>
   );
