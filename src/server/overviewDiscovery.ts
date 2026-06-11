@@ -175,12 +175,14 @@ router.get("/discovery", async (req, res) => {
             }
         });
         
+        const getSampleItems = (candidates: any[]) => candidates.slice(0, req.query.fullTables === 'true' ? undefined : req.query.includeRawPreview === 'true' ? 2 : 0);
+
         const mkSection = (candidates: any[]) => ({
             available: candidates.length > 0,
             sourceCandidates: candidates.length > 0 ? ['blockviewer', 'lastCall', 'status'] : [],
             count: candidates.length,
             fieldsObserved: candidates.length > 0 ? Object.keys(candidates[0]).slice(0, 10) : [],
-            sampleItems: candidates.slice(0, req.query.includeRawPreview === 'true' ? 2 : 0)
+            sampleItems: getSampleItems(candidates)
         });
 
         const resetEligible = collected.blockTopologyCandidates.filter(c => c.allowFaultReset === true);
@@ -206,7 +208,7 @@ router.get("/discovery", async (req, res) => {
                    entityTypes: [],
                    resetEligibleCount: resetEligible.length,
                    fieldsObserved: collected.blockTopologyCandidates.length > 0 ? Object.keys(collected.blockTopologyCandidates[0]).slice(0, 5) : [],
-                   sampleItems: collected.blockTopologyCandidates.slice(0, req.query.includeRawPreview === 'true' ? 2 : 0)
+                   sampleItems: getSampleItems(collected.blockTopologyCandidates)
                },
                pcs: mkSection(collected.pcsCandidates),
                hvacCentipede: mkSection(collected.hvacCandidates),
@@ -218,7 +220,7 @@ router.get("/discovery", async (req, res) => {
                    sourceCandidates: ['stringsCsv'],
                    count: stringsData.data?.length || 0,
                    fieldsObserved: stringsData.data && stringsData.data.length > 0 ? Object.keys(stringsData.data[0]) : [],
-                   sampleItems: stringsData.data ? stringsData.data.slice(0, req.query.includeRawPreview === 'true' ? 2 : 0) : []
+                   sampleItems: stringsData.data ? getSampleItems(stringsData.data) : []
                },
                safetyResetCandidates: mkSection(resetEligible)
             },

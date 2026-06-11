@@ -6,6 +6,7 @@ import {
     ServerOff, 
     CheckCircle2, 
     ChevronRight, 
+    ChevronDown,
     Hash, 
     XOctagon, 
     Flame,
@@ -13,9 +14,54 @@ import {
     Thermometer,
     Wind,
     ShieldAlert,
-    Network
+    Network,
+    Cpu,
+    RadioTower,
+    ServerCrash,
+    BoxSelect,
+    PanelTop,
+    Rows4
 } from "lucide-react";
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
+
+function CollapsibleSection({ 
+    title, 
+    icon: Icon, 
+    defaultExpanded = true, 
+    children, 
+    badge = null,
+    className = ""
+}: {
+    title: string;
+    icon?: any;
+    defaultExpanded?: boolean;
+    children: React.ReactNode;
+    badge?: React.ReactNode;
+    className?: string;
+}) {
+    const [expanded, setExpanded] = useState(defaultExpanded);
+    return (
+        <div className={`bg-prizm-surface-strong border border-prizm-border rounded-lg overflow-hidden flex flex-col ${className}`}>
+            <button 
+                onClick={() => setExpanded(!expanded)} 
+                className="flex items-center justify-between p-3 bg-black/20 hover:bg-black/30 transition-colors border-b border-prizm-border w-full text-left"
+            >
+                <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono flex items-center gap-2">
+                    {Icon && <Icon size={14} className="text-prizm-primary" />} {title}
+                </h3>
+                <div className="flex items-center gap-2 text-prizm-text-muted">
+                    {badge}
+                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </div>
+            </button>
+            {expanded && (
+                <div className="p-0 overflow-x-auto no-scrollbar">
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+}
 
 type DashboardState = {
     loading: boolean;
@@ -54,7 +100,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     fetch("/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=15000").then(r => r.json()),
                     fetch("/api/feather/devices").then(r => r.json()),
                     fetch("/api/local/safety-fault-clear/candidates").then(r => r.json()),
-                    fetch("/api/local/overview/discovery").then(r => r.json()),
+                    fetch("/api/local/overview/discovery?fullTables=true").then(r => r.json()),
                     fetch("/api/local/history/events?range=24h").then(r => r.json())
                 ]);
 
@@ -109,27 +155,49 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     const blockIndex = state.overviewDiscovery?.blockIndex !== undefined ? state.overviewDiscovery?.blockIndex : "--";
     const profileId = state.stringsDashboard?.profileId || "--";
 
+    // Extract Discovery Sections
+    const discovery = state.overviewDiscovery?.discoveredSections || {};
+    const emsAppsData = discovery.emsApps?.sampleItems || [];
+    const blockTopologyData = discovery.blockTopology?.sampleItems || [];
+    const pcsData = discovery.pcs?.sampleItems || [];
+    const hvacCentipedeData = discovery.hvacCentipede?.sampleItems || [];
+    const htsData = discovery.humidityTemperatureSensors?.sampleItems || [];
+
     // Build timeline/issues
     const activeIssues = [];
 
+    // Group String Issues
+    let totalStringWarnings = 0;
+    let totalStringAlarms = 0;
     if (state.stringsDashboard?.arrays) {
         state.stringsDashboard.arrays.forEach((a: any) => {
-            if (a.warningCount > 0) activeIssues.push({ severity: "WARNING", source: `Array ${a.arrayNumber}`, message: `${a.warningCount} String Warnings` });
-            if (a.alarmCount > 0) activeIssues.push({ severity: "ALARM", source: `Array ${a.arrayNumber}`, message: `${a.alarmCount} String Alarms` });
+            totalStringWarnings += a.warningCount || 0;
+            totalStringAlarms += a.alarmCount || 0;
         });
+        if (totalStringAlarms > 0) activeIssues.push({ severity: "ALARM", source: "Strings Dashboard", message: `${totalStringAlarms} strings currently in ALARM state across all arrays` });
+        if (totalStringWarnings > 0) activeIssues.push({ severity: "WARNING", source: "Strings Dashboard", message: `${totalStringWarnings} strings currently reporting WARNINGS` });
     }
 
+    // Group Feather / HVAC Issues
     if (state.featherDevices?.devices) {
+        let fssInvalidCount = 0;
+        let doorsInvalidCount = 0;
+        let hvacInvalidCount = 0;
+        let totalLostComms = 0;
+
         state.featherDevices.devices.forEach((d: any) => {
             if (d.devicesWithLostComms?.length > 0) {
-                d.devicesWithLostComms.forEach((c: string) => {
-                    activeIssues.push({ severity: "WARNING", source: `Feather ${d.ip}`, message: `Lost Comms with: ${c}` });
-                });
+                totalLostComms += d.devicesWithLostComms.length;
             }
-            if (d.fssValid === false) activeIssues.push({ severity: "ALARM", source: `Feather ${d.ip}`, message: `FSS Data Invalid` });
-            if (d.doorsValid === false) activeIssues.push({ severity: "ALARM", source: `Feather ${d.ip}`, message: `Doors Data Invalid` });
-            if (d.hvacValid === false) activeIssues.push({ severity: "WARNING", source: `Feather ${d.ip}`, message: `HVAC Data Invalid` });
+            if (d.fssValid === false) fssInvalidCount++;
+            if (d.doorsValid === false) doorsInvalidCount++;
+            if (d.hvacValid === false) hvacInvalidCount++;
         });
+
+        if (totalLostComms > 0) activeIssues.push({ severity: "WARNING", source: "Feather / HVAC", message: `Lost Comms with ${totalLostComms} child devices` });
+        if (fssInvalidCount > 0) activeIssues.push({ severity: "ALARM", source: "Feather / HVAC", message: `FSS Data Invalid on ${fssInvalidCount} Feather controllers` });
+        if (doorsInvalidCount > 0) activeIssues.push({ severity: "ALARM", source: "Feather / HVAC", message: `Doors Data Invalid on ${doorsInvalidCount} Feather controllers` });
+        if (hvacInvalidCount > 0) activeIssues.push({ severity: "WARNING", source: "Feather / HVAC", message: `HVAC Data Invalid on ${hvacInvalidCount} Feather controllers` });
     }
 
     if (state.safetyFaults?.eligible?.length > 0) {
@@ -199,222 +267,398 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             </div>
 
             {/* BESS Summary Cards */}
-            <div>
-               <h2 className="text-sm font-bold text-prizm-text uppercase tracking-widest mb-3 flex items-center gap-2"><Battery size={16} /> BESS Fleet Summary</h2>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Total Strings</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono mt-1">{rollups.totalStrings !== undefined ? rollups.totalStrings : "--"}</div>
+            <CollapsibleSection title="BESS Fleet Summary" icon={Battery} defaultExpanded={true}>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 sm:gap-px bg-prizm-border">
+                   <div className="bg-prizm-surface-strong p-4">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Total Strings</div>
+                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.totalStrings !== undefined ? rollups.totalStrings : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-emerald-500/30 rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Normal Strings</div>
-                       <div className="text-xl font-bold text-emerald-400 font-mono mt-1">{rollups.normal !== undefined ? rollups.normal : "--"}</div>
+                   <div className="bg-prizm-surface p-4">
+                       <div className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider mb-1">Normal Strings</div>
+                       <div className="text-xl font-bold text-emerald-400 font-mono">{rollups.normal !== undefined ? rollups.normal : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Offline Strings</div>
-                       <div className="text-xl font-bold text-prizm-text-muted font-mono mt-1">{rollups.offline !== undefined ? rollups.offline : "--"}</div>
+                   <div className="bg-prizm-surface p-4">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Offline Strings</div>
+                       <div className="text-xl font-bold text-prizm-text-muted font-mono">{rollups.offline !== undefined ? rollups.offline : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-warning/30 rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Warn / Alm Strings</div>
-                       <div className="text-xl font-bold text-prizm-warning font-mono mt-1">
+                   <div className="bg-prizm-surface p-4">
+                       <div className="text-[10px] text-prizm-warning uppercase font-bold tracking-wider mb-1">Warn / Alm Strings</div>
+                       <div className="text-xl font-bold text-prizm-warning font-mono">
                            {rollups.warnings !== undefined ? rollups.warnings : "--"} <span className="text-prizm-text-muted">/</span> <span className="text-prizm-danger">{rollups.alarms !== undefined ? rollups.alarms : "--"}</span>
                        </div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Avg Cell Volts</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono mt-1">{rollups.fleetAvgCellVoltage !== undefined && rollups.fleetAvgCellVoltage !== null ? `${rollups.fleetAvgCellVoltage.toFixed(3)} V` : "--"}</div>
+                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell Volts</div>
+                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellVoltage !== undefined && rollups.fleetAvgCellVoltage !== null ? `${rollups.fleetAvgCellVoltage.toFixed(3)} V` : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Cell V Delta</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono mt-1">{rollups.fleetMaxCellVoltageDelta !== undefined && rollups.fleetMaxCellVoltageDelta !== null ? `${rollups.fleetMaxCellVoltageDelta.toFixed(3)} V` : "--"}</div>
+                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Max Cell V Delta</div>
+                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetMaxCellVoltageDelta !== undefined && rollups.fleetMaxCellVoltageDelta !== null ? `${rollups.fleetMaxCellVoltageDelta.toFixed(3)} V` : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Avg Cell Temp</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono mt-1">{rollups.fleetAvgCellTemp !== undefined && rollups.fleetAvgCellTemp !== null ? `${rollups.fleetAvgCellTemp.toFixed(1)} °C` : "--"}</div>
+                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell Temp</div>
+                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellTemp !== undefined && rollups.fleetAvgCellTemp !== null ? `${rollups.fleetAvgCellTemp.toFixed(1)} °C` : "--"}</div>
                    </div>
-                   <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider">Expected BPCs</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono mt-1">{rollups.expectedBpcCount !== undefined ? rollups.expectedBpcCount : "--"}</div>
+                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Expected BPCs</div>
+                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.expectedBpcCount !== undefined ? rollups.expectedBpcCount : "--"}</div>
                    </div>
-               </div>
-            </div>
-
-            {/* Array Health Cards */}
-            <div>
-               <h2 className="text-sm font-bold text-prizm-text uppercase tracking-widest mb-3 flex items-center gap-2"><Hash size={16} /> Array Health Rollup</h2>
-               {state.stringsDashboard?.arrays?.length > 0 ? (
-                   <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar">
-                       {state.stringsDashboard.arrays.map((arr: any, i: number) => {
-                           const isAlarm = arr.alarmCount > 0;
-                           const isWarning = arr.warningCount > 0;
-                           const border = isAlarm ? "border-prizm-danger" : isWarning ? "border-prizm-warning" : "border-emerald-500/30";
-                           return (
-                               <div key={i} className={`min-w-[200px] shrink-0 bg-prizm-surface border ${border} rounded p-3 cursor-pointer hover:bg-prizm-surface-strong transition-colors`} onClick={() => navigate("arrays-strings")}>
-                                   <div className="text-sm font-bold text-prizm-primary font-mono mb-2">Array {arr.arrayNumber}</div>
-                                   <div className="text-[10px] font-mono text-prizm-text space-y-1">
-                                       <div className="flex justify-between"><span>Normal</span> <span className="text-emerald-400">{arr.normalStrings}</span></div>
-                                       <div className="flex justify-between"><span>Offline</span> <span className="text-prizm-text-muted">{arr.offlineStrings}</span></div>
-                                       <div className="flex justify-between"><span>Warnings</span> <span className="text-prizm-warning">{arr.warningCount}</span></div>
-                                       <div className="flex justify-between"><span>Alarms</span> <span className="text-prizm-danger">{arr.alarmCount}</span></div>
-                                   </div>
-                               </div>
-                           );
-                       })}
-                   </div>
-               ) : (
-                   <div className="bg-prizm-surface border border-prizm-border rounded p-4 text-[10px] font-mono text-prizm-text-muted uppercase">No arrays available in strings dashboard data</div>
-               )}
-            </div>
-
-            {/* Active Issues & Feather Summary */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col max-h-[300px] overflow-hidden">
-                    <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono mb-4 flex items-center gap-2"><TriangleAlert size={14} className="text-prizm-warning" /> Active Issues</h3>
-                    <div className="overflow-y-auto no-scrollbar flex-1 -mx-2 px-2">
-                        {activeIssues.length > 0 ? (
-                            <table className="w-full text-[10px] font-mono text-left">
-                                <thead className="sticky top-0 bg-prizm-surface-strong z-10">
-                                    <tr className="text-prizm-text-muted border-b border-prizm-border font-bold">
-                                        <th className="py-2">Level</th>
-                                        <th className="py-2">Source</th>
-                                        <th className="py-2">Message</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {activeIssues.map((issue, i) => (
-                                        <tr key={i} className="border-b border-prizm-border/50 text-prizm-text hover:bg-black/10">
-                                            <td className="py-2">
-                                                <span className={`px-1 rounded ${issue.severity === 'ALARM' ? 'bg-prizm-danger/20 text-prizm-danger' : issue.severity === 'WARNING' ? 'bg-prizm-warning/20 text-prizm-warning' : 'bg-slate-500/20 text-slate-400'}`}>
-                                                    {issue.severity}
-                                                </span>
-                                            </td>
-                                            <td className="py-2 font-bold">{issue.source}</td>
-                                            <td className="py-2">{issue.message}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        ) : (
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-mono py-4">No active issues detected.</div>
-                        )}
-                    </div>
                 </div>
+            </CollapsibleSection>
 
-                <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col">
-                    <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono mb-4 flex items-center gap-2"><Wind size={14} className="text-prizm-info" /> Feather/HVAC Health</h3>
-                    <div className="grid grid-cols-2 gap-4 flex-1">
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Total Devices</div>
-                            <div className="text-lg font-bold font-mono text-prizm-text">{featherTotal}</div>
-                        </div>
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">FSS Invalid</div>
-                            <div className={`text-lg font-bold font-mono ${featherFssInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}>{featherFssInvalid}</div>
-                        </div>
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Doors Invalid</div>
-                            <div className={`text-lg font-bold font-mono ${featherDoorsInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}>{featherDoorsInvalid}</div>
-                        </div>
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Lost Comms</div>
-                            <div className={`text-lg font-bold font-mono ${featherLostComms > 0 ? "text-prizm-warning" : "text-prizm-text"}`}>{featherLostComms}</div>
-                        </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-prizm-border flex justify-end">
-                       <button onClick={() => navigate("feather-hvac")} className="text-[10px] font-bold uppercase tracking-widest font-mono bg-prizm-primary/10 text-prizm-primary px-4 py-2 hover:bg-prizm-primary/20 transition-colors border border-prizm-primary/30 rounded">Open Feather/HVAC</button>
-                    </div>
-                </div>
-            </div>
+            {/* EMS Apps */}
+            <CollapsibleSection title="Operating Context (EMS Apps)" icon={BoxSelect} defaultExpanded={false}>
+                 {emsAppsData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold w-1/4">Name</th>
+                                 <th className="p-2 font-bold w-1/4">Status</th>
+                                 <th className="p-2 font-bold w-1/2">Details</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {emsAppsData.map((app: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-text">{app.name || "--"}</td>
+                                     <td className="p-2">
+                                        <span className={`px-2 py-[2px] rounded ${app.status === 'OK' || app.status === 'ACTIVE' || app.status?.includes('ON') ? 'bg-emerald-500/10 text-emerald-500' : 'bg-prizm-warning/10 text-prizm-warning'}`}>{app.status || "--"}</span>
+                                     </td>
+                                     <td className="p-2 text-prizm-text-muted truncate max-w-[200px]">{JSON.stringify(app).substring(0, 100)}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No EMS Apps data discovered</div>
+                 )}
+            </CollapsibleSection>
 
-            {/* Safety & Source Health */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col">
-                    <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono mb-4 flex items-center gap-2"><ShieldAlert size={14} className="text-prizm-danger" /> Safety Fault Candidates</h3>
-                    <div className="grid grid-cols-2 gap-4 flex-1">
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Reset Eligible</div>
-                            <div className={`text-lg font-bold font-mono ${safetyEligible > 0 ? "text-prizm-danger animate-pulse" : "text-prizm-text"}`}>{safetyEligible}</div>
-                        </div>
-                        <div className="bg-prizm-surface border border-prizm-border rounded p-3">
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Not Eligible</div>
-                            <div className="text-lg font-bold text-prizm-text-muted font-mono">{safetyNotEligible}</div>
-                        </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-prizm-border flex justify-end">
-                       <button onClick={() => navigate("safety-fault")} className="text-[10px] font-bold uppercase tracking-widest font-mono bg-prizm-danger/10 text-prizm-danger px-4 py-2 hover:bg-prizm-danger/20 transition-colors border border-prizm-danger/30 rounded">Open Safety Fault Clear</button>
-                    </div>
-                 </div>
+            {/* Block Topology */}
+            <CollapsibleSection title="Block Topology Config" icon={Network} defaultExpanded={false}>
+                 {blockTopologyData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold w-1/3">Entity ID</th>
+                                 <th className="p-2 font-bold w-1/3">Subtype</th>
+                                 <th className="p-2 font-bold w-1/3">Address</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {blockTopologyData.map((item: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
+                                     <td className="p-2 text-prizm-text">{item.subtype || item.type || "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted truncate">
+                                         {item.address || item.ip || "--"}
+                                     </td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Block Topology data discovered</div>
+                 )}
+            </CollapsibleSection>
 
-                 <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col max-h-[300px] overflow-hidden">
-                    <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono mb-4 flex items-center gap-2"><Network size={14} className="text-prizm-text-muted" /> Source Health</h3>
-                    <div className="overflow-y-auto no-scrollbar flex-1 -mx-2 px-2">
-                        {combinedSources.length > 0 ? (
-                            <table className="w-full text-[10px] font-mono text-left">
-                                <thead className="sticky top-0 bg-prizm-surface-strong z-10">
-                                    <tr className="text-prizm-text-muted border-b border-prizm-border font-bold">
-                                        <th className="py-2">Source</th>
-                                        <th className="py-2">Module</th>
-                                        <th className="py-2">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {combinedSources.map((src, i) => (
-                                        <tr key={i} className="border-b border-prizm-border/50 text-prizm-text hover:bg-black/10">
-                                            <td className="py-2 font-bold">{src.name}</td>
-                                            <td className="py-2 text-prizm-text-muted">{src.type}</td>
-                                            <td className="py-2">
-                                                <span className={src.ok ? "text-emerald-400" : "text-prizm-danger"} title={src.error || ""}>
-                                                    {src.ok ? "OK" : "FAILED"}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        ) : (
-                            <div className="text-[10px] text-prizm-text-muted uppercase font-mono py-4">No localized source data found.</div>
-                        )}
-                    </div>
-                 </div>
-            </div>
+            {/* Connected Equipment */}
+            <CollapsibleSection title="Equipment: Block Meters" icon={RadioTower} defaultExpanded={false}>
+                 {discovery.blockMeters?.sampleItems?.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">Meter ID</th>
+                                 <th className="p-2 font-bold">kW</th>
+                                 <th className="p-2 font-bold">Voltage</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {discovery.blockMeters.sampleItems.map((item: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
+                                     <td className="p-2 text-prizm-text">{item.kw !== undefined ? item.kw : "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted">{item.voltage !== undefined ? item.voltage : "--"}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Block Meters data discovered</div>
+                 )}
+            </CollapsibleSection>
 
-            {/* Recent Event Timeline */}
-            <div className="bg-prizm-surface-strong border border-prizm-border rounded-lg p-5 flex flex-col max-h-[300px] overflow-hidden">
-                <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono mb-4 flex items-center gap-2"><Activity size={14} className="text-prizm-primary" /> Recent Event Timeline</h3>
-                <div className="overflow-y-auto no-scrollbar flex-1 -mx-2 px-2">
-                    {state.historyEvents?.events?.length > 0 ? (
-                         <table className="w-full text-[10px] font-mono text-left">
-                            <thead className="sticky top-0 bg-prizm-surface-strong z-10">
-                                <tr className="text-prizm-text-muted border-b border-prizm-border font-bold">
-                                    <th className="py-2">Timestamp</th>
-                                    <th className="py-2">Severity</th>
-                                    <th className="py-2">Source</th>
-                                    <th className="py-2">Message</th>
+            <CollapsibleSection title="Equipment: PCS Summary" icon={Zap} defaultExpanded={false}>
+                 {pcsData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">PCS ID</th>
+                                 <th className="p-2 font-bold">State</th>
+                                 <th className="p-2 font-bold">Power</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {pcsData.map((item: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
+                                     <td className="p-2">{item.state || "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted">{item.power !== undefined ? item.power : "--"}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No PCS data discovered</div>
+                 )}
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Equipment: Centipede / PLC Block HVAC" icon={Wind} defaultExpanded={false}>
+                 {hvacCentipedeData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">Unit ID</th>
+                                 <th className="p-2 font-bold">Mode</th>
+                                 <th className="p-2 font-bold">Temp Setpoint</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {hvacCentipedeData.map((item: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
+                                     <td className="p-2 text-prizm-text">{item.mode || "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted">{item.setpoint !== undefined ? item.setpoint : "--"}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No HVAC data discovered</div>
+                 )}
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Equipment: Humidity & Temp Sensors" icon={Thermometer} defaultExpanded={false}>
+                 {htsData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">Sensor ID</th>
+                                 <th className="p-2 font-bold">Temperature</th>
+                                 <th className="p-2 font-bold">Humidity</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {htsData.map((item: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-text">{item.id || item.name || "--"}</td>
+                                     <td className="p-2 text-prizm-text">{item.temperature !== undefined ? `${item.temperature} °C` : "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted">{item.humidity !== undefined ? `${item.humidity} %` : "--"}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No HTS data discovered</div>
+                 )}
+            </CollapsibleSection>
+
+            {/* Array Summary */}
+            <CollapsibleSection title="Array Summary" icon={PanelTop} defaultExpanded={true}>
+                 {state.stringsDashboard?.arrays?.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">Array</th>
+                                 <th className="p-2 font-bold text-center">Normal</th>
+                                 <th className="p-2 font-bold text-center">Offline</th>
+                                 <th className="p-2 font-bold text-center">Warning</th>
+                                 <th className="p-2 font-bold text-center">Alarm</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+                             {state.stringsDashboard.arrays.map((arr: any, idx: number) => (
+                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}>
+                                     <td className="p-2 text-prizm-primary font-bold">Array {arr.arrayNumber}</td>
+                                     <td className="p-2 text-center text-emerald-400">{arr.normalStrings}</td>
+                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineStrings}</td>
+                                     <td className="p-2 text-center text-prizm-warning">{arr.warningCount}</td>
+                                     <td className="p-2 text-center text-prizm-danger">{arr.alarmCount}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Array Summary available</div>
+                 )}
+            </CollapsibleSection>
+
+            {/* String Summary */}
+            <CollapsibleSection title="String Summary" icon={Rows4} defaultExpanded={true}>
+                 {state.stringsDashboard ? (
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-prizm-border">
+                         <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
+                             <div className="text-[10px] text-emerald-500 uppercase font-bold tracking-widest">Normal</div>
+                             <div className="text-2xl font-bold font-mono mt-1 text-emerald-400">{rollups.normal || 0}</div>
+                         </div>
+                         <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
+                             <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-widest">Offline</div>
+                             <div className="text-2xl font-bold font-mono mt-1 text-prizm-text-muted">{rollups.offline || 0}</div>
+                         </div>
+                         <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
+                             <div className="text-[10px] text-prizm-warning uppercase font-bold tracking-widest">Warning</div>
+                             <div className="text-2xl font-bold font-mono mt-1 text-prizm-warning">{rollups.warnings || 0}</div>
+                         </div>
+                         <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
+                             <div className="text-[10px] text-prizm-danger uppercase font-bold tracking-widest">Alarm</div>
+                             <div className="text-2xl font-bold font-mono mt-1 text-prizm-danger">{rollups.alarms || 0}</div>
+                         </div>
+                     </div>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
+                 )}
+            </CollapsibleSection>
+
+            {/* Active Issues */}
+            <CollapsibleSection title="Active Issues" icon={TriangleAlert} defaultExpanded={true}>
+                <div className="max-h-[300px] overflow-y-auto no-scrollbar">
+                    {activeIssues.length > 0 ? (
+                        <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                            <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                <tr>
+                                    <th className="p-2 font-bold w-1/4">Level</th>
+                                    <th className="p-2 font-bold w-1/4">Source</th>
+                                    <th className="p-2 font-bold w-1/2">Message</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-prizm-border">
+                                {activeIssues.map((issue, i) => (
+                                    <tr key={i} className="hover:bg-prizm-surface transition-colors">
+                                        <td className="p-2">
+                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.severity === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : issue.severity === 'WARNING' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-slate-500/10 text-slate-400'}`}>
+                                                {issue.severity}
+                                            </span>
+                                        </td>
+                                        <td className="p-2 text-prizm-primary font-bold">{issue.source}</td>
+                                        <td className="p-2 text-prizm-text">{issue.message}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active issues detected.</div>
+                    )}
+                </div>
+            </CollapsibleSection>
+
+                <CollapsibleSection title="Feather / HVAC Health" icon={Wind} defaultExpanded={false}>
+                    <div className="grid grid-cols-2 gap-px bg-prizm-border flex-1">
+                        <div className="bg-prizm-surface p-4 text-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Total Devices</div>
+                            <div className="text-xl font-bold font-mono text-prizm-text">{featherTotal}</div>
+                        </div>
+                        <div className="bg-prizm-surface p-4 text-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Lost Comms</div>
+                            <div className={`text-xl font-bold font-mono ${featherLostComms > 0 ? "text-prizm-warning" : "text-prizm-text"}`}>{featherLostComms}</div>
+                        </div>
+                        <div className="bg-prizm-surface p-4 text-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">FSS Invalid</div>
+                            <div className={`text-xl font-bold font-mono ${featherFssInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}>{featherFssInvalid}</div>
+                        </div>
+                        <div className="bg-prizm-surface p-4 text-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Doors Invalid</div>
+                            <div className={`text-xl font-bold font-mono ${featherDoorsInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}>{featherDoorsInvalid}</div>
+                        </div>
+                    </div>
+                    <div className="bg-prizm-surface border-t border-prizm-border p-3 flex justify-end">
+                       <button onClick={() => navigate("feather-hvac")} className="text-[10px] font-bold uppercase tracking-widest font-mono bg-prizm-primary/10 text-prizm-primary px-4 py-2 hover:bg-prizm-primary/20 transition-colors border border-prizm-primary/30 rounded">Open Feather/HVAC</button>
+                    </div>
+                </CollapsibleSection>
+
+            {/* Safety & Source Health */}
+            <CollapsibleSection title="Safety Fault Candidates" icon={ShieldAlert} defaultExpanded={false}>
+                <div className="grid grid-cols-2 gap-px bg-prizm-border flex-1 h-full">
+                        <div className="bg-prizm-surface p-4 flex flex-col justify-center items-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Reset Eligible</div>
+                            <div className={`text-2xl font-bold font-mono ${safetyEligible > 0 ? "text-prizm-danger animate-pulse" : "text-prizm-text"}`}>{safetyEligible}</div>
+                        </div>
+                        <div className="bg-prizm-surface p-4 flex flex-col justify-center items-center">
+                            <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Not Eligible</div>
+                            <div className="text-xl font-bold text-prizm-text-muted font-mono">{safetyNotEligible}</div>
+                        </div>
+                    </div>
+                    <div className="bg-prizm-surface border-t border-prizm-border p-3 flex justify-end">
+                       <button onClick={() => navigate("safety-fault")} className="text-[10px] font-bold uppercase tracking-widest font-mono bg-prizm-danger/10 text-prizm-danger px-4 py-2 hover:bg-prizm-danger/20 transition-colors border border-prizm-danger/30 rounded">Open Safety Fault Clear</button>
+                    </div>
+                 </CollapsibleSection>
+
+                 <CollapsibleSection title="Source / Cache Health" icon={Network} defaultExpanded={false}>
+                    <div className="overflow-y-auto no-scrollbar max-h-[250px]">
+                        {combinedSources.length > 0 ? (
+                            <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                                <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                    <tr>
+                                        <th className="p-2 font-bold w-1/4">Source</th>
+                                        <th className="p-2 font-bold w-1/4">Module</th>
+                                        <th className="p-2 font-bold w-1/2">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-prizm-border">
+                                    {combinedSources.map((src, i) => (
+                                        <tr key={i} className="hover:bg-prizm-surface transition-colors">
+                                            <td className="p-2 font-bold text-prizm-text">{src.name}</td>
+                                            <td className="p-2 text-prizm-text-muted">{src.type}</td>
+                                            <td className="p-2">
+                                                <span className={src.ok ? "text-emerald-400 font-bold flex items-center gap-1" : "text-prizm-danger font-bold flex items-center gap-1"} title={src.error || ""}>
+                                                    {src.ok ? <><CheckCircle2 size={12}/> OK</> : <><ServerOff size={12}/> FAILED</>}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono py-4">No localized source data found.</div>
+                        )}
+                    </div>
+                 </CollapsibleSection>
+
+            {/* Recent Event Timeline */}
+            <CollapsibleSection title="Recent Event Timeline" icon={Activity} defaultExpanded={false}>
+                <div className="overflow-y-auto no-scrollbar max-h-[300px]">
+                    {state.historyEvents?.events?.length > 0 ? (
+                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                            <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                <tr>
+                                    <th className="p-2 font-bold">Timestamp</th>
+                                    <th className="p-2 font-bold">Severity</th>
+                                    <th className="p-2 font-bold">Source</th>
+                                    <th className="p-2 font-bold">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-prizm-border">
                                 {state.historyEvents.events.map((e: any, i: number) => (
-                                    <tr key={i} className="border-b border-prizm-border/50 text-prizm-text hover:bg-black/10">
-                                        <td className="py-2 whitespace-nowrap pr-2">{formatPrizmUtcTimestamp(e.timestamp)}</td>
-                                        <td className="py-2">
-                                            <span className={`px-1 rounded ${e.severity === 'ALARM' ? 'bg-prizm-danger/20 text-prizm-danger' : e.severity === 'WARNING' ? 'bg-prizm-warning/20 text-prizm-warning' : 'bg-slate-500/20 text-slate-400'}`}>
+                                    <tr key={i} className="hover:bg-prizm-surface transition-colors">
+                                        <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(e.timestamp)}</td>
+                                        <td className="p-2">
+                                            <span className={`px-2 py-[2px] rounded font-bold ${e.severity === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : e.severity === 'WARNING' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-slate-500/10 text-slate-400'}`}>
                                                 {e.severity}
                                             </span>
                                         </td>
-                                        <td className="py-2 font-bold">{e.source}</td>
-                                        <td className="py-2">{e.message}</td>
+                                        <td className="p-2 font-bold text-prizm-text">{e.source}</td>
+                                        <td className="p-2 text-prizm-text whitespace-normal min-w-[200px]">{e.message}</td>
                                     </tr>
                                 ))}
                             </tbody>
                          </table>
                     ) : (
-                         <div className="text-[10px] text-prizm-text-muted uppercase font-mono py-4">
-                             <div className="mb-2">No recent historical events recorded yet.</div>
+                         <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">
+                             <div className="mb-1">No recent historical events recorded yet.</div>
                              <div>Current active issues are shown above.</div>
                          </div>
                     )}
                 </div>
-            </div>
+            </CollapsibleSection>
 
             {/* Quick Navigation Panel */}
             <div className="mt-4 pt-4 border-t border-prizm-border flex flex-wrap gap-4 items-center">
