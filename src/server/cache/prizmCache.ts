@@ -87,6 +87,36 @@ export function getActiveSiteManifestPath(): string {
   return path.join(getActiveSiteCachePath(), "cache-manifest.json");
 }
 
+export function getActiveSiteCacheKey(): string {
+  return getSiteCacheKey();
+}
+
+export function writeSiteArtifact(name: string, data: any): void {
+  const p = getActiveSiteCachePath();
+  if (!fs.existsSync(p)) {
+      try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
+  }
+  let outData = data;
+  if (typeof data !== 'string') outData = JSON.stringify(data, null, 2);
+  try {
+      fs.writeFileSync(path.join(p, name), outData);
+  } catch(e) {}
+}
+
+export function readSiteArtifact(name: string): any {
+  const p = path.join(getActiveSiteCachePath(), name);
+  if (!fs.existsSync(p)) return null;
+  try {
+      const text = fs.readFileSync(p, 'utf8');
+      if (name.endsWith('.json')) {
+         return JSON.parse(text);
+      }
+      return text;
+  } catch(e) {
+      return null;
+  }
+}
+
 let memoryCache = new Map<string, PrizmCacheEntry<any>>();
 
 export function getActiveManifest() {

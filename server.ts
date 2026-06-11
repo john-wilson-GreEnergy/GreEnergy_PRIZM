@@ -5,6 +5,7 @@ import overviewDiscoveryRouter from "./src/server/overviewDiscovery";
 import cacheRoutes from "./src/server/cache/cacheRoutes";
 import historyRoutes from "./src/server/history/historyRoutes";
 import siteOperationsRouter from "./src/server/siteOperations";
+import { topologyRouter } from "./src/server/topology/topologyRoutes";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
 import express from "express";
@@ -54,6 +55,7 @@ app.use("/api/local/overview", overviewDiscoveryRouter);
 app.use("/api/local/site-operations", siteOperationsRouter);
 app.use("/api/local/cache", cacheRoutes);
 app.use("/api/local/history", historyRoutes);
+app.use("/api/local", topologyRouter);
 
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");

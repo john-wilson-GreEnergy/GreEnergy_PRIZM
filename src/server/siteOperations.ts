@@ -1,5 +1,6 @@
 import * as prizmCache from "./cache/prizmCache";
 import { Router } from "express";
+import { buildSiteTopologyFromCachedSources } from "./topology/siteTopology";
 import { 
     getEmsCachedBlock, 
     getEmsCachedStatus, 
@@ -638,15 +639,19 @@ export function buildSiteOperationsSummaryFromCache() {
         }));
 
         
+        const siteTopology = buildSiteTopologyFromCachedSources();
+        const totalStringsInTopology = siteTopology.counts.stringCount || stringSummary.rollups?.totalStrings || 0;
+
         const bessFleetSummary = {
-            totalStrings: stringSummary.buckets.online + stringSummary.buckets.nearline + stringSummary.buckets.offline + stringSummary.buckets.notCommunicating,
+            totalStrings: totalStringsInTopology,
             onlineStrings: stringSummary.buckets.online,
             nearlineStrings: stringSummary.buckets.nearline,
             offlineStrings: stringSummary.buckets.offline,
             notCommunicatingStrings: stringSummary.buckets.notCommunicating,
             warningStrings: activeIssueGroups.filter((g: any) => g.severity === 'WARNING').reduce((acc: number, g: any) => acc + g.occurrenceCount, 0),
             alarmStrings: activeIssueGroups.filter((g: any) => g.severity === 'ALARM').reduce((acc: number, g: any) => acc + g.occurrenceCount, 0),
-            expectedBpcs: stringSummary.rollups?.totalStrings || null,
+            expectedBpcs: null,
+            bpcsPerString: null,
             avgCellVoltageMv: null,
             maxCellVoltageDeltaMv: null,
             avgCellTempC: null,
@@ -675,6 +680,8 @@ export function buildSiteOperationsSummaryFromCache() {
 
         const responseData = {
             site,
+            topologyCounts: siteTopology.counts,
+            topologySourceHealth: siteTopology.sourceHealth,
             emsApps,
             bessFleetSummary: bessFleetSummary,
             stringSummary,

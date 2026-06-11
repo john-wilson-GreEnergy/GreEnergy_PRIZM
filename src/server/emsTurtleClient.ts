@@ -694,7 +694,13 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   const now = Date.now();
   if (now - lastSlowFetchTime > 300000) {
     lastSlowFetchTime = now;
-    fetchAndRecord('/modbus_map.csv', EMS_SLOW_TIMEOUT_MS, 'text').then(t => { emsCache.modbusMap = t; }).catch(() => {});
+    fetchAndRecord('/modbus_map.csv', EMS_SLOW_TIMEOUT_MS, 'text').then(t => { 
+        emsCache.modbusMap = t; 
+    }).catch(() => {
+        fetchAndRecord('/tools/report/ems/modbus_map.csv', EMS_SLOW_TIMEOUT_MS, 'text').then(t => { 
+            emsCache.modbusMap = t; 
+        }).catch(() => {});
+    });
   }
 
   const rawUrl = getNormalizedBaseUrl();

@@ -263,10 +263,19 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <CollapsibleSection title="BESS Fleet Summary" icon={Battery} defaultExpanded={true}>
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
                         <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                            <h3 className="text-prizm-text-muted text-sm font-bold uppercase tracking-wider mb-2">Fleet Total Strings</h3>
-                            <div className="flex items-baseline gap-2">
-                                <div className="text-3xl font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.totalStrings ?? rollups.totalStrings ?? "--"}</div>
-                                <div className="text-sm text-prizm-text-muted">expected {sum?.bessFleetSummary?.expectedBpcs ?? rollups.expectedBpcCount ?? "--"}</div>
+                            <h3 className="text-prizm-text-muted text-xs font-bold uppercase tracking-wider mb-2">Topology Discovered</h3>
+                            <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm font-mono mt-1">
+                                <span className="text-prizm-text-muted">STRINGS:</span>
+                                <span className="text-prizm-text text-right font-bold">{sum?.topologyCounts?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? "--"}</span>
+                                
+                                <span className="text-prizm-text-muted">ARRAYS / PCS:</span>
+                                <span className="text-prizm-text text-right font-bold">{sum?.topologyCounts?.arrayCount ?? "--"} / {sum?.topologyCounts?.pcsCount ?? "--"}</span>
+                                
+                                <span className="text-prizm-text-muted">FEATHER / M-MAP:</span>
+                                <span className="text-prizm-text text-right font-bold">{sum?.topologyCounts?.featherDeviceCount ?? "--"} / {sum?.topologyCounts?.modbusPointCount ?? "--"}</span>
+
+                                <span className="text-prizm-text-muted">BPC COUNT:</span>
+                                <span className="text-prizm-text text-right font-bold">{sum?.bessFleetSummary?.expectedBpcs ?? "--"}</span>
                             </div>
                         </div>
 
