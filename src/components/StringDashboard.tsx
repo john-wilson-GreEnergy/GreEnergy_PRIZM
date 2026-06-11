@@ -161,7 +161,7 @@ export default function StringDashboard() {
   const { summary } = data;
 
   return (
-    <div className="flex-1 flex overflow-hidden flex-col font-sans transition-all h-full bg-prizm-bg p-4 sm:p-6 pb-20">
+    <div className="flex flex-col overflow-hidden font-sans transition-all bg-transparent pb-20" style={{ height: 'calc(100vh - 150px)' }}>
       
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 font-mono">
