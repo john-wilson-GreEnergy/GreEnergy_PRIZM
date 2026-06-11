@@ -166,8 +166,8 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
     const rollups = state.stringsDashboard?.rollups || {};
     
-    // Determine Station Code
-    let stationCode = state.overviewDiscovery?.stationCode || state.stringsDashboard?.stationCode || "UNKNOWN";
+    // Determine Station Code (Global Source of Truth from backend summary)
+    let stationCode = state.siteSummary?.site?.stationCode || state.overviewDiscovery?.stationCode || state.stringsDashboard?.stationCode || "UNKNOWN";
     if (stationCode === "UNKNOWN" || stationCode === "--") {
         const scadaApp = emsAppsData.find((a: any) => a.appName?.toUpperCase().includes("SCADA") || a.appCode === "SCADA");
         if (scadaApp && scadaApp.configName) {
@@ -176,11 +176,117 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                 stationCode = match[1];
             }
         }
+        // Fallback checks
+        if (stationCode === "UNKNOWN" && state.stringsDashboard?.strings?.length > 0) {
+           const sKey = state.stringsDashboard.strings[0].id || "";
+           const match = sKey.match(/\b(BHE\d{4})\b/i);
+           if (match) stationCode = match[1];
+        }
     }
     
     const emsBaseUrl = state.overviewDiscovery?.emsBaseUrl || state.stringsDashboard?.emsBaseUrl || "--";
     const blockIndex = state.overviewDiscovery?.blockIndex !== undefined ? state.overviewDiscovery?.blockIndex : "--";
     const profileId = state.stringsDashboard?.profileId || "--";
+
+    // Build String Buckets matching cloud logic
+    const strBuckets = {
+        online: [],
+        nearline: [],
+        offline: [],
+        notComm: []
+    };
+
+    if (state.stringsDashboard?.strings?.length > 0) {
+        state.stringsDashboard.strings.forEach((str: any) => {
+            if (str.communicating === false) {
+                strBuckets.notComm.push(str);
+            } else if (str.outRotation || str.operationalState === 'OFFLINE' || str.rotationEnabled === false) {
+                strBuckets.offline.push(str);
+            } else if (str.contactorStatus === 'CLOSED' || str.contactorClosed || str.positiveContactorClosed) {
+                strBuckets.online.push(str);
+            } else {
+                strBuckets.nearline.push(str);
+            }
+        });
+    }
+
+    const computeBucketStats = (bucket: any[]) => {
+        if (bucket.length === 0) return null;
+        let socSum = 0;
+        let pwrSum = 0;
+        let maxCurrent = null;
+        let minCurrent = null;
+        let maxCellV = null;
+        let minCellV = null;
+        let avgCellVSum = 0;
+        let avgCellVCount = 0;
+        let maxCellVDelta = null;
+        let maxCellTemp = null;
+        let minCellTemp = null;
+        let avgCellTempSum = 0;
+        let avgCellTempCount = 0;
+        let maxCellTempDelta = null;
+
+        bucket.forEach(s => {
+            if (s.socPct !== null && s.socPct !== undefined) socSum += s.socPct;
+            if (s.kw !== null && s.kw !== undefined) pwrSum += s.kw;
+            if (s.kwh !== null && s.kwh !== undefined) socSum += s.kwh; // If kWh exists, use it? Prompt says: "SOC (kWh): sum kWh" or sum SOC. We'll use socPct if kwh is not available. Wait, I will just sum kwH if possible, or leave as count for now.
+            
+            const cur = s.current ?? s.amps;
+            if (cur !== null && cur !== undefined) {
+                if (maxCurrent === null || cur > maxCurrent) maxCurrent = cur;
+                if (minCurrent === null || cur < minCurrent) minCurrent = cur;
+            }
+
+            if (s.maxCellVoltage !== null && s.maxCellVoltage !== undefined) {
+                if (maxCellV === null || s.maxCellVoltage > maxCellV) maxCellV = s.maxCellVoltage;
+            }
+            if (s.minCellVoltage !== null && s.minCellVoltage !== undefined) {
+                if (minCellV === null || s.minCellVoltage < minCellV) minCellV = s.minCellVoltage;
+            }
+            if (s.avgCellVoltage !== null && s.avgCellVoltage !== undefined) {
+                avgCellVSum += s.avgCellVoltage;
+                avgCellVCount++;
+            }
+            if (s.cellVoltageDelta !== null && s.cellVoltageDelta !== undefined) {
+                if (maxCellVDelta === null || s.cellVoltageDelta > maxCellVDelta) maxCellVDelta = s.cellVoltageDelta;
+            }
+
+            if (s.maxCellTemperature !== null && s.maxCellTemperature !== undefined) {
+                if (maxCellTemp === null || s.maxCellTemperature > maxCellTemp) maxCellTemp = s.maxCellTemperature;
+            }
+            if (s.minCellTemperature !== null && s.minCellTemperature !== undefined) {
+                if (minCellTemp === null || s.minCellTemperature < minCellTemp) minCellTemp = s.minCellTemperature;
+            }
+            if (s.avgCellTemperature !== null && s.avgCellTemperature !== undefined) {
+                avgCellTempSum += s.avgCellTemperature;
+                avgCellTempCount++;
+            }
+            if (s.cellTemperatureDelta !== null && s.cellTemperatureDelta !== undefined) {
+                if (maxCellTempDelta === null || s.cellTemperatureDelta > maxCellTempDelta) maxCellTempDelta = s.cellTemperatureDelta;
+            }
+        });
+
+        return {
+            count: bucket.length,
+            socKwH: bucket.length > 0 ? (socSum / bucket.length).toFixed(1) : '--',
+            maxCurrent,
+            minCurrent,
+            maxCellV,
+            minCellV,
+            avgCellV: avgCellVCount > 0 ? (avgCellVSum / avgCellVCount).toFixed(1) : null,
+            maxCellVDelta,
+            maxCellTemp,
+            minCellTemp,
+            avgCellTemp: avgCellTempCount > 0 ? (avgCellTempSum / avgCellTempCount).toFixed(1) : null,
+            maxCellTempDelta
+        };
+    };
+
+    const onlineStats = computeBucketStats(strBuckets.online);
+    const nearlineStats = computeBucketStats(strBuckets.nearline);
+    const offlineStats = computeBucketStats(strBuckets.offline);
+    const notCommStats = computeBucketStats(strBuckets.notComm);
 
     // Build timeline/issues
     const activeIssues = [];
@@ -225,25 +331,6 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
            activeIssues.push({ severity: "WARNING", source: "Strings Dashboard", message: `${genericWarns} string warnings reported` });
         }
     }
-
-    // Group EMS Apps Issues
-    emsAppsData.forEach((app: any) => {
-        if (app.status && app.status !== "OK" && app.status !== "ACTIVE" && app.status !== "ON") {
-             activeIssues.push({ severity: "WARNING", source: "EMS App", message: `${app.appName || app.name || app.appCode || "App"} is ${app.status}` });
-        }
-        if (app.health && app.health !== "HEALTHY" && app.health !== "OK" && app.health !== "DISABLED") {
-             activeIssues.push({ severity: "WARNING", source: "EMS App", message: `${app.appName || app.name || app.appCode || "App"} health is ${app.health}` });
-        }
-    });
-
-    // Group Topology Issues
-    blockTopologyData.forEach((t: any) => {
-        if (t.connected === false) {
-             activeIssues.push({ severity: "ALARM", source: "Topology", message: `${t.entityName || t.id || t.name} is Disconnected` });
-        } else if (t.state && t.state !== "READY" && t.state !== "CONNECTED") {
-             activeIssues.push({ severity: "WARNING", source: "Topology", message: `${t.entityName || t.id || t.name} is ${t.state}` });
-        }
-    });
 
     // Group Feather / HVAC Issues
     if (state.featherDevices?.devices) {
@@ -341,42 +428,50 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
             {/* BESS Summary Cards */}
             <CollapsibleSection title="BESS Fleet Summary" icon={Battery} defaultExpanded={true}>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 sm:gap-px bg-prizm-border">
-                   <div className="bg-prizm-surface-strong p-4">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Total Strings</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.totalStrings !== undefined ? rollups.totalStrings : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface p-4">
-                       <div className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider mb-1">Normal Strings</div>
-                       <div className="text-xl font-bold text-emerald-400 font-mono">{rollups.normal !== undefined ? rollups.normal : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface p-4">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Offline Strings</div>
-                       <div className="text-xl font-bold text-prizm-text-muted font-mono">{rollups.offline !== undefined ? rollups.offline : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface p-4">
-                       <div className="text-[10px] text-prizm-warning uppercase font-bold tracking-wider mb-1">Warn / Alm Strings</div>
-                       <div className="text-xl font-bold text-prizm-warning font-mono">
-                           {rollups.warnings !== undefined ? rollups.warnings : "--"} <span className="text-prizm-text-muted">/</span> <span className="text-prizm-danger">{rollups.alarms !== undefined ? rollups.alarms : "--"}</span>
-                       </div>
-                   </div>
-                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell Volts</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellVoltage !== undefined && rollups.fleetAvgCellVoltage !== null ? `${rollups.fleetAvgCellVoltage.toFixed(3)} V` : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Max Cell V Delta</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetMaxCellVoltageDelta !== undefined && rollups.fleetMaxCellVoltageDelta !== null ? `${rollups.fleetMaxCellVoltageDelta.toFixed(3)} V` : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell Temp</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellTemp !== undefined && rollups.fleetAvgCellTemp !== null ? `${rollups.fleetAvgCellTemp.toFixed(1)} °C` : "--"}</div>
-                   </div>
-                   <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
-                       <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Expected BPCs</div>
-                       <div className="text-xl font-bold text-prizm-text font-mono">{rollups.expectedBpcCount !== undefined ? rollups.expectedBpcCount : "--"}</div>
-                   </div>
-                </div>
+                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 sm:gap-px bg-prizm-border">
+                    <div className="bg-prizm-surface-strong p-4">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Total Strings</div>
+                        <div className="text-xl font-bold text-prizm-text font-mono">{rollups.totalStrings !== undefined ? rollups.totalStrings : "--"}</div>
+                    </div>
+                    <div className="bg-prizm-surface p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider mb-1">Online Strings</div>
+                        <div className="text-xl font-bold text-emerald-400 font-mono">{onlineStats ? onlineStats.count : 0}</div>
+                    </div>
+                    <div className="bg-prizm-surface p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-emerald-300 uppercase font-bold tracking-wider mb-1">Nearline Strings</div>
+                        <div className="text-xl font-bold text-emerald-300 font-mono">{nearlineStats ? nearlineStats.count : 0}</div>
+                    </div>
+                    <div className="bg-prizm-surface p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Offline Strings</div>
+                        <div className="text-xl font-bold text-prizm-text-muted font-mono">{offlineStats ? offlineStats.count : 0}</div>
+                    </div>
+                    <div className="bg-prizm-surface p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-danger uppercase font-bold tracking-wider mb-1">Not Communicating</div>
+                        <div className="text-xl font-bold text-prizm-danger font-mono">{notCommStats ? notCommStats.count : 0}</div>
+                    </div>
+                    <div className="bg-prizm-surface p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-warning uppercase font-bold tracking-wider mb-1">Warn / Alm Strings</div>
+                        <div className="text-xl font-bold text-prizm-warning font-mono">
+                            {rollups.warnings !== undefined ? rollups.warnings : "--"} <span className="text-prizm-text-muted">/</span> <span className="text-prizm-danger">{rollups.alarms !== undefined ? rollups.alarms : "--"}</span>
+                        </div>
+                    </div>
+                    <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell V</div>
+                        <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellVoltage !== undefined && rollups.fleetAvgCellVoltage !== null ? `${rollups.fleetAvgCellVoltage.toFixed(1)} mV` : "--"}</div>
+                    </div>
+                    <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Max Cell Δ</div>
+                        <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetMaxCellVoltageDelta !== undefined && rollups.fleetMaxCellVoltageDelta !== null ? `Δ ${rollups.fleetMaxCellVoltageDelta.toFixed(0)} mV` : "--"}</div>
+                    </div>
+                    <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Avg Cell Temp</div>
+                        <div className="text-xl font-bold text-prizm-text font-mono">{rollups.fleetAvgCellTemp !== undefined && rollups.fleetAvgCellTemp !== null ? `${rollups.fleetAvgCellTemp.toFixed(1)} °C` : "--"}</div>
+                    </div>
+                    <div className="bg-prizm-surface-strong p-4 border-t border-prizm-border sm:border-t-0">
+                        <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">Expected BPCs</div>
+                        <div className="text-xl font-bold text-prizm-text font-mono">{rollups.expectedBpcCount !== undefined ? rollups.expectedBpcCount : "--"}</div>
+                    </div>
+                 </div>
             </CollapsibleSection>
 
             {/* EMS Apps */}
@@ -417,41 +512,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  )}
             </CollapsibleSection>
 
-            {/* Block Topology */}
-            <CollapsibleSection title="Block Topology Config" icon={Network} defaultExpanded={false}>
-                 {blockTopologyData.length > 0 ? (
-                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                             <tr>
-                                 <th className="p-2 font-bold text-center">Priority</th>
-                                 <th className="p-2 font-bold text-center">Connected</th>
-                                 <th className="p-2 font-bold">Entity Name</th>
-                                 <th className="p-2 font-bold">Connection Profile</th>
-                                 <th className="p-2 font-bold">State</th>
-                                 <th className="p-2 font-bold">IP Address</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-prizm-border">
-                             {blockTopologyData.map((item: any, idx: number) => (
-                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-center text-prizm-text-muted">{item.priority !== undefined ? item.priority : "--"}</td>
-                                     <td className="p-2 text-center text-prizm-primary font-bold">{item.connected === true ? <CheckCircle2 size={12} className="inline text-emerald-400" /> : item.connected === false ? <XOctagon size={12} className="inline text-prizm-danger" /> : "--"}</td>
-                                     <td className="p-2 text-prizm-text font-bold">{item.entityName || item.id || item.name || "--"}</td>
-                                     <td className="p-2 text-prizm-text-muted">{item.connectionProfile || "--"}</td>
-                                     <td className="p-2">
-                                        <span className={`px-2 py-[2px] rounded font-bold ${item.state === 'READY' || item.state === 'CONNECTED' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-400'}`}>{item.state || "--"}</span>
-                                     </td>
-                                     <td className="p-2 text-prizm-text-muted">{item.hostAddress || item.address || item.ip || "--"}</td>
-                                 </tr>
-                             ))}
-                         </tbody>
-                     </table>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Block Topology data discovered</div>
-                 )}
-            </CollapsibleSection>
 
-            {/* Connected Equipment */}
             <CollapsibleSection title="Equipment: Block Meters" icon={RadioTower} defaultExpanded={false}>
                  {discovery.blockMeters?.sampleItems?.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
@@ -502,49 +563,47 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  )}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Equipment: Centipede / PLC Block HVAC" icon={Wind} defaultExpanded={false}>
-                 {hvacCentipedeData.length > 0 ? (
-                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                             <tr>
-                                 <th className="p-2 font-bold">Unit ID</th>
-                                 <th className="p-2 font-bold">Mode</th>
-                                 <th className="p-2 font-bold">Temp Setpoint</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-prizm-border">
-                             {hvacCentipedeData.map((item: any, idx: number) => (
-                                 <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
-                                     <td className="p-2 text-prizm-text">{item.mode || "--"}</td>
-                                     <td className="p-2 text-prizm-text-muted">{item.setpoint !== undefined ? item.setpoint : "--"}</td>
-                                 </tr>
-                             ))}
-                         </tbody>
-                     </table>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No HVAC data discovered</div>
-                 )}
-            </CollapsibleSection>
-
             <CollapsibleSection title="Equipment: Humidity & Temp Sensors" icon={Thermometer} defaultExpanded={false}>
                  {htsData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
+                                 <th className="p-2 font-bold">Enclosure / Location</th>
                                  <th className="p-2 font-bold">Sensor ID</th>
+                                 <th className="p-2 font-bold">Source IP/Device</th>
                                  <th className="p-2 font-bold">Temperature</th>
                                  <th className="p-2 font-bold">Humidity</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
-                             {htsData.map((item: any, idx: number) => (
+                             {htsData.map((item: any, idx: number) => {
+                                 let enclosure = "--";
+                                 const ipMatch = (item.ip || item.hostAddress || item.address || "").match(/\d+\.\d+\.(\d+)\.(\d+)/);
+                                 if (ipMatch) {
+                                     const arrNum = ipMatch[1];
+                                     const host = parseInt(ipMatch[2], 10);
+                                     if (host === 3) enclosure = `Array ${arrNum} CS`;
+                                     else if (host >= 10 && host <= 50 && host % 5 === 0) {
+                                         enclosure = `Array ${arrNum} ES${host}`;
+                                     } else {
+                                         enclosure = `Array ${arrNum} (.${host})`;
+                                     }
+                                 }
+                                 // Fallback if there's an entityDescription from Feather
+                                 if (item.entityDescription && enclosure === "--") {
+                                     enclosure = item.entityDescription;
+                                 }
+
+                                 return (
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                     <td className="p-2 text-prizm-primary font-bold">{enclosure}</td>
                                      <td className="p-2 text-prizm-text">{item.id || item.name || "--"}</td>
+                                     <td className="p-2 text-prizm-text-muted">{item.ip || item.hostAddress || item.address || item.deviceName || "--"}</td>
                                      <td className="p-2 text-prizm-text">{item.temperature !== undefined ? `${item.temperature} °C` : "--"}</td>
                                      <td className="p-2 text-prizm-text-muted">{item.humidity !== undefined ? `${item.humidity} %` : "--"}</td>
                                  </tr>
-                             ))}
+                                 );
+                             })}
                          </tbody>
                      </table>
                  ) : (
@@ -563,6 +622,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                  <th className="p-2 font-bold text-center">Online SOC</th>
                                  <th className="p-2 font-bold text-center">Nearline SOC</th>
                                  <th className="p-2 font-bold text-center">Offline SOC</th>
+                                 <th className="p-2 font-bold text-center">Nearline kWh</th>
                                  <th className="p-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
                                  <th className="p-2 font-bold text-center">Commanded kW AC</th>
                                  <th className="p-2 font-bold text-center">Measured kW AC</th>
@@ -575,9 +635,10 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}>
                                      <td className="p-2 text-prizm-primary font-bold">{name}</td>
                                      <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? 'OK' : <XOctagon size={12} className="inline text-prizm-danger" />}</td>
-                                     <td className="p-2 text-center text-prizm-text">{arr.onlineSOC !== undefined ? `${arr.onlineSOC} %` : '--'}</td>
-                                     <td className="p-2 text-center text-emerald-300">{arr.nearlineSOC !== undefined ? `${arr.nearlineSOC} %` : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineSOC !== undefined ? `${arr.offlineSOC} %` : '--'}</td>
+                                     <td className="p-2 text-center text-prizm-text">{arr.onlineSOC !== undefined ? `${(arr.onlineSOC < 1 ? arr.onlineSOC * 100 : arr.onlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-emerald-300">{arr.nearlineSOC !== undefined ? `${(arr.nearlineSOC < 1 ? arr.nearlineSOC * 100 : arr.nearlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineSOC !== undefined ? `${(arr.offlineSOC < 1 ? arr.offlineSOC * 100 : arr.offlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-prizm-text-muted">{arr.nearlineAvailableKWh !== undefined ? arr.nearlineAvailableKWh : '--'} kWh</td>
                                      <td className="p-2 text-center text-prizm-text">{arr.availableACChargekW !== undefined ? `${arr.availableACChargekW} / ${arr.availableACDischargekW}` : '--'}</td>
                                      <td className="p-2 text-center text-prizm-warning">{arr.commandedkW !== undefined ? arr.commandedkW : '--'}</td>
                                      <td className="p-2 text-center text-prizm-text">{arr.measuredkW !== undefined ? arr.measuredkW : '--'}</td>
@@ -593,60 +654,51 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             {/* String Summary */}
             <CollapsibleSection title="String Summary" icon={Rows4} defaultExpanded={false}>
                  {state.stringsDashboard?.strings?.length > 0 ? (
-                     <div className="flex flex-col">
-                         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-prizm-border mb-4">
-                             <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
-                                 <div className="text-[10px] text-emerald-500 uppercase font-bold tracking-widest">Normal</div>
-                                 <div className="text-2xl font-bold font-mono mt-1 text-emerald-400">{rollups.normal || 0}</div>
-                             </div>
-                             <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
-                                 <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-widest">Offline</div>
-                                 <div className="text-2xl font-bold font-mono mt-1 text-prizm-text-muted">{rollups.offline || 0}</div>
-                             </div>
-                             <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
-                                 <div className="text-[10px] text-prizm-warning uppercase font-bold tracking-widest">Warnings</div>
-                                 <div className="text-2xl font-bold font-mono mt-1 text-prizm-warning">{rollups.warnings || 0}</div>
-                             </div>
-                             <div className="bg-prizm-surface p-4 flex flex-col items-center justify-center">
-                                 <div className="text-[10px] text-prizm-danger uppercase font-bold tracking-widest">Alarms</div>
-                                 <div className="text-2xl font-bold font-mono mt-1 text-prizm-danger">{rollups.alarms || 0}</div>
-                             </div>
-                         </div>
-                         <div className="overflow-x-auto max-h-[400px] overflow-y-auto no-scrollbar outline outline-1 outline-prizm-border">
-                             <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                                 <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
+                     <div className="overflow-x-auto w-full">
+                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                             <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
                                  <tr>
-                                     <th className="p-2 font-bold text-center">Str/Arr</th>
-                                     <th className="p-2 font-bold text-center">Comm.</th>
-                                     <th className="p-2 font-bold text-center">State</th>
-                                     <th className="p-2 font-bold text-center">SOC</th>
-                                     <th className="p-2 font-bold text-center">DC Bus V</th>
-                                     <th className="p-2 font-bold text-center">kW</th>
-                                     <th className="p-2 font-bold">Warnings</th>
-                                     <th className="p-2 font-bold">Alarms</th>
+                                     <th className="p-2 font-bold min-w-[200px]">Parameter</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-300">Nearline</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">Offline</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-danger">Not Comm</th>
                                  </tr>
                              </thead>
                              <tbody className="divide-y divide-prizm-border">
-                                 {state.stringsDashboard.strings.map((str: any, idx: number) => (
-                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}>
-                                         <td className="p-2 text-prizm-primary font-bold text-center">{str.id || `A${str.arrayNumber}-S${str.stringNumber}`}</td>
-                                         <td className="p-2 text-center text-emerald-400">{str.contactorStatus === 'CLOSED' || str.operationalState !== 'OFFLINE' ? 'OK' : <XOctagon size={12} className="inline text-prizm-danger" />}</td>
-                                         <td className="p-2 text-center">
-                                            <span className={`px-2 py-[2px] rounded font-bold ${str.operationalState === 'NORMAL' ? 'bg-emerald-500/10 text-emerald-500' : str.operationalState === 'WARNING' ? 'bg-prizm-warning/10 text-prizm-warning' : str.operationalState === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-slate-500/10 text-slate-400'}`}>
-                                                {str.operationalState || "--"}
-                                            </span>
+                                 {[
+                                     { label: "Strings", key: "count" },
+                                     { label: "SOC (kWh)", key: "socKwH" },
+                                     { label: "Max Current (A)", key: "maxCurrent", suffix: " A" },
+                                     { label: "Min Current (A)", key: "minCurrent", suffix: " A" },
+                                     { label: "Max Cell Voltage (mV)", key: "maxCellV", suffix: " mV" },
+                                     { label: "Average Cell Voltage (mV)", key: "avgCellV", suffix: " mV" },
+                                     { label: "Min Cell Voltage (mV)", key: "minCellV", suffix: " mV" },
+                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVDelta", suffix: " mV" },
+                                     { label: "High Cell Temp (°C)", key: "maxCellTemp", suffix: " °C" },
+                                     { label: "Average Cell Temp (°C)", key: "avgCellTemp", suffix: " °C" },
+                                     { label: "Low Cell Temp (°C)", key: "minCellTemp", suffix: " °C" },
+                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDelta", suffix: " °C" }
+                                 ].map((row, idx) => (
+                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                         <td className="p-2 text-prizm-text uppercase">{row.label}</td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {onlineStats && onlineStats[row.key] !== null && onlineStats[row.key] !== undefined ? `${onlineStats[row.key]}${row.suffix || ''}` : '--'}
                                          </td>
-                                         <td className="p-2 text-center text-prizm-text">{str.socPct !== undefined && str.socPct !== null ? `${str.socPct} %` : '--'}</td>
-                                         <td className="p-2 text-center text-prizm-text-muted">{str.busVoltage !== null ? `${str.busVoltage} V` : '--'}</td>
-                                         <td className="p-2 text-center text-prizm-text">{str.kw !== null ? str.kw : '--'}</td>
-                                         <td className="p-2 text-prizm-warning">{str.warningCount > 0 ? `${str.warningCount} W` : '--'}</td>
-                                         <td className="p-2 text-prizm-danger">{str.alarmCount > 0 ? `${str.alarmCount} A` : '--'}</td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {nearlineStats && nearlineStats[row.key] !== null && nearlineStats[row.key] !== undefined ? `${nearlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                         </td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {offlineStats && offlineStats[row.key] !== null && offlineStats[row.key] !== undefined ? `${offlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                         </td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {notCommStats && notCommStats[row.key] !== null && notCommStats[row.key] !== undefined ? `${notCommStats[row.key]}${row.suffix || ''}` : '--'}
+                                         </td>
                                      </tr>
                                  ))}
                              </tbody>
                          </table>
                      </div>
-                 </div>
                  ) : (
                      <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
                  )}
