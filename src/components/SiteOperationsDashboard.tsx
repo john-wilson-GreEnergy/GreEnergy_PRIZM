@@ -646,6 +646,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              </tbody>
                          </table>
                      </div>
+                 </div>
                  ) : (
                      <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
                  )}
