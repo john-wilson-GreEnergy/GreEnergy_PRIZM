@@ -100,7 +100,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
         setClearLoading(true);
         setClearResult(null);
         try {
-            const profileId = state.stringsDashboard?.profileId || state.siteSummary?.site?.activeProfileId;
+            const profileId = state.siteSummary?.site?.profileId || state.stringsDashboard?.profileId;
             const operatorUsername = "local-overview";
             const res = await fetch("/api/local/safety-fault-clear/execute", {
                 method: "POST",
@@ -140,7 +140,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     fetch("/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=15000").then(r => r.json()),
                     fetch("/api/feather/devices").then(r => r.json()),
                     fetch("/api/local/safety-fault-clear/candidates").then(r => r.json()),
-                    fetch("/api/local/overview/(state.overviewDiscovery?.discoveredSections || {})?fullTables=true").then(r => r.json()),
+                    fetch("/api/local/overview/discovery?fullTables=true").then(r => r.json()),
                     fetch("/api/local/site-operations/summary").then(r => r.json()),
                     fetch("/api/local/history/events?range=24h").then(r => r.json())
                 ]);

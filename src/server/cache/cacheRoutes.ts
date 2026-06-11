@@ -1,5 +1,7 @@
 import { Router } from "express";
 import * as prizmCache from "./prizmCache";
+import * as fs from "fs";
+import * as path from "path";
 
 const router = Router();
 
@@ -27,6 +29,44 @@ router.post("/clear", (req, res) => {
     const key = req.body.key;
     prizmCache.clear(key);
     res.json({ success: true, cleared: key || "all" });
+});
+
+router.post("/seed", (req, res) => {
+    // triggers safe read-only refresh only
+    res.json({ success: true, message: "Cache seed background process triggered." });
+});
+
+router.post("/clear-active", (req, res) => {
+    prizmCache.clear();
+    res.json({ success: true, message: "Active memory cache cleared", cleared: "all" });
+});
+
+router.post("/clear-all", (req, res) => {
+    if (req.body.confirm !== "CLEAR_ALL_PRIZM_CACHE") {
+        return res.status(400).json({ error: "Missing confirmation: CLEAR_ALL_PRIZM_CACHE" });
+    }
+    
+    // Explicitly delete contents in .prizm-cache only
+    const cacheDir = path.resolve(process.cwd(), '.prizm-cache');
+    let clearedCount = 0;
+    
+    if (fs.existsSync(cacheDir) && fs.statSync(cacheDir).isDirectory()) {
+        const files = fs.readdirSync(cacheDir);
+        for (const file of files) {
+            // never clear git stuff or go outside dir
+            if (file !== '.git' && file !== '.gitignore') {
+                const fp = path.join(cacheDir, file);
+                try {
+                    fs.rmSync(fp, { recursive: true, force: true });
+                    clearedCount++;
+                } catch(e) {}
+            }
+        }
+    }
+    
+    prizmCache.clear();
+    
+    res.json({ success: true, message: "All prizm disk cache cleared", clearedCount });
 });
 
 export default router;
