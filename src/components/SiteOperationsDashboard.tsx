@@ -381,13 +381,13 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
                                          <td className="p-2 text-prizm-primary font-bold">{item.pcsIndex !== undefined ? item.pcsIndex : (item.id || item.name || "--")}</td>
                                          <td className="p-2 text-prizm-text">{item.arrayIndex !== undefined ? item.arrayIndex : "--"}</td>
-                                         <td className="p-2 text-right">{item.dcVoltage !== undefined ? item.dcVoltage.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.dcCurrent !== undefined ? item.dcCurrent.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acVoltage !== undefined ? item.acVoltage.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acCurrent !== undefined ? item.acCurrent.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text font-bold">{item.acRealPowerKw !== undefined ? item.acRealPowerKw.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{item.acReactivePowerKvar !== undefined ? item.acReactivePowerKvar.toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text-muted">{item.frequencyHz !== undefined ? item.frequencyHz.toFixed(2) : "--"}</td>
+                                         <td className="p-2 text-right">{item.dcVoltage != null ? item.dcVoltage.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{item.dcCurrent != null ? item.dcCurrent.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{item.acVoltage != null ? item.acVoltage.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{item.acCurrent != null ? item.acCurrent.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right text-prizm-text font-bold">{item.acRealPowerKw != null ? item.acRealPowerKw.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right">{item.acReactivePowerKvar != null ? item.acReactivePowerKvar.toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right text-prizm-text-muted">{item.frequencyHz != null ? item.frequencyHz.toFixed(2) : "--"}</td>
                                          <td className="p-2 text-prizm-text-muted">{item.rotation || "--"}</td>
                                      </tr>
                                  ))}
@@ -452,9 +452,9 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}>
                                      <td className="p-2 text-prizm-primary font-bold">{name}</td>
                                      <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? 'OK' : <XOctagon size={12} className="inline text-prizm-danger" />}</td>
-                                     <td className="p-2 text-center text-prizm-text">{arr.onlineSOC !== undefined ? `${(arr.onlineSOC < 1 ? arr.onlineSOC * 100 : arr.onlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
-                                     <td className="p-2 text-center text-emerald-300">{arr.nearlineSOC !== undefined ? `${(arr.nearlineSOC < 1 ? arr.nearlineSOC * 100 : arr.nearlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
-                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineSOC !== undefined ? `${(arr.offlineSOC < 1 ? arr.offlineSOC * 100 : arr.offlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-prizm-text">{arr.onlineSOC != null ? `${(arr.onlineSOC < 1 ? arr.onlineSOC * 100 : arr.onlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-emerald-300">{arr.nearlineSOC != null ? `${(arr.nearlineSOC < 1 ? arr.nearlineSOC * 100 : arr.nearlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
+                                     <td className="p-2 text-center text-prizm-text-muted">{arr.offlineSOC != null ? `${(arr.offlineSOC < 1 ? arr.offlineSOC * 100 : arr.offlineSOC).toFixed(1).replace(/\.0$/, '')} %` : '--'}</td>
                                      <td className="p-2 text-center text-prizm-text-muted">{arr.nearlineAvailableKWh !== undefined ? arr.nearlineAvailableKWh : '--'} kWh</td>
                                      <td className="p-2 text-center text-prizm-text">{arr.availableACChargekW !== undefined ? `${arr.availableACChargekW} / ${arr.availableACDischargekW}` : '--'}</td>
                                      <td className="p-2 text-center text-prizm-warning">{arr.commandedkW !== undefined ? arr.commandedkW : '--'}</td>
