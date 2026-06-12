@@ -160,7 +160,13 @@ export function normalizeFeatherStatus(
     // 7. Lost Comms
     let lost = rawJson.devicesWithLostComms ?? rawJson.deviceWithLostComms ?? null;
     if (Array.isArray(lost)) {
-      baseline.lostComms = lost.join(", ");
+      baseline.lostComms = lost.map(item => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+           return item.deviceName || item.name || item.type || JSON.stringify(item);
+        }
+        return String(item);
+      }).join(", ");
     } else if (lost !== null && typeof lost === "object") {
       baseline.lostComms = JSON.stringify(lost);
     } else {

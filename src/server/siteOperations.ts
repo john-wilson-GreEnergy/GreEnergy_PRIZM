@@ -40,30 +40,29 @@ function numOrNull(val: any): number | null {
     return isNaN(n) ? null : n;
 }
 
-function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
-    if (!obj || typeof obj !== 'object') return results;
-    if (Array.isArray(obj)) {
-        if (obj.length > 0 && typeof obj[0] === 'object' && requiredKeys.every(k => k in obj[0])) {
-            results.push(...obj);
+function collectEmsAppCandidates(root: any, path: string = ""): any[] {
+    const results: any[] = [];
+    if (!root || typeof root !== 'object') return results;
+
+    if (Array.isArray(root)) {
+        if (root.length > 0 && typeof root[0] === 'object' && root[0].appCode !== undefined && (root[0].appName !== undefined || root[0].priority !== undefined || root[0].configName !== undefined || root[0].health !== undefined)) {
+            root.forEach(item => {
+                if (typeof item === 'object') {
+                    results.push({ ...item, sourcePath: path });
+                }
+            });
         } else {
-            obj.forEach(o => findArraysByObjectKeys(o, requiredKeys, results));
+            root.forEach((o, i) => results.push(...collectEmsAppCandidates(o, `${path}[${i}]`)));
         }
     } else {
-        for (const [k, v] of Object.entries(obj)) {
-            findArraysByObjectKeys(v, requiredKeys, results);
+        for (const [k, v] of Object.entries(root)) {
+            results.push(...collectEmsAppCandidates(v, path ? `${path}.${k}` : k));
         }
     }
     return results;
 }
 
 export function buildStringBucketSummary(stringsData: any[]) {
-    const buckets = {
-        online: 0,
-        nearline: 0,
-        offline: 0,
-        notCommunicating: 0
-    };
-    
     function bool(v: any) {
         if (v === true || v === false) return v;
         if (typeof v === 'string') return v.toLowerCase() === 'true' || v.toLowerCase() === '1' || v.toLowerCase() === 'yes';
@@ -103,7 +102,19 @@ export function buildStringBucketSummary(stringsData: any[]) {
             bucket = 'offline';
         }
 
-        (buckets as Record<string, number>)[bucket]++;
+        const socPct = num(row.Soc ?? row.soc);
+        const kWh = num(row.KWh ?? row.kWh);
+        const currentA = num(row.StringCurrent ?? row.stringCurrent ?? row.CtCurrent1 ?? row.ctCurrent1 ?? row.CtCurrent2 ?? row.ctCurrent2);
+        const maxCellVoltageMv = num(row.MaxCellGroupVoltage ?? row.maxCellGroupVoltage);
+        const minCellVoltageMv = num(row.MinCellGroupVoltage ?? row.minCellGroupVoltage);
+        const avgCellVoltageMv = num(row.AvgCellGroupVoltage ?? row.avgCellGroupVoltage);
+        let maxTempRaw = num(row.MaxCellGroupTemp ?? row.maxCellGroupTemp);
+        let minTempRaw = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
+        let avgTempRaw = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
+
+        if (maxTempRaw !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
+        if (minTempRaw !== null && Math.abs(minTempRaw) > 100) minTempRaw = minTempRaw / 10;
+        if (avgTempRaw !== null && Math.abs(avgTempRaw) > 100) avgTempRaw = avgTempRaw / 10;
 
         return {
             ...row,
@@ -112,14 +123,92 @@ export function buildStringBucketSummary(stringsData: any[]) {
             bucket,
             communicating: bucket !== 'notCommunicating',
             inRotation: !outRotation,
-            contactorsClosed
+            contactorsClosed,
+            socPct,
+            kWh,
+            currentA,
+            maxCellVoltageMv,
+            minCellVoltageMv,
+            avgCellVoltageMv,
+            voltageDeltaMv: (maxCellVoltageMv !== null && minCellVoltageMv !== null) ? (maxCellVoltageMv - minCellVoltageMv) : null,
+            maxTempRaw,
+            minTempRaw,
+            avgTempRaw,
+            warningCount: num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? 0),
+            alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0)
         };
     });
-    
+
+    const bucketsRaw = {
+        online: tableRows.filter(r => r.bucket === 'online'),
+        nearline: tableRows.filter(r => r.bucket === 'nearline'),
+        offline: tableRows.filter(r => r.bucket === 'offline'),
+        notCommunicating: tableRows.filter(r => r.bucket === 'notCommunicating')
+    };
+
+    const buckets: Record<string, number> = {
+        online: bucketsRaw.online.length,
+        nearline: bucketsRaw.nearline.length,
+        offline: bucketsRaw.offline.length,
+        notCommunicating: bucketsRaw.notCommunicating.length
+    };
+
+    const rollups: any = { totalStrings };
+
+    function calculateRollup(arr: any[]) {
+        const count = arr.length;
+        if (count === 0) return { count: 0 };
+        const sumNum = (key: string) => {
+            const vals = arr.map(a => a[key]).filter(v => v !== null);
+            return vals.length > 0 ? vals.reduce((sum, v) => sum + v, 0) : null;
+        };
+        const avgNum = (key: string) => {
+            const vals = arr.map(a => a[key]).filter(v => v !== null);
+            return vals.length > 0 ? vals.reduce((sum, v) => sum + v, 0) / vals.length : null;
+        };
+        const maxNum = (key: string) => {
+            const vals = arr.map(a => a[key]).filter(v => v !== null);
+            return vals.length > 0 ? Math.max(...vals) : null;
+        };
+        const minNum = (key: string) => {
+            const vals = arr.map(a => a[key]).filter(v => v !== null);
+            return vals.length > 0 ? Math.min(...vals) : null;
+        };
+
+        const maxVoltageMv = maxNum('maxCellVoltageMv');
+        const minVoltageMv = minNum('minCellVoltageMv');
+        const maxTemp = maxNum('maxTempRaw');
+        const minTemp = minNum('minTempRaw');
+
+        return {
+            count,
+            socPctAvg: avgNum('socPct'),
+            socKwhAvg: sumNum('kWh'), // Return sum/avg per bucket requirement, actually the requirements say "SOC / KWh" so maybe socKwhAvg means average KWh, sum is better or avg is better? User says "socKwhAvg or kWh average". Let's do average.
+            kWhAvg: avgNum('kWh'),
+            maxCurrentA: maxNum('currentA'),
+            minCurrentA: minNum('currentA'),
+            maxCellVoltageMv: maxVoltageMv,
+            avgCellVoltageMv: avgNum('avgCellVoltageMv'),
+            minCellVoltageMv: minVoltageMv,
+            maxCellVoltageDeltaMv: maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null,
+            highCellTempC: maxTemp,
+            avgCellTempC: avgNum('avgTempRaw'),
+            lowCellTempC: minTemp,
+            maxCellTempDeltaC: maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null,
+            warningCount: sumNum('warningCount') || 0,
+            alarmCount: sumNum('alarmCount') || 0
+        };
+    }
+
+    rollups.online = calculateRollup(bucketsRaw.online);
+    rollups.nearline = calculateRollup(bucketsRaw.nearline);
+    rollups.offline = calculateRollup(bucketsRaw.offline);
+    rollups.notCommunicating = calculateRollup(bucketsRaw.notCommunicating);
+
     return { 
         buckets, 
         tableRows,
-        rollups: { totalStrings } 
+        rollups
     };
 }
 
@@ -256,43 +345,38 @@ export function buildSiteOperationsSummaryFromCache() {
         };
 
         // Part D - EMS APPS Normalization
-        let appsCandidates = [
-            ...(block.dragonApps || []),
-            ...(status.dragonApps || []),
-            ...(lastCall.dragonApps || [])
-        ];
-        const appSearchShapes = [
-            ["appCode", "appName"],
-            ["appCode", "priority"],
-            ["appCode", "configName"],
-            ["appName", "configName"],
-        ];
-        for (const shape of appSearchShapes) {
-            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(block, shape));
-            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(status, shape));
-            if (!appsCandidates.length) appsCandidates.push(...findArraysByObjectKeys(lastCall, shape));
-        }
+        const blockApps = collectEmsAppCandidates(block, "block");
+        const statusApps = collectEmsAppCandidates(status, "status");
+        const lastCallApps = collectEmsAppCandidates(lastCall, "lastCall");
+
+        let appsCandidates = [...blockApps, ...statusApps, ...lastCallApps];
+        const emsAppSourcePaths = Array.from(new Set(appsCandidates.map(a => a.sourcePath)));
         
-        const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode) === i).map((app: any) => {
+        const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode && t.appName === v.appName) === i).map((app: any) => {
             const appName = app.appName || app.applicationName || app.application || app.name || app.appCode;
             let st = "Unknown";
             if (app.enabled === true) st = "Enabled";
             if (app.enabled === false) st = "Not Enabled";
-            if (app.health === "HEALTH_HEALTHY" && app.enabled !== false) st = "Enabled";
-            if (app.health === "HEALTH_NOT_ENABLED") st = "Not Enabled";
-            if (app.health === "HEALTH_FAULT") st = "Faulted";
-            if (app.health === "HEALTH_WARNING") st = "Warning";
+            if ((app.health === "HEALTH_HEALTHY" || String(app.health).toLowerCase() === "healthy") && app.enabled !== false) st = "Enabled";
+            if (app.health === "HEALTH_NOT_ENABLED" || String(app.health).toLowerCase() === "disabled") st = "Not Enabled";
+            if (app.health === "HEALTH_FAULT" || String(app.health).toLowerCase().includes("fault")) st = "Faulted";
+            if (app.health === "HEALTH_WARNING" || String(app.health).toLowerCase().includes("warning")) st = "Warning";
             
             return {
                priority: app.priority ?? null,
                appCode: app.appCode,
                appName,
                configName: app.configName ?? null,
+               configVersionId: app.configVersionId ?? null,
                enabled: app.enabled ?? null,
+               canDisable: app.canDisable ?? null,
                status: st,
                healthRaw: app.health ?? null,
                shortAppStatus: app.shortAppStatus ?? null,
+               hasShortAppStatus: app.hasShortAppStatus ?? null,
                appStatus: app.appStatus ?? null,
+               healthMessage: app.healthMessage ?? null,
+               hasEditor: app.hasEditor ?? null,
                sourcePath: app.sourcePath || "discovered",
                raw: app
             };
@@ -300,7 +384,7 @@ export function buildSiteOperationsSummaryFromCache() {
 
         // Part E - FEATHER/HVAC
         const fCache = getFeatherCache();
-        const fDevices = fCache.devices || [];
+        const fDevices = (fCache.devices || []).filter(d => !(d as any).rejected);
         
         // Count accurately based on devices array. If !fCache.success or stale, keep the real counts but mark stale
         let fOnline = 0, fOffline = 0, fLostComms = 0, fFssInv = 0, fDoorsInv = 0, fHvacInv = 0, fWarn = 0, fFault = 0;
@@ -437,6 +521,13 @@ export function buildSiteOperationsSummaryFromCache() {
         const pcsSummary = pcsCnds.map((p: any) => {
              const arrayIndex = numOrNull(p.arrayIndex ?? p.arrayNumber);
              const pcsIndex = numOrNull(p.arrayPcsIndex ?? p.pcsIndex ?? p.index);
+             const acVoltageAB = numOrNull(p.acPhaseABVoltageVolt);
+             const acVoltageBC = numOrNull(p.acPhaseBCVoltageVolt);
+             const acVoltageCA = numOrNull(p.acPhaseCAVoltageVolt);
+             const abDisplay = acVoltageAB !== null ? Number(acVoltageAB).toFixed(0) : '--';
+             const bcDisplay = acVoltageBC !== null ? Number(acVoltageBC).toFixed(0) : '--';
+             const caDisplay = acVoltageCA !== null ? Number(acVoltageCA).toFixed(0) : '--';
+             const acVoltageDisplay = `${abDisplay} / ${bcDisplay} / ${caDisplay}`;
              return {
                  arrayIndex,
                  pcsIndex,
@@ -446,6 +537,10 @@ export function buildSiteOperationsSummaryFromCache() {
                  acReactivePowerKvar: numOrNull(p.acReactivePowerKVAR ?? p.acReactivePowerKvar ?? p.acReactPower ?? p.kvar ?? p.kVAr),
                  frequencyHz: numOrNull(p.acFrequencyHz ?? p.frequencyHz ?? p.freq ?? p.hz),
                  acVoltage: averageValid([p.acPhaseABVoltageVolt, p.acPhaseBCVoltageVolt, p.acPhaseCAVoltageVolt, p.acVoltage]),
+                 acVoltageAB,
+                 acVoltageBC,
+                 acVoltageCA,
+                 acVoltageDisplay,
                  acCurrent: averageValid([p.acPhaseACurrentAmp, p.acPhaseBCurrentAmp, p.acPhaseCCurrentAmp, p.acCurrent]),
                  state: p.state ?? null,
                  displayKey: p.displayKey || ('Array ' + arrayIndex + ' PCS ' + pcsIndex),
@@ -732,7 +827,9 @@ export function buildSiteOperationsSummaryFromCache() {
             sourceHealth,
             debug: {
                pcsDebugKeys: Array.from(new Set(pcsDebugKeys)),
-               appDebugKeys: []
+               appDebugKeys: [],
+               emsAppCandidateCount: appsCandidates.length,
+               emsAppSourcePaths: emsAppSourcePaths
             },
             
             // Legacy fallbacks

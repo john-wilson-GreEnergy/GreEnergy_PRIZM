@@ -198,10 +198,10 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     
     const arraySummaryData = sum?.arraySummary || [];
     const stringBuckets = sum?.stringSummary?.buckets || { online: 0, nearline: 0, offline: 0, notCommunicating: 0 };
-    const onlineStats = sum?.stringSummary?.buckets?.onlineStats || { count: stringBuckets.online };
-    const nearlineStats = sum?.stringSummary?.buckets?.nearlineStats || { count: stringBuckets.nearline };
-    const offlineStats = sum?.stringSummary?.buckets?.offlineStats || { count: stringBuckets.offline };
-    const notCommStats = sum?.stringSummary?.buckets?.notCommStats || { count: stringBuckets.notCommunicating };
+    const onlineStats = sum?.stringSummary?.rollups?.online || { count: sum?.stringSummary?.buckets?.online || 0 };
+    const nearlineStats = sum?.stringSummary?.rollups?.nearline || { count: sum?.stringSummary?.buckets?.nearline || 0 };
+    const offlineStats = sum?.stringSummary?.rollups?.offline || { count: sum?.stringSummary?.buckets?.offline || 0 };
+    const notCommStats = sum?.stringSummary?.rollups?.notCommunicating || { count: sum?.stringSummary?.buckets?.notCommunicating || 0 };
     const rollups = sum?.stringSummary?.rollups || state.stringsDashboard?.rollups || { totalStrings: (stringBuckets.online + stringBuckets.nearline + stringBuckets.offline + stringBuckets.notCommunicating) || 0 };
 
     const activeIssues = sum?.activeIssueGroups || [];
@@ -417,7 +417,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                          <td className="p-2 text-prizm-text">{hasVal(item.arrayIndex) ? item.arrayIndex : "--"}</td>
                                          <td className="p-2 text-right">{hasVal(item.dcVoltage) ? Number(item.dcVoltage).toFixed(1) : "--"}</td>
                                          <td className="p-2 text-right">{hasVal(item.dcCurrent) ? Number(item.dcCurrent).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{hasVal(item.acVoltage) ? Number(item.acVoltage).toFixed(1) : "--"}</td>
+                                         <td className="p-2 text-right text-prizm-text">{item.acVoltageDisplay !== "-- / -- / --" ? item.acVoltageDisplay : (hasVal(item.acVoltage) ? Number(item.acVoltage).toFixed(1) : "--")}</td>
                                          <td className="p-2 text-right">{hasVal(item.acCurrent) ? Number(item.acCurrent).toFixed(1) : "--"}</td>
                                          <td className="p-2 text-right text-prizm-text font-bold">{hasVal(item.acRealPowerKw) ? Number(item.acRealPowerKw).toFixed(1) : "--"}</td>
                                          <td className="p-2 text-right">{hasVal(item.acReactivePowerKvar) ? Number(item.acReactivePowerKvar).toFixed(1) : "--"}</td>
@@ -505,34 +505,41 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                              <tbody className="divide-y divide-prizm-border">
                                  {[
                                      { label: "Strings", key: "count" },
-                                     { label: "SOC (kWh)", key: "socKwH" },
-                                     { label: "Max Current (A)", key: "maxCurrent", suffix: " A" },
-                                     { label: "Min Current (A)", key: "minCurrent", suffix: " A" },
-                                     { label: "Max Cell Voltage (mV)", key: "maxCellV", suffix: " mV" },
-                                     { label: "Average Cell Voltage (mV)", key: "avgCellV", suffix: " mV" },
-                                     { label: "Min Cell Voltage (mV)", key: "minCellV", suffix: " mV" },
-                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVDelta", suffix: " mV" },
-                                     { label: "High Cell Temp (°C)", key: "maxCellTemp", suffix: " °C" },
-                                     { label: "Average Cell Temp (°C)", key: "avgCellTemp", suffix: " °C" },
-                                     { label: "Low Cell Temp (°C)", key: "minCellTemp", suffix: " °C" },
-                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDelta", suffix: " °C" }
-                                 ].map((row, idx) => (
+                                     { label: "SOC (kWh avg)", key: "socKwhAvg", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Current (A)", key: "maxCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Min Current (A)", key: "minCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Cell Voltage (mV)", key: "maxCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "Average Cell Voltage (mV)", key: "avgCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Min Cell Voltage (mV)", key: "minCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVoltageDeltaMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "High Cell Temp (°C)", key: "highCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Average Cell Temp (°C)", key: "avgCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Low Cell Temp (°C)", key: "lowCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDeltaC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) }
+                                 ].map((row, idx) => {
+                                     const renderVal = (statObj: any) => {
+                                         if (!statObj || !hasVal(statObj[row.key])) return '--';
+                                         const v = statObj[row.key];
+                                         const formatted = row.format ? row.format(v) : v;
+                                         return `${formatted}${row.suffix || ''}`;
+                                     };
+                                     return (
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
                                          <td className="p-2 text-prizm-text uppercase">{row.label}</td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {onlineStats && hasVal(onlineStats[row.key]) ? `${onlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {renderVal(onlineStats)}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {nearlineStats && hasVal(nearlineStats[row.key]) ? `${nearlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {renderVal(nearlineStats)}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {offlineStats && hasVal(offlineStats[row.key]) ? `${offlineStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {renderVal(offlineStats)}
                                          </td>
                                          <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {notCommStats && hasVal(notCommStats[row.key]) ? `${notCommStats[row.key]}${row.suffix || ''}` : '--'}
+                                             {renderVal(notCommStats)}
                                          </td>
                                      </tr>
-                                 ))}
+                                 )})}
                              </tbody>
                          </table>
                      </div>

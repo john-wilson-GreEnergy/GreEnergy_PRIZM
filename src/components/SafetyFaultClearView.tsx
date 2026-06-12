@@ -223,7 +223,7 @@ export default function SafetyFaultClearView() {
                             <td className="px-4 py-2 text-prizm-text-muted">{new Date(h.timestamp).toLocaleTimeString()}</td>
                             <td className="px-4 py-2 text-prizm-text font-bold">{h.entityKeyToken}</td>
                             <td className="px-4 py-2">
-                               {h.queued ? <span className="text-emerald-400 font-bold uppercase flex items-center gap-1"><CheckCircle size={10} /> Queued (HTTP 200)</span> : <span className="text-prizm-danger font-bold uppercase flex items-center gap-1"><XCircle size={10} /> ${h.error || 'Failed'}</span>}
+                               {h.queued ? <span className="text-emerald-400 font-bold uppercase flex items-center gap-1"><CheckCircle size={10} /> Queued (HTTP 200)</span> : <span className="text-prizm-danger font-bold uppercase flex items-center gap-1"><XCircle size={10} /> {h.error || 'Failed'}</span>}
                             </td>
                             <td className="px-4 py-2 text-prizm-text-muted">
                                 {h.verification ? (

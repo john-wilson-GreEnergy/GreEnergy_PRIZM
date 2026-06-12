@@ -262,6 +262,7 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
   // Part E - Feather
   const featherMap = new Map<string, PrizmFeatherTopology>();
   for (const row of ((featherCache.devices || []) as any[])) {
+    if (row.rejected) continue;
     const d = row;
     const ip = d.ip ?? d.deviceIp;
     if (!ip) continue;
@@ -351,7 +352,7 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
       pcsCount: pcses.length,
       acBatteryCount: 0,
       featherDeviceCount: featherDevices.length,
-      modbusPointCount: modbusMap.length
+      modbusPointCount: modbusOk ? modbusMap.length : null
     },
     arrays,
     strings,

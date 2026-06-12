@@ -674,7 +674,12 @@ export async function fetchEnrichedDevices() {
 
                  if (normalized.devicesWithLostComms && normalized.devicesWithLostComms.length > 0) {
                      d.alarmFaults.push("Lost Comms");
-                     d.warnInfo.push(`Lost Comms with: ${normalized.devicesWithLostComms.join(", ")}`);
+                     const formattedLost = normalized.devicesWithLostComms.map((item: any) => {
+                        if (typeof item === 'string') return item;
+                        if (item && typeof item === 'object') return item.deviceName || item.name || item.type || JSON.stringify(item);
+                        return String(item);
+                     });
+                     d.warnInfo.push(`Lost Comms with: ${formattedLost.join(", ")}`);
                  }
                  if (normalized.activeWarningInterlocks && normalized.activeWarningInterlocks.length > 0) {
                      normalized.activeWarningInterlocks.forEach((w: any) => {
