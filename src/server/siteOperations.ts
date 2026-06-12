@@ -40,14 +40,51 @@ function numOrNull(val: any): number | null {
     return isNaN(n) ? null : n;
 }
 
+function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
+    if (!obj || typeof obj !== 'object') return results;
+    if (Array.isArray(obj)) {
+        if (obj.length > 0 && typeof obj[0] === 'object' && requiredKeys.every(k => k in obj[0])) {
+            results.push(...obj);
+        } else {
+            obj.forEach(o => findArraysByObjectKeys(o, requiredKeys, results));
+        }
+    } else {
+        for (const [k, v] of Object.entries(obj)) {
+            findArraysByObjectKeys(v, requiredKeys, results);
+        }
+    }
+    return results;
+}
+
+const DRAGON_APP_CODE_NAME_MAP: Record<string, string> = {
+  ES00001: "E-Stop Response v1.0",
+  BSF0001: "Battery Safety v1.0",
+  BP00001: "Block Power",
+  HCP0001: "High Current Protection App v1.0",
+  CAL001: "CAL001",
+  CAL0001: "Critical Aux Load v1.0",
+  PC00001: "Power Control v1.0",
+  SSPC001: "Sunspec Power Command v1.0",
+  BOP0001: "Basic Op v1.0",
+  SCHED001: "Scheduler v1.0",
+  FD00001: "Frequency Droop v1.0",
+  AVR0001: "Automatic Voltage Regulation v1.0",
+  ETC0001: "Enclosure Control v1.0",
+  PCOMP001: "Power Compensator v1.0",
+  ADB0001: "Auto Discharge Balancer v1.0",
+  SLOW001: "Slow Charge v1.0",
+  CTC0001: "Centipede Thermal Control v1.0",
+  BS00001: "Backstop v1.0"
+};
+
 function collectEmsAppCandidates(root: any, path: string = ""): any[] {
     const results: any[] = [];
     if (!root || typeof root !== 'object') return results;
 
     if (Array.isArray(root)) {
-        if (root.length > 0 && typeof root[0] === 'object' && root[0].appCode !== undefined && (root[0].appName !== undefined || root[0].priority !== undefined || root[0].configName !== undefined || root[0].health !== undefined)) {
+        if (root.length > 0 && root.some(item => item && typeof item === 'object' && item.appCode !== undefined && (item.appName !== undefined || item.priority !== undefined || item.configName !== undefined || item.health !== undefined))) {
             root.forEach(item => {
-                if (typeof item === 'object') {
+                if (item && typeof item === 'object' && item.appCode !== undefined) {
                     results.push({ ...item, sourcePath: path });
                 }
             });
@@ -352,26 +389,54 @@ export function buildSiteOperationsSummaryFromCache() {
         let appsCandidates = [...blockApps, ...statusApps, ...lastCallApps];
         const emsAppSourcePaths = Array.from(new Set(appsCandidates.map(a => a.sourcePath)));
         
+        let unknownDragonAppCodes: string[] = [];
+
         const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode && t.appName === v.appName) === i).map((app: any) => {
-            const appName = app.appName || app.applicationName || app.application || app.name || app.appCode;
-            let st = "Unknown";
-            if (app.enabled === true) st = "Enabled";
-            if (app.enabled === false) st = "Not Enabled";
-            if ((app.health === "HEALTH_HEALTHY" || String(app.health).toLowerCase() === "healthy") && app.enabled !== false) st = "Enabled";
-            if (app.health === "HEALTH_NOT_ENABLED" || String(app.health).toLowerCase() === "disabled") st = "Not Enabled";
-            if (app.health === "HEALTH_FAULT" || String(app.health).toLowerCase().includes("fault")) st = "Faulted";
-            if (app.health === "HEALTH_WARNING" || String(app.health).toLowerCase().includes("warning")) st = "Warning";
+            const appCode = app.appCode ? String(app.appCode).trim() : null;
+            let resolvedNameFromMap = null;
+            if (appCode) {
+                resolvedNameFromMap = DRAGON_APP_CODE_NAME_MAP[appCode];
+                if (!resolvedNameFromMap && !unknownDragonAppCodes.includes(appCode)) {
+                    unknownDragonAppCodes.push(appCode);
+                }
+            }
+            const appName =
+              app.appName ||
+              app.applicationName ||
+              app.application ||
+              app.name ||
+              resolvedNameFromMap ||
+              appCode ||
+              "Unknown App";
+
+            const healthRaw = app.health ?? null;
+            const healthUpper = String(healthRaw || "").toUpperCase();
+            let status = "Unknown";
+            if (app.enabled === true) status = "Enabled";
+            if (app.enabled === false) status = "Not Enabled";
+            if (healthUpper.includes("HEALTH_HEALTHY") && app.enabled !== false) {
+              status = "Enabled";
+            }
+            if (healthUpper.includes("NOT_ENABLED") || healthUpper.includes("DISABLED")) {
+              status = "Not Enabled";
+            }
+            if (healthUpper.includes("FAULT")) {
+              status = "Faulted";
+            }
+            if (healthUpper.includes("WARN")) {
+              status = "Warning";
+            }
             
             return {
                priority: app.priority ?? null,
                appCode: app.appCode,
                appName,
                configName: app.configName ?? null,
-               configVersionId: app.configVersionId ?? null,
+               configVersionId: app.configVersionId ?? app.configVersionid ?? null,
                enabled: app.enabled ?? null,
                canDisable: app.canDisable ?? null,
-               status: st,
-               healthRaw: app.health ?? null,
+               status,
+               healthRaw,
                shortAppStatus: app.shortAppStatus ?? null,
                hasShortAppStatus: app.hasShortAppStatus ?? null,
                appStatus: app.appStatus ?? null,
@@ -829,7 +894,8 @@ export function buildSiteOperationsSummaryFromCache() {
                pcsDebugKeys: Array.from(new Set(pcsDebugKeys)),
                appDebugKeys: [],
                emsAppCandidateCount: appsCandidates.length,
-               emsAppSourcePaths: emsAppSourcePaths
+               emsAppSourcePaths: emsAppSourcePaths,
+               unknownDragonAppCodes: unknownDragonAppCodes
             },
             
             // Legacy fallbacks

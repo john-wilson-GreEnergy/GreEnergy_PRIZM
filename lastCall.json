@@ -1,0 +1,18 @@
+{
+  "source": "cached",
+  "staleData": true,
+  "lastUpdated": "2026-06-12T05:17:48.319Z",
+  "activeEmsBaseUrl": "http://10.0.0.3:8080/turtle",
+  "activeProfileName": "Local EMS Default",
+  "activeProfileId": "default-local-ems",
+  "stationCode": "BHE0020",
+  "discoveredStationCode": null,
+  "siteCodeSource": null,
+  "blockIndex": 1,
+  "lastError": "This operation was aborted",
+  "cacheProfileId": "default-local-ems",
+  "cacheEmsBaseUrl": "http://10.0.0.3:8080/turtle",
+  "cacheCreatedAt": "2026-06-12T05:16:41.804Z",
+  "cacheLastUpdatedAt": "2026-06-12T05:17:48.319Z",
+  "data": null
+}

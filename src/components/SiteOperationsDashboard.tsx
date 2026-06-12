@@ -339,24 +339,25 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
                              {emsAppsData.map((app: any, idx: number) => {
-                                 let displayStatus = app.enabled ? "Enabled" : "Not Enabled";
-                                 let statusColor = app.enabled ? "bg-emerald-500/10 text-emerald-500" : "bg-slate-500/10 text-slate-400";
+                                 let displayStatus = app.status || (app.enabled ? "Enabled" : "Not Enabled");
+                                 let statusColor = "bg-slate-500/10 text-slate-400";
                                  
-                                 const h = (app.health || "").toUpperCase();
+                                 const h = String(app.healthRaw || app.health || displayStatus || "").toUpperCase();
                                  if (h.includes("FAULT")) { displayStatus = "Faulted"; statusColor = "bg-prizm-danger/10 text-prizm-danger"; }
                                  else if (h.includes("WARN")) { displayStatus = "Warning"; statusColor = "bg-prizm-warning/10 text-prizm-warning"; }
+                                 else if (h.includes("HEALTHY") || displayStatus.toUpperCase() === "ENABLED") { displayStatus = "Enabled"; statusColor = "bg-emerald-500/10 text-emerald-500"; }
                                  else if (h.includes("UNAVAIL") || h.includes("OFFLINE")) { displayStatus = "Unavailable"; statusColor = "bg-prizm-danger/10 text-prizm-danger"; }
 
                                  return (
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-center text-prizm-text-muted">{app.priority !== undefined ? app.priority : "--"}</td>
+                                     <td className="p-2 text-center text-prizm-text-muted">{app.priority !== undefined && app.priority !== null ? app.priority : "--"}</td>
                                      <td className="p-2 text-prizm-text font-bold">{app.appCode || "--"}</td>
-                                     <td className="p-2 text-prizm-primary font-bold">{app.application || app.applicationName || app.appName || app.name || "--"}</td>
+                                     <td className="p-2 text-prizm-primary font-bold">{app.appName || "--"}</td>
                                      <td className="p-2 text-prizm-text-muted text-xs">{app.configName || "--"} {app.configVersionId ? `(v${app.configVersionId})` : ""}</td>
                                      <td className="p-2 text-center">
                                          <span className={`px-2 py-[2px] rounded font-bold ${statusColor}`}>{displayStatus}</span>
                                      </td>
-                                     <td className="p-2 text-prizm-text whitespace-pre-wrap leading-tight">{app.hasShortAppStatus && app.shortAppStatus ? app.shortAppStatus.replace(/<br\s*\/?>/gi, '\n') : (app.appStatus || "--").replace(/<br\s*\/?>/gi, '\n')}</td>
+                                     <td className="p-2 text-prizm-text whitespace-pre-wrap leading-tight">{(app.hasShortAppStatus && app.shortAppStatus ? app.shortAppStatus : app.appStatus || "--").replace(/<br\s*\/?>/gi, '\n')}</td>
                                  </tr>
                              )})}
                          </tbody>
