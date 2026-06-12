@@ -186,19 +186,21 @@ function getFeatherCellTemp(f: any): number | null {
 }
 
 function extractCodes(value: any): string[] {
-    const codes: string[] = [];
-    if (!value) return codes;
+    let rawCodes: string[] = [];
+    if (!value) return [];
     if (Array.isArray(value)) {
         for (const v of value) {
-            if (typeof v === 'object' && v.code) codes.push(String(v.code));
-            else codes.push(String(v));
+            if (typeof v === 'object' && v.code) rawCodes.push(String(v.code));
+            else rawCodes.push(String(v));
         }
     } else if (typeof value === 'string') {
-        codes.push(...value.split(',').map(s => s.trim()).filter(Boolean));
+        rawCodes.push(...value.split(','));
     } else if (typeof value === 'object' && value.code) {
-        codes.push(String(value.code));
+        rawCodes.push(String(value.code));
     }
-    return codes;
+    return rawCodes
+        .map(c => String(c).trim())
+        .filter(c => c.length > 0);
 }
 
 
@@ -547,23 +549,59 @@ export function buildSiteOperationsSummaryFromCache() {
         function formatFeatherIssue(item: any): string {
             if (typeof item === 'string') return item;
             if (item && typeof item === 'object') {
-                if (item.deviceType || item.deviceName) {
-                    return 'Lost Comms with: ' + (item.deviceName || item.deviceType);
+                const name = 
+                  item.deviceName || 
+                  item.deviceType || 
+                  item.name || 
+                  item.label || 
+                  item.description || 
+                  item.entityDescription || 
+                  item.entityName || 
+                  item.component || 
+                  item.componentName || 
+                  item.source || 
+                  item.sourceName || 
+                  item.ip || 
+                  item.deviceIp || 
+                  item.address || 
+                  item.lastKnownIp || 
+                  item.device?.name || 
+                  item.device?.type || 
+                  item.device?.ip || 
+                  item.status?.deviceName || 
+                  item.status?.deviceType;
+
+                if (name) {
+                    return 'Lost Comms with: ' + name;
                 }
+
                 const str = JSON.stringify(item);
-                if (str.length < 50) return str;
+                if (str.length < 120) return str;
+                return 'Unknown Device';
             }
             return 'Unknown Issue';
         }
 
         fDevices.forEach((f: any) => {
+             const enclosureLabel =
+                  f.enclosureLabel ||
+                  f.entityDescription ||
+                  f.segmentLabel ||
+                  f.entityName ||
+                  (f.arrayIndex != null && f.stringIndex != null ? `Array ${f.arrayIndex} ES${f.stringIndex}` : null) ||
+                  f.ip ||
+                  f.deviceIp ||
+                  "Unknown Enclosure";
+             
+             const deviceIp = f.ip || f.deviceIp || null;
+
              const activeWarnings = f.activeWarnings || f.warningMessages || [];
              if (f.warningCount > 0 && Array.isArray(activeWarnings)) {
                  activeWarnings.forEach((awRaw: any) => {
                      const aw = formatFeatherIssue(awRaw);
                      const key = 'feather_warn_' + encodeURIComponent(aw);
                      if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: null, message: aw, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || 'Unknown', sourcePath: 'featherSummary' });
+                     groupMap.get(key).occurrences.push({ deviceIp, enclosureLabel, sourcePath: 'featherSummary' });
                  });
              }
              const activeAlarms = f.activeAlarms || f.alarmMessages || f.faultMessages || [];
@@ -572,7 +610,7 @@ export function buildSiteOperationsSummaryFromCache() {
                      const aa = formatFeatherIssue(aaRaw);
                      const key = 'feather_alarm_' + encodeURIComponent(aa);
                      if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: null, message: aa, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
-                     groupMap.get(key).occurrences.push({ deviceIp: f.deviceIp, enclosureLabel: f.entityName || 'Unknown', sourcePath: 'featherSummary' });
+                     groupMap.get(key).occurrences.push({ deviceIp, enclosureLabel, sourcePath: 'featherSummary' });
                  });
              }
         });

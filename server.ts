@@ -8,6 +8,7 @@ import siteOperationsRouter from "./src/server/siteOperations";
 import { topologyRouter } from "./src/server/topology/topologyRoutes";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
+import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
 import express from "express";
 import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
 import path from "path";
@@ -406,9 +407,9 @@ setInterval(async () => {
 }, emsPollInterval);
 
 // Kick off initial bootstrap cache seed
-
-
-bootstrapEmsAndSeedCache().catch(err => {
+bootstrapEmsAndSeedCache().then(() => {
+    bootstrapFeatherDiscoveryAndSeedCache();
+}).catch(err => {
   console.log("[EMS LAN Info] Initial offline scan or bootstrap failed or finished.");
 });
 
@@ -431,12 +432,14 @@ app.get("/api/local/ems/connection-status", (req, res) => {
 // POST /api/local/ems/retry-connection
 app.post("/api/local/ems/retry-connection", async (req, res) => {
   await bootstrapEmsAndSeedCache();
+  bootstrapFeatherDiscoveryAndSeedCache({ force: true });
   res.json(getExtendedConnectionStatus());
 });
 
 // POST /api/local/cache/seed
 app.post("/api/local/cache/seed", async (req, res) => {
   const result = await bootstrapEmsAndSeedCache();
+  bootstrapFeatherDiscoveryAndSeedCache({ force: true });
   res.json(result);
 });
 
@@ -1263,21 +1266,26 @@ app.get("/api/feather/devices", async (req, res) => {
     const forceRefresh = req.query.refresh === "true";
     const maxAgeMs = req.query.maxAgeMs ? parseInt(req.query.maxAgeMs as string, 10) : 5000;
 
+    const currentFeatherCache = getFeatherCache();
+    const hasKnownFeatherIps = !currentFeatherCache.isStale && currentFeatherCache.devices && currentFeatherCache.devices.length > 0;
+
     if (!forceRefresh && lastEnrichedCache) {
       const ageMs = Date.now() - new Date(lastEnrichedCache.generatedAt).getTime();
       if (ageMs < maxAgeMs) {
         lastEnrichedCache.cacheAgeMs = ageMs;
         lastEnrichedCache.live = false;
+        lastEnrichedCache.isDiscovering = !!activeDeviceScanPromise;
         return res.json(lastEnrichedCache);
       }
     }
 
-    if (activeDeviceScanPromise) {
-      const data = await activeDeviceScanPromise;
-      return res.json(data);
+    // Return stale but populated data if discovering
+    if (!forceRefresh && activeDeviceScanPromise && lastEnrichedCache) {
+        lastEnrichedCache.isDiscovering = true;
+        return res.json(lastEnrichedCache);
     }
 
-    activeDeviceScanPromise = (async () => {
+    const discoveryPromise = (async () => {
       const scanStartedAt = new Date().toISOString();
       const startTime = Date.now();
 
@@ -1302,22 +1310,51 @@ app.get("/api/feather/devices", async (req, res) => {
         scanCompletedAt: new Date().toISOString(),
         durationMs,
         cacheAgeMs: 0,
-        live: true
+        live: true,
+        autoSeeded: true,
+        source: "topology",
+        success: true,
+        candidateCount: ipsToPoll.length
       };
       
       lastEnrichedCache = responseData;
       try {
-        
         prizmCache.set('feather-devices', responseData, { ttlMs: 15000 });
         if (prizmCache.writeHistory) prizmCache.writeHistory('feather-devices', responseData);
       } catch(e) {}
+      activeDeviceScanPromise = null;
       return responseData;
     })();
 
-    const data = await activeDeviceScanPromise;
-    activeDeviceScanPromise = null;
+    if (!activeDeviceScanPromise) {
+       activeDeviceScanPromise = discoveryPromise;
+    }
 
-    res.json(data);
+    if (forceRefresh) {
+        // Block and wait for it
+        const data = await activeDeviceScanPromise;
+        return res.json(data);
+    } else {
+        // Background update, return currently cached enrichment or just minimal info
+        if (lastEnrichedCache) {
+            lastEnrichedCache.isDiscovering = true;
+            return res.json(lastEnrichedCache);
+        } else {
+            // First ever fast return before enrich completes
+            return res.json({
+               success: true,
+               autoSeeded: true,
+               isDiscovering: true,
+               candidateCount: currentFeatherCache.devices.length,
+               total: currentFeatherCache.devices.length,
+               devices: currentFeatherCache.devices || [], // Use what we have so far
+               source: "topology",
+               siteCacheKey: currentFeatherCache.activeProfileId,
+               lastDiscoveredAt: currentFeatherCache.createdAt,
+               lastUpdatedAt: currentFeatherCache.lastUpdatedAt
+            });
+        }
+    }
   } catch (err: any) {
     activeDeviceScanPromise = null;
     res.status(500).json({ error: err.message || "Failed to fetch enriched Feather cache" });

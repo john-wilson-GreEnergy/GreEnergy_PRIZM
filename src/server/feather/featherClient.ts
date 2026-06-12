@@ -323,3 +323,26 @@ export async function refreshFeatherCache(opts: { timeoutMs?: number, force?: bo
     } catch(e) {}
 }
 
+export async function bootstrapFeatherDiscoveryAndSeedCache(options?: {
+  force?: boolean;
+  timeoutMs?: number;
+}): Promise<void> {
+  const cache = getFeatherCache();
+  if (!options?.force && !cache.isStale && cache.devices && cache.devices.length > 0) {
+     console.log("[Feather Bootstrap] Existing active-site Feather cache found. Skipping scan.");
+     return;
+  }
+  
+  console.log("[Feather Bootstrap] Starting topology-based Feather discovery...");
+  const candidates = discoverTopologyCandidates();
+  console.log(`[Feather Bootstrap] Candidate IPs discovered: ${candidates.length}`);
+  
+  if (candidates.length > 0) {
+      refreshFeatherCache(options).then(() => {
+          console.log(`[Feather Bootstrap] Feather cache seeded: ${candidates.length} devices`);
+      }).catch(err => {
+          console.warn("[Feather Bootstrap] Failed to seed cache:", err);
+      });
+  }
+}
+

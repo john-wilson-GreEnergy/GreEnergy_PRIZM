@@ -9,7 +9,7 @@ import {
   getEmsConnectionStatus
 } from "../emsTurtleClient";
 import { getFeatherCache } from "../feather/featherClient";
-import { parseTurtleJsonOrLabeledSections } from "./turtleParsers";
+import { parseTurtleJsonOrLabeledSections, parseCsvQuotesAware } from "./turtleParsers";
 import { writeSiteArtifact, getActiveSiteCacheKey } from "../cache/prizmCache";
 
 export type PrizmArrayTopology = {
@@ -306,14 +306,17 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
   let modbusOk = false;
   if (modbusMapRaw && typeof modbusMapRaw === 'string') {
     modbusOk = true;
-    const lines = modbusMapRaw.split('\\n');
+    const lines = parseCsvQuotesAware(modbusMapRaw);
     if (lines.length > 1) {
-       const headers = lines[0].split(',').map(h => h.trim());
+       const headers = lines[0];
        for (let i = 1; i < lines.length; i++) {
-         const fields = lines[i].split(',').map(f => f.trim());
+         const fields = lines[i];
          if (fields.length < 3) continue;
          const row: any = {};
-         headers.forEach((h, idx) => row[h] = fields[idx]);
+         headers.forEach((h, idx) => {
+             // Handle quotes removed already, no need to trim quotes again
+             row[h] = fields[idx] || "";
+         });
          modbusMap.push({
            name: row.FIELDNAME,
            register: Number(row.MODBUSADDRESS),

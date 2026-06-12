@@ -89,8 +89,20 @@ export default function FeatherDashboard() {
       
       if (res.ok) {
         const data = await res.json();
+        
+        if (data.isDiscovering) {
+            setLoading(true);
+            setLoadingStatus(`Discovery running in background... (${data.candidateCount || 0} candidates)`);
+        } else if (loading && data.live !== false) {
+            setLoading(false);
+            setLoadingStatus("");
+        }
+
         setDevices(prev => {
              // keep old rows around and just update matched keys to prevent jitter
+             if (!data.devices || data.devices.length === 0) {
+                 return prev || []; // keep old rows if discovery is pending
+             }
              if (!prev || prev.length === 0) return data.devices || [];
              const map = new Map(prev.map(d => [d.ip, d]));
              (data.devices || []).forEach((d: FeatherHvacDevice) => {
@@ -107,7 +119,7 @@ export default function FeatherDashboard() {
           isStale: !!data.isStale
         });
 
-        if (autoDiscoverOnEmpty && (!data.devices || data.devices.length === 0)) {
+        if (autoDiscoverOnEmpty && (!data.devices || data.devices.length === 0) && !data.isDiscovering) {
           runTopologyDiscovery(true);
         }
         setLastRefreshTime(Date.now());
@@ -207,14 +219,28 @@ export default function FeatherDashboard() {
       setAlertMessage(null);
     }
     try {
-      const res = await fetch("/api/feather/discover", { method: "POST" });
+      const res = await fetch("/api/feather/devices?refresh=true", { method: "GET" });
       const data = await res.json();
-      if (res.ok && data.success) {
-        await loadCache();
+      if (res.ok) {
+        setDevices(prev => {
+             const map = new Map((prev || []).map(d => [d.ip, d]));
+             (data.devices || []).forEach((d: FeatherHvacDevice) => {
+                  map.set(d.ip, d);
+             });
+             return Array.from(map.values());
+        });
+        setCacheDetails({
+          createdAt: data.createdAt || data.generatedAt,
+          lastUpdatedAt: data.lastUpdatedAt || data.scanCompletedAt || data.generatedAt,
+          activeProfileId: data.activeProfileId || data.profileId,
+          activeProfileName: data.activeProfileName || "Active Profile",
+          activeEmsBaseUrl: data.activeEmsBaseUrl || data.emsBaseUrl,
+          isStale: !!data.isStale
+        });
         if (!silent) {
           setAlertMessage({
             type: "success",
-            text: `Successfully discovered and polled ${data.count} candidate devices from active EMS maps.`
+            text: `Successfully discovered and polled ${data.devices?.length || data.candidateCount || 0} candidate devices from active EMS maps.`
           });
         }
       } else {
@@ -223,7 +249,11 @@ export default function FeatherDashboard() {
     } catch (e: any) {
       if (!silent) setAlertMessage({ type: "error", text: e.message || String(e) });
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) {
+        setLoading(false);
+        setLoadingStatus("");
+        setLastRefreshTime(Date.now());
+      }
     }
   };
 
@@ -535,7 +565,7 @@ export default function FeatherDashboard() {
               disabled={loading}
               className="px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-prizm-text font-mono text-[10px] font-black rounded uppercase tracking-wider text-center shadow-md shadow-cyan-950/40 cursor-pointer disabled:opacity-40 transition-all"
             >
-              Discover Topology
+              Refresh Topology Discovery
             </button>
             <button
               onClick={() => refreshSelectedTable(filteredDevices.map(d => d.ip))}
