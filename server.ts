@@ -6,6 +6,8 @@ import cacheRoutes from "./src/server/cache/cacheRoutes";
 import historyRoutes from "./src/server/history/historyRoutes";
 import siteOperationsRouter from "./src/server/siteOperations";
 import { topologyRouter } from "./src/server/topology/topologyRoutes";
+import modbusRouter from "./src/server/telemetry/modbusRoutes";
+import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
@@ -57,6 +59,8 @@ app.use("/api/local/site-operations", siteOperationsRouter);
 app.use("/api/local/cache", cacheRoutes);
 app.use("/api/local/history", historyRoutes);
 app.use("/api/local", topologyRouter);
+app.use("/api/local/modbus", modbusRouter);
+app.use("/api/local/telemetry", modbusRouter);
 
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -409,8 +413,10 @@ setInterval(async () => {
 // Kick off initial bootstrap cache seed
 bootstrapEmsAndSeedCache().then(() => {
     bootstrapFeatherDiscoveryAndSeedCache();
+    startModbusScheduler();
 }).catch(err => {
   console.log("[EMS LAN Info] Initial offline scan or bootstrap failed or finished.");
+  startModbusScheduler();
 });
 
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import FeatherDashboard from "./FeatherDashboard";
 import DataDiscovery from "./DataDiscovery";
+import ModbusProfileManagerUI from "./ModbusProfileManagerUI";
 
 interface TelemetryMetadata {
   source: "live" | "cached" | "offline" | "demo";
@@ -1152,84 +1153,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
 
         {/* ------------------------- 2F. MODBUS MAP BROWSER SUBTAB ------------------------- */}
         {activeSubTab === "modbus" && (
-          <div className="space-y-4 font-mono">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-2.5 text-prizm-text-muted" />
-                <input
-                  type="text"
-                  placeholder="Filter register nodes by keyword or address index..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded px-8 py-1.5 text-xs text-prizm-text focus:outline-none focus:border-prizm-primary"
-                />
-              </div>
-
-              <select
-                value={rwFilter}
-                onChange={e => setRwFilter(e.target.value)}
-                className="bg-prizm-surface-strong border border-prizm-border rounded px-3 py-1 text-xs text-prizm-text"
-              >
-                <option value="all">Access: All</option>
-                <option value="R">Read-Only (R)</option>
-                <option value="RW">Read/Write (RW)</option>
-              </select>
-            </div>
-
-            {/* Modbus registries list */}
-            <div className="border border-prizm-border rounded-lg overflow-hidden text-[11px]">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[750px]">
-                  <thead className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted uppercase tracking-widest text-[8px]">
-                    <tr>
-                      <th className="p-2.5">Category</th>
-                      <th className="p-2.5">Address</th>
-                      <th className="p-2.5 font-bold">Register Name / Description</th>
-                      <th className="p-2.5">Live Value</th>
-                      <th className="p-2.5">Data Type</th>
-                      <th className="p-2.5">Access</th>
-                      <th className="p-2.5">Scale</th>
-                      <th className="p-2.5">Mandatory</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 bg-prizm-surface-strong">
-                    {modbusMap
-                      .filter(row => {
-                        const matchesSearch = row.fieldName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                             String(row.register).includes(searchQuery) ||
-                                             row.fieldType.toLowerCase().includes(searchQuery.toLowerCase());
-                        const matchesAccess = rwFilter === "all" || row.rw.toLowerCase() === rwFilter.toLowerCase();
-                        return matchesSearch && matchesAccess;
-                      })
-                      .map((row, idx) => (
-                        <tr key={idx} className="hover:bg-black/5">
-                          <td className="p-2.5 text-prizm-text-muted">{row.fieldType}</td>
-                          <td className="p-2.5 text-prizm-primary font-bold font-mono">{row.register}</td>
-                          <td className="p-2.5 font-semibold text-prizm-text">{row.fieldName}</td>
-                          <td className="p-2.5 text-prizm-primary font-bold">{row.value} {row.unit !== "-" ? row.unit : ""}</td>
-                          <td className="p-2.5 text-prizm-text-muted">{row.type} ({row.fieldSize || "1 word"})</td>
-                          <td className="p-2.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
-                              row.rw === "RW" ? "bg-prizm-warning/10 text-prizm-warning" : "bg-prizm-info/10 text-prizm-primary"
-                            }`}>
-                              {row.rw}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-prizm-text-muted">{row.scaleFactor}</td>
-                          <td className="p-2.5">
-                            {row.mandatory ? (
-                              <span className="text-prizm-primary font-black">✔ MANDATORY</span>
-                            ) : (
-                              <span className="text-prizm-text-muted">Optional</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <ModbusProfileManagerUI />
         )}
 
         {/* ------------------------- 2G. LOCKED ADVANCED WORKFLOWS ------------------------- */}
