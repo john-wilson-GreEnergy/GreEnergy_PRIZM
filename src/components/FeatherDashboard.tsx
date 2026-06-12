@@ -49,13 +49,19 @@ export default function FeatherDashboard() {
     activeProfileName: string;
     activeEmsBaseUrl: string;
     isStale: boolean;
+    candidateCount: number;
+    rejectedCandidateCount: number;
+    total: number;
   }>({
     createdAt: null,
     lastUpdatedAt: null,
     activeProfileId: "",
     activeProfileName: "",
     activeEmsBaseUrl: "",
-    isStale: true
+    isStale: true,
+    candidateCount: 0,
+    rejectedCandidateCount: 0,
+    total: 0
   });
 
   const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(5);
@@ -116,7 +122,10 @@ export default function FeatherDashboard() {
           activeProfileId: data.activeProfileId || data.profileId,
           activeProfileName: data.activeProfileName || "Active Profile",
           activeEmsBaseUrl: data.activeEmsBaseUrl || data.emsBaseUrl,
-          isStale: !!data.isStale
+          isStale: !!data.isStale,
+          candidateCount: data.candidateCount || 0,
+          rejectedCandidateCount: data.rejectedCandidateCount || 0,
+          total: data.total || 0
         });
 
         if (autoDiscoverOnEmpty && (!data.devices || data.devices.length === 0) && !data.isDiscovering) {
@@ -219,7 +228,7 @@ export default function FeatherDashboard() {
       setAlertMessage(null);
     }
     try {
-      const res = await fetch("/api/feather/devices?refresh=true", { method: "GET" });
+      const res = await fetch(silent ? "/api/feather/devices?refresh=true" : "/api/feather/discover", { method: silent ? "GET" : "POST" });
       const data = await res.json();
       if (res.ok) {
         setDevices(prev => {
@@ -235,12 +244,15 @@ export default function FeatherDashboard() {
           activeProfileId: data.activeProfileId || data.profileId,
           activeProfileName: data.activeProfileName || "Active Profile",
           activeEmsBaseUrl: data.activeEmsBaseUrl || data.emsBaseUrl,
-          isStale: !!data.isStale
+          isStale: !!data.isStale,
+          candidateCount: data.count || data.candidateCount || 0,
+          rejectedCandidateCount: data.rejectedCount || data.rejectedCandidateCount || 0,
+          total: data.devices?.length || data.total || 0
         });
         if (!silent) {
           setAlertMessage({
             type: "success",
-            text: `Successfully discovered and polled ${data.devices?.length || data.candidateCount || 0} candidate devices from active EMS maps.`
+            text: `Successfully discovered and polled ${data.count || data.devices?.length || 0} candidate devices from active EMS maps.`
           });
         }
       } else {
@@ -774,7 +786,7 @@ export default function FeatherDashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 font-mono text-[11px]">
         {[
-          { label: "IP Candidates", val: stats.total, color: "text-prizm-text" },
+          { label: "IP Candidates", val: cacheDetails.candidateCount > 0 ? cacheDetails.candidateCount : stats.total, color: "text-prizm-text", extra: cacheDetails.rejectedCandidateCount > 0 ? `${cacheDetails.rejectedCandidateCount} rejected` : "" },
           { label: "Reachable Nodes", val: stats.reachable, color: "text-prizm-primary" , extra: `${stats.unreachable} offline` },
           { label: "Avg Latency", val: stats.avgDuration > 0 ? `${stats.avgDuration.toFixed(0)} ms` : "0 ms", color: "text-prizm-primary" },
           { label: "Warnings Active", val: stats.warnings, color: stats.warnings > 0 ? "text-prizm-warning font-black bg-prizm-warning/10 rounded px-1.5 inline-block py-0.2" : "text-prizm-text-muted" },

@@ -88,6 +88,54 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
               });
           }
      }
+
+     // 4. Fallback to Known Pattern (EMS arrays)
+     // Always augment with probable ES hosts if we know arrays exist
+     const activeProfile = ProfileStore.getActiveProfile();
+     let arrayCount = activeProfile ? (activeProfile.arrayCount ?? 0) : 0;
+     
+     // Use topology array count if available and > activeProfile count
+     if (topology.counts?.arrayCount && topology.counts.arrayCount > arrayCount) {
+         arrayCount = topology.counts.arrayCount;
+     }
+     
+     // fallback to 8 standard arrays if not known initially, matching typical BESS topology
+     if (arrayCount === 0) arrayCount = 8; 
+
+     for (let a = 1; a <= arrayCount; a++) {
+         // CS Host (array controller)
+         const arrayIp = `10.0.${a}.3`;
+         if (!candidatesMap.has(arrayIp)) {
+             candidatesMap.set(arrayIp, {
+                 deviceIp: arrayIp,
+                 sourceDiscoveryMethod: "blockviewer",
+                 arrayIndex: a,
+                 stringIndex: null,
+                 entityName: `Array ${a} Enclosure Controller`,
+                 entityKeyToken: `ARR_${a}_CTRL`
+             });
+         } else if (candidatesMap.get(arrayIp)?.excluded) {
+             candidatesMap.get(arrayIp)!.excluded = false;
+         }
+
+         // ES Hosts (.10 to .105 step 5)
+         for (let h = 10; h <= 105; h += 5) {
+             const stringIp = `10.0.${a}.${h}`;
+             const stringIndex = Math.floor((h - 10) / 5) + 1;
+             if (!candidatesMap.has(stringIp)) {
+                 candidatesMap.set(stringIp, {
+                     deviceIp: stringIp,
+                     sourceDiscoveryMethod: "blockviewer",
+                     arrayIndex: a,
+                     stringIndex,
+                     entityName: `Array ${a} String ${stringIndex} Enclosure Controller`,
+                     entityKeyToken: `ARR_${a}_STR_${stringIndex}_ES`
+                 });
+             } else if (candidatesMap.get(stringIp)?.excluded) {
+                 candidatesMap.get(stringIp)!.excluded = false;
+             }
+         }
+     }
   } catch (err) {
      console.warn("Could not extract topology candidates from siteTopology:", err);
   }

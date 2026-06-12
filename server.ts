@@ -1220,8 +1220,7 @@ app.post("/api/feather/discover", async (req, res) => {
     const concurrency = Number(process.env.FEATHER_SCAN_CONCURRENCY) || 16;
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
 
-    const ips = candidates.map(c => c.deviceIp);
-    const results = await executeFeatherScan(ips, concurrency, timeout);
+    const results = await executeFeatherScan(candidates, concurrency, timeout);
     const valid = results.filter(r => !r.rejected);
     const rejected = results.filter(r => r.rejected);
     res.json({
@@ -1299,10 +1298,18 @@ app.get("/api/feather/devices", async (req, res) => {
 
       // First pass to discover candidates and topologies
       const initialData = await fetchEnrichedDevices();
-      const ipsToPoll = initialData.devices.map((d: any) => d.ip).filter((ip: string) => ip);
+      let ipsToPoll = initialData.devices.map((d: any) => d.ip).filter((ip: string) => ip);
 
-      // Perform live background scan
-      if (ipsToPoll.length > 0) {
+      // If empty and force refresh requested, generate initial topology candidates!
+      if (ipsToPoll.length === 0 && forceRefresh) {
+         const candidates = discoverTopologyCandidates();
+         ipsToPoll = candidates.map(c => c.deviceIp);
+         if (ipsToPoll.length > 0) {
+             // Let the real feathered polling seed the cache
+             await executeFeatherScan(candidates, 32, 2500);
+         }
+      } else if (ipsToPoll.length > 0) {
+        // Perform live background scan
         // Use high concurrency and shorter timeout for quick live UI refresh
         await executeFeatherScan(ipsToPoll, 32, 2500);
       }

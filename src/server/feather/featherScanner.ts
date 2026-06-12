@@ -209,7 +209,7 @@ export function resolveScanCandidates(config: ManualScanConfig): {
  * Runs a concurrent port query scanning algorithm.
  */
 export async function executeFeatherScan(
-  ips: string[],
+  targets: string[] | import("./featherTypes").DiscoveryCandidate[],
   concurrencyLimit: number = 16,
   timeoutMs: number = 3000
 ): Promise<any[]> {
@@ -217,11 +217,24 @@ export async function executeFeatherScan(
   let index = 0;
 
   async function worker() {
-    while (index < ips.length) {
+    while (index < targets.length) {
       const currentIdx = index++;
-      const ip = ips[currentIdx];
+      const target = targets[currentIdx];
+      
+      let ip = "";
+      let source: any = "manual";
+      let candidateInfo: any = undefined;
+
+      if (typeof target === "string") {
+         ip = target;
+      } else {
+         ip = target.deviceIp;
+         source = target.sourceDiscoveryMethod || "manual";
+         candidateInfo = target;
+      }
+
       try {
-        const item = await queryFeatherDevice(ip, "manual", timeoutMs);
+        const item = await queryFeatherDevice(ip, source, timeoutMs, candidateInfo);
         results.push(item);
       } catch (err) {
         console.error(`Concurrent scanner crashed on target ${ip}`, err);
@@ -230,7 +243,7 @@ export async function executeFeatherScan(
   }
 
   const workerPool = Array.from(
-    { length: Math.min(concurrencyLimit, ips.length) },
+    { length: Math.min(concurrencyLimit, targets.length) },
     worker
   );
 
