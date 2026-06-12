@@ -434,27 +434,46 @@ export async function fetchEnrichedDevices() {
 
   const devicesMap = new Map<string, FeatherHvacDevice>();
 
-  const getOrCreate = (ip: string) => {
-    if (!devicesMap.has(ip)) {
-      devicesMap.set(ip, {
-        ip,
-        discoveryMethod: "merged",
-        sourceCoverage: {
-          blockviewer: false,
-          ipMap: false,
-          stringIpMap: false,
-          stringsCsv: false,
-          lastCall: false,
-          directFeather: false,
-          firstResponder: false
-        },
-        raw: {},
-        warnInfo: [],
-        alarmFaults: []
-      });
-    }
-    return devicesMap.get(ip)!;
-  };
+  let rejectedCandidateCount = 0;
+  const rejectedCandidates: any[] = [];
+
+  // 1. Initialize map only with explicitly tracked Feather devices
+  if (cache && cache.devices) {
+     for (const dev of cache.devices) {
+         if ((dev as any).rejected) {
+             rejectedCandidateCount++;
+             rejectedCandidates.push({
+                 candidateIp: dev.deviceIp,
+                 included: false,
+                 reason: (dev as any).rejectedReason || "string-controller-or-inferred-es-host",
+                 source: dev.sourceDiscoveryMethod || "stringIpMap",
+                 lastValidationStatus: "not-feather"
+             });
+             continue;
+         }
+         
+         if (dev.deviceIp) {
+             devicesMap.set(dev.deviceIp, {
+                 ip: dev.deviceIp,
+                 discoveryMethod: "merged",
+                 sourceCoverage: {
+                   blockviewer: false,
+                   ipMap: false,
+                   stringIpMap: false,
+                   stringsCsv: false,
+                   lastCall: false,
+                   directFeather: true,
+                   firstResponder: false
+                 },
+                 raw: { directFeather: dev },
+                 warnInfo: [],
+                 alarmFaults: []
+             });
+         }
+     }
+  }
+
+  const getIfExists = (ip: string) => devicesMap.get(ip);
 
   const sourceCounts = {
     blockviewer: 0,
@@ -472,7 +491,8 @@ export async function fetchEnrichedDevices() {
       const list = Array.isArray(bData) ? bData : (bData.topology || []);
       for (const item of list) {
           if (item && item.ipAddress) {
-             const d = getOrCreate(item.ipAddress);
+             const d = getIfExists(item.ipAddress);
+             if (!d) continue;
              d.sourceCoverage.blockviewer = true;
              d.raw!.blockviewer = item;
              if (item.entityKeyToken) d.entityKeyToken = item.entityKeyToken;
@@ -490,7 +510,8 @@ export async function fetchEnrichedDevices() {
       if (bData.arrays && Array.isArray(bData.arrays)) {
         for (const arr of bData.arrays) {
            if (arr.ipAddress) {
-               const d = getOrCreate(arr.ipAddress);
+               const d = getIfExists(arr.ipAddress);
+               if (!d) continue;
                d.sourceCoverage.blockviewer = true;
                d.raw!.blockviewer = arr;
                if (arr.entityKeyToken) d.entityKeyToken = arr.entityKeyToken;
@@ -502,7 +523,8 @@ export async function fetchEnrichedDevices() {
            if (arr.strings && Array.isArray(arr.strings)) {
                for (const str of arr.strings) {
                     if (str.ipAddress) {
-                         const d = getOrCreate(str.ipAddress);
+                         const d = getIfExists(str.ipAddress);
+                         if (!d) continue;
                          d.sourceCoverage.blockviewer = true;
                          d.raw!.blockviewer = str;
                          if (str.entityKeyToken) d.entityKeyToken = str.entityKeyToken;
@@ -521,7 +543,8 @@ export async function fetchEnrichedDevices() {
   if (sources.ipMap && typeof sources.ipMap === 'object') {
      for (const [key, val] of Object.entries(sources.ipMap)) {
          if (val && (val as any).ipAddress) {
-             const d = getOrCreate((val as any).ipAddress);
+             const d = getIfExists((val as any).ipAddress);
+             if (!d) continue;
              d.sourceCoverage.ipMap = true;
              d.raw!.ipMap = val;
              if ((val as any).entityType && !d.entityType) d.entityType = (val as any).entityType;
@@ -536,7 +559,8 @@ export async function fetchEnrichedDevices() {
   if (sources.stringIpMap && Array.isArray(sources.stringIpMap)) {
       for (const item of sources.stringIpMap) {
           if (item && item.ip) {
-              const d = getOrCreate(item.ip);
+              const d = getIfExists(item.ip);
+              if (!d) continue;
               d.sourceCoverage.stringIpMap = true;
               d.raw!.stringIpMap = item;
               if (item.arrayIndex !== undefined) d.arrayIndex = item.arrayIndex;
@@ -550,7 +574,8 @@ export async function fetchEnrichedDevices() {
   if (sources.lastCall && Array.isArray(sources.lastCall)) {
       for (const item of sources.lastCall) {
           if (item && item.ipAddress) {
-              const d = getOrCreate(item.ipAddress);
+              const d = getIfExists(item.ipAddress);
+              if (!d) continue;
               d.sourceCoverage.lastCall = true;
               d.raw!.lastCall = item;
               if (item.firmwareVersion) d.firmwareVersion = item.firmwareVersion;
@@ -565,7 +590,8 @@ export async function fetchEnrichedDevices() {
       const list = Array.isArray(data) ? data : (data.devices || []);
       for (const item of list) {
           if (item && item.ipAddress) {
-              const d = getOrCreate(item.ipAddress);
+              const d = getIfExists(item.ipAddress);
+              if (!d) continue;
               d.sourceCoverage.firstResponder = true;
               d.raw!.firstResponder = item;
               sourceCounts.firstResponder++;
@@ -583,7 +609,8 @@ export async function fetchEnrichedDevices() {
        const list = Array.isArray(data) ? data : (data.devices || []);
        for (const item of list) {
            if (item && item.ipAddress) {
-               const d = getOrCreate(item.ipAddress);
+               const d = getIfExists(item.ipAddress);
+               if (!d) continue;
                d.sourceCoverage.firstResponder = true;
                d.raw!.firstResponder = item;
                sourceCounts.firstResponder++;
@@ -599,7 +626,8 @@ export async function fetchEnrichedDevices() {
   if (cache && cache.devices) {
      for (const dev of cache.devices) {
          if (dev.deviceIp) {
-             const d = getOrCreate(dev.deviceIp);
+             const d = getIfExists(dev.deviceIp);
+             if (!d) continue;
              d.sourceCoverage.directFeather = true;
              d.raw!.directFeather = dev;
              if (dev.reachable && dev.rawResponse) {
@@ -723,6 +751,9 @@ export async function fetchEnrichedDevices() {
     profileId: profile.id,
     emsBaseUrl: baseUrl,
     generatedAt: new Date().toISOString(),
+    candidateCount: devices.length,
+    rejectedCandidateCount,
+    rejectedCandidates,
     total: devices.length,
     sourceCounts,
     devices

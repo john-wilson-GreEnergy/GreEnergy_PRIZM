@@ -78,12 +78,7 @@ export async function queryFeatherDevice(
   deviceIp: string,
   sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual",
   timeoutMs: number = 3000,
-  candidateInfo?: {
-    arrayIndex?: number | null;
-    stringIndex?: number | null;
-    entityName?: string | null;
-    entityKeyToken?: string | null;
-  }
+  candidateInfo?: DiscoveryCandidate
 ): Promise<FeatherNormalizedStatus> {
   const activeProfile = ProfileStore.getActiveProfile();
   const activeId = activeProfile ? activeProfile.id : "default-local-ems";
@@ -117,8 +112,18 @@ export async function queryFeatherDevice(
       candidateInfo
     );
 
-    // Save single record to active cache
+    // Save single record to active cache conditionally
+    const isExplicitCandidate = sourceDiscoveryMethod !== "manual" && sourceDiscoveryMethod !== "string-ip-map" && !candidateInfo?.excluded;
+    const tempCache = featherProfilesCache.get(activeId);
+    const previouslyValidated = tempCache && tempCache.devices.some(d => d.deviceIp === deviceIp && !(d as any).rejected);
+
+    if (!isReachable && !isExplicitCandidate && !previouslyValidated) {
+       (normalized as any).rejected = true;
+       (normalized as any).rejectedReason = candidateInfo?.excludeReason || "Demo Mode: Node Simulated Offline";
+    }
+
     saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+
     return normalized;
   }
 
@@ -145,6 +150,44 @@ export async function queryFeatherDevice(
     }
 
     const rawJson = await res.json();
+    
+    const looksLikeFeather = rawJson && (
+        rawJson.turtleVersion || 
+        rawJson.thermalData || 
+        rawJson.deviceType || 
+        rawJson.fssSignals || 
+        rawJson.doors || 
+        rawJson.fromFeatherControllerStatistcsReport
+    );
+
+    const isExplicitCandidate = sourceDiscoveryMethod !== "manual" && sourceDiscoveryMethod !== "string-ip-map" && !candidateInfo?.excluded;
+    const tempCache = featherProfilesCache.get(activeId);
+    const previouslyValidated = tempCache && tempCache.devices.some(d => d.deviceIp === deviceIp && !(d as any).rejected);
+
+    if (!looksLikeFeather) {
+        const errMsg = "Payload is missing expected Feather identifiers";
+        const normalized = normalizeFeatherStatus(
+          deviceIp,
+          false,
+          duration,
+          null,
+          errMsg,
+          activeId,
+          activeName,
+          activeUrl,
+          sourceDiscoveryMethod,
+          candidateInfo
+        );
+    
+        if (!isExplicitCandidate && !previouslyValidated) {
+            (normalized as any).rejected = true;
+            (normalized as any).rejectedReason = candidateInfo?.excludeReason || errMsg;
+        }
+        
+        saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+        return normalized;
+    }
+
     const normalized = normalizeFeatherStatus(
       deviceIp,
       true,
@@ -158,6 +201,7 @@ export async function queryFeatherDevice(
       candidateInfo
     );
 
+    // If it successfully replied as a Feather, it is never rejected, even if originally excluded
     saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
     return normalized;
 
@@ -165,6 +209,10 @@ export async function queryFeatherDevice(
     clearTimeout(timeoutId);
     const duration = Date.now() - startTime;
     const errMsg = err.name === "AbortError" ? "Fetch Aborted: timeout exceeded" : err.message || String(err);
+
+    const isExplicitCandidate = sourceDiscoveryMethod !== "manual" && sourceDiscoveryMethod !== "string-ip-map" && !candidateInfo?.excluded;
+    const tempCache = featherProfilesCache.get(activeId);
+    const previouslyValidated = tempCache && tempCache.devices.some(d => d.deviceIp === deviceIp && !(d as any).rejected);
 
     const normalized = normalizeFeatherStatus(
       deviceIp,
@@ -179,6 +227,11 @@ export async function queryFeatherDevice(
       candidateInfo
     );
 
+    if (!isExplicitCandidate && !previouslyValidated) {
+        (normalized as any).rejected = true;
+        (normalized as any).rejectedReason = candidateInfo?.excludeReason || errMsg;
+    }
+    
     saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
     return normalized;
   }
@@ -328,7 +381,7 @@ export async function bootstrapFeatherDiscoveryAndSeedCache(options?: {
   timeoutMs?: number;
 }): Promise<void> {
   const cache = getFeatherCache();
-  if (!options?.force && !cache.isStale && cache.devices && cache.devices.length > 0) {
+  if (!options?.force && !cache.isStale && cache.devices && cache.devices.some(d => !(d as any).rejected)) {
      console.log("[Feather Bootstrap] Existing active-site Feather cache found. Skipping scan.");
      return;
   }

@@ -12,12 +12,12 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
   try {
      const topology = buildSiteTopologyFromCachedSources();
      
-     // 1. siteTopology.featherDevices[].ipAddress
+     // 1. siteTopology.featherDevices[].ipAddress (explicit feather from known reports/endpoints)
      for (const f of topology.featherDevices) {
          if (f.ipAddress) {
              candidatesMap.set(f.ipAddress, {
                 deviceIp: f.ipAddress,
-                sourceDiscoveryMethod: "ip-map", // close enough, means generic discovered map
+                sourceDiscoveryMethod: "ip-map",
                 arrayIndex: f.arrayIndex ?? null,
                 stringIndex: f.stringIndex ?? null,
                 entityName: f.enclosureLabel ?? `Feather at ${f.ipAddress}`,
@@ -26,28 +26,54 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
          }
      }
 
-     // 2. siteTopology.ipMap[] records that look like Feather/CS/ES/BMS/HVAC/sensor nodes
+     // 2. siteTopology.ipMap[] records that explicitly look like Feather/CS/ES/BMS/HVAC/sensor nodes
      for (const ipm of topology.ipMap) {
          const typeStr = (ipm.entityType || "").toLowerCase();
          const descStr = (ipm.entityDescription || ipm.displayKey || "").toLowerCase();
-         // If it looks like feather/environment/bms
-         if (typeStr.includes('feather') || descStr.includes('feather') || 
-             typeStr.includes('es') || typeStr.includes('bms') || 
-             typeStr.includes('cs') || descStr.includes('hvac')) {
-             if (ipm.ipAddress && !candidatesMap.has(ipm.ipAddress)) {
-                  candidatesMap.set(ipm.ipAddress, {
+         // If it explicitly looks like feather/environment/bms AND not just a general string/bpc
+         const isExplicitFeather = 
+             typeStr.includes('feather') || descStr.includes('feather') || 
+             typeStr.includes('bms') || 
+             typeStr.includes('hvac') || descStr.includes('hvac') ||
+             typeStr.includes('hts') || descStr.includes('hts') ||
+             typeStr.includes('thermal') || descStr.includes('thermal') ||
+             typeStr.includes('mio') || descStr.includes('mio') ||
+             typeStr.includes('fss') || descStr.includes('fss') ||
+             typeStr.includes('door') || descStr.includes('door') ||
+             typeStr.includes('sensor') || descStr.includes('sensor') ||
+             typeStr.includes('enclosure controller') || descStr.includes('enclosure controller');
+             
+         const isGeneralString = 
+             typeStr.includes('bpc') || descStr.includes('bpc') || 
+             typeStr.includes('string controller') || descStr.includes('string controller') ||
+             typeStr.includes('pcs') || descStr.includes('pcs');
+
+         if (ipm.ipAddress && !candidatesMap.has(ipm.ipAddress)) {
+             if (isExplicitFeather && !isGeneralString) {
+                 candidatesMap.set(ipm.ipAddress, {
                       deviceIp: ipm.ipAddress,
                       sourceDiscoveryMethod: "ip-map",
                       arrayIndex: ipm.arrayIndex ?? null,
                       stringIndex: ipm.stringIndex ?? null,
                       entityName: ipm.entityDescription || ipm.displayKey || `IP-Map Entity`,
                       entityKeyToken: `IP_MAP_VAL`
-                  });
+                 });
+             } else if (isGeneralString || typeStr.includes('es')) {
+                 candidatesMap.set(ipm.ipAddress, {
+                      deviceIp: ipm.ipAddress,
+                      sourceDiscoveryMethod: "ip-map",
+                      arrayIndex: ipm.arrayIndex ?? null,
+                      stringIndex: ipm.stringIndex ?? null,
+                      entityName: ipm.entityDescription || ipm.displayKey || `IP-Map Entity`,
+                      entityKeyToken: `IP_MAP_VAL`,
+                      excluded: true,
+                      excludeReason: "string-controller-or-inferred-es-host"
+                 });
              }
          }
      }
-
-     // 3. siteTopology.stringIpMap[]
+     
+     // 3. String IPs from stringIpMap (these are almost always string controllers, not feathers)
      for (const sim of topology.stringIpMap) {
           if (sim.ipAddress && !candidatesMap.has(sim.ipAddress)) {
               candidatesMap.set(sim.ipAddress, {
@@ -56,49 +82,12 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
                   arrayIndex: sim.arrayIndex ?? null,
                   stringIndex: sim.stringIndex ?? null,
                   entityName: `Array ${sim.arrayIndex} String ${sim.stringIndex} Controller`,
-                  entityKeyToken: `STR_IP_VAL`
+                  entityKeyToken: `STR_IP_VAL`,
+                  excluded: true,
+                  excludeReason: "string-controller-or-inferred-es-host"
               });
           }
      }
-     
-     // 4. EMS strings / fallback inference
-     // For each array and string that isn't mapped, fallback via standard LAN plan
-     if (candidatesMap.size === 0) {
-        const activeProfile = ProfileStore.getActiveProfile();
-        const arrayCount = activeProfile ? (activeProfile.arrayCount ?? 8) : 8;
-
-        for (let a = 1; a <= arrayCount; a++) {
-            // Array Controller (Feather host 3)
-            const arrayIp = `10.0.${a}.3`;
-            if (!candidatesMap.has(arrayIp)) {
-                candidatesMap.set(arrayIp, {
-                    deviceIp: arrayIp,
-                    sourceDiscoveryMethod: "blockviewer",
-                    arrayIndex: a,
-                    stringIndex: null,
-                    entityName: `Array ${a} Enclosure Controller`,
-                    entityKeyToken: `ARR_${a}_CTRL`
-                });
-            }
-
-            // Battery strings (hosts 10, 15, 20, ..., 105)
-            for (let h = 10; h <= 105; h += 5) {
-                const stringIp = `10.0.${a}.${h}`;
-                const stringIndex = Math.floor((h - 10) / 5) + 1;
-                if (!candidatesMap.has(stringIp)) {
-                    candidatesMap.set(stringIp, {
-                        deviceIp: stringIp,
-                        sourceDiscoveryMethod: "blockviewer",
-                        arrayIndex: a,
-                        stringIndex,
-                        entityName: `Array ${a} String ${stringIndex} Controller`,
-                        entityKeyToken: `ARR_${a}_STR_${stringIndex}`
-                    });
-                }
-            }
-        }
-     }
-
   } catch (err) {
      console.warn("Could not extract topology candidates from siteTopology:", err);
   }

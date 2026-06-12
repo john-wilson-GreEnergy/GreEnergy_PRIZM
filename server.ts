@@ -1222,10 +1222,14 @@ app.post("/api/feather/discover", async (req, res) => {
 
     const ips = candidates.map(c => c.deviceIp);
     const results = await executeFeatherScan(ips, concurrency, timeout);
+    const valid = results.filter(r => !r.rejected);
+    const rejected = results.filter(r => r.rejected);
     res.json({
       success: true,
-      count: results.length,
-      devices: results
+      count: valid.length,
+      rejectedCount: rejected.length,
+      devices: valid,
+      rejectedDevices: rejected
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Topology discovery execution failed" });
@@ -1243,12 +1247,16 @@ app.post("/api/feather/scan", async (req, res) => {
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
 
     const results = await executeFeatherScan(ips, concurrency, timeout);
+    const valid = results.filter(r => !r.rejected);
+    const rejected = results.filter(r => r.rejected);
 
     res.json({
       success: true,
       warnings,
-      count: results.length,
-      devices: results
+      count: valid.length,
+      rejectedCount: rejected.length,
+      devices: valid,
+      rejectedDevices: rejected
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Manual scan range execution failed" });
@@ -1267,7 +1275,7 @@ app.get("/api/feather/devices", async (req, res) => {
     const maxAgeMs = req.query.maxAgeMs ? parseInt(req.query.maxAgeMs as string, 10) : 5000;
 
     const currentFeatherCache = getFeatherCache();
-    const hasKnownFeatherIps = !currentFeatherCache.isStale && currentFeatherCache.devices && currentFeatherCache.devices.length > 0;
+    const hasKnownFeatherIps = !currentFeatherCache.isStale && currentFeatherCache.devices && currentFeatherCache.devices.some(d => !(d as any).rejected);
 
     if (!forceRefresh && lastEnrichedCache) {
       const ageMs = Date.now() - new Date(lastEnrichedCache.generatedAt).getTime();
@@ -1341,13 +1349,17 @@ app.get("/api/feather/devices", async (req, res) => {
             return res.json(lastEnrichedCache);
         } else {
             // First ever fast return before enrich completes
+            const validCacheDevices = currentFeatherCache.devices.filter(d => !(d as any).rejected);
+            const rejectedCacheDevices = currentFeatherCache.devices.filter(d => (d as any).rejected);
+            
             return res.json({
                success: true,
                autoSeeded: true,
                isDiscovering: true,
-               candidateCount: currentFeatherCache.devices.length,
-               total: currentFeatherCache.devices.length,
-               devices: currentFeatherCache.devices || [], // Use what we have so far
+               candidateCount: validCacheDevices.length,
+               rejectedCandidateCount: rejectedCacheDevices.length,
+               total: validCacheDevices.length,
+               devices: validCacheDevices, // Use what we have so far
                source: "topology",
                siteCacheKey: currentFeatherCache.activeProfileId,
                lastDiscoveredAt: currentFeatherCache.createdAt,

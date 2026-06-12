@@ -82,6 +82,8 @@ export interface DiscoveryCandidate {
   stringIndex?: number | null;
   entityName?: string | null;
   entityKeyToken?: string | null;
+  excluded?: boolean;
+  excludeReason?: string;
 }
 
 export interface ManualScanConfig {
