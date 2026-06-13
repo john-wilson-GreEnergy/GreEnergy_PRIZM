@@ -20,7 +20,11 @@ import {
     ServerCrash,
     BoxSelect,
     PanelTop,
-    Rows4
+    Rows4,
+    Lock,
+    Unlock,
+    Play,
+    Pause
 } from "lucide-react";
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
 
@@ -103,6 +107,53 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
         siteSummary: null,
         historyEvents: null
     });
+
+    const [isAdvancedMode, setIsAdvancedMode] = useState(false);
+    
+    // EMS App control states
+    const [emsAppCandidate, setEmsAppCandidate] = useState<any>(null);
+    const [emsAppTargetState, setEmsAppTargetState] = useState<boolean>(false);
+    const [emsAppConfText, setEmsAppConfText] = useState("");
+    const [emsAppLoading, setEmsAppLoading] = useState(false);
+    const [emsAppResult, setEmsAppResult] = useState<any>(null);
+
+    const executeEmsAppAction = async () => {
+        if (!emsAppCandidate) return;
+        const expectedText = `${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`;
+        if (emsAppConfText !== expectedText) {
+            setEmsAppResult({ success: false, message: "Confirmation text does not match" });
+            return;
+        }
+
+        setEmsAppLoading(true);
+        setEmsAppResult(null);
+
+        try {
+            const res = await fetch("/api/local/ems-apps/enabled-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    stationCode: state.siteSummary?.site?.stationCode || "BHE0020",
+                    blockIndex: state.siteSummary?.site?.blockIndex || 1,
+                    appCode: emsAppCandidate.appCode,
+                    priority: emsAppCandidate.priority,
+                    enabled: emsAppTargetState,
+                    confirmationText: emsAppConfText,
+                    requestedBy: "local-overview"
+                })
+            });
+            const data = await res.json();
+            setEmsAppResult(data);
+            if (data.success || data.queued) {
+                // Refresh data
+                triggerRefresh(true);
+            }
+        } catch (err: any) {
+            setEmsAppResult({ success: false, message: err.message });
+        } finally {
+            setEmsAppLoading(false);
+        }
+    };
 
     const [clearCandidate, setClearCandidate] = useState<any>(null);
     const [clearConfRef, setClearConfRef] = useState("");
@@ -325,6 +376,19 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
             {/* EMS Apps */}
             <CollapsibleSection title="Operating Context (EMS Apps)" icon={BoxSelect} defaultExpanded={false}>
+                 <div className="flex justify-end p-2 bg-prizm-surface border-b border-prizm-border">
+                     <button
+                        onClick={() => setIsAdvancedMode(!isAdvancedMode)}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors ${
+                            isAdvancedMode 
+                            ? "bg-amber-500/10 border-amber-500/50 text-amber-500 hover:bg-amber-500/20" 
+                            : "bg-prizm-surface-strong border-prizm-border text-prizm-text hover:bg-white/5"
+                        }`}
+                     >
+                         {isAdvancedMode ? <Unlock size={12} /> : <Lock size={12} />}
+                         {isAdvancedMode ? "Advanced Controls Unlocked" : "Unlock Advanced Controls"}
+                     </button>
+                 </div>
                  {emsAppsData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
@@ -332,6 +396,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                  <th className="p-2 font-bold text-center">Pri</th>
                                  <th className="p-2 font-bold">App Code</th>
                                  <th className="p-2 font-bold">App Name</th>
+                                 {isAdvancedMode && <th className="p-2 font-bold text-center">Action</th>}
                                  <th className="p-2 font-bold">Configuration</th>
                                  <th className="p-2 font-bold text-center">Status</th>
                                  <th className="p-2 font-bold">Details</th>
@@ -353,6 +418,25 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                      <td className="p-2 text-center text-prizm-text-muted">{app.priority !== undefined && app.priority !== null ? app.priority : "--"}</td>
                                      <td className="p-2 text-prizm-text font-bold">{app.appCode || "--"}</td>
                                      <td className="p-2 text-prizm-primary font-bold">{app.appName || "--"}</td>
+                                     {isAdvancedMode && (
+                                         <td className="p-2 text-center w-[100px]">
+                                             <button 
+                                                onClick={() => {
+                                                    setEmsAppCandidate(app);
+                                                    setEmsAppTargetState(!app.enabled);
+                                                    setEmsAppConfText("");
+                                                    setEmsAppResult(null);
+                                                }}
+                                                className={`px-2 py-1 flex items-center justify-center gap-1 rounded font-bold uppercase transition-colors w-full border ${
+                                                    app.enabled
+                                                    ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                                                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                                                }`}
+                                             >
+                                                {app.enabled ? <><Pause size={10} /> Disable</> : <><Play size={10} /> Enable</>}
+                                             </button>
+                                         </td>
+                                     )}
                                      <td className="p-2 text-prizm-text-muted text-xs">{app.configName || "--"} {app.configVersionId ? `(v${app.configVersionId})` : ""}</td>
                                      <td className="p-2 text-center">
                                          <span className={`px-2 py-[2px] rounded font-bold ${statusColor}`}>{displayStatus}</span>
@@ -851,6 +935,121 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                 </div>
             )}
             
+            {/* EMS App Control Modal */}
+            {emsAppCandidate && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-prizm-surface-strong border border-prizm-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+                        <div className="flex items-center gap-2 p-4 bg-prizm-surface border-b border-prizm-border">
+                            <BoxSelect className="text-prizm-primary animate-pulse" size={18} />
+                            <h3 className="font-bold text-prizm-text font-mono uppercase tracking-widest text-sm">Review EMS App Control</h3>
+                        </div>
+                        <div className="p-6 space-y-4 font-mono text-xs">
+                            <div className={`border p-3 rounded text-center ${
+                                emsAppTargetState 
+                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500" 
+                                : "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                            }`}>
+                                You are about to <span className="font-bold uppercase">{emsAppTargetState ? "ENABLE" : "DISABLE"}</span> a Dragon Application. This can immediately change the operational behavior of the system.
+                            </div>
+                            
+                            <table className="w-full text-left">
+                                <tbody className="divide-y divide-prizm-border/50">
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">Station</th>
+                                        <td className="py-2 text-prizm-text text-right font-bold">{state.siteSummary?.site?.stationCode || "BHE0020"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">Block</th>
+                                        <td className="py-2 text-prizm-text text-right font-bold">{state.siteSummary?.site?.blockIndex || 1}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">App Name</th>
+                                        <td className="py-2 text-prizm-text text-right font-bold text-prizm-primary">{emsAppCandidate.appName}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">App Code</th>
+                                        <td className="py-2 text-prizm-text text-right font-bold">{emsAppCandidate.appCode}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">Priority</th>
+                                        <td className="py-2 text-prizm-text text-right font-bold">{emsAppCandidate.priority}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">Current State</th>
+                                        <td className="py-2 text-right">
+                                            <span className={`px-2 py-0.5 rounded font-bold uppercase ${emsAppCandidate.enabled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                                                {emsAppCandidate.enabled ? "Enabled" : "Disabled"}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th className="py-2 text-prizm-text-muted">Requested State</th>
+                                        <td className="py-2 text-right">
+                                            <span className={`px-2 py-0.5 rounded font-bold uppercase ${emsAppTargetState ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                {emsAppTargetState ? "ENABLE" : "DISABLE"}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div className="pt-2">
+                                <label className="text-[10px] text-prizm-text-muted uppercase mb-1 block">Type exactly '<span className="text-prizm-text">{emsAppTargetState ? "ENABLE" : "DISABLE"} {emsAppCandidate.appCode}</span>'</label>
+                                <input
+                                    type="text"
+                                    value={emsAppConfText}
+                                    onChange={e => setEmsAppConfText(e.target.value)}
+                                    placeholder={`${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`}
+                                    disabled={emsAppLoading}
+                                    autoComplete="off"
+                                    className="w-full bg-black/50 border border-prizm-border p-2 focus:outline-none focus:border-prizm-primary text-prizm-text tracking-widest uppercase disabled:opacity-50"
+                                />
+                            </div>
+
+                            {emsAppResult && (
+                                <div className={`p-3 border rounded text-[10px] ${
+                                    emsAppResult.success || emsAppResult.queued 
+                                    ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-500" 
+                                    : "bg-prizm-danger/10 border-prizm-danger text-prizm-danger"
+                                }`}>
+                                    <div className="font-bold uppercase tracking-wider mb-1">
+                                        {emsAppResult.success ? "Success" : (emsAppResult.queued ? "Accepted/Queued" : "Action Failed")}
+                                    </div>
+                                    <div className="whitespace-pre-wrap font-mono uppercase text-[9px] text-prizm-text">{emsAppResult.message || emsAppResult.error}</div>
+                                </div>
+                            )}
+
+                        </div>
+                        
+                        <div className="flex bg-prizm-surface border-t border-prizm-border">
+                            <button
+                                onClick={() => setEmsAppCandidate(null)}
+                                disabled={emsAppLoading}
+                                className="flex-1 py-3 text-xs font-bold text-prizm-text-muted hover:text-white transition-colors uppercase tracking-widest disabled:opacity-50"
+                            >
+                                {emsAppResult ? "Close" : "Cancel"}
+                            </button>
+                            {!emsAppResult && (
+                                <button
+                                    onClick={executeEmsAppAction}
+                                    disabled={
+                                        emsAppLoading || 
+                                        emsAppConfText !== `${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`
+                                    }
+                                    className={`flex-1 py-3 text-xs font-bold transition-colors uppercase tracking-widest flex items-center justify-center gap-2 ${
+                                        emsAppTargetState
+                                        ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 disabled:bg-prizm-surface disabled:text-prizm-text-muted"
+                                        : "bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:bg-prizm-surface disabled:text-prizm-text-muted"
+                                    }`}
+                                >
+                                    {emsAppLoading ? "Processing..." : "Confirm Action"}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }

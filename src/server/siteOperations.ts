@@ -330,13 +330,14 @@ function extractCodes(value: any): string[] {
 }
 
 
+import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { pollEmsTurtle } from "./emsTurtleClient";
 
 let siteOpsInFlight: Promise<any> | null = null;
 let lastSummaryCache: any = null;
 let lastSummaryTime = 0;
 
-export function buildSiteOperationsSummaryFromCache() {
+export async function buildSiteOperationsSummaryFromCache() {
     try {
         
         let block = getEmsCachedBlock().data || {};
@@ -381,71 +382,11 @@ export function buildSiteOperationsSummaryFromCache() {
             lastUpdated: conn.lastUpdated
         };
 
-        // Part D - EMS APPS Normalization
-        const blockApps = collectEmsAppCandidates(block, "block");
-        const statusApps = collectEmsAppCandidates(status, "status");
-        const lastCallApps = collectEmsAppCandidates(lastCall, "lastCall");
-
-        let appsCandidates = [...blockApps, ...statusApps, ...lastCallApps];
-        const emsAppSourcePaths = Array.from(new Set(appsCandidates.map(a => a.sourcePath)));
-        
-        let unknownDragonAppCodes: string[] = [];
-
-        const emsApps = appsCandidates.filter((v,i,a) => a.findIndex(t => t.appCode === v.appCode && t.appName === v.appName) === i).map((app: any) => {
-            const appCode = app.appCode ? String(app.appCode).trim() : null;
-            let resolvedNameFromMap = null;
-            if (appCode) {
-                resolvedNameFromMap = DRAGON_APP_CODE_NAME_MAP[appCode];
-                if (!resolvedNameFromMap && !unknownDragonAppCodes.includes(appCode)) {
-                    unknownDragonAppCodes.push(appCode);
-                }
-            }
-            const appName =
-              app.appName ||
-              app.applicationName ||
-              app.application ||
-              app.name ||
-              resolvedNameFromMap ||
-              appCode ||
-              "Unknown App";
-
-            const healthRaw = app.health ?? null;
-            const healthUpper = String(healthRaw || "").toUpperCase();
-            let status = "Unknown";
-            if (app.enabled === true) status = "Enabled";
-            if (app.enabled === false) status = "Not Enabled";
-            if (healthUpper.includes("HEALTH_HEALTHY") && app.enabled !== false) {
-              status = "Enabled";
-            }
-            if (healthUpper.includes("NOT_ENABLED") || healthUpper.includes("DISABLED")) {
-              status = "Not Enabled";
-            }
-            if (healthUpper.includes("FAULT")) {
-              status = "Faulted";
-            }
-            if (healthUpper.includes("WARN")) {
-              status = "Warning";
-            }
-            
-            return {
-               priority: app.priority ?? null,
-               appCode: app.appCode,
-               appName,
-               configName: app.configName ?? null,
-               configVersionId: app.configVersionId ?? app.configVersionid ?? null,
-               enabled: app.enabled ?? null,
-               canDisable: app.canDisable ?? null,
-               status,
-               healthRaw,
-               shortAppStatus: app.shortAppStatus ?? null,
-               hasShortAppStatus: app.hasShortAppStatus ?? null,
-               appStatus: app.appStatus ?? null,
-               healthMessage: app.healthMessage ?? null,
-               hasEditor: app.hasEditor ?? null,
-               sourcePath: app.sourcePath || "discovered",
-               raw: app
-            };
-        });
+        // Part D - EMS APPS Normalization (now async and strict)
+        const emsAppsResult = await fetchLiveEmsApps();
+        const emsApps = emsAppsResult.apps;
+        const emsAppSourcePaths: string[] = Array.from(new Set(emsApps.map(a => a.sourcePath)));
+        let unknownDragonAppCodes: string[] = []; // mapped in service
 
         // Part E - FEATHER/HVAC
         const fCache = getFeatherCache();
@@ -836,6 +777,13 @@ export function buildSiteOperationsSummaryFromCache() {
             error: d.lastError === "NONE" ? undefined : d.lastError
         }));
 
+        sourceHealth.push({
+            name: "emsApps",
+            type: "EMS",
+            ok: emsAppsResult.status !== "error",
+            error: emsAppsResult.status === "cached_timeout" ? "cached_timeout" : (emsAppsResult.status === "error" ? "error" : undefined)
+        });
+
         
         const siteTopology = buildSiteTopologyFromCachedSources();
         const totalStringsInTopology = siteTopology.counts.stringCount || stringSummary.rollups?.totalStrings || 0;
@@ -893,7 +841,7 @@ export function buildSiteOperationsSummaryFromCache() {
             debug: {
                pcsDebugKeys: Array.from(new Set(pcsDebugKeys)),
                appDebugKeys: [],
-               emsAppCandidateCount: appsCandidates.length,
+               emsAppCandidateCount: emsApps.length,
                emsAppSourcePaths: emsAppSourcePaths,
                unknownDragonAppCodes: unknownDragonAppCodes
             },
@@ -916,7 +864,7 @@ export async function refreshSiteOperationsSources() {
             await pollEmsTurtle();
             refreshFeatherCache({ timeoutMs: 2500 }).catch(() => {});
             
-            const data = buildSiteOperationsSummaryFromCache();
+            const data = await buildSiteOperationsSummaryFromCache();
             if (data) {
                 prizmCache.set('site-operations-summary', data, { ttlMs: 15000 });
                 if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', data);
@@ -953,12 +901,12 @@ router.get("/summary", async (req, res) => {
                  responseData = lastSummaryCache;
                  cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true } as any;
              } else {
-                 responseData = buildSiteOperationsSummaryFromCache();
+                 responseData = await buildSiteOperationsSummaryFromCache();
                  shouldRefresh = true;
              }
         } else {
              // preferCache=false
-             responseData = buildSiteOperationsSummaryFromCache();
+             responseData = await buildSiteOperationsSummaryFromCache();
              shouldRefresh = true;
         }
 
@@ -976,7 +924,7 @@ router.get("/summary", async (req, res) => {
                  new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
              ]).catch(() => null);
              
-             responseData = buildSiteOperationsSummaryFromCache();
+             responseData = await buildSiteOperationsSummaryFromCache();
         }
 
         if (!responseData) responseData = {};

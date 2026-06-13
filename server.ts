@@ -7,6 +7,7 @@ import historyRoutes from "./src/server/history/historyRoutes";
 import siteOperationsRouter from "./src/server/siteOperations";
 import { topologyRouter } from "./src/server/topology/topologyRoutes";
 import modbusRouter from "./src/server/telemetry/modbusRoutes";
+import emsAppsRoutes from "./src/server/ems/emsAppsRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
@@ -61,6 +62,7 @@ app.use("/api/local/history", historyRoutes);
 app.use("/api/local", topologyRouter);
 app.use("/api/local/modbus", modbusRouter);
 app.use("/api/local/telemetry", modbusRouter);
+app.use("/api/local/ems-apps", emsAppsRoutes);
 
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");

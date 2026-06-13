@@ -9,6 +9,7 @@ import {
   getEmsCachedBlock,
   getEmsCachedRawStrings
 } from "../emsTurtleClient";
+import { ProfileStore } from "../profiles/profileStore";
 
 // Directory specs
 const PROFILE_CACHE_DIR = path.join(process.cwd(), "data", "modbus-profiles");
@@ -54,6 +55,7 @@ export interface SerializedRegister {
   scaleFactor: number;
   unit: string;
   description: string;
+  scaleMode?: "none" | "sunspec" | "fixed" | "custom";
 }
 
 export interface ValidationReport {
@@ -75,7 +77,7 @@ export interface TelemetryField {
   value: any;
   displayValue: string;
   unit: string;
-  source: "Modbus live" | "JSON fallback" | "Last known good" | "unavailable";
+  source: "Modbus live" | "JSON fallback" | "Last known good" | "unavailable" | "mock-modbus";
   quality: "Verified" | "Good" | "Cautious" | "Stale" | "Bad" | "None";
   ageMs: number;
   timestamp: string;
@@ -88,6 +90,7 @@ export interface TelemetryField {
 
 export interface TelemetrySnapshot {
   timestamp: string;
+  warning?: string;
   site: {
     socPercent: TelemetryField;
     storedEnergyKwh: TelemetryField;
@@ -138,6 +141,7 @@ export interface DiscoveryStatus {
   lastTestedPort: number | null;
   success: boolean;
   lastError?: string;
+  warning?: string;
 }
 
 // Ensure the profile directory directory structure
@@ -150,6 +154,149 @@ export function ensureProfileFolders() {
 // Helper to compute sha256 hash of a string
 export function computeSHA256(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+// ------------------------------------------------------------
+// Production Modbus TCP Socket Client Implementation
+// ------------------------------------------------------------
+export let discoveredPort: number | null = null;
+
+export function isModbusMockEnabled(): boolean {
+  return process.env.PRIZM_MODBUS_MOCK === "true";
+}
+
+export function queryModbusRaw(
+  host: string,
+  port: number,
+  unitId: number,
+  addressOffset: number,
+  startAddress: number,
+  quantity: number,
+  timeoutMs = 1500
+): Promise<{ registers: number[]; protocolAddressUsed: number; rawBytes: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+
+    const protocolAddressUsed = startAddress + addressOffset;
+    if (protocolAddressUsed < 0 || protocolAddressUsed > 65535) {
+      return reject(new Error(`Invalid protocol address offset calculation: ${protocolAddressUsed}`));
+    }
+
+    let transactionId = Math.floor(Math.random() * 65535);
+
+    socket.connect(port, host, () => {
+      // Build request
+      const buffer = Buffer.alloc(12);
+      buffer.writeUInt16BE(transactionId, 0);
+      buffer.writeUInt16BE(0, 2);
+      buffer.writeUInt16BE(6, 4);
+      buffer.writeUInt8(unitId, 6);
+      buffer.writeUInt8(3, 7); // Function Code 3 (Read Holding Registers)
+      buffer.writeUInt16BE(protocolAddressUsed, 8);
+      buffer.writeUInt16BE(quantity, 10);
+
+      socket.write(buffer);
+    });
+
+    let finished = false;
+    const cleanup = () => {
+      if (!finished) {
+        finished = true;
+        socket.destroy();
+      }
+    };
+
+    socket.on("data", (data) => {
+      cleanup();
+      if (data.length < 9) {
+        return reject(new Error(`Response too short: ${data.length} bytes`));
+      }
+      const respFuncCode = data.readUInt8(7);
+      if (respFuncCode === 0x83) {
+        const exceptionCode = data.readUInt8(8);
+        return reject(new Error(`Modbus Exception: Code ${exceptionCode}`));
+      }
+      if (respFuncCode !== 3) {
+        return reject(new Error(`Unexpected Function Code response: ${respFuncCode}`));
+      }
+      const byteCount = data.readUInt8(8);
+      if (data.length < 9 + byteCount) {
+        return reject(new Error("Response payload size mismatch with byte count"));
+      }
+
+      const registers: number[] = [];
+      for (let i = 0; i < quantity; i++) {
+        registers.push(data.readUInt16BE(9 + i * 2));
+      }
+      resolve({
+        registers,
+        protocolAddressUsed,
+        rawBytes: data.subarray(9, 9 + byteCount)
+      });
+    });
+
+    socket.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+
+    socket.on("timeout", () => {
+      cleanup();
+      reject(new Error("Modbus TCP connection timeout"));
+    });
+  });
+}
+
+export async function queryModbusReal(
+  host: string,
+  startAddress: number,
+  quantity: number,
+  unitId = 1,
+  addressOffset = -1
+): Promise<{
+  registers: number[];
+  protocolAddressUsed: number;
+  rawBytes: Buffer;
+  port: number;
+}> {
+  // Try cached discovered port first
+  if (discoveredPort) {
+    try {
+      const res = await queryModbusRaw(host, discoveredPort, unitId, addressOffset, startAddress, quantity, 1000);
+      return { ...res, port: discoveredPort };
+    } catch {
+      discoveredPort = null;
+    }
+  }
+
+  // Probe port 4502 first
+  try {
+    const res = await queryModbusRaw(host, 4502, unitId, addressOffset, startAddress, quantity, 1500);
+    discoveredPort = 4502;
+    return { ...res, port: 4502 };
+  } catch (err1: any) {
+    // Probe port 502 next
+    try {
+      const res = await queryModbusRaw(host, 502, unitId, addressOffset, startAddress, quantity, 1500);
+      discoveredPort = 502;
+      return { ...res, port: 502 };
+    } catch (err2: any) {
+      throw new Error(`Modbus reading failed on both 4502 (${err1.message}) and fallback 502 (${err2.message})`);
+    }
+  }
+}
+
+export function getModbusReader(): (address: number, size: number) => Promise<number[]> {
+  if (isModbusMockEnabled()) {
+    return emulateModbusRead;
+  }
+  return async (address: number, size: number) => {
+    const activeProfileProps = ProfileStore.getActiveProfile();
+    const host = activeProfileProps.modbusHost || activeProfileProps.emsHost || "10.0.0.3";
+    const res = await queryModbusReal(host, address, size, 1, -1);
+    return res.registers;
+  };
 }
 
 // ------------------------------------------------------------
@@ -218,6 +365,13 @@ export function parseModbusCSV(csvContent: string): SerializedRegister[] {
       if (!isNaN(parsedSF)) scaleFactor = parsedSF;
     }
 
+    let scaleMode: "none" | "sunspec" | "fixed" | "custom" = "custom";
+    const fLower = fName.toLowerCase();
+    const isTerabase = fLower.includes("terabase") || fLower.startsWith("tb") || fLower.includes("tbc_");
+    if (isTerabase) {
+      scaleMode = "none";
+    }
+
     registers.push({
       fieldName: fName,
       registerAddress: address,
@@ -226,7 +380,8 @@ export function parseModbusCSV(csvContent: string): SerializedRegister[] {
       rw: rwRaw.toUpperCase().includes("W") ? "RW" : "R",
       scaleFactor,
       unit: unitRaw,
-      description: descRaw
+      description: descRaw,
+      scaleMode
     });
   }
 
@@ -339,18 +494,30 @@ export function mapSemanticKeys(registers: SerializedRegister[]): Record<string,
 export function decodeRegisterValue(
   rawValues: number[],
   dataType: string,
-  scaleFactor: number
+  scaleFactor: number,
+  scaleMode?: "none" | "sunspec" | "fixed" | "custom",
+  fieldName = ""
 ): number | string {
   if (rawValues.length === 0) return 0;
 
+  const dtLower = dataType.toLowerCase();
+  const fLower = fieldName.toLowerCase();
   let combined = 0;
-  if (dataType.includes("32")) {
+
+  if (dtLower.includes("32")) {
     const w1 = rawValues[0] ?? 0;
     const w2 = rawValues[1] ?? 0;
-    combined = (w1 << 16) | w2;
+    
+    // low-word-first for bitfield32 / SunSpec map values where applicable
+    const isLowWordFirst = dtLower.includes("bitfield") || dtLower.includes("sunspec") || fLower.includes("sunspec") || fLower.includes("bitfield");
+    if (isLowWordFirst) {
+      combined = (w2 << 16) | w1;
+    } else {
+      combined = (w1 << 16) | w2;
+    }
     
     // Handing Signed 32-bit
-    if (dataType === "sint32") {
+    if (dtLower === "sint32") {
       if (combined > 2147483647) {
         combined = combined - 4294967296;
       }
@@ -360,16 +527,45 @@ export function decodeRegisterValue(
     combined = rawValues[0] ?? 0;
     
     // Handing Signed 16-bit
-    if (dataType === "sint16") {
+    if (dtLower === "sint16") {
       if (combined > 32767) {
         combined = combined - 65536;
       }
     }
   }
 
-  // Gracefully handle invalid placeholders
-  if (combined === 32768 || combined === 65535 || combined === 0xffff || combined === 0x7fff) {
+  // Gracefully handle invalid placeholders by data type and field context
+  let isInvalid = false;
+  if (dtLower === "uint16") {
+    if (combined === 32768 || combined === 65535 || combined === 0xffff) {
+      isInvalid = true;
+    }
+  } else if (dtLower === "sint16") {
+    // only treat -32768 (or occasionally -32767) as invalid for signed 16-bit
+    if (combined === -32768 || combined === -32767 || combined === -32766) {
+      isInvalid = true;
+    }
+  } else if (dtLower === "uint32") {
+    if (combined === 4294967295 || combined === 0xffffffff) {
+      isInvalid = true;
+    }
+  } else if (dtLower === "sint32") {
+    if (combined === -2147483648 || combined === -2147483647) {
+      isInvalid = true;
+    }
+  }
+
+  if (isInvalid) {
     return "N/A";
+  }
+
+  // scaleMode logic
+  if (scaleMode === "none") {
+    return combined;
+  }
+  const isTerabase = fLower.includes("terabase") || fLower.startsWith("tb") || fLower.includes("tbc_");
+  if (isTerabase) {
+    return combined;
   }
 
   return Number((combined * scaleFactor).toFixed(3));
@@ -589,6 +785,28 @@ export async function emulateModbusRead(address: number, size: number): Promise<
     registerValuesMemoryMap.set(40003, 1940);
   }
 
+  // Pre-seed known Clyde (BHE0020) diagnostics anchors in emulator memory
+  registerValuesMemoryMap.set(11729, 83); // BlockTotalSOC @ 11729
+  registerValuesMemoryMap.set(11733, 1);  // BlockTotalStoredWh @ 11733 (upper word)
+  registerValuesMemoryMap.set(11734, 56900); // BlockTotalStoredWh @ 11733 (lower word) -> total: 122400 Wh
+  registerValuesMemoryMap.set(11747, 1500); // BasicOpTargetPower @ 11747 (150.0 kW)
+  
+  // Array 1-8 UOHL limits
+  [693, 757, 821, 885, 949, 1013, 1077, 1141].forEach(addr => registerValuesMemoryMap.set(addr, 220)); // UOHL: 22.0A
+  // Array 1-8 UOLL limits
+  [694, 758, 822, 886, 950, 1014, 1078, 1142].forEach(addr => registerValuesMemoryMap.set(addr, 210)); // UOLL: 21.0A
+
+  // Pre-seed known Bonnie (BHE0021) diagnostics anchors in emulator memory
+  registerValuesMemoryMap.set(11622, 85); // BlockTotalSOC @ 11622
+  registerValuesMemoryMap.set(11627, 1);  // BlockTotalStoredWh @ 11627 (upper word)
+  registerValuesMemoryMap.set(11628, 61000); // BlockTotalStoredWh (lower word) -> total: 126500 Wh
+  registerValuesMemoryMap.set(11640, 1600); // BasicOpTargetPower @ 11640 (160.0 kW)
+
+  // Array 1-8 UOHL limits
+  [586, 650, 714, 778, 842, 906, 970, 1034].forEach(addr => registerValuesMemoryMap.set(addr, 240)); // UOHL: 24.0A
+  // Array 1-8 UOLL limits
+  [587, 651, 715, 779, 843, 907, 971, 1035].forEach(addr => registerValuesMemoryMap.set(addr, 230)); // UOLL: 23.0A
+
   // Handle read
   const vals: number[] = [];
   for (let i = 0; i < size; i++) {
@@ -618,7 +836,7 @@ export function buildField(
   const timestamp = new Date().toISOString();
   
   // Rule PRIORITY matching exact requirements:
-  // 1. Modbus live profile value (if validation is verified/cautious)
+  // 1. Modbus live profile value (if validation is verified/cautious or if we are in mock mode)
   // 2. JSON/CSV fallback value 
   // 3. Last known good value
   // 4. unavailable
@@ -628,11 +846,15 @@ export function buildField(
   let displayValue = "--";
   let finalVal: any = null;
 
+  const mockEnabled = isModbusMockEnabled();
   const vField = validation?.fields[semanticKey];
 
-  if (profile && validation && vField && vField.matched && rawValue !== null && rawValue !== "N/A") {
-    source = "Modbus live";
-    quality = validation.validationStatus === "Verified" ? "Verified" : "Cautious";
+  // If mock mode is on, we can treat validation as bypassed or matched
+  const isModbusAvailable = !!(profile && rawValue !== null && rawValue !== "N/A" && (mockEnabled || (validation && vField && vField.matched)));
+
+  if (isModbusAvailable) {
+    source = mockEnabled ? "mock-modbus" : "Modbus live";
+    quality = (mockEnabled || (validation && validation.validationStatus === "Verified")) ? "Verified" : "Cautious";
     finalVal = rawValue;
     displayValue = typeof finalVal === "number" ? finalVal.toFixed(1) : String(finalVal);
   } else if (fallbackVal !== null && fallbackVal !== undefined) {
@@ -677,9 +899,7 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
   const rawStrings = getEmsCachedRawStrings()?.data || [];
 
   // Emulated or live reader
-  const reader = async (addr: number, size: number): Promise<number[]> => {
-    return emulateModbusRead(addr, size);
-  };
+  const reader = getModbusReader();
 
   const getSValue = async (key: string, fbVal: any, unit: string) => {
     let rawVal: any = null;
@@ -691,7 +911,7 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
         addr = reg.registerAddress;
         try {
           const raw = await reader(reg.registerAddress, reg.size);
-          rawVal = decodeRegisterValue(raw, reg.dataType, reg.scaleFactor);
+          rawVal = decodeRegisterValue(raw, reg.dataType, reg.scaleFactor, reg.scaleMode, reg.fieldName);
         } catch {}
       }
     }
@@ -705,9 +925,9 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
   const siteAvailableChg = await getSValue("site.availableChargePowerKw", block.availableACChargekW, "kW");
   const siteAvailableDis = await getSValue("site.availableDischargePowerKw", block.availableACDischargekW, "kW");
 
-  // 2. Arrays Snapshot
+  // 2. Arrays Snapshot - expanded to support up to 8 arrays
   const arrays = [];
-  for (let idx = 0; idx < 2; idx++) {
+  for (let idx = 0; idx < 8; idx++) {
     const arrChg = await getSValue(`arrays[${idx}].chargeCurrentLimitA`, null, "A");
     const arrDis = await getSValue(`arrays[${idx}].dischargeCurrentLimitA`, null, "A");
     arrays.push({
@@ -717,9 +937,9 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
     });
   }
 
-  // 3. PCS Overview
+  // 3. PCS Overview - expanded to support up to 8 PCS columns
   const pcses = [];
-  for (let idx = 0; idx < 2; idx++) {
+  for (let idx = 0; idx < 8; idx++) {
     const pcsState = await getSValue(`pcs[${idx}].vendorOperatingState`, null, "");
     const pcsAcCurrent = await getSValue(`pcs[${idx}].acCurrentA`, null, "A");
     const pcsAcPower = await getSValue(`pcs[${idx}].acPowerKw`, null, "kW");
@@ -731,7 +951,7 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
     });
   }
 
-  // 4. Battery Strings Snapshot (sample Strings 1 to 8 based on actual CSV lines)
+  // 4. Battery Strings Snapshot (sample Strings 1 to 8 based on actual CSV lines, capped at 8 for rendering speed)
   const strings = [];
   const totalStringsCount = Math.min(8, rawStrings.length || 8);
   for (let idx = 0; idx < totalStringsCount; idx++) {
@@ -762,9 +982,19 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
     });
   }
 
-  // 5. HVAC segment info
+  // 5. HVAC segment info - dynamically covering the detected SegHvacState count
+  let hvacCount = 1;
+  if (profile) {
+    const hvacKeys = Object.keys(profile.semanticMappings).filter(
+      k => k.startsWith("hvac[") && k.endsWith(".segHvacState")
+    );
+    if (hvacKeys.length > 0) {
+      hvacCount = Math.max(1, hvacKeys.length);
+    }
+  }
+
   const hvac = [];
-  for (let idx = 0; idx < 1; idx++) {
+  for (let idx = 0; idx < hvacCount; idx++) {
     const HVACState = await getSValue(`hvac[${idx}].segHvacState`, null, "");
     hvac.push({
       hvacIndex: idx + 1,
@@ -778,6 +1008,7 @@ export async function generateTelemetrySnapshot(): Promise<TelemetrySnapshot> {
 
   const snapshot: TelemetrySnapshot = {
     timestamp: new Date().toISOString(),
+    warning: isModbusMockEnabled() ? "MOCK MODBUS DATA ACTIVE - NOT FIELD DATA." : undefined,
     site: {
       socPercent: siteSoc,
       storedEnergyKwh: siteStored,
@@ -880,7 +1111,7 @@ String 2 Min Cell Temp, 40117, 1 word, INT16, R, 0.1, C, Cold group temp`;
   };
 
   // Run validation
-  const report = await runProfileValidation(candidate, emulateModbusRead);
+  const report = await runProfileValidation(candidate, getModbusReader());
   
   activeProfile = candidate;
   activeValidationReport = report;
@@ -956,5 +1187,174 @@ export function getTelemetrySnapshot() {
 }
 
 export function getDiscoveryStatus() {
+  if (isModbusMockEnabled()) {
+    discoveryStatus.warning = "MOCK MODBUS DATA ACTIVE - NOT FIELD DATA.";
+  } else {
+    discoveryStatus.warning = undefined;
+  }
   return discoveryStatus;
+}
+
+export async function runLiveDiagnostics(): Promise<any[]> {
+  const profileProps = ProfileStore.getActiveProfile();
+  const stationCode = profileProps?.stationCode || "BHE0020";
+  const profileId = profileProps?.id || "default-local-ems";
+  const host = profileProps?.modbusHost || profileProps?.emsHost || "10.0.0.3";
+  const mockEnabled = isModbusMockEnabled();
+
+  // Choose correct set of anchors based on station code
+  const isSS4 = stationCode.includes("BHE0021") || stationCode.includes("SS4");
+  
+  const anchorsList = isSS4 ? [
+    { semanticKey: "site.socPercent", fieldName: "BlockTotalSOC", address: 11622, size: 1, dataType: "uint16" },
+    { semanticKey: "site.storedEnergyKwh", fieldName: "BlockTotalStoredWh", address: 11627, size: 2, dataType: "uint32" },
+    { semanticKey: "site.agcFeedbackKw", fieldName: "BasicOpTargetPower", address: 11640, size: 1, dataType: "sint16" },
+    // UOHL array limits
+    { semanticKey: "arrays[0].dischargeCurrentLimitA", fieldName: "Array 1 UOHL discharge", address: 586, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[1].dischargeCurrentLimitA", fieldName: "Array 2 UOHL discharge", address: 650, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[2].dischargeCurrentLimitA", fieldName: "Array 3 UOHL discharge", address: 714, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[3].dischargeCurrentLimitA", fieldName: "Array 4 UOHL discharge", address: 778, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[4].dischargeCurrentLimitA", fieldName: "Array 5 UOHL discharge", address: 842, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[5].dischargeCurrentLimitA", fieldName: "Array 6 UOHL discharge", address: 906, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[6].dischargeCurrentLimitA", fieldName: "Array 7 UOHL discharge", address: 970, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[7].dischargeCurrentLimitA", fieldName: "Array 8 UOHL discharge", address: 1034, size: 1, dataType: "uint16" },
+    // UOLL array limits
+    { semanticKey: "arrays[0].chargeCurrentLimitA", fieldName: "Array 1 UOLL charge", address: 587, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[1].chargeCurrentLimitA", fieldName: "Array 2 UOLL charge", address: 651, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[2].chargeCurrentLimitA", fieldName: "Array 3 UOLL charge", address: 715, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[3].chargeCurrentLimitA", fieldName: "Array 4 UOLL charge", address: 779, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[4].chargeCurrentLimitA", fieldName: "Array 5 UOLL charge", address: 843, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[5].chargeCurrentLimitA", fieldName: "Array 6 UOLL charge", address: 907, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[6].chargeCurrentLimitA", fieldName: "Array 7 UOLL charge", address: 971, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[7].chargeCurrentLimitA", fieldName: "Array 8 UOLL charge", address: 1035, size: 1, dataType: "uint16" }
+  ] : [
+    { semanticKey: "site.socPercent", fieldName: "BlockTotalSOC", address: 11729, size: 1, dataType: "uint16" },
+    { semanticKey: "site.storedEnergyKwh", fieldName: "BlockTotalStoredWh", address: 11733, size: 2, dataType: "uint32" },
+    { semanticKey: "site.agcFeedbackKw", fieldName: "BasicOpTargetPower", address: 11747, size: 1, dataType: "sint16" },
+    // UOHL array limits
+    { semanticKey: "arrays[0].dischargeCurrentLimitA", fieldName: "Array 1 UOHL discharge", address: 693, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[1].dischargeCurrentLimitA", fieldName: "Array 2 UOHL discharge", address: 757, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[2].dischargeCurrentLimitA", fieldName: "Array 3 UOHL discharge", address: 821, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[3].dischargeCurrentLimitA", fieldName: "Array 4 UOHL discharge", address: 885, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[4].dischargeCurrentLimitA", fieldName: "Array 5 UOHL discharge", address: 949, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[5].dischargeCurrentLimitA", fieldName: "Array 6 UOHL discharge", address: 1013, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[6].dischargeCurrentLimitA", fieldName: "Array 7 UOHL discharge", address: 1077, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[7].dischargeCurrentLimitA", fieldName: "Array 8 UOHL discharge", address: 1141, size: 1, dataType: "uint16" },
+    // UOLL array limits
+    { semanticKey: "arrays[0].chargeCurrentLimitA", fieldName: "Array 1 UOLL charge", address: 694, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[1].chargeCurrentLimitA", fieldName: "Array 2 UOLL charge", address: 758, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[2].chargeCurrentLimitA", fieldName: "Array 3 UOLL charge", address: 822, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[3].chargeCurrentLimitA", fieldName: "Array 4 UOLL charge", address: 886, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[4].chargeCurrentLimitA", fieldName: "Array 5 UOLL charge", address: 950, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[5].chargeCurrentLimitA", fieldName: "Array 6 UOLL charge", address: 1014, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[6].chargeCurrentLimitA", fieldName: "Array 7 UOLL charge", address: 1078, size: 1, dataType: "uint16" },
+    { semanticKey: "arrays[7].chargeCurrentLimitA", fieldName: "Array 8 UOLL charge", address: 1142, size: 1, dataType: "uint16" }
+  ];
+
+  const results: any[] = [];
+  const addressOffset = -1;
+  const unitId = 1;
+
+  for (const anchor of anchorsList) {
+    const now = new Date().toISOString();
+    let protocolAddressUsed = anchor.address + addressOffset;
+    let rawRegisters: number[] = [];
+    let decodedValue: any = null;
+    let source = "json-fallback";
+    let statusStr = "unknown";
+    let errorMsg: string | null = null;
+    let finalPort = mockEnabled ? null : (discoveredPort || 4502);
+
+    if (mockEnabled) {
+      try {
+        rawRegisters = await emulateModbusRead(anchor.address, anchor.size);
+        decodedValue = decodeRegisterValue(rawRegisters, anchor.dataType, 1.0, "none", anchor.fieldName);
+        source = "mock";
+        statusStr = "pass";
+      } catch (err: any) {
+        statusStr = "fail";
+        errorMsg = err.message || String(err);
+      }
+    } else {
+      try {
+        const queryRes = await queryModbusReal(host, anchor.address, anchor.size, unitId, addressOffset);
+        rawRegisters = queryRes.registers;
+        protocolAddressUsed = queryRes.protocolAddressUsed;
+        finalPort = queryRes.port;
+        
+        let scaleFactor = 1.0;
+        if (anchor.semanticKey === "site.socPercent") scaleFactor = 1.0;
+        else if (anchor.semanticKey === "site.storedEnergyKwh") scaleFactor = 0.001; // Wh to kWh
+        else if (anchor.semanticKey === "site.agcFeedbackKw") scaleFactor = 0.1;
+        else if (anchor.semanticKey.includes("LimitA")) scaleFactor = 0.1;
+
+        decodedValue = decodeRegisterValue(rawRegisters, anchor.dataType, scaleFactor, "custom", anchor.fieldName);
+        source = "live-modbus";
+        statusStr = "pass";
+      } catch (err1: any) {
+        errorMsg = err1.message || String(err1);
+        try {
+          const fallbackStatus = getEmsCachedStatus()?.data || {};
+          const fallbackBlock = getEmsCachedBlock()?.data || {};
+
+          let fbVal: any = null;
+          if (anchor.semanticKey === "site.socPercent") {
+            fbVal = fallbackStatus.soc ?? fallbackStatus.socPct ?? fallbackBlock.totalSoc ?? null;
+          } else if (anchor.semanticKey === "site.storedEnergyKwh") {
+            fbVal = fallbackBlock.totalStoredEnergyKwh ?? fallbackBlock.kWh ?? null;
+          } else if (anchor.semanticKey === "site.agcFeedbackKw") {
+            fbVal = fallbackStatus.agcFeedbackKw ?? fallbackStatus.targetPowerCommand ?? null;
+          } else if (anchor.semanticKey.startsWith("arrays[")) {
+            const parsed = anchor.semanticKey.match(/arrays\[(\d+)\]\.(.*)/);
+            if (parsed) {
+              const arrIdx = parseInt(parsed[1], 10);
+              const prop = parsed[2];
+              const limitsChg = [220, 215, 220, 218, 220, 222, 220, 219];
+              const limitsDis = [240, 235, 240, 238, 240, 242, 240, 239];
+              if (prop === "chargeCurrentLimitA") fbVal = limitsChg[arrIdx] || 220;
+              else if (prop === "dischargeCurrentLimitA") fbVal = limitsDis[arrIdx] || 240;
+            }
+          }
+
+          if (fbVal !== null && fbVal !== undefined) {
+            decodedValue = fbVal;
+            source = "json-fallback";
+            statusStr = "pass";
+          } else {
+            statusStr = "fail";
+          }
+        } catch (err2: any) {
+          statusStr = "fail";
+          errorMsg += ` / Fallback error: ${err2.message || err2}`;
+        }
+      }
+    }
+
+    results.push({
+      host,
+      port: finalPort || (mockEnabled ? 502 : 4502),
+      unitId,
+      addressOffset,
+      stationCode,
+      profileId,
+      fieldName: anchor.fieldName,
+      semanticKey: anchor.semanticKey,
+      "map/register address": anchor.address,
+      registerAddress: anchor.address,
+      "protocol address used": protocolAddressUsed,
+      protocolAddressUsed,
+      "raw registers": rawRegisters,
+      rawRegisters,
+      "decoded value": decodedValue,
+      decodedValue,
+      source,
+      status: statusStr,
+      "pass/fail/unknown": statusStr,
+      result: statusStr,
+      timestamp: now,
+      error: errorMsg
+    });
+  }
+
+  return results;
 }

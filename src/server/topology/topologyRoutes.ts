@@ -46,7 +46,7 @@ topologyRouter.get("/master-dataset", async (req, res) => {
                 await refreshSiteOperationsSources().catch(() => {});
             }
             
-            const opsSummary = buildSiteOperationsSummaryFromCache();
+            const opsSummary = await buildSiteOperationsSummaryFromCache();
             const topology = readSiteArtifact('site-topology.json') || buildSiteTopologyFromCachedSources();
 
             master = {

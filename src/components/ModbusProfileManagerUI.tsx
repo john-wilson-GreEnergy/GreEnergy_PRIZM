@@ -49,9 +49,27 @@ export default function ModbusProfileManagerUI() {
   const [showRawTable, setShowRawTable] = useState<boolean>(false);
   const [selectedEvidence, setSelectedEvidence] = useState<TelemetryFieldRef | null>(null);
 
+  const [diagnosticsData, setDiagnosticsData] = useState<any[] | null>(null);
+  const [diagLoading, setDiagLoading] = useState<boolean>(false);
+
   // Filters for raw table, in case toggled open
   const [searchQuery, setSearchQuery] = useState("");
   const [rwFilter, setRwFilter] = useState("all");
+
+  const runLiveDiagnosticsCheck = async () => {
+    setDiagLoading(true);
+    try {
+      const res = await fetch("/api/local/modbus/diagnostics/live-check");
+      if (res.ok) {
+        const data = await res.json();
+        setDiagnosticsData(data);
+      }
+    } catch (err) {
+      console.error("[Diagnostics Check] Error:", err);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -232,9 +250,18 @@ export default function ModbusProfileManagerUI() {
 
   const profileStatus = report ? report.validationStatus : "Fallback";
   const confidence = report ? report.confidenceScore : 0;
+  const isMockActive = !!(status?.warning || snapshot?.warning);
 
   return (
     <div className="space-y-6">
+      
+      {/* MOCK MODBUS ACTIVE SYSTEM WARNING BANNER */}
+      {isMockActive && (
+        <div className="bg-amber-600/10 border-2 border-amber-500/50 text-amber-500 px-4 py-3 rounded-lg flex items-center gap-3 animate-pulse font-mono text-xs font-bold uppercase tracking-widest">
+          <ShieldAlert size={16} className="shrink-0 text-amber-500" />
+          <span>MOCK MODBUS DATA ACTIVE - NOT FIELD DATA.</span>
+        </div>
+      )}
       
       {/* 1. STARTUP DISCOVERY DIAGNOSTICS BANNER */}
       {status && (
@@ -377,26 +404,30 @@ export default function ModbusProfileManagerUI() {
             <section className="space-y-2.5">
               <h4 className="text-[11px] font-mono tracking-wide uppercase text-prizm-text-muted flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-prizm-warning rounded-full"></span>
-                Hardware DC Sub-Array Current Bounds
+                Hardware DC Sub-Array Current Bounds (8 Arrays)
               </h4>
-              <div className="grid grid-cols-2 gap-3">
-                {renderTelemetryCard("Array 1 Max Charging Limit", "arrays[0].chargeCurrentLimitA")}
-                {renderTelemetryCard("Array 1 Max Discharging Limit", "arrays[0].dischargeCurrentLimitA")}
-                {renderTelemetryCard("Array 2 Max Charging Limit", "arrays[1].chargeCurrentLimitA")}
-                {renderTelemetryCard("Array 2 Max Discharging Limit", "arrays[1].dischargeCurrentLimitA")}
+              <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                {Array.from({ length: 8 }).map((_, idx) => (
+                  <React.Fragment key={idx}>
+                    {renderTelemetryCard(`Arr ${idx + 1} Chg Limit`, `arrays[${idx}].chargeCurrentLimitA`)}
+                    {renderTelemetryCard(`Arr ${idx + 1} Dis limit`, `arrays[${idx}].dischargeCurrentLimitA`)}
+                  </React.Fragment>
+                ))}
               </div>
             </section>
 
             <section className="space-y-2.5">
               <h4 className="text-[11px] font-mono tracking-wide uppercase text-prizm-text-muted flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-prizm-info rounded-full"></span>
-                Power Conversion Systems (PCS) Inverters
+                Power Conversion Systems (8 PCS Columns)
               </h4>
-              <div className="grid grid-cols-2 gap-3">
-                {renderTelemetryCard("PCS 1 AC Target Power", "pcs[0].acPowerKw")}
-                {renderTelemetryCard("PCS 1 Line Currents A", "pcs[0].acCurrentA")}
-                {renderTelemetryCard("PCS 2 AC Target Power", "pcs[1].acPowerKw")}
-                {renderTelemetryCard("PCS 2 Line Currents A", "pcs[1].acCurrentA")}
+              <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                {Array.from({ length: 8 }).map((_, idx) => (
+                  <React.Fragment key={idx}>
+                    {renderTelemetryCard(`PCS ${idx + 1} AC Power`, `pcs[${idx}].acPowerKw`)}
+                    {renderTelemetryCard(`PCS ${idx + 1} AC Current`, `pcs[${idx}].acCurrentA`)}
+                  </React.Fragment>
+                ))}
               </div>
             </section>
 
@@ -469,6 +500,21 @@ export default function ModbusProfileManagerUI() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          {/* D. HVAC SEGMENT DIAGNOSTICS */}
+          <section className="space-y-2.5">
+            <h4 className="text-[11px] font-mono tracking-wide uppercase text-prizm-text-muted flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+              HVAC Segment Diagnostics ({snapshot?.hvac?.length || 1} Units)
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+              {(snapshot?.hvac || []).map((_: any, idx: number) => (
+                <div key={idx}>
+                  {renderTelemetryCard(`HVAC ${idx + 1} State`, `hvac[${idx}].segHvacState`)}
+                </div>
+              ))}
             </div>
           </section>
 
@@ -545,6 +591,84 @@ export default function ModbusProfileManagerUI() {
           </div>
         </div>
       )}
+
+      {/* 4.5 PHYSICAL FIELD ANCHOR DIAGNOSTICS */}
+      <div className="bg-prizm-surface p-4 border border-prizm-border rounded-lg font-mono">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-white/5">
+          <div className="flex items-center gap-2">
+            <Activity className="text-prizm-primary animate-pulse w-4 h-4" />
+            <h3 className="text-xs uppercase font-extrabold text-prizm-text tracking-widest">
+              Physical Field Anchor Diagnostics
+            </h3>
+          </div>
+          <button
+            onClick={runLiveDiagnosticsCheck}
+            disabled={diagLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-prizm-primary/10 border border-prizm-primary/30 hover:border-prizm-primary text-[10px] text-prizm-primary font-bold uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={diagLoading ? "animate-spin" : ""} />
+            {diagLoading ? "Polling Anchors..." : "Run Live-Check diagnostics"}
+          </button>
+        </div>
+
+        {diagnosticsData ? (
+          <div className="mt-3 overflow-x-auto border border-prizm-border rounded text-[10px]">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-wider text-[8px] border-b border-prizm-border">
+                <tr>
+                  <th className="p-2.5">Field / Anchor Name</th>
+                  <th className="p-2.5">Reference address</th>
+                  <th className="p-2.5 font-bold text-prizm-primary">protocol address (Offset -1)</th>
+                  <th className="p-2.5">Raw registers</th>
+                  <th className="p-2.5">Decoded Value</th>
+                  <th className="p-2.5">Source</th>
+                  <th className="p-2.5">Status</th>
+                  <th className="p-2.5">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {diagnosticsData.map((d: any, i: number) => (
+                  <tr key={i} className="hover:bg-white/5 transition-colors">
+                    <td className="p-2.5 font-bold text-prizm-text">
+                      {d.fieldName}
+                      <span className="text-[9px] text-prizm-text-muted font-normal block">{d.semanticKey}</span>
+                    </td>
+                    <td className="p-2.5">{d["map/register address"]}</td>
+                    <td className="p-2.5 text-prizm-primary font-bold">{d.protocolAddressUsed}</td>
+                    <td className="p-2.5 font-mono text-[9px] text-yellow-500">{JSON.stringify(d.rawRegisters)}</td>
+                    <td className="p-2.5 font-mono font-bold text-prizm-text text-[11px]">
+                      {d.decodedValue !== null ? d.decodedValue : "N/A"}
+                    </td>
+                    <td className="p-2.5 uppercase text-[8px]">
+                      <span className={`px-1.5 py-0.5 rounded font-black ${
+                        d.source === "live-modbus" 
+                          ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25" 
+                          : (d.source === "mock" 
+                              ? "bg-blue-500/15 text-blue-400 border border-blue-500/25" 
+                              : "bg-prizm-warning/10 text-prizm-warning")
+                      }`}>
+                        {d.source}
+                      </span>
+                    </td>
+                    <td className="p-2.5 uppercase text-[8px]">
+                      <span className={`px-1.5 py-0.5 rounded font-black ${
+                        d.status === "pass" ? "text-emerald-400 animate-pulse" : "text-prizm-danger"
+                      }`}>
+                        {d.status}
+                      </span>
+                    </td>
+                    <td className="p-2.5 text-[9px] text-prizm-text-muted">{d.timestamp}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-4 p-4 text-center text-prizm-text-muted text-[11px] bg-prizm-surface-strong/30 border border-prizm-border/50 rounded-lg">
+            No live telemetry diagnostics run yet. Click "Run Live-Check diagnostics" to compare PLC physical reference addresses against Clyde/SS3 and Bonnie/SS4 map anchors.
+          </div>
+        )}
+      </div>
 
       {/* 5. COHESIVE EVIDENCE DRAWER (MODAL OVERLAY) */}
       {selectedEvidence && (

@@ -7,7 +7,8 @@ import {
   triggerRebuildModbusProfile,
   runProfileValidation,
   emulateModbusRead,
-  saveProfileSnapshot
+  saveProfileSnapshot,
+  runLiveDiagnostics
 } from "./modbusProfileManager";
 
 const router = express.Router();
@@ -153,6 +154,16 @@ router.get("/hvac", (req, res) => {
 // GET /api/local/telemetry/events
 router.get("/events", (req, res) => {
   res.json(getTelemetrySnapshot().events);
+});
+
+// GET /api/local/modbus/diagnostics/live-check
+router.get("/diagnostics/live-check", async (req, res) => {
+  try {
+    const results = await runLiveDiagnostics();
+    res.json(results);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || String(err) });
+  }
 });
 
 export default router;
