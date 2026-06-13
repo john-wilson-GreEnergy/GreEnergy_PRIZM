@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { setEmsApplicationEnabledStatus, SetAppStatusInput } from "./dragonAppControl";
 import { fetchLiveEmsApps } from "./emsAppsService";
 
 const router = Router();
@@ -10,10 +9,12 @@ router.get("/control-capabilities", async (req, res) => {
   
   // Try to find stationCode in rawLastCall
   let stationCode = "UNKNOWN";
+  let blockIndex = 1;
   if (result.rawLastCall) {
        const blockReport = result.rawLastCall.blockReport || result.rawLastCall;
        const topology = blockReport.topology || {};
        stationCode = topology.stationCode || blockReport.stationCode || "BHE0021";
+       blockIndex = topology.blockIndex || blockReport.blockIndex || 1;
   } else {
        stationCode = "BHE0021";
   }
@@ -21,7 +22,7 @@ router.get("/control-capabilities", async (req, res) => {
   res.json({
     success: true,
     stationCode,
-    blockIndex: 1,
+    blockIndex,
     localControlEndpoint: "/turtle/tools/controls/ems/command",
     targetEndpointType: "BLOCK",
     confirmedPayloads: ["SetEMSApplicationEnabledStatus"],
@@ -33,23 +34,6 @@ router.get("/control-capabilities", async (req, res) => {
       "HCP0001 and BS00001 are read-only because no cloud interaction point was observed."
     ]
   });
-});
-
-// POST /api/local/ems-apps/enabled-status
-router.post("/enabled-status", async (req, res) => {
-  try {
-    const input: SetAppStatusInput = req.body;
-    
-    // Quick structural validation
-    if (!input.stationCode || input.blockIndex === undefined || !input.appCode || input.priority === undefined || input.enabled === undefined || !input.confirmationText) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    const result = await setEmsApplicationEnabledStatus(input);
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message, success: false });
-  }
 });
 
 export default router;
