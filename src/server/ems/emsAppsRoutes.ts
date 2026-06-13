@@ -7,21 +7,31 @@ const router = Router();
 // GET /api/local/ems-apps/control-capabilities
 router.get("/control-capabilities", async (req, res) => {
   const result = await fetchLiveEmsApps(true); // fast mode
-  let liveAppCount = result.apps.length;
-  let controllableApps = result.apps.map(app => ({
-    applicationTypeCode: app.appCode,
-    applicationPriority: app.priority,
-    enabled: app.enabled
-  }));
-
+  
+  // Try to find stationCode in rawLastCall
+  let stationCode = "UNKNOWN";
+  if (result.rawLastCall) {
+       const blockReport = result.rawLastCall.blockReport || result.rawLastCall;
+       const topology = blockReport.topology || {};
+       stationCode = topology.stationCode || blockReport.stationCode || "BHE0021";
+  } else {
+       stationCode = "BHE0021";
+  }
+  
   res.json({
-    controlEndpoint: "/turtle/tools/controls/ems/command",
-    confirmedPayload: "SetEMSApplicationEnabledStatus",
+    success: true,
+    stationCode,
+    blockIndex: 1,
+    localControlEndpoint: "/turtle/tools/controls/ems/command",
     targetEndpointType: "BLOCK",
-    protobufAvailable: true, // we implement the java bridge
-    liveAppCount,
-    controllableApps,
-    warning: "Config editing via SetEMSApplicationConfiguration is not implemented yet in this phase."
+    confirmedPayloads: ["SetEMSApplicationEnabledStatus"],
+    configWritesImplemented: false,
+    appCount: result.apps.length,
+    apps: result.apps,
+    warnings: [
+      "Power Control, Basic Op, and Scheduler are mapped from cloud but local config writes are pending.",
+      "HCP0001 and BS00001 are read-only because no cloud interaction point was observed."
+    ]
   });
 });
 

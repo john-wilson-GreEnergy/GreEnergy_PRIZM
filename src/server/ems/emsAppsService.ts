@@ -1,6 +1,7 @@
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { isDemoActive } from "../emsTurtleClient";
+import { EMS_APP_INTERACTION_REGISTRY } from "./emsAppInteractionRegistry";
 
 let cachedEmsApps: any[] = [];
 let cachedRawLastCall: any = null;
@@ -196,6 +197,13 @@ function extractDragonApps(lastCallData: any): any[] {
             status = "Warning";
         }
         
+        const registryEntry = appCode && EMS_APP_INTERACTION_REGISTRY[appCode] ? EMS_APP_INTERACTION_REGISTRY[appCode] : {
+            interaction: "readOnly",
+            supportedLocally: false,
+            safetyLevel: "readOnly",
+            reason: "No mapped interaction"
+        };
+        
         return {
            priority: app.priority ?? app.applicationPriority ?? null,
            appCode: appCode,
@@ -212,6 +220,14 @@ function extractDragonApps(lastCallData: any): any[] {
            healthMessage: app.healthMessage ?? null,
            hasEditor: app.hasEditor ?? null,
            sourcePath: app.sourcePath || "discovered",
+           interaction: registryEntry.interaction,
+           supportedLocally: registryEntry.supportedLocally,
+           safetyLevel: registryEntry.safetyLevel,
+           reason: registryEntry.reason,
+           cloudEquivalent: registryEntry.cloudEquivalent,
+           confirmationEnable: registryEntry.confirmationEnable,
+           confirmationDisable: registryEntry.confirmationDisable,
+           fields: registryEntry.fields,
            raw: app
         };
     });

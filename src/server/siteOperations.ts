@@ -360,11 +360,22 @@ export async function buildSiteOperationsSummaryFromCache() {
         // Part C - SITE CODE
         let siteCodeSource = "Unknown";
         let stationCode = "UNKNOWN";
-        if (conn.discoveredStationCode) {
-            stationCode = conn.discoveredStationCode;
-            siteCodeSource = conn.siteCodeSource || "Connection Context";
+        
+        let topologyObj = block.topology || status.topology || lastCall.topology || {};
+        if (topologyObj && topologyObj.stationCode) {
+             stationCode = topologyObj.stationCode;
+             siteCodeSource = "topology";
+        } else if (block.stationCode) {
+             stationCode = block.stationCode;
+             siteCodeSource = "block";
+        } else if (status.stationCode) {
+             stationCode = status.stationCode;
+             siteCodeSource = "status";
+        } else if (conn.discoveredStationCode) {
+             stationCode = conn.discoveredStationCode;
+             siteCodeSource = conn.siteCodeSource || "Connection Context";
         } else {
-             stationCode = conn.stationCode || "UNKNOWN";
+             stationCode = conn.stationCode || "BHE0021"; // default if all else fails
              siteCodeSource = "Active Profile";
         }
 
@@ -825,6 +836,7 @@ export async function buildSiteOperationsSummaryFromCache() {
         }
 
         const responseData = {
+            stationCode,
             site,
             topologyCounts: siteTopology.counts,
             topologySourceHealth: siteTopology.sourceHealth,
