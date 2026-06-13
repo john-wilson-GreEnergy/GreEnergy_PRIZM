@@ -890,92 +890,93 @@ export async function refreshSiteOperationsSources() {
     return siteOpsInFlight;
 }
 
+import { getEffectiveCachePolicy, shouldFetchLive, buildCacheMetadata } from "./cache/prizmCache";
+
 router.get("/summary", async (req, res) => {
     const tStart = Date.now();
-    const preferCache = req.query.preferCache !== 'false';
-    const forceRefresh = req.query.refresh === 'true';
+    const policy = getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
+    const forceLive = shouldFetchLive(policy);
+    const allowCache = ["cache-first", "cache-only", "live-first"].includes(policy);
 
     try {
-        let cachedEntry = prizmCache.get('site-operations-summary');
-        
-        let tCacheRead = Date.now() - tStart;
-        
-        let shouldRefresh = forceRefresh;
         let responseData: any = null;
+        let wasLiveAttempted = false;
+        let wasLiveSucceeded = false;
+        let wasCacheUsed = false;
 
-        if (forceRefresh) {
-             shouldRefresh = true;
-        } else if (preferCache) {
+        if (forceLive) {
+             wasLiveAttempted = true;
+             // force refresh of sources? Yes. Then build summary from the fresh cache.
+             if (policy !== "live-first" || req.query.refresh === "true") {
+                 // if live-only or explicit refresh, await the refresh
+                 await refreshSiteOperationsSources().catch(() => {});
+             } else {
+                 // live-first, maybe trigger in background or await if cache is empty
+                 const cachedEntry = prizmCache.get('site-operations-summary');
+                 if (!cachedEntry || cachedEntry.isStale) {
+                     await refreshSiteOperationsSources().catch(() => {});
+                 } else {
+                     refreshSiteOperationsSources().catch(() => {});
+                 }
+             }
+             responseData = await buildSiteOperationsSummaryFromCache();
+             wasLiveSucceeded = Object.keys(responseData).length > 0;
+             if (wasLiveSucceeded && policy === "live-only") {
+                 // To prevent labeling as cache, we know it's freshly built from live data.
+                 wasCacheUsed = false; 
+             } else if (!wasLiveSucceeded && policy === "live-first") {
+                 responseData = lastSummaryCache || (await buildSiteOperationsSummaryFromCache());
+                 wasCacheUsed = !!responseData;
+             }
+        } 
+        
+        if (!wasLiveSucceeded && allowCache) {
+             let cachedEntry = prizmCache.get('site-operations-summary');
              if (cachedEntry) {
                  responseData = cachedEntry.data;
-                 if (cachedEntry.isStale || cachedEntry.ageMs > 15000) shouldRefresh = true;
-             } else if (lastSummaryCache && (Date.now() - lastSummaryTime < 15000)) {
+                 wasCacheUsed = true;
+             } else if (lastSummaryCache) {
                  responseData = lastSummaryCache;
-                 cachedEntry = { data: lastSummaryCache, ageMs: Date.now() - lastSummaryTime, isLive: true } as any;
+                 wasCacheUsed = true;
              } else {
                  responseData = await buildSiteOperationsSummaryFromCache();
-                 shouldRefresh = true;
+                 wasCacheUsed = true;
              }
-        } else {
-             // preferCache=false
-             responseData = await buildSiteOperationsSummaryFromCache();
-             shouldRefresh = true;
-        }
-
-        let refreshing = false;
-        if (shouldRefresh) {
-            refreshing = true;
-            refreshSiteOperationsSources().catch(() => {});
-        } else if (siteOpsInFlight) {
-            refreshing = true;
-        }
-
-        if (forceRefresh) {
-             await Promise.race([
-                 siteOpsInFlight,
-                 new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-             ]).catch(() => null);
-             
-             responseData = await buildSiteOperationsSummaryFromCache();
         }
 
         if (!responseData) responseData = {};
 
-        let cacheState = "UNAVAILABLE";
-        if (Object.keys(responseData).length > 0) {
-            if (siteOpsInFlight) {
-                cacheState = "REFRESHING";
-            } else if (cachedEntry?.isStale || (cachedEntry && cachedEntry.ageMs > 15000)) {
-                cacheState = "STALE";
-            } else if (cachedEntry || (!preferCache && !forceRefresh)) {
-                cacheState = "CACHED";
-            } else {
-                cacheState = "LIVE";
-            }
-        }
+        // Merge the cache metadata directly into the root level as requested
+        const cacheMetadata = buildCacheMetadata(policy, wasCacheUsed, wasLiveAttempted, wasLiveSucceeded, prizmCache.get('site-operations-summary'));
+        // Special case: if we waited for refreshSiteOperationsSources, it's basically live-ems and live-modbus mixed.
+        // We will default the requested `source` output:
+        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
+        // if policy is cache-only, source is cache or unavailable.
+        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
+        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
 
-        const tBuild = Date.now() - tStart;
-
-        (responseData as any).cacheMeta = {
-            cacheState,
-            fetchedAt: cachedEntry ? cachedEntry.fetchedAt : new Date().toISOString(),
-            ageMs: cachedEntry ? cachedEntry.ageMs : 0,
-            ttlMs: 15000,
-            sourceOk: true,
-            refreshing
-        };
+        Object.assign(responseData, {
+            source: sourceValue,
+            cacheUsed: policy === "live-only" ? false : wasCacheUsed, // Explicitly false for live-only per requirements
+            liveAttempted: wasLiveAttempted,
+            liveSucceeded: wasLiveSucceeded,
+            stale: prizmCache.get('site-operations-summary')?.isStale ?? false,
+            timestamp: new Date().toISOString(),
+            ageMs: prizmCache.get('site-operations-summary')?.ageMs ?? 0,
+            cachePolicy: policy
+        });
 
         const totalMs = Date.now() - tStart;
         (responseData as any).debug = {
              ...((responseData as any).debug || {}),
-             timings: { totalMs, cacheReadMs: tCacheRead, buildMs: tBuild - tCacheRead, sourceHealthMs: 0, refreshTriggered: shouldRefresh }
+             timings: { totalMs, cachePolicy: policy }
         };
 
         if (totalMs > 500) console.log('[SiteOps] Slow summary response: ' + totalMs + 'ms');
 
         res.json(responseData);
     } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, source: "unavailable", cacheUsed: false, liveAttempted: forceLive, liveSucceeded: false });
     }
 });
 

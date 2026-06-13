@@ -10,6 +10,19 @@ router.get("/status", (req, res) => {
     res.json(prizmCache.getStatus());
 });
 
+router.get("/policy", (req, res) => {
+    res.json({ success: true, policy: prizmCache.getCachePolicy() });
+});
+
+router.post("/policy", (req, res) => {
+    const policy = req.body.policy;
+    if (["live-first", "cache-first", "live-only", "cache-only"].includes(policy)) {
+        prizmCache.setCachePolicy(policy as any);
+        return res.json({ success: true, policy });
+    }
+    return res.status(400).json({ error: "Invalid cache policy", success: false });
+});
+
 router.post("/refresh", (req, res) => {
     const keys = req.body.keys || req.body.cleared || [];
     const clearedKeys: string[] = [];
@@ -44,7 +57,31 @@ router.post("/seed", (req, res) => {
 
 router.post("/clear-active", (req, res) => {
     prizmCache.clear();
-    res.json({ success: true, message: "Active memory cache cleared", cleared: "all" });
+    const activePath = prizmCache.getActiveSiteCachePath();
+    const manifest = prizmCache.getActiveManifest();
+    let clearedFiles: string[] = [];
+    if (fs.existsSync(activePath) && fs.statSync(activePath).isDirectory()) {
+         const files = fs.readdirSync(activePath);
+         for (const file of files) {
+             // Do not delete profile snapshot history? Actually wait, it says: Modbus profile validation snapshot cache, but do not delete profile history unless explicitly requested...
+             // The requirement: "clear active topology cache, EMS report cache, string dashboard cache, Feather discovery cache for this station, Modbus profile validation snapshot cache, but do not delete profile history... master dataset cache"
+             if (file.endsWith('.json') || file === 'raw') {
+                  const fp = path.join(activePath, file);
+                  try {
+                       fs.rmSync(fp, { recursive: true, force: true });
+                       clearedFiles.push(file);
+                  } catch(e) {}
+             }
+         }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: "Active memory and disk cache cleared", 
+      stationCode: manifest.stationCode || manifest.discoveredStationCode || "UNKNOWN",
+      blockIndex: manifest.blockIndex || 1,
+      cleared: clearedFiles 
+    });
 });
 
 router.post("/clear-all", (req, res) => {

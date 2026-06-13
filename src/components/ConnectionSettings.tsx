@@ -78,12 +78,43 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
 
   // Cache States
   const [cacheStatus, setCacheStatus] = useState<any>(null);
+  const [cachePolicy, setCachePolicy] = useState<string>("live-first");
+  const [changePolicyLoading, setChangePolicyLoading] = useState(false);
+
   useEffect(() => {
      fetch('/api/local/cache/status')
         .then(r => r.json())
         .then(setCacheStatus)
         .catch(console.error);
+        
+     fetch('/api/local/cache/policy')
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.policy) setCachePolicy(data.policy);
+        })
+        .catch(console.error);
   }, [activeProfile]);
+  
+  const handlePolicyChange = async (newPolicy: string) => {
+      setChangePolicyLoading(true);
+      try {
+          const res = await fetch('/api/local/cache/policy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ policy: newPolicy })
+          });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.success && data.policy) {
+                  setCachePolicy(data.policy);
+              }
+          }
+      } catch (e) {
+          console.error("Failed to change cache policy", e);
+      } finally {
+          setChangePolicyLoading(false);
+      }
+  };
 
   const handleClearActiveCache = async () => {
       try {
@@ -862,12 +893,22 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
            
            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                <div className="bg-black/20 p-3 rounded border border-white/5">
-                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Active Site Cache Namespace</div>
-                  <div className="text-xs font-bold text-prizm-primary truncate">{cacheStatus.activeSiteCacheKey || 'UNKNOWN'}</div>
+                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Global Cache Policy</div>
+                  <select 
+                      value={cachePolicy} 
+                      onChange={(e) => handlePolicyChange(e.target.value)}
+                      disabled={changePolicyLoading}
+                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-xs text-prizm-text outline-none appearance-none cursor-pointer disabled:opacity-50"
+                  >
+                     <option value="live-first">Live-First (Default)</option>
+                     <option value="cache-first">Cache-First (Offline/Fallback)</option>
+                     <option value="live-only">Live-Only (Bypass Cache)</option>
+                     <option value="cache-only">Cache-Only (Strict Offline)</option>
+                  </select>
                </div>
                <div className="bg-black/20 p-3 rounded border border-white/5">
-                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Local Disk Path</div>
-                  <div className="text-xs font-mono text-prizm-text-muted truncate">{cacheStatus.cacheRoot}/sites</div>
+                  <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider mb-1">Active Site Cache Namespace</div>
+                  <div className="text-xs font-bold text-prizm-primary truncate">{cacheStatus.activeSiteCacheKey || 'UNKNOWN'}</div>
                </div>
            </div>
 

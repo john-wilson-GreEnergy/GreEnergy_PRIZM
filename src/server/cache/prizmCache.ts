@@ -12,6 +12,48 @@ try {
   fs.mkdirSync(HISTORY_ROOT, { recursive: true });
 } catch (e) {}
 
+export type CachePolicy = "live-first" | "cache-first" | "live-only" | "cache-only";
+
+let currentCachePolicy: CachePolicy = "live-first";
+
+export function getCachePolicy(): CachePolicy {
+  return currentCachePolicy;
+}
+
+export function setCachePolicy(policy: CachePolicy) {
+  currentCachePolicy = policy;
+}
+
+export function getEffectiveCachePolicy(reqCacheQuery?: any, reqNoCache?: any, reqRefresh?: any): CachePolicy {
+  if (reqRefresh === "true" || reqRefresh === true) return "live-first"; // Or maybe live-first and bypass cache read
+  if (reqNoCache === "true" || reqNoCache === true) return "live-only";
+  if (reqCacheQuery && ["live-first", "cache-first", "live-only", "cache-only"].includes(reqCacheQuery)) {
+    return reqCacheQuery as CachePolicy;
+  }
+  return currentCachePolicy;
+}
+
+export function shouldFetchLive(policy: CachePolicy): boolean {
+  return policy === "live-first" || policy === "live-only";
+}
+
+export function shouldReadCache(policy: CachePolicy): boolean {
+  return policy === "live-first" || policy === "cache-first" || policy === "cache-only";
+}
+
+export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: PrizmCacheEntry<any> | null) {
+  return {
+    source: wasLiveSucceeded ? (entry?.sourceUrl?.includes("turtle") || entry?.sourceUrl?.includes("lastCall") ? "live-ems" : "live-modbus") : (wasCacheUsed ? "cache" : "unavailable"), // we refine this per route later.
+    cacheUsed: wasCacheUsed,
+    liveAttempted: wasLiveAttempted,
+    liveSucceeded: wasLiveSucceeded,
+    stale: entry?.isStale ?? false,
+    timestamp: entry?.updatedAt || new Date().toISOString(),
+    ageMs: entry?.ageMs || 0,
+    cachePolicy: policy
+  };
+}
+
 export interface PrizmCacheEntry<T = unknown> {
   key: string;
   data: T;
@@ -41,6 +83,77 @@ export interface SetCacheOptions {
 export interface GetOrFetchOptions extends SetCacheOptions {
   forceRefresh?: boolean;
   persist?: boolean;
+  policy?: CachePolicy;
+}
+
+export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, options?: GetOrFetchOptions): Promise<PrizmCacheEntry<T>> {
+  const policy = options?.policy || getCachePolicy();
+  const allowLive = shouldFetchLive(policy) || options?.forceRefresh;
+  const allowCache = shouldReadCache(policy);
+  
+  if (allowCache && !options?.forceRefresh) {
+    const existing = get<T>(key);
+    if (existing) {
+       // if policy is cache-only, we always return it even if stale, or we fetch if not live-only?
+       // if we have it and it's not stale, return it.
+       if (!existing.isStale || policy === "cache-only" || !allowLive) {
+           existing.wasFetched = false;
+           return existing;
+       }
+    }
+  }
+
+  if (allowLive) {
+      try {
+        const data = await fetcher();
+        const entry = set<T>(key, data, options);
+        entry.wasFetched = true;
+        return entry;
+      } catch (err: any) {
+        const existing = get<T>(key);
+        updateManifest(key, false, options?.sourceUrl || '', options?.ttlMs ?? 5000, err.message);
+        if (allowCache && existing && existing.data) {
+          existing.sourceOk = false;
+          existing.isLive = false;
+          existing.wasFetched = false;
+          existing.error = err.message;
+          return existing;
+        }
+        const failedEntry: PrizmCacheEntry<T> = {
+          key,
+          data: null as any,
+          fetchedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ageMs: 0,
+          ttlMs: options?.ttlMs ?? 5000,
+          sourceOk: false,
+          isLive: false,
+          isStale: true,
+          error: err.message,
+          profileId: options?.profileId,
+          emsBaseUrl: options?.emsBaseUrl,
+          wasFetched: false,
+        };
+        return failedEntry;
+      }
+  } else {
+     // Not allowed to fetch live, and either no cache or allowCache is false.
+     return {
+        key,
+        data: null as any,
+        fetchedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        ageMs: 0,
+        ttlMs: options?.ttlMs ?? 5000,
+        sourceOk: false,
+        isLive: false,
+        isStale: true,
+        error: "Cache miss and live fetch not allowed.",
+        profileId: options?.profileId,
+        emsBaseUrl: options?.emsBaseUrl,
+        wasFetched: false,
+      };
+  }
 }
 
 export function buildSiteCacheKey(input: {
@@ -280,49 +393,6 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
   } catch(e) {}
   
   return entry;
-}
-
-export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, options?: GetOrFetchOptions): Promise<PrizmCacheEntry<T>> {
-  if (!options?.forceRefresh) {
-    const existing = get<T>(key);
-    if (existing && !existing.isStale) {
-         existing.wasFetched = false;
-         return existing;
-    }
-  }
-
-  try {
-    const data = await fetcher();
-    const entry = set<T>(key, data, options);
-    entry.wasFetched = true;
-    return entry;
-  } catch (err: any) {
-    const existing = get<T>(key);
-    updateManifest(key, false, options?.sourceUrl || '', options?.ttlMs ?? 5000, err.message);
-    if (existing && existing.data) {
-      existing.sourceOk = false;
-      existing.isLive = false;
-      existing.wasFetched = false;
-      existing.error = err.message;
-      return existing;
-    }
-    const failedEntry: PrizmCacheEntry<T> = {
-      key,
-      data: null as any,
-      fetchedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ageMs: 0,
-      ttlMs: options?.ttlMs ?? 5000,
-      sourceOk: false,
-      isLive: false,
-      isStale: true,
-      error: err.message,
-      profileId: options?.profileId,
-      emsBaseUrl: options?.emsBaseUrl,
-      wasFetched: false,
-    };
-    return failedEntry;
-  }
 }
 
 export function clear(key?: string): void {

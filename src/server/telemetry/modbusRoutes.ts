@@ -121,39 +121,92 @@ router.get("/discovery/status", (req, res) => {
   res.json(getDiscoveryStatus());
 });
 
+import { getEffectiveCachePolicy } from "../cache/prizmCache";
+
+function decorateWithCacheMeta(req: any, _data: any) {
+  const policy = getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
+  const discovery = getDiscoveryStatus();
+  
+  const isMock = !!discovery.warning && discovery.warning.includes("MOCK");
+  
+  const activeProfile = getActiveProfile();
+  const isStale = discovery.activeSourceMode === "Stale fallback" || (activeProfile && activeProfile.isStale);
+  const hasActiveProfile = !!activeProfile;
+
+  let liveAttempted = true;
+  let liveSucceeded = !isStale && hasActiveProfile;
+  let wasCacheUsed = false;
+  
+  let source = "live-modbus";
+  if (isMock) source = "mock-modbus";
+  else if (!liveSucceeded) source = "unavailable";
+
+  let data = _data;
+
+  if (policy === "cache-only") {
+      source = "unavailable";
+      liveAttempted = false;
+      liveSucceeded = false;
+      wasCacheUsed = false;
+      data = Array.isArray(_data) ? [] : {}; 
+  } else if (policy === "live-only" && !liveSucceeded) {
+      source = "unavailable";
+      liveAttempted = true;
+      liveSucceeded = false;
+      wasCacheUsed = false;
+      data = Array.isArray(_data) ? [] : {};
+  }
+
+  const meta = {
+     source,
+     cacheUsed: wasCacheUsed,
+     liveAttempted,
+     liveSucceeded,
+     stale: isStale,
+     cachePolicy: policy,
+     timestamp: new Date().toISOString()
+  };
+
+  if (!Array.isArray(data) && typeof data === 'object' && data !== null) {
+      return { ...data, ...meta };
+  } else {
+      return { data, ...meta }; // wrap array in object
+  }
+}
+
 // GET /api/local/telemetry/snapshot
 router.get("/snapshot", (req, res) => {
-  res.json(getTelemetrySnapshot());
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot()));
 });
 
 // GET /api/local/telemetry/site
 router.get("/site", (req, res) => {
-  res.json(getTelemetrySnapshot().site);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().site || {}));
 });
 
 // GET /api/local/telemetry/arrays
 router.get("/arrays", (req, res) => {
-  res.json(getTelemetrySnapshot().arrays);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().arrays || []));
 });
 
 // GET /api/local/telemetry/pcses
 router.get("/pcses", (req, res) => {
-  res.json(getTelemetrySnapshot().pcses);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().pcses || []));
 });
 
 // GET /api/local/telemetry/strings
 router.get("/strings", (req, res) => {
-  res.json(getTelemetrySnapshot().strings);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().strings || []));
 });
 
 // GET /api/local/telemetry/hvac
 router.get("/hvac", (req, res) => {
-  res.json(getTelemetrySnapshot().hvac);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().hvac || []));
 });
 
 // GET /api/local/telemetry/events
 router.get("/events", (req, res) => {
-  res.json(getTelemetrySnapshot().events);
+  res.json(decorateWithCacheMeta(req, getTelemetrySnapshot().events || {}));
 });
 
 // GET /api/local/modbus/diagnostics/live-check

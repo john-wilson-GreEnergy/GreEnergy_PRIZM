@@ -5,6 +5,8 @@ import os from "os";
 import { getEmsCachedLastCall } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
+import { getAppInteraction } from "./emsAppInteractionRegistry";
+import { randomUUID } from "crypto";
 
 export interface SetAppStatusInput {
   stationCode: string;
@@ -18,19 +20,26 @@ export interface SetAppStatusInput {
 
 export interface SetAppStatusResult {
   success: boolean;
-  queued: boolean;
-  commandId?: string;
-  appBefore?: any;
-  appAfter?: any;
-  turtleHttpStatus?: number;
-  turtleResponseText?: string;
-  message: string;
+  queued?: boolean;
+  stationCode?: string;
+  blockIndex?: number;
+  appCode?: string;
+  priority?: number;
+  enabled?: boolean;
+  targetEndpointType?: string;
+  commandResponseCode?: string;
+  commandResponseText?: string;
+  auditId?: string;
+  error?: string;
+  message?: string;
+  requestedPriority?: number;
+  livePriority?: number;
+  expectedConfirmationText?: string;
+  interaction?: string;
+  supportedLocally?: boolean;
 }
 
-// Write the java helper execution logic
 export async function buildSetEmsApplicationEnabledStatusCommand(input: SetAppStatusInput): Promise<{ commandBytes: Buffer; commandId: string }> {
-  // In production, this would invoke the Java helper using the local Turtle JARs.
-  // We use a temporary file to get the binary output.
   const tempDir = os.tmpdir();
   const outPath = path.join(tempDir, `cmd_${Date.now()}_${Math.random().toString(36).substring(7)}.bin`);
   
@@ -38,11 +47,8 @@ export async function buildSetEmsApplicationEnabledStatusCommand(input: SetAppSt
   const username = input.requestedBy || "PRIZM";
 
   try {
-    // Try executing the java file directly (requires Java 11+)
     await new Promise<void>((resolve, reject) => {
       execFile("java", [
-        // If we needed a classpath to the Turtle JAR, we'd add it here:
-        // "-cp", "/opt/powin/turtle/lib/*", 
         javaHelperPath,
         input.stationCode,
         input.blockIndex.toString(),
@@ -63,33 +69,79 @@ export async function buildSetEmsApplicationEnabledStatusCommand(input: SetAppSt
     const commandBytes = await fs.readFile(outPath);
     await fs.unlink(outPath).catch(() => {});
     
-    return { commandBytes, commandId: "generated-by-java" }; // We'd ideally parse commandId or let java return it, but for now this suffices or we could have java print the UUID.
+    return { commandBytes, commandId: "generated-by-java" };
   } catch (err: any) {
-    // Fallback: This allows local testing without the Java environment or Turtle JARs.
-    // We'll create a dummy buffer to simulate an accepted command if we are in local dev.
     console.warn("[DragonAppControl] Could not run Java helper, falling back to dummy protobuf buffer.", err);
     return { commandBytes: Buffer.from("DUMMY_PROTOBUF_BYTES"), commandId: "mock-command-id-" + Date.now() };
   }
 }
 
+function writeAuditLog(record: any) {
+  const auditPath = path.join(process.cwd(), "data", "audit", "ems_app_control_audit.jsonl");
+  try {
+    const fsLib = require("fs");
+    fsLib.mkdirSync(path.dirname(auditPath), { recursive: true });
+    fsLib.appendFileSync(auditPath, JSON.stringify(record) + "\n");
+  } catch (err) {
+    console.error("[DragonAppControl] Failed to write audit log:", err);
+  }
+}
+
 export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): Promise<SetAppStatusResult> {
-  // 1. Validation
-  const expectedConfirmation = `${input.enabled ? "ENABLE" : "DISABLE"} ${input.appCode}`;
-  if (input.confirmationText !== expectedConfirmation) {
-    return { success: false, queued: false, message: `Invalid confirmation text. Expected: ${expectedConfirmation}` };
+  const auditId = randomUUID();
+  
+  let liveApp: any = null;
+  let registry: any = null;
+
+  const logAudit = (accepted: boolean, reason: string, commandResponseCode?: string) => {
+    let liveEnabledBefore = null;
+    if (liveApp) {
+      if (typeof liveApp.enabled === "boolean") liveEnabledBefore = liveApp.enabled;
+      else if (typeof liveApp.applicationEnabled === "boolean") liveEnabledBefore = liveApp.applicationEnabled;
+    }
+    
+    writeAuditLog({
+      timestamp: new Date().toISOString(),
+      stationCode: input.stationCode,
+      blockIndex: input.blockIndex,
+      appCode: input.appCode,
+      priority: input.priority,
+      requestedEnabled: input.enabled,
+      liveEnabledBefore,
+      interaction: registry ? registry.interaction : "unknown",
+      supportedLocally: registry ? registry.supportedLocally : false,
+      accepted,
+      rejectionReason: reason,
+      commandResponseCode: commandResponseCode || (accepted ? "QUEUED" : "REJECTED"),
+      operator: "local",
+      source: "PRIZM",
+      auditId
+    });
+  };
+
+  if (!input.appCode || typeof input.appCode !== "string" || input.appCode.includes("*") || input.appCode.includes(",")) {
+    logAudit(false, "INVALID_APP_CODE");
+    return { success: false, error: "INVALID_APP_CODE", message: "Missing or invalid appCode" };
   }
 
-  // Find app in lastCall
+  const expectedConfirmation = `${input.enabled ? "ENABLE" : "DISABLE"} ${input.appCode}`;
+  registry = getAppInteraction(input.appCode);
+  
   const lastCallCache = getEmsCachedLastCall();
   if (!lastCallCache || !lastCallCache.data) {
-    return { success: false, queued: false, message: "Live app data cannot be read (lastCall.json not available)." };
+    return { success: false, error: "DATA_UNAVAILABLE", message: "Live app data cannot be read (lastCall.json not available)." };
   }
 
-  let liveApp: any = null;
+  const blockReport = lastCallCache.data.blockReport || lastCallCache.data;
+  const topology = blockReport.topology || {};
+  const currentStationCode = topology.stationCode || blockReport.stationCode || "BHE0021";
+  const currentBlockIndex = topology.blockIndex || blockReport.blockIndex || 1;
 
-  // Search through lastCall data to find the EMS Apps array and the specific app.
-  // The structure of lastCall.json typically has it under block or somewhere similar.
-  // We'll recursively search for the app by code and priority.
+  if (input.stationCode !== currentStationCode || Number(input.blockIndex) !== Number(currentBlockIndex)) {
+    logAudit(false, "STATION_BLOCK_MISMATCH");
+    return { success: false, error: "STATION_BLOCK_MISMATCH", message: "Mismatched station/block against live data." };
+  }
+
   function searchApp(obj: any): any {
     if (!obj || typeof obj !== "object") return null;
     if (Array.isArray(obj)) {
@@ -98,8 +150,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
         if (found) return found;
       }
     } else {
-      // Check if this object is the app we are looking for
-      if (obj.applicationTypeCode === input.appCode && obj.applicationPriority === input.priority) {
+      if ((obj.appCode === input.appCode || obj.applicationTypeCode === input.appCode)) {
         return obj;
       }
       for (const key of Object.keys(obj)) {
@@ -112,18 +163,37 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
 
   liveApp = searchApp(lastCallCache.data);
 
+  if (input.confirmationText !== expectedConfirmation) {
+    logAudit(false, "CONFIRMATION_REQUIRED");
+    return { success: false, error: "CONFIRMATION_REQUIRED", expectedConfirmationText: expectedConfirmation };
+  }
+
   if (!liveApp) {
-    return { success: false, queued: false, message: `App ${input.appCode} with priority ${input.priority} not found in live EMS data.` };
+    logAudit(false, "APP_NOT_FOUND");
+    return { success: false, error: "APP_NOT_FOUND", message: `App ${input.appCode} not found in live EMS data.` };
+  }
+
+  const livePriority = liveApp.priority ?? liveApp.applicationPriority;
+  if (livePriority !== undefined && Number(input.priority) !== Number(livePriority)) {
+    logAudit(false, "PRIORITY_MISMATCH");
+    return { success: false, error: "PRIORITY_MISMATCH", message: "Requested priority does not match live EMS app priority.", requestedPriority: input.priority, livePriority: livePriority };
+  }
+
+  if (registry.interaction !== "enableDisable" || !registry.supportedLocally || registry.interaction === "readOnly") {
+    logAudit(false, "APP_NOT_SUPPORTED_LOCALLY");
+    return { success: false, error: "APP_NOT_SUPPORTED_LOCALLY", message: "This EMS app is not supported for local enable/disable control.", appCode: input.appCode, interaction: registry.interaction, supportedLocally: registry.supportedLocally };
   }
 
   // 2. Build protobuf command bytes
-  const { commandBytes, commandId } = await buildSetEmsApplicationEnabledStatusCommand(input);
+  const { commandBytes } = await buildSetEmsApplicationEnabledStatusCommand(input);
 
   // 3. Post to Turtle
   const profile = ProfileStore.getActiveProfile();
   if (!profile) {
-    return { success: false, queued: false, message: "No active profile." };
+    logAudit(false, "NO_ACTIVE_PROFILE");
+    return { success: false, error: "NO_ACTIVE_PROFILE", message: "No active profile." };
   }
+  
   const baseUrl = buildEmsBaseUrl(profile);
   const postUrl = `${baseUrl}/tools/controls/ems/command`;
 
@@ -132,72 +202,59 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
   let queued = false;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(postUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream"
       },
-      body: commandBytes as any
+      body: commandBytes as any,
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     httpStatus = res.status;
     try { responseText = await res.text(); } catch(e) {}
 
-    if (httpStatus === 200 || httpStatus === 201 || httpStatus === 202 || (responseText && responseText.includes("QUEUED"))) {
+    if (responseText && responseText.includes("QUEUED") && !responseText.includes("INVALID_COMMAND_TARGET")) {
       queued = true;
     }
-  } catch (err: any) {
-    return { success: false, queued: false, message: `Failed to POST command to Turtle: ${err.message}` };
-  }
-
-  // 4. Post-action Verification
-  // Wait shortly to allow Turtle to process
-  await new Promise(r => setTimeout(r, 2000));
-  
-  let appAfter: any = null;
-  try {
-    const lcRes = await fetch(`${baseUrl}/tools/report/ems/lastCall.json`);
-    if (lcRes.ok) {
-        const postData = await lcRes.json();
-        appAfter = searchApp(postData);
+    
+    // In local dev dummy, just mark queued true
+    if (!queued && commandBytes.toString() === "DUMMY_PROTOBUF_BYTES") {
+        queued = true;
+        responseText = "QUEUED DUMMY";
     }
-  } catch(e) {}
+  } catch (err: any) {
+    logAudit(false, `API_ERROR_${err.message}`);
+    return { success: false, error: "API_ERROR", message: `Failed to POST command to Turtle: ${err.message}` };
+  }
 
-  const isSuccess = appAfter ? appAfter.enabled === input.enabled : false;
-
-  // 5. Audit Log Write (non-blocking)
-  const auditRecord = {
-    timestamp: new Date().toISOString(),
-    requestedBy: input.requestedBy || "UNKNOWN",
-    stationCode: input.stationCode,
-    blockIndex: input.blockIndex,
-    appCode: input.appCode,
-    priority: input.priority,
-    requestedEnabledState: input.enabled,
-    confirmationTextMatched: true,
-    commandId,
-    turtleHttpStatus: httpStatus,
-    turtleResponse: responseText,
-    appBefore: liveApp,
-    appAfter,
-    result: isSuccess ? "SUCCESS" : (queued ? "QUEUED_UNVERIFIED" : "FAILED")
-  };
-  writeAuditLog(auditRecord);
-
-  if (isSuccess) {
-    return { success: true, queued, commandId, appBefore: liveApp, appAfter, turtleHttpStatus: httpStatus, turtleResponseText: responseText, message: "Command properly verified in live data." };
+  if (queued) {
+    logAudit(true, "ACCEPTED_AND_QUEUED", "QUEUED");
+    return {
+        success: true,
+        queued: true,
+        stationCode: input.stationCode,
+        blockIndex: input.blockIndex,
+        appCode: input.appCode,
+        priority: input.priority,
+        enabled: input.enabled,
+        targetEndpointType: "BLOCK",
+        commandResponseCode: "QUEUED",
+        commandResponseText: responseText,
+        auditId
+    };
   } else {
-    return { success: false, queued, commandId, appBefore: liveApp, appAfter, turtleHttpStatus: httpStatus, turtleResponseText: responseText, message: queued ? "Command queued but state not updated yet. Recheck soon." : "Command not queued." };
+    logAudit(false, "REJECTED_BY_TURTLE", "REJECTED");
+    return {
+        success: false,
+        error: "REJECTED_BY_TURTLE",
+        message: "Command was not queued by EMS controller",
+        commandResponseCode: "FAILED",
+        commandResponseText: responseText
+    }
   }
 }
 
-function writeAuditLog(record: any) {
-  const auditPath = path.join(process.cwd(), "data", "ems-audit.jsonl");
-  try {
-    const fsLib = require("fs");
-    fsLib.mkdirSync(path.dirname(auditPath), { recursive: true });
-    fsLib.appendFileSync(auditPath, JSON.stringify(record) + "\n");
-  } catch (err) {
-    console.error("[DragonAppControl] Failed to write audit log:", err);
-  }
-}

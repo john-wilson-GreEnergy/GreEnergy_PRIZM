@@ -569,14 +569,19 @@ router.get("/", async (req, res) => {
         };
         }; // end fetcher function
         
+        const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
         const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
             ttlMs: maxAgeMs,
             sourceUrl: '/api/local/strings/dashboard',
             profileId: profile?.id,
             emsBaseUrl: baseUrl,
             forceRefresh: req.query.refresh === 'true',
-            persist: true
+            persist: true,
+            policy
         });
+
+        const wasLiveSucceeded = cacheEntry.wasFetched && cacheEntry.sourceOk;
+        const wasCacheUsed = !cacheEntry.wasFetched && (!cacheEntry.error || cacheEntry.data);
 
         // Hysteresis / History tracking
         if (cacheEntry.data && cacheEntry.data.strings && cacheEntry.wasFetched) {
@@ -633,8 +638,22 @@ router.get("/", async (req, res) => {
             prizmHistory.appendSamples(hMetrics);
         }
 
+        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
+        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
+        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
+
+        const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
+
         res.json({ 
-            ...cacheEntry.data, 
+            ...outputData, 
+            source: sourceValue,
+            cacheUsed: policy === "live-only" ? false : wasCacheUsed,
+            liveAttempted: prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true',
+            liveSucceeded: wasLiveSucceeded,
+            stale: cacheEntry.isStale,
+            timestamp: new Date().toISOString(),
+            ageMs: cacheEntry.ageMs,
+            cachePolicy: policy,
             cache: {
                 key: cacheEntry.key,
                 fetchedAt: cacheEntry.fetchedAt,
@@ -1248,14 +1267,19 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         };
         }; // end fetcher function
 
+        const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
         const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
             ttlMs: maxAgeMs,
             sourceUrl: `/api/local/strings/dashboard/${arrayNumber}/${stringNumber}/detail`,
             profileId: profile.id,
             emsBaseUrl: baseUrl,
             forceRefresh: req.query.refresh === 'true',
-            persist: true
+            persist: true,
+            policy
         });
+
+        const wasLiveSucceeded = cacheEntry.wasFetched && cacheEntry.sourceOk;
+        const wasCacheUsed = !cacheEntry.wasFetched && (!cacheEntry.error || cacheEntry.data);
 
         // Hysteresis / History tracking
         if (cacheEntry.data && cacheEntry.data.bpcs && !!req.query.captureHistory && cacheEntry.wasFetched) {
@@ -1286,8 +1310,22 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
              prizmHistory.appendSamples(hMetrics);
         }
 
+        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
+        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
+        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
+
+        const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
+
         res.json({ 
-            ...cacheEntry.data, 
+            ...outputData, 
+            source: sourceValue,
+            cacheUsed: policy === "live-only" ? false : wasCacheUsed,
+            liveAttempted: prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true',
+            liveSucceeded: wasLiveSucceeded,
+            stale: cacheEntry.isStale,
+            timestamp: new Date().toISOString(),
+            ageMs: cacheEntry.ageMs,
+            cachePolicy: policy,
             cache: {
                 key: cacheEntry.key,
                 fetchedAt: cacheEntry.fetchedAt,

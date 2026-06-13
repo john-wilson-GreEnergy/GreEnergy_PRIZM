@@ -1278,26 +1278,51 @@ let lastEnrichedCache: any = null;
 
 app.get("/api/feather/devices", async (req, res) => {
   try {
-    const forceRefresh = req.query.refresh === "true";
+    const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
+    const forceLive = prizmCache.shouldFetchLive(policy);
+    const allowCache = ["cache-first", "cache-only", "live-first"].includes(policy);
+    const forceRefresh = forceLive || req.query.refresh === "true";
+
     const maxAgeMs = req.query.maxAgeMs ? parseInt(req.query.maxAgeMs as string, 10) : 5000;
 
     const currentFeatherCache = getFeatherCache();
     const hasKnownFeatherIps = !currentFeatherCache.isStale && currentFeatherCache.devices && currentFeatherCache.devices.some(d => !(d as any).rejected);
 
-    if (!forceRefresh && lastEnrichedCache) {
+    let wasLiveAttempted = forceRefresh;
+    let wasLiveSucceeded = false;
+    let wasCacheUsed = false;
+
+    if (!forceLive && allowCache && lastEnrichedCache) {
       const ageMs = Date.now() - new Date(lastEnrichedCache.generatedAt).getTime();
-      if (ageMs < maxAgeMs) {
+      if (ageMs < maxAgeMs || policy === "cache-only") {
         lastEnrichedCache.cacheAgeMs = ageMs;
         lastEnrichedCache.live = false;
         lastEnrichedCache.isDiscovering = !!activeDeviceScanPromise;
-        return res.json(lastEnrichedCache);
+        
+        return res.json({
+            ...lastEnrichedCache,
+            source: policy === "cache-only" ? "cache" : "cache",
+            cacheUsed: true,
+            liveAttempted: false,
+            liveSucceeded: false,
+            stale: currentFeatherCache.isStale,
+            cachePolicy: policy
+        });
       }
     }
 
     // Return stale but populated data if discovering
-    if (!forceRefresh && activeDeviceScanPromise && lastEnrichedCache) {
+    if (!forceLive && allowCache && activeDeviceScanPromise && lastEnrichedCache) {
         lastEnrichedCache.isDiscovering = true;
-        return res.json(lastEnrichedCache);
+        return res.json({
+            ...lastEnrichedCache,
+            source: "cache",
+            cacheUsed: true,
+            liveAttempted: true,
+            liveSucceeded: false,
+            stale: currentFeatherCache.isStale,
+            cachePolicy: policy
+        });
     }
 
     const discoveryPromise = (async () => {
@@ -1325,6 +1350,8 @@ app.get("/api/feather/devices", async (req, res) => {
       // Re-fetch populated enrichment data
       const finalData = await fetchEnrichedDevices();
       const durationMs = Date.now() - startTime;
+      
+      wasLiveSucceeded = true;
 
       const responseData = {
         ...finalData,
@@ -1355,19 +1382,38 @@ app.get("/api/feather/devices", async (req, res) => {
 
     if (forceRefresh) {
         // Block and wait for it
-        const data = await activeDeviceScanPromise;
-        return res.json(data);
+        let data = await activeDeviceScanPromise;
+        wasLiveAttempted = true;
+        wasLiveSucceeded = true;
+        wasCacheUsed = false;
+        
+        if (policy === "live-only" && !wasLiveSucceeded) {
+            data = { devices: [], total: 0 };
+        }
+        
+        return res.json({
+            ...data,
+            source: "live-ems", // or "live-feather" but the prompt uses standard mapped sources
+            cacheUsed: false,
+            liveAttempted: wasLiveAttempted,
+            liveSucceeded: wasLiveSucceeded,
+            stale: currentFeatherCache.isStale,
+            cachePolicy: policy
+        });
     } else {
         // Background update, return currently cached enrichment or just minimal info
+        let dataToReturn: any = null;
+        let pSource = "cache";
+        
         if (lastEnrichedCache) {
             lastEnrichedCache.isDiscovering = true;
-            return res.json(lastEnrichedCache);
+            dataToReturn = lastEnrichedCache;
         } else {
             // First ever fast return before enrich completes
             const validCacheDevices = currentFeatherCache.devices.filter(d => !(d as any).rejected);
             const rejectedCacheDevices = currentFeatherCache.devices.filter(d => (d as any).rejected);
             
-            return res.json({
+            dataToReturn = {
                success: true,
                autoSeeded: true,
                isDiscovering: true,
@@ -1379,8 +1425,26 @@ app.get("/api/feather/devices", async (req, res) => {
                siteCacheKey: currentFeatherCache.activeProfileId,
                lastDiscoveredAt: currentFeatherCache.createdAt,
                lastUpdatedAt: currentFeatherCache.lastUpdatedAt
-            });
+            };
         }
+        
+        if (policy === "live-only") {
+             dataToReturn = { devices: [], total: 0 };
+             pSource = "unavailable";
+             wasCacheUsed = false;
+        } else {
+             wasCacheUsed = true;
+        }
+        
+        return res.json({
+             ...dataToReturn,
+             source: pSource,
+             cacheUsed: wasCacheUsed,
+             liveAttempted: true,
+             liveSucceeded: false,
+             stale: currentFeatherCache.isStale,
+             cachePolicy: policy
+        });
     }
   } catch (err: any) {
     activeDeviceScanPromise = null;
