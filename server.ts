@@ -68,6 +68,56 @@ app.use("/api/local/ems-apps", emsAppRoutes);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 
+import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
+
+app.get("/api/local/snapshot", (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json(snapshot);
+});
+
+app.get("/api/local/site-operations/summary", (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json({
+    cacheMeta: snapshot.liveStatus,
+    siteState: snapshot.liveStatus.state,
+    ...snapshot.rollups,
+    activeIssueGroups: snapshot.normalized.correctiveActions,
+    stringSummary: snapshot.rollups.stringSummary
+  });
+});
+
+app.get("/api/local/strings/dashboard", (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json({
+    cards: snapshot.rollups.stringSummary?.summary || {},
+    rollups: snapshot.rollups.stringSummary?.summary || {},
+    cardsData: snapshot.rollups.stringSummary?.summary || {},
+    summary: snapshot.rollups.stringSummary?.summary || {},
+    strings: snapshot.normalized.strings || []
+  });
+});
+
+app.get("/api/local/pcs/dashboard", (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json(snapshot.normalized.pcs || []);
+});
+
+app.get("/api/local/feather/devices", async (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json({ devices: snapshot.normalized.feather || [] });
+});
+
+app.get("/api/local/corrective-actions", (req, res) => {
+  const snapshot = prizmDataCoordinator.getLatestSnapshot();
+  if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  res.json(snapshot.normalized.correctiveActions || []);
+});
+
 app.get("/api/local/system/boot-status", (req, res) => {
   res.json(getBootStatus());
 });

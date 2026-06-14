@@ -149,9 +149,11 @@ export async function initializePrizmBootFlow() {
   }
 }
 
+import { startCoordinator, stopCoordinator } from "../prizmDataCoordinator";
+
 export function handleProfileChange() {
   // Reset sequence
-  if (livePollingInterval) clearInterval(livePollingInterval);
+  stopCoordinator();
   if (slowRefreshInterval) clearInterval(slowRefreshInterval);
   
   updateStatus({
@@ -213,22 +215,10 @@ function applyDiscoveredStation() {
 }
 
 export function startBackgroundPolling() {
-  if (livePollingInterval) clearInterval(livePollingInterval);
+  stopCoordinator();
   if (slowRefreshInterval) clearInterval(slowRefreshInterval);
 
-  livePollingInterval = setInterval(async () => {
-    try {
-      await pollEmsTurtle();
-      applyDiscoveredStation();
-      recordTelemetrySample(emsCache, getFeatherCache());
-      updateStatus({
-         lastSuccessfulPoll: new Date().toISOString(),
-         emsReachable: true
-      });
-    } catch (e) {
-      updateStatus({ emsReachable: false });
-    }
-  }, 5000);
+  startCoordinator();
 
   slowRefreshInterval = setInterval(async () => {
     // maybe refresh modbus map

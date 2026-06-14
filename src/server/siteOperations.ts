@@ -723,22 +723,54 @@ export async function buildSiteOperationsSummaryFromCache() {
              }
              arraySummary.sort((a,b)=> a.arrayIndex - b.arrayIndex);
         } else {
+             arraySummarySource = "native-merged-with-strings";
+             const arraysMap = new Map<number, any>();
+             for (const str of stringSummary.tableRows) {
+                 const arrId = str.arrayNumber ?? 0;
+                 if (!arraysMap.has(arrId)) {
+                     arraysMap.set(arrId, {
+                         arrayIndex: arrId,
+                         socs: [],
+                         kwhs: [],
+                         stringCount: 0,
+                         onlineStringCount: 0,
+                         nearlineStringCount: 0,
+                         offlineStringCount: 0,
+                         notCommunicationStringCount: 0,
+                     });
+                 }
+                 const arr = arraysMap.get(arrId);
+                 arr.stringCount++;
+                 if (str.socPct !== null) arr.socs.push(str.socPct);
+                 if (str.kWh !== null) arr.kwhs.push(str.kWh);
+                 if (str.bucket === 'online') arr.onlineStringCount++;
+                 else if (str.bucket === 'nearline') arr.nearlineStringCount++;
+                 else if (str.bucket === 'offline') arr.offlineStringCount++;
+                 else if (str.bucket === 'notCommunicating') arr.notCommunicationStringCount++;
+             }
+
              arraySummary = arrCands.map((a: any) => {
                  function num(v: any) {
                      if (v === null || v === undefined || v === '') return null;
                      const n = Number(v);
                      return Number.isFinite(n) ? n : null;
                  }
-                 const arrayIndex = num(a.arrayIndex ?? a.arrayNumber);
-                 const stringCount = num(a.stringCount);
-                 const notCommunicationStringCount = num(a.notCommunicationStringCount);
+                 const arrayIndex = num(a.arrayIndex ?? a.arrayNumber) ?? 0;
+                 
+                 const synth = arraysMap.get(arrayIndex);
+
+                 const stringCount = num(a.stringCount) ?? synth?.stringCount ?? 0;
+                 const notCommunicationStringCount = num(a.notCommunicationStringCount) ?? synth?.notCommunicationStringCount ?? 0;
+                 const avgOrNull = (vals: number[] | undefined) => (vals && vals.length > 0) ? vals.reduce((x,y)=>x+y, 0) / vals.length : null;
+                 const sumOrNull = (vals: number[] | undefined) => (vals && vals.length > 0) ? vals.reduce((x,y)=>x+y, 0) : null;
+
                  return {
                      arrayIndex,
-                     communicating: notCommunicationStringCount === 0,
-                     onlineSOC: num(a.onlineSOC),
-                     nearlineSOC: num(a.nearlineSOC),
+                     communicating: notCommunicationStringCount === 0 || notCommunicationStringCount < stringCount,
+                     onlineSOC: num(a.onlineSOC) ?? avgOrNull(synth?.socs),
+                     nearlineSOC: num(a.nearlineSOC) ?? avgOrNull(synth?.socs),
                      offlineSOC: num(a.offlineSOC),
-                     onlineAvailableKWh: num(a.onlineAvailableKWh),
+                     onlineAvailableKWh: num(a.onlineAvailableKWh) ?? sumOrNull(synth?.kwhs),
                      nearlineAvailableKWh: num(a.nearlineAvailableKWh),
                      offlineAvailableKWh: num(a.offlineAvailableKWh),
                      availableACChargekW: num(a.availableACChargekW),
@@ -752,14 +784,14 @@ export async function buildSiteOperationsSummaryFromCache() {
                      maxAllowedChargeCurrent: a.maxAllowedChargeCurrent ?? null,
                      maxAllowedDischargeCurrent: a.maxAllowedDischargeCurrent ?? null,
                      stringCount,
-                     onlineStringCount: num(a.onlineStringCount),
-                     nearlineStringCount: num(a.nearlineStringCount),
-                     offlineStringCount: num(a.offlineStringCount),
+                     onlineStringCount: num(a.onlineStringCount) ?? synth?.onlineStringCount ?? 0,
+                     nearlineStringCount: num(a.nearlineStringCount) ?? synth?.nearlineStringCount ?? 0,
+                     offlineStringCount: num(a.offlineStringCount) ?? synth?.offlineStringCount ?? 0,
                      notCommunicationStringCount,
                      inRotationCount: num(a.inRotationCount),
                      outOfRotationCount: num(a.outOfRotationCount),
                      friendlyString: a.displayKey || ('Array ' + (arrayIndex ?? 'Unknown')),
-                     sourcePath: a.sourcePath || 'discovered',
+                     sourcePath: 'native-merged',
                      raw: a
                  };
              });
@@ -820,6 +852,15 @@ export async function buildSiteOperationsSummaryFromCache() {
             return 'Unknown Issue';
         }
 
+        function isIssueFiltered(msg: string, code?: string): boolean {
+             const m = String(msg).toLowerCase();
+             const c = String(code || "");
+             if (c === "2534" || c === "2561") return true;
+             if (m.includes("oor") || m.includes("out of rotation") || m.includes("outrotation")) return true;
+             if (m.includes("contactor open") || m.includes("contactors open")) return true;
+             return false;
+        }
+
         fDevices.forEach((f: any) => {
              const enclosureLabel =
                   f.enclosureLabel ||
@@ -837,6 +878,7 @@ export async function buildSiteOperationsSummaryFromCache() {
              if (f.warningCount > 0 && Array.isArray(activeWarnings)) {
                  activeWarnings.forEach((awRaw: any) => {
                      const aw = formatFeatherIssue(awRaw);
+                     if (isIssueFiltered(aw)) return;
                      const key = 'feather_warn_' + encodeURIComponent(aw);
                      if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'Feather/HVAC', code: null, message: aw, displayText: aw, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                      groupMap.get(key).occurrences.push({ deviceIp, enclosureLabel, sourcePath: 'featherSummary' });
@@ -846,6 +888,7 @@ export async function buildSiteOperationsSummaryFromCache() {
              if (f.alarmCount > 0 && Array.isArray(activeAlarms)) {
                  activeAlarms.forEach((aaRaw: any) => {
                      const aa = formatFeatherIssue(aaRaw);
+                     if (isIssueFiltered(aa)) return;
                      const key = 'feather_alarm_' + encodeURIComponent(aa);
                      if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'Feather/HVAC', code: null, message: aa, displayText: aa, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                      groupMap.get(key).occurrences.push({ deviceIp, enclosureLabel, sourcePath: 'featherSummary' });
@@ -887,6 +930,7 @@ export async function buildSiteOperationsSummaryFromCache() {
              
              alarms.forEach(ac => {
                  const codeDesc = scMap[ac] || 'Alarm Code ' + ac;
+                 if (isIssueFiltered(codeDesc, String(ac))) return;
                  const key = 'string_alarm_' + ac;
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: String(ac), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                  groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });
@@ -894,6 +938,7 @@ export async function buildSiteOperationsSummaryFromCache() {
              
              warnings.forEach(wc => {
                  const codeDesc = scMap[wc] || 'Warning Code ' + wc;
+                 if (isIssueFiltered(codeDesc, String(wc))) return;
                  const key = 'string_warn_' + wc;
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: String(wc), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
                  groupMap.get(key).occurrences.push({ arrayNumber, stringNumber, bpcNumber: st.bpcNumber, enclosureLabel, sourcePath: 'stringsCsv' });

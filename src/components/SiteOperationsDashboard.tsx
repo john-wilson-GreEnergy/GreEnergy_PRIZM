@@ -293,39 +293,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
     return (
         <div className="flex-1 flex flex-col p-4 sm:p-6 overflow-y-auto no-scrollbar font-sans space-y-6">
-            {/* Global Site Status Banner */}
-            <div className={`border p-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${siteState === "LIVE" ? "bg-emerald-500/10 border-emerald-500/30" : siteState === "PARTIAL" ? "bg-prizm-warning/10 border-prizm-warning/30" : "bg-prizm-danger/10 border-prizm-danger/30"}`}>
-                <div>
-                   <h1 className="text-xl font-bold uppercase tracking-widest text-prizm-text">BLOCK SUMMARY</h1>
-                   <div className="text-xs text-prizm-text-muted mt-1 uppercase font-mono">
-                      Local EMS / BESS operational summary | Station: <strong className="text-prizm-text">{stationCode}</strong> | Profile: <strong className="text-prizm-text">{profileId}</strong>
-                   </div>
-                </div>
-                <div className="flex flex-col gap-1 text-[10px] font-mono text-right">
-                   <div className="flex justify-end mb-2">
-                       <button onClick={() => triggerRefresh(true)} className="px-3 py-1 bg-prizm-primary/20 hover:bg-prizm-primary/40 text-prizm-primary rounded border border-prizm-primary/50 flex items-center gap-2 transition-colors">
-                           <Activity size={12} /> MANUAL REFRESH
-                       </button>
-                   </div>
-                   <div className="flex items-center gap-2 justify-end">
-                      {sum?.cacheMeta?.cacheState && sum.cacheMeta.cacheState !== "LIVE" && (
-                         <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-500 mr-2">
-                             {sum.cacheMeta.cacheState}
-                         </span>
-                      )}
-                      {sum?.cacheUsed && (
-                         <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-500 mr-2">
-                             CACHE
-                         </span>
-                      )}
-                      <span className={`px-2 py-0.5 rounded font-bold ${siteState === "LIVE" ? "bg-emerald-500/20 text-emerald-500" : siteState === "PARTIAL" ? "bg-prizm-warning/20 text-prizm-warning" : "bg-prizm-danger/20 text-prizm-danger"}`}>
-                         {siteState}
-                      </span>
-                   </div>
-                   <div className="text-prizm-text-muted mt-1">Endpoint: {emsBaseUrl}</div>
-                   <div className="text-prizm-text-muted">Block Index: {blockIndex}</div>
-                </div>
-            </div>
+            {/* Global Site Status Banner Removed (Moved to Global Header) */}
 
             {/* KPI CARD GRID */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -449,7 +417,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><TriangleAlert size={14} className="text-prizm-danger"/> CORRECTIVE ACTIONS (DATA-BASED FAULTS)</h3>
 <div className="overflow-x-auto no-scrollbar flex-1">
-                <div className="max-h-[220px] overflow-y-auto no-scrollbar">
+                <div className="max-h-[350px] overflow-y-auto no-scrollbar">
                     {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                             <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
@@ -491,7 +459,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 {/* Array Summary */}
             <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><PanelTop size={14} className="text-prizm-text"/> ARRAY SUMMARY</h3>
-<div className="overflow-x-auto overflow-y-auto max-h-[260px] no-scrollbar flex-1">
+<div className="overflow-x-auto overflow-y-auto max-h-[350px] no-scrollbar flex-1">
                  {arraySummaryData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
@@ -525,7 +493,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><Rows4 size={14} className="text-prizm-text"/> STRING SUMMARY</h3>
 <div className="overflow-x-auto no-scrollbar">
                  {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
-                     <div className="overflow-x-auto overflow-y-auto max-h-[300px] w-full no-scrollbar">
+                     <div className="overflow-x-auto overflow-y-auto max-h-[450px] w-full no-scrollbar">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                              <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
                                  <tr>
