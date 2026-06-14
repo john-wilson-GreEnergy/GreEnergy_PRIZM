@@ -180,7 +180,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
         let minTempRaw = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
         let avgTempRaw = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
 
-        if (maxTempC !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
+        if (maxTempRaw !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
         if (minTempRaw !== null && Math.abs(minTempRaw) > 100) minTempRaw = minTempRaw / 10;
         if (avgTempRaw !== null && Math.abs(avgTempRaw) > 100) avgTempRaw = avgTempRaw / 10;
 
@@ -202,7 +202,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
             maxTempC: maxTempRaw,
             minTempC: minTempRaw,
             avgTempC: avgTempRaw,
-            tempDeltaC: (maxTempC !== null && minTempRaw !== null) ? maxTempRaw - minTempRaw : null,
+            tempDeltaC: (maxTempRaw !== null && minTempRaw !== null) ? maxTempRaw - minTempRaw : null,
             warningCount: num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? 0),
             alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0)
         };
@@ -691,7 +691,7 @@ export async function buildSiteOperationsSummaryFromCache() {
                      arr.notCommunicationStringCount++;
                  }
                  if (str.currentA !== null) arr.currentAmp.push(str.currentA);
-                 if (str.powerkW !== null && str.powerkW !== undefined) arr.powerkW.push(str.powerkW);
+                 if (str.powerKw !== null && str.powerKw !== undefined) arr.powerkW.push(str.powerKw);
              }
              
              for (const arr of Array.from(arraysMap.values())) {
@@ -960,9 +960,9 @@ export async function buildSiteOperationsSummaryFromCache() {
                  const vMax = str.maxCellVoltageMv;
                  const vMin = str.minCellVoltageMv;
                  
-                 const tAvg = str.avgTempRaw;
-                 const tMax = str.maxTempRaw;
-                 const tMin = str.minTempRaw;
+                 const tAvg = str.avgTempC;
+                 const tMax = str.maxTempC;
+                 const tMin = str.minTempC;
                  
                  if (vAvg !== null) { avgVoltSum += vAvg; avgVoltCount++; }
                  if (tAvg !== null) { avgTempSum += tAvg; avgTempCount++; }
