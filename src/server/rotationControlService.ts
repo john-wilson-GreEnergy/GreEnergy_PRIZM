@@ -52,7 +52,7 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
         try {
             if (target.type.startsWith('string')) {
                 const stringsRes = getEmsCachedRawStrings();
-                if (stringsRes.success && stringsRes.data) {
+                if (stringsRes && stringsRes.data) {
                     if (target.type === 'string-single') {
                         const sMatch = stringsRes.data.find((s:any) => 
                             (String(s.ArrayNum || s.ArrayNumber) === String(target.array) && String(s.StringNum || s.StringNumber) === String(target.string))
@@ -70,7 +70,7 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
                 }
             } else if (target.type.startsWith('pcs')) {
                  const blockRes = getEmsCachedBlock();
-                 if (blockRes.success && blockRes.data && blockRes.data.arrayPcsList) {
+                 if (blockRes && blockRes.data && blockRes.data.arrayPcsList) {
                     if (target.type === 'pcs-single') {
                          const pcsMatch = blockRes.data.arrayPcsList.find((p:any) => 
                              String(p.arrayIndex) === String(target.array) && String(p.pcsIndex) === String(target.pcs)

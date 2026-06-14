@@ -18,6 +18,7 @@ import {
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
 import StringDashboard from "./components/StringDashboard";
+import PcsDashboard from "./components/PcsDashboard";
 import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
 import ToolDashboards from "./components/ToolDashboards";
@@ -170,6 +171,7 @@ export default function App() {
                 { id: "overview", label: "Block Summary", icon: Activity },
                 { id: "ems-health", label: "EMS Health", icon: Activity },
                 { id: "arrays-strings", label: "String List", icon: Cpu },
+                { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
                 { id: "tool-dashboards", label: "Tool Dashboards", icon: Sliders },
                 { id: "feather-hvac", label: "Feather Reports", icon: Network },
                 { id: "settings", label: "Connection Settings", icon: Settings },
@@ -227,6 +229,9 @@ export default function App() {
 
             {activeTab === "arrays-strings" && (
               <StringDashboard />
+            )}
+            {activeTab === "pcs-dashboard" && (
+              <PcsDashboard />
             )}
 
             {activeTab === "tool-dashboards" && (

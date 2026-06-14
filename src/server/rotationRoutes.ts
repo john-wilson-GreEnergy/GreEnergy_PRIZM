@@ -20,6 +20,23 @@ rotationRouter.get('/capabilities', (req, res) => {
     });
 });
 
+rotationRouter.get('/rotation/capabilities', (req, res) => {
+    res.json({
+        "strings": {
+            "single": true,
+            "array": true,
+            "method": "GET",
+            "executor": "turtle-controls-ems"
+        },
+        "pcs": {
+            "single": true,
+            "array": true,
+            "method": "GET",
+            "executor": "turtle-controls-ems"
+        }
+    });
+});
+
 rotationRouter.post('/strings/rotation', async (req, res) => {
     try {
         const result = await setStringRotation(req.body);

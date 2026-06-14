@@ -391,8 +391,8 @@ const handleManualRefresh = async () => {
              <thead className="sticky top-0 z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
                   <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[30px] bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] whitespace-nowrap">STR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[50px] bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[104px] sm:left-[114px] bg-prizm-surface-strong z-[80] whitespace-nowrap">STR</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Contactors</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Rotation</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Meas V</th>

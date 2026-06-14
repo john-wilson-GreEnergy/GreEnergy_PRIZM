@@ -53,10 +53,11 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
             if (target.type.startsWith('string')) {
                 // Not ideal, fetching raw cache, PRIZM usually maintains a rich dashboard feed 
                 // but we will do a fast best-effort logic verification using string raw cache
-                const stringsRes = getEmsCachedRawStrings();
-                if (stringsRes.success && stringsRes.data) {
-                    if (target.type === 'string-single') {
-                        const sMatch = stringsRes.data.find((s:any) => 
+                const stringsRes = getEmsCachedRawStrings() as any;
+                if (stringsRes.data || stringsRes.success) {
+                    const data = stringsRes.data || stringsRes; 
+                    if (target.type === 'string-single' && Array.isArray(data)) {
+                        const sMatch = data.find((s:any) => 
                             (String(s.ArrayNum || s.ArrayNumber) === String(target.array) && String(s.StringNum || s.StringNumber) === String(target.string))
                         );
                         if (sMatch) {
@@ -73,10 +74,11 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
                 }
             } else if (target.type.startsWith('pcs')) {
                 // PCs have rotation available in EMS Blockviewer
-                 const blockRes = getEmsCachedBlock();
-                 if (blockRes.success && blockRes.data && blockRes.data.arrayPcsList) {
-                    if (target.type === 'pcs-single') {
-                         const pcsMatch = blockRes.data.arrayPcsList.find((p:any) => 
+                 const blockRes = getEmsCachedBlock() as any;
+                 if (blockRes.data || blockRes.success) {
+                    const data = blockRes.data || blockRes;
+                    if (target.type === 'pcs-single' && data.arrayPcsList) {
+                         const pcsMatch = data.arrayPcsList.find((p:any) => 
                              String(p.arrayIndex) === String(target.array) && String(p.pcsIndex) === String(target.pcs)
                          );
                          if (pcsMatch) {
