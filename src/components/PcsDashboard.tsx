@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Zap, Activity, CheckCircle2, XOctagon } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
 
@@ -28,6 +28,8 @@ export default function PcsDashboard() {
     const [modalOpen, setModalOpen] = useState(false);
     const [modalTargets, setModalTargets] = useState<RotationTarget[]>([]);
     const [modalAction, setModalAction] = useState<"in" | "out">("in");
+    
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const refreshData = async () => {
         setLoading(true);
@@ -39,7 +41,12 @@ export default function PcsDashboard() {
             } catch(e) {}
 
             if (blockData && blockData.data && blockData.data.arrayPcsList && blockData.data.arrayPcsList.length > 0) {
-                setPcsList(blockData.data.arrayPcsList);
+                // Ensure unique IDs
+                const pcsWithId = blockData.data.arrayPcsList.map((p: any) => ({
+                    ...p,
+                    id: p.id || `${p.arrayIndex}-${p.pcsIndex}`
+                }));
+                setPcsList(pcsWithId);
                 setFallbackMode(false);
             } else {
                 // If live readback isn't available, build a fallback layout based on site knowledge (e.g. BHE0021 = 8 PCS)
@@ -47,10 +54,11 @@ export default function PcsDashboard() {
                 const manual = [];
                 for(let a=1; a<=8; a++) {
                     manual.push({
+                         id: `${a}-1`,
                          arrayIndex: a, 
                          pcsIndex: 1, 
                          rotation: "UNKNOWN", 
-                         displayName: `PCS ${a}`,
+                         displayName: `Array ${a} / PCS 1`,
                          state: "NO_DATA",
                          vDc: 0,
                          realPwr: 0
@@ -70,10 +78,15 @@ export default function PcsDashboard() {
         refreshData();
     }, []);
 
-    const openAction = (pcs: any, action: "in" | "out") => {
-        setModalAction(action);
-        setModalTargets([{ array: pcs.arrayIndex || pcs.arrayNum, pcs: pcs.pcsIndex || pcs.pcsNum }]);
-        setModalOpen(true);
+    const getSelectedTargets = () => {
+        const targets: RotationTarget[] = [];
+        for (const id of selectedIds) {
+            const p = pcsList.find(x => x.id === id);
+            if (p) {
+                targets.push({ array: p.arrayIndex || p.arrayNum, pcs: p.pcsIndex || p.pcsNum });
+            }
+        }
+        return targets;
     };
 
     const handleConfirm = async (req: any) => {
@@ -89,91 +102,168 @@ export default function PcsDashboard() {
         }
         
         setModalOpen(false);
+        setSelectedIds(new Set());
         await refreshData();
     };
 
+    const arrays = useMemo(() => {
+        const list = Array.from(new Set(pcsList.map((p:any) => p.arrayIndex)));
+        return list.sort((a, b) => Number(a) - Number(b));
+    }, [pcsList]);
+
     return (
-        <div className="flex-1 overflow-auto bg-black p-4 text-prizm-text">
-            <div className="max-w-7xl mx-auto space-y-6">
-                <div className="flex items-center justify-between border-b border-prizm-border pb-4">
-                    <h1 className="text-xl font-bold uppercase tracking-widest text-prizm-primary flex items-center gap-2">
-                        <Zap size={20} /> PCS Dashboard
-                    </h1>
+        <div className="flex flex-col overflow-hidden font-sans transition-all bg-transparent text-prizm-text h-full">
+            <div className="max-w-7xl mx-auto space-y-6 w-full pb-20">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 mt-6 font-mono border-b border-prizm-border pb-4">
+                    <div>
+                        <span className="text-[10px] text-prizm-primary font-bold uppercase tracking-wider block">Inverters</span>
+                        <h1 className="text-lg font-bold text-prizm-text tracking-wide flex items-center gap-2">
+                            <Zap size={20} /> PCS DASHBOARD
+                        </h1>
+                    </div>
                     
                     <button 
                          onClick={refreshData} disabled={loading}
-                         className="px-3 py-1 flex items-center gap-2 border border-prizm-border rounded bg-prizm-surface hover:bg-prizm-surface-strong text-xs font-mono disabled:opacity-50"
+                         className="flex items-center gap-1.5 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary font-bold text-[9px] disabled:opacity-50"
                     >
-                        <Activity size={12} className={loading ? 'animate-pulse' : ''} /> REFRESH
+                        <Activity size={10} className={loading ? 'animate-pulse' : ''} /> REFRESH LIVE
                     </button>
                 </div>
                 
                 {fallbackMode && (
-                    <div className="bg-prizm-surface-strong border border-prizm-warning/50 text-prizm-warning p-3 rounded text-xs font-mono">
+                    <div className="bg-prizm-warning/10 border border-prizm-warning/50 text-prizm-warning p-3 rounded text-xs font-mono">
                         Live EMS block data is currently unavailable. Rendering synthetic PCS rows to allow configuration.
                     </div>
                 )}
                 
+                {selectedIds.size > 0 && (
+                    <div className="flex items-center justify-between px-3 py-2 bg-[#001a1a] border border-prizm-border shadow-md z-[60] relative saturate-150 rounded">
+                       <div className="flex items-center gap-4">
+                          <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
+                          <button 
+                             onClick={() => setSelectedIds(new Set())}
+                             className="text-[10px] text-prizm-text-muted hover:text-white uppercase tracking-widest underline decoration-prizm-text-muted/30 underline-offset-4 transition-colors"
+                          >
+                             Clear Selection
+                          </button>
+                       </div>
+                       <div className="flex items-center gap-2">
+                          <button
+                              onClick={() => {
+                                 setModalAction('in');
+                                 setModalTargets(getSelectedTargets());
+                                 setModalOpen(true);
+                              }}
+                              className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                              Set In Rotation
+                          </button>
+                          <button
+                              onClick={() => {
+                                 setModalAction('out');
+                                 setModalTargets(getSelectedTargets());
+                                 setModalOpen(true);
+                              }}
+                              className="px-3 py-1 bg-slate-500/20 text-slate-300 border border-slate-500/50 hover:bg-slate-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                              Set Out Rotation
+                          </button>
+                       </div>
+                    </div>
+                )}
+
                 <div className="bg-prizm-surface border border-prizm-border rounded overflow-hidden">
-                    <table className="w-full text-left text-xs font-mono">
-                        <thead className="bg-[#1a1b1e] border-b border-prizm-border text-prizm-text-muted">
+                    <table className="w-full text-left font-mono border-collapse" style={{fontSize: "10px"}}>
+                        <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>
-                                <th className="p-3 uppercase">PCS Array</th>
-                                <th className="p-3 uppercase">Rotation Status</th>
-                                <th className="p-3 uppercase">Telemetry (Power & V)</th>
-                                <th className="p-3 uppercase text-right">Actions</th>
+                                <th className="px-2 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select Array"></th>
+                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
+                                <th className="px-2 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select PCS"></th>
+                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">PCS</th>
+                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[50]">Rotation Status</th>
+                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[50]">Telemetry (Power & V)</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-prizm-border">
+                        <tbody className="divide-y divide-prizm-border/20">
                             {pcsList.map((pcs, idx) => {
                                 const rot = (pcs.rotation || "UNKNOWN").toUpperCase();
+                                
+                                const isArrFirst = idx === 0 || pcsList[idx-1].arrayIndex !== pcs.arrayIndex;
+                                const arrRows = pcsList.filter(p => p.arrayIndex === pcs.arrayIndex);
+                                const arrSelectedCount = arrRows.filter(p => selectedIds.has(p.id)).length;
+                                const isArrAllSelected = arrSelectedCount > 0 && arrSelectedCount === arrRows.length;
+                                const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrRows.length;
+
                                 return (
-                                <tr key={`${pcs.arrayIndex}-${pcs.pcsIndex}-${idx}`} className="hover:bg-white/5 transition-colors">
-                                    <td className="p-3">
-                                        <div className="font-bold text-prizm-text">{pcs.displayName || `ARRAY ${pcs.arrayIndex} PCS ${pcs.pcsIndex}`}</div>
-                                        <div className="text-prizm-text-muted">Array: {pcs.arrayIndex}</div>
+                                <tr key={pcs.id} className="group hover:bg-prizm-primary/5 transition-colors">
+                                    <td className="px-2 py-1.5 border-r border-prizm-border/10 bg-transparent text-center">
+                                       {isArrFirst ? (
+                                         <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+                                           checked={isArrAllSelected}
+                                           ref={el => { if(el) el.indeterminate = isArrIndeterminate; }}
+                                           onChange={() => {}}
+                                           onClick={(e) => {
+                                             e.stopPropagation();
+                                             const next = new Set(selectedIds);
+                                             if (isArrAllSelected) {
+                                                 arrRows.forEach(p => next.delete(p.id));
+                                             } else {
+                                                 arrRows.forEach(p => next.add(p.id));
+                                             }
+                                             setSelectedIds(next);
+                                           }} 
+                                         />
+                                       ) : null}
                                     </td>
-                                    <td className="p-3">
-                                        {rot === "IN" ? (
-                                            <span className="inline-flex py-1 px-2 items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-bold">
-                                                <CheckCircle2 size={12} /> IN ROTATION
-                                            </span>
-                                        ) : rot === "OUT" ? (
-                                            <span className="inline-flex py-1 px-2 items-center gap-1 bg-zinc-800/80 text-zinc-400 border border-zinc-700/80 rounded font-bold">
-                                                <XOctagon size={12} /> OUT OF ROTATION
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex py-1 px-2 items-center gap-1 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded font-bold">
-                                                <Activity size={12} /> {rot}
-                                            </span>
-                                        )}
+                                    <td className="px-3 py-1.5 border-r border-prizm-border/20 bg-transparent min-w-[54px]">
+                                       {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{pcs.arrayIndex}</span> : null}
                                     </td>
-                                    <td className="p-3 text-prizm-text-muted">
+                                    
+                                    <td className="px-2 py-1.5 border-r border-prizm-border/10 bg-transparent text-center">
+                                       <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+                                         checked={selectedIds.has(pcs.id)}
+                                         onChange={() => {}}
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           const next = new Set(selectedIds);
+                                           if (next.has(pcs.id)) next.delete(pcs.id);
+                                           else next.add(pcs.id);
+                                           setSelectedIds(next);
+                                         }} 
+                                       />
+                                    </td>
+                                    <td className="px-3 py-1.5 border-r border-prizm-border/20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
+                                        {pcs.pcsIndex}
+                                    </td>
+
+                                    <td className="px-3 py-1.5">
+                                        <div className="flex items-center gap-2">
+                                            {rot === "IN" ? (
+                                                <div className="flex items-center gap-1.5" title="IN ROTATION">
+                                                   <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
+                                                   <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">IN</span>
+                                                </div>
+                                            ) : rot === "OUT" ? (
+                                                <div className="flex items-center gap-1.5" title="OUT OF ROTATION">
+                                                   <div className="w-2 h-2 rounded-full bg-slate-500 shadow-[0_0_5px_rgba(100,116,139,0.5)]"></div>
+                                                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">OUT</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-1.5" title={rot}>
+                                                   <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_5px_rgba(245,158,11,0.5)]"></div>
+                                                   <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">{rot}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-1.5 text-prizm-text-muted">
                                         State: <span className="text-prizm-text">{pcs.state || 'N/A'}</span> <br/>
                                         Power: <span className="text-prizm-text">{pcs.realPwr ? `${pcs.realPwr} kW` : '---'}</span> | V: <span className="text-prizm-text">{pcs.vDc ? `${pcs.vDc} V` : '---'}</span>
-                                    </td>
-                                    <td className="p-3 text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <button 
-                                                onClick={() => openAction(pcs, "in")}
-                                                disabled={rot === "IN"}
-                                                className={`px-3 py-1 font-bold rounded border uppercase ${rot === "IN" ? "bg-black/20 border-prizm-border/40 text-prizm-text-muted/40 cursor-not-allowed" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"}`}
-                                            >
-                                                [ In ] 
-                                            </button>
-                                            <button 
-                                                onClick={() => openAction(pcs, "out")}
-                                                disabled={rot === "OUT"}
-                                                className={`px-3 py-1 font-bold rounded border uppercase ${rot === "OUT" ? "bg-black/20 border-prizm-border/40 text-prizm-text-muted/40 cursor-not-allowed" : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30"}`}
-                                            >
-                                                [ Out ]
-                                            </button>
-                                        </div>
                                     </td>
                                 </tr>
                             )})}
                             {pcsList.length === 0 && !loading && (
-                                <tr><td colSpan={4} className="p-8 text-center text-prizm-text-muted italic">No PCS data available</td></tr>
+                                <tr><td colSpan={6} className="px-4 py-12 text-center text-prizm-text-muted font-bold tracking-widest text-xs">No PCS data available</td></tr>
                             )}
                         </tbody>
                     </table>
