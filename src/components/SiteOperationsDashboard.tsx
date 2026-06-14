@@ -400,8 +400,8 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                <div className="text-sm font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellTempDeltaC != null ? `Δ ${sum.bessFleetSummary.maxCellTempDeltaC.toFixed(1)} °C` : "--"}</div>
                             </div>
                             <div className="flex justify-between items-center px-1">
-                               <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">HVAC Max</span>
-                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxSpaceTempC != null ? `${sum.featherSummary.maxSpaceTempC.toFixed(1)} °C` : "--"}</div>
+                               <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Cell Max</span>
+                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxCellTempC != null ? `${sum.featherSummary.maxCellTempC.toFixed(1)} °C` : "--"}</div>
                             </div>
                         </div>
                     </div>
