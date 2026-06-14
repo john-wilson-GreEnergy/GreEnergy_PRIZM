@@ -329,73 +329,36 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
             {/* KPI CARD GRID */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">Strings</span>
-                        <Rows4 size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total Strings</div>
-                    </div>
-                </div>
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">Arrays</span>
-                        <PanelTop size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.arrayCount ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total Arrays</div>
-                    </div>
-                </div>
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">PCS Units</span>
-                        <Zap size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.pcsCount ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total PCS</div>
-                    </div>
-                </div>
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">Feather</span>
-                        <Wind size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.featherDeviceCount ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total Devices</div>
-                    </div>
-                </div>
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">Modbus</span>
-                        <RadioTower size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.modbusPointCount ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total Points</div>
-                    </div>
-                </div>
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-                    <div className="flex items-start justify-between mb-2">
-                        <span className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-widest">AC Battery</span>
-                        <Battery size={14} className="text-prizm-primary/60" />
-                    </div>
-                    <div>
-                        <div className="text-3xl font-mono text-prizm-primary font-black">{sum?.topologyCounts?.acBatteryCount ?? "--"}</div>
-                        <div className="text-prizm-text-muted text-[9px] uppercase mt-1">Total Units</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* ALERT / HEALTH ROW */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
                     <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <TriangleAlert size={14} className="text-prizm-warning"/> Warnings & Alarms
+                        <Battery size={14} className="text-prizm-primary"/> System State of Charge
+                    </h3>
+                    <div className="flex items-end gap-2 mt-4">
+                        <div className="text-3xl font-bold text-prizm-text font-mono">{rollups?.averageSoc?.toFixed(1) || "--"}<span className="text-lg text-prizm-text-muted">%</span></div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-prizm-border text-[11px] font-mono text-prizm-text-muted flex justify-between">
+                        <span>Target:</span> <span className="text-prizm-text font-bold">{(rollups?.onlineAvailableKWh || 0).toLocaleString()} <span className="text-[9px]">kWh</span></span>
+                    </div>
+                </div>
+
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
+                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <Zap size={14} className="text-prizm-primary"/> Fleet Capacity
+                    </h3>
+                    <div className="flex items-end gap-2 mt-4">
+                        <div className="text-2xl font-bold text-prizm-text font-mono">{((rollups?.onlineAvailableKWh || 0) / 1000).toFixed(2)}<span className="text-sm text-prizm-text-muted ml-1">MWh</span></div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-prizm-border text-[11px] font-mono flex justify-between">
+                        <span className="text-prizm-text-muted">Charge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableChargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] font-mono">
+                        <span className="text-prizm-text-muted">Discharge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableDischargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
+                    </div>
+                </div>
+
+                <div className="col-span-2 md:col-span-1 lg:col-span-2 bg-prizm-surface p-4 rounded-lg border border-prizm-border">
+                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <Cpu size={14} className={((sum?.bessFleetSummary?.warningStrings || 0) + (sum?.bessFleetSummary?.alarmStrings || 0)) > 0 ? "text-prizm-warning" : "text-prizm-primary"}/> String Fleet Status
                     </h3>
                     <div className="grid grid-cols-2 gap-2 mt-4">
                         <div>
@@ -420,11 +383,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     <div className="space-y-2 mt-4">
                         <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
                             <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Voltage</span>
-                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellVoltageMv != null ? `${sum.bessFleetSummary.avgCellVoltageMv.toFixed(1)} mV` : (rollups.fleetAvgCellVoltage != null ? `${rollups.fleetAvgCellVoltage.toFixed(1)} mV` : "--")}</div>
+                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellVoltageMv != null ? `${sum.bessFleetSummary.avgCellVoltageMv.toFixed(1)} mV` : "--"}</div>
                         </div>
                         <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
                             <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
-                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null ? `Δ ${sum.bessFleetSummary.maxCellVoltageDeltaMv.toFixed(0)} mV` : (rollups.fleetMaxCellVoltageDelta != null ? `Δ ${rollups.fleetMaxCellVoltageDelta.toFixed(0)} mV` : "--")}</div>
+                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null ? `Δ ${sum.bessFleetSummary.maxCellVoltageDeltaMv.toFixed(0)} mV` : "--"}</div>
                         </div>
                     </div>
                 </div>
@@ -436,40 +399,16 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     <div className="space-y-2 mt-4">
                         <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
                            <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Cells</span>
-                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellTempC != null ? `${sum.bessFleetSummary.avgCellTempC.toFixed(1)} °C` : (rollups.fleetAvgCellTemp != null ? `${rollups.fleetAvgCellTemp.toFixed(1)} °C` : "--")}</div>
+                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellTempC != null ? `${sum.bessFleetSummary.avgCellTempC.toFixed(1)} °C` : "--"}</div>
+                        </div>
+                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
+                           <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
+                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellTempDeltaC != null ? `Δ ${sum.bessFleetSummary.maxCellTempDeltaC.toFixed(1)} °C` : "--"}</div>
                         </div>
                         <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
                            <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">HVAC Max</span>
                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxSpaceTempC != null ? `${sum.featherSummary.maxSpaceTempC.toFixed(1)} °C` : "--"}</div>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* SYSTEM STATUS / TOPOLOGY OVERVIEW */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Network size={14} className="text-prizm-primary"/> System Status
-                    </h3>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] font-mono">
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">EMS Reachable</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-emerald-400">{siteState !== "OFFLINE" ? "TRUE" : "FALSE"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Active Profile</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 text-prizm-text">{sum?.activeProfileId || profileId}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Data Source</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 text-prizm-primary">{sum?.source || "live-ems"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Cache Policy</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 text-amber-500">{sum?.cachePolicy || "live-first"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Station Code</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 text-prizm-text">{stationCode}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase">Block Index</div>
-                        <div className="text-right text-prizm-text">{blockIndex}</div>
                     </div>
                 </div>
                 
@@ -487,14 +426,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                         <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">PCS Units</div>
                         <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.pcsCount ?? "--"}</div>
                         
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Feather Devices</div>
+                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Feather</div>
                         <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.featherDeviceCount ?? "--"}</div>
                         
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">AC Battery Units</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.acBatteryCount ?? "--"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase">Modbus Points</div>
-                        <div className="text-right font-bold text-prizm-text">{sum?.topologyCounts?.modbusPointCount ?? "--"}</div>
+                        <div className="text-prizm-text-muted uppercase">AC Batts</div>
+                        <div className="text-right font-bold text-prizm-text">{sum?.topologyCounts?.acBatteryCount ?? "--"}</div>
                     </div>
                 </div>
             </div>

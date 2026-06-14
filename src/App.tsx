@@ -167,7 +167,7 @@ export default function App() {
             
             {/* Tabs control styled beautifully */}
             <div className="flex space-x-1 py-1">
-              {[
+              {( [
                 { id: "overview", label: "Block Summary", icon: Activity },
                 { id: "ems-health", label: "EMS Health", icon: Activity },
                 { id: "arrays-strings", label: "String List", icon: Cpu },
@@ -178,10 +178,10 @@ export default function App() {
                 { id: "reports", label: "Reports / Exports", icon: FileText },
                 { id: "advanced", label: "Advanced / Locked", icon: Lock },
                 { id: "safety-fault", label: "Safety Fault Clear", icon: ShieldAlert }
-              ].map(tab => (
+              ] as const ).map(tab => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-3.5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all ${
                     activeTab === tab.id
                       ? "bg-prizm-info/10 border-b-2 border-prizm-primary text-prizm-primary font-bold"
