@@ -96,21 +96,22 @@ export async function initializePrizmBootFlow() {
     let activeProfile = ProfileStore.getActiveProfile();
     if (!activeProfile) {
       // Create default
-      const defaultProfile = {
-        id: "default-local-ems",
-        profileName: "PRIZM Core Hardware Bess Profile",
+      const defaultProfileInput = {
+        profileName: "PRIZM Core Hardware BESS Profile",
+        siteName: "Default Local EMS",
+        stationCode: "BHE0021",
+        blockIndex: 1,
         emsHost: "10.0.0.3",
         emsPort: 8080,
         turtlePath: "/turtle",
         modbusHost: "10.0.0.3",
         modbusPort: 4502,
-        stationCode: "BHE0020",
-        blockIndex: 1,
-        mode: "local" as any
+        arrayCount: 8,
+        stringsPerArray: 40,
+        notes: "Default PRIZM local EMS target"
       };
-      ProfileStore.createProfile(defaultProfile);
-      ProfileStore.setActiveProfile(defaultProfile.id);
-      activeProfile = defaultProfile;
+      const created = ProfileStore.createProfile(defaultProfileInput, true);
+      activeProfile = created;
     }
 
     updateStatus({
@@ -182,7 +183,7 @@ async function hydrateCache() {
      // Trigger feather discovery
      updateStatus({ phase: "discovering-feather" });
      try {
-       refreshFeatherCache(true);
+       await refreshFeatherCache({ force: true });
        bootStatus.preloadStatus.featherDevices = true;
      } catch (e) {
        console.error(e);

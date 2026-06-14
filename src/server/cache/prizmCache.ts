@@ -41,7 +41,18 @@ export function shouldReadCache(policy: CachePolicy): boolean {
   return policy === "live-first" || policy === "cache-first" || policy === "cache-only";
 }
 
-export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: PrizmCacheEntry<any> | null, activeIdentity?: any) {
+export type CacheMetadataEntryLike = Partial<PrizmCacheEntry<any>> & {
+  sourceUrl?: string;
+  updatedAt?: string;
+  ageMs?: number;
+  isStale?: boolean;
+  dataClass?: PrizmDataClass;
+  createdFromLiveSession?: boolean;
+  profileId?: string | null;
+  emsBaseUrl?: string | null;
+};
+
+export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: CacheMetadataEntryLike | null, activeIdentity?: any) {
   const isMem = !!entry?.createdFromLiveSession && wasCacheUsed;
   const isDisk = !entry?.createdFromLiveSession && wasCacheUsed;
 

@@ -641,7 +641,16 @@ router.get("/", async (req, res) => {
         cacheEntry.dataClass = "live-telemetry";
         const meta = prizmCache.getActiveSiteMetadata();
         const activeIdentity = { activeProfileId: profile?.id, emsBaseUrl: baseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
-        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true', wasLiveSucceeded, cacheEntry, activeIdentity);
+        const refreshRequested = req.query.refresh === 'true';
+        const liveAttempted = prizmCache.shouldFetchLive(policy) || refreshRequested;
+        const cacheMetadata = prizmCache.buildCacheMetadata(
+            policy,
+            Boolean(wasCacheUsed),
+            Boolean(liveAttempted),
+            Boolean(wasLiveSucceeded),
+            cacheEntry,
+            activeIdentity
+        );
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
@@ -1307,7 +1316,16 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         cacheEntry.dataClass = "live-telemetry";
         const meta = prizmCache.getActiveSiteMetadata();
         const activeIdentity = { activeProfileId: profile?.id, emsBaseUrl: baseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
-        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true', wasLiveSucceeded, cacheEntry, activeIdentity);
+        const refreshRequested = req.query.refresh === 'true';
+        const liveAttempted = prizmCache.shouldFetchLive(policy) || refreshRequested;
+        const cacheMetadata = prizmCache.buildCacheMetadata(
+            policy,
+            Boolean(wasCacheUsed),
+            Boolean(liveAttempted),
+            Boolean(wasLiveSucceeded),
+            cacheEntry,
+            activeIdentity
+        );
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 

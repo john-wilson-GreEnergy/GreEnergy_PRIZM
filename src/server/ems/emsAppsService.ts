@@ -20,7 +20,7 @@ export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], sta
     
     return {
         apps,
-        status: lastCallCache?.isStale ? "cached_timeout" : "ok",
+        status: lastCallCache?.staleData ? "cached_timeout" : "ok",
         rawLastCall: lastCallData,
         cacheEntry: lastCallCache
     };

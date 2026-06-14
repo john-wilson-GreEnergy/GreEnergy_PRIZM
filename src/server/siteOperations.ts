@@ -950,7 +950,8 @@ router.get("/summary", async (req, res) => {
             key: 'site-operations-summary', fetchedAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(), ageMs: 0, ttlMs: 5000, 
             sourceOk: wasLiveSucceeded, isLive: wasLiveSucceeded, isStale: !wasLiveSucceeded,
-            dataClass: "live-status", createdFromLiveSession: false
+            dataClass: "live-status", createdFromLiveSession: false,
+            data: responseData ?? null
         };
         cacheEntry.dataClass = "live-status";
         if (wasLiveAttempted && wasLiveSucceeded) cacheEntry.createdFromLiveSession = true;
