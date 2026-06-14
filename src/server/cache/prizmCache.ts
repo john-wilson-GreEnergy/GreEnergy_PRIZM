@@ -52,12 +52,23 @@ export type CacheMetadataEntryLike = Partial<PrizmCacheEntry<any>> & {
   emsBaseUrl?: string | null;
 };
 
-export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: CacheMetadataEntryLike | null, activeIdentity?: any) {
+export type PrizmLiveSource =
+  | "live-ems"
+  | "live-modbus"
+  | "current-session-cache"
+  | "cache"
+  | "last-known"
+  | "mock"
+  | "unavailable";
+
+export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: CacheMetadataEntryLike | null, activeIdentity?: any, sourceOverride?: PrizmLiveSource) {
   const isMem = !!entry?.createdFromLiveSession && wasCacheUsed;
   const isDisk = !entry?.createdFromLiveSession && wasCacheUsed;
 
   let source = "unavailable";
-  if (wasLiveSucceeded) {
+  if (sourceOverride) {
+      source = sourceOverride;
+  } else if (wasLiveSucceeded) {
       if (entry?.sourceUrl?.includes("turtle") || entry?.sourceUrl?.includes("lastCall")) source = "live-ems";
       else source = "live-modbus";
   } else if (isMem) {

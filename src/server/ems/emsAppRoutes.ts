@@ -53,7 +53,7 @@ router.get("/control-capabilities", async (req, res) => {
       emsBaseUrl: activeIdentity.emsBaseUrl
   } : null;
   
-  const cacheMetadata = buildCacheMetadata(policy, !!wasCacheUsed, liveAttempted, liveSucceeded, pCacheEntry, activeIdentity);
+  const cacheMetadata = buildCacheMetadata(policy, !!wasCacheUsed, liveAttempted, liveSucceeded, pCacheEntry, activeIdentity, "live-ems");
 
   res.json({
     success: true,

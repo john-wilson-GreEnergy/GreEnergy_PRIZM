@@ -548,6 +548,7 @@ router.get("/", async (req, res) => {
                 fleetMaxCellTemp: gMaxT
             },
             totalStrings: strings.length,
+            arrayCount: new Set(strings.map(s => s.arrayNumber)).size,
             normal: normalStrings,
             offline: offlineStrings,
             warnings: gWarnCount,
@@ -649,7 +650,8 @@ router.get("/", async (req, res) => {
             Boolean(liveAttempted),
             Boolean(wasLiveSucceeded),
             cacheEntry,
-            activeIdentity
+            activeIdentity,
+            "live-ems"
         );
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
@@ -1324,7 +1326,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             Boolean(liveAttempted),
             Boolean(wasLiveSucceeded),
             cacheEntry,
-            activeIdentity
+            activeIdentity,
+            "live-ems"
         );
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;

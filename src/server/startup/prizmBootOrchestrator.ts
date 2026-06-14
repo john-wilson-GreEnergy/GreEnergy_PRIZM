@@ -1,4 +1,4 @@
-import { pollEmsTurtle, emsCache } from "../emsTurtleClient";
+import { pollEmsTurtle, emsCache, getEmsConnectionStatus } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
 import { refreshFeatherCache, getFeatherCache } from "../feather/featherClient";
 import * as prizmCache from "../cache/prizmCache";
@@ -126,6 +126,7 @@ export async function initializePrizmBootFlow() {
     let reachable = false;
     try {
       await pollEmsTurtle();
+      applyDiscoveredStation();
       reachable = true;
     } catch (e) {
       updateStatus({ errors: ["EMS initially unreachable"] });
@@ -193,6 +194,23 @@ async function hydrateCache() {
   updateStatus({ phase: bootStatus.emsReachable ? "ready" : "offline", ready: true });
 }
 
+function applyDiscoveredStation() {
+  const currentStatus = getEmsConnectionStatus();
+  const activeProfile = ProfileStore.getActiveProfile();
+  
+  const discovered = currentStatus.discoveredStationCode;
+  const live = currentStatus.stationCode;
+  const profileStat = activeProfile?.stationCode || "BHE0020";
+  
+  const finalStationCode = discovered || live || profileStat;
+  const finalBlockIndex = currentStatus.blockIndex || activeProfile?.blockIndex || 1;
+  
+  updateStatus({
+    stationCode: finalStationCode,
+    blockIndex: finalBlockIndex
+  });
+}
+
 export function startBackgroundPolling() {
   if (livePollingInterval) clearInterval(livePollingInterval);
   if (slowRefreshInterval) clearInterval(slowRefreshInterval);
@@ -200,6 +218,7 @@ export function startBackgroundPolling() {
   livePollingInterval = setInterval(async () => {
     try {
       await pollEmsTurtle();
+      applyDiscoveredStation();
       recordTelemetrySample(emsCache, getFeatherCache());
       updateStatus({
          lastSuccessfulPoll: new Date().toISOString(),

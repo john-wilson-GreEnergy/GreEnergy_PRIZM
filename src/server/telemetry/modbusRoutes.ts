@@ -123,7 +123,7 @@ router.get("/discovery/status", (req, res) => {
   res.json(getDiscoveryStatus());
 });
 
-import { getEffectiveCachePolicy } from "../cache/prizmCache";
+import { getEffectiveCachePolicy, buildCacheMetadata, getActiveSiteMetadata } from "../cache/prizmCache";
 
 function decorateWithCacheMeta(req: any, _data: any) {
   const policy = getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
@@ -139,35 +139,32 @@ function decorateWithCacheMeta(req: any, _data: any) {
   let liveSucceeded = !isStale && hasActiveProfile;
   let wasCacheUsed = false;
   
-  let source = "live-modbus";
-  if (isMock) source = "mock-modbus";
-  else if (!liveSucceeded) source = "unavailable";
+  let sourceOv = isMock ? "mock" : "live-modbus";
 
   let data = _data;
 
   if (policy === "cache-only") {
-      source = "unavailable";
       liveAttempted = false;
       liveSucceeded = false;
-      wasCacheUsed = false;
+      wasCacheUsed = true;
       data = Array.isArray(_data) ? [] : {}; 
   } else if (policy === "live-only" && !liveSucceeded) {
-      source = "unavailable";
       liveAttempted = true;
       liveSucceeded = false;
       wasCacheUsed = false;
       data = Array.isArray(_data) ? [] : {};
   }
 
-  const meta = {
-     source,
-     cacheUsed: wasCacheUsed,
-     liveAttempted,
-     liveSucceeded,
-     stale: isStale,
-     cachePolicy: policy,
-     timestamp: new Date().toISOString()
+  const metaSite = getActiveSiteMetadata();
+  const activeIdentity = { activeProfileId: metaSite.profileId, emsBaseUrl: metaSite.emsBaseUrl, stationCode: metaSite.stationCode, blockIndex: metaSite.blockIndex };
+  
+  const pCacheEntry = {
+      isStale,
+      createdFromLiveSession: liveSucceeded,
+      dataClass: "live-telemetry" as any
   };
+
+  const meta = buildCacheMetadata(policy, wasCacheUsed, liveAttempted, liveSucceeded, pCacheEntry, activeIdentity, sourceOv as any);
 
   if (!Array.isArray(data) && typeof data === 'object' && data !== null) {
       return { ...data, ...meta };

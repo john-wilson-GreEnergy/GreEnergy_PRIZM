@@ -958,7 +958,7 @@ router.get("/summary", async (req, res) => {
 
         const meta = prizmCache.getActiveSiteMetadata();
         const activeIdentity = { activeProfileId: meta.profileId, emsBaseUrl: meta.emsBaseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
-        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, wasLiveAttempted, wasLiveSucceeded, cacheEntry, activeIdentity);
+        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, wasLiveAttempted, wasLiveSucceeded, cacheEntry, activeIdentity, "live-ems");
 
         // Merge the cache metadata directly into the root level as requested
         Object.assign(responseData, cacheMetadata);
