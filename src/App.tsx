@@ -166,11 +166,11 @@ export default function App() {
             {/* Tabs control styled beautifully */}
             <div className="flex space-x-1 py-1">
               {[
-                { id: "overview", label: "Overview", icon: Activity },
+                { id: "overview", label: "Block Summary", icon: Activity },
                 { id: "ems-health", label: "EMS Health", icon: Activity },
-                { id: "arrays-strings", label: "Arrays / Strings", icon: Cpu },
+                { id: "arrays-strings", label: "String List", icon: Cpu },
                 { id: "tool-dashboards", label: "Tool Dashboards", icon: Sliders },
-                { id: "feather-hvac", label: "Feather / HVAC", icon: Network },
+                { id: "feather-hvac", label: "Feather Reports", icon: Network },
                 { id: "settings", label: "Connection Settings", icon: Settings },
                 { id: "reports", label: "Reports / Exports", icon: FileText },
                 { id: "advanced", label: "Advanced / Locked", icon: Lock },
