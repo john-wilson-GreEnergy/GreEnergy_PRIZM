@@ -318,7 +318,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                             <Battery size={14} className="text-prizm-primary"/> System State of Charge
                         </h3>
                         <div className="flex items-end gap-2 mt-4">
-                            <div className="text-3xl font-bold text-prizm-text font-mono">{rollups?.averageSoc?.toFixed(1) || "--"}<span className="text-lg text-prizm-text-muted">%</span></div>
+                            <div className="text-3xl font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.systemSocPct != null ? sum.bessFleetSummary.systemSocPct.toFixed(1) : (rollups?.averageSoc?.toFixed(1) || "--")}<span className="text-lg text-prizm-text-muted">%</span></div>
                         </div>
                     </div>
                     <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono text-prizm-text-muted flex justify-between">
@@ -401,7 +401,14 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                             </div>
                             <div className="flex justify-between items-center px-1">
                                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Cell Max</span>
-                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxCellTempC != null ? `${sum.featherSummary.maxCellTempC.toFixed(1)} °C` : "--"}</div>
+                               <div className="text-sm font-bold text-prizm-text font-mono">{(() => {
+                                   const valA = sum?.bessFleetSummary?.maxCellTempC;
+                                   const valB = sum?.featherSummary?.maxCellTempC;
+                                   if (valA != null && valB != null) return `${Math.max(valA, valB).toFixed(1)} °C`;
+                                   if (valA != null) return `${valA.toFixed(1)} °C`;
+                                   if (valB != null) return `${valB.toFixed(1)} °C`;
+                                   return "--";
+                               })()}</div>
                             </div>
                         </div>
                     </div>

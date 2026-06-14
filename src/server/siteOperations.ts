@@ -985,6 +985,8 @@ export async function buildSiteOperationsSummaryFromCache() {
             maxCellVoltageDeltaMv: null as number | null,
             avgCellTempC: null as number | null,
             maxCellTempDeltaC: null as number | null,
+            maxCellTempC: null as number | null,
+            systemSocPct: null as number | null,
             sourceOk: stringSummary.buckets.online > 0 || stringSummary.buckets.offline > 0 || stringSummary.buckets.nearline > 0 || stringSummary.buckets.notCommunicating > 0,
             lastUpdated: new Date().toISOString()
         };
@@ -997,10 +999,18 @@ export async function buildSiteOperationsSummaryFromCache() {
              
              let avgVoltSum = 0, avgVoltCount = 0;
              let avgTempSum = 0, avgTempCount = 0;
+             let socPctSum = 0, socPctCount = 0;
              
              for (const str of stringSummary.tableRows) {
-                 if (str.bucket === "notCommunicating" || str.bucket === "offline") continue;
-                 
+                 // Check if it's a collection segment (CS or ES) by checking the object
+                 // If the requirement means to skip feather collection segments, note that tableRows are strings, not feathers
+                 // However, we still include offline/notCommunicating data if the data is there
+                 const soc = str.socPct;
+                 if (soc !== null && soc !== undefined) {
+                     socPctSum += soc;
+                     socPctCount++;
+                 }
+
                  const vAvg = str.avgCellVoltageMv;
                  const vMax = str.maxCellVoltageMv;
                  const vMin = str.minCellVoltageMv;
@@ -1021,12 +1031,15 @@ export async function buildSiteOperationsSummaryFromCache() {
              
              if (avgVoltCount > 0) bessFleetSummary.avgCellVoltageMv = avgVoltSum / avgVoltCount;
              if (avgTempCount > 0) bessFleetSummary.avgCellTempC = avgTempSum / avgTempCount;
+             if (socPctCount > 0) bessFleetSummary.systemSocPct = socPctSum / socPctCount;
+			 
              if (maxVolt !== -Infinity && minVolt !== Infinity) {
                  bessFleetSummary.maxCellVoltageDeltaMv = maxVolt - minVolt;
              }
              if (maxTemp !== -Infinity && minTemp !== Infinity) {
                  bessFleetSummary.maxCellTempDeltaC = maxTemp - minTemp;
              }
+             if (maxTemp !== -Infinity) bessFleetSummary.maxCellTempC = maxTemp;
         }
 
         // Compute Corrective Actions Log
