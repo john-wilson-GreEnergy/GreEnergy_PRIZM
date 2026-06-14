@@ -172,7 +172,7 @@ export default function PcsDashboard() {
                     </div>
                 )}
 
-                <div className="bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative overflow-x-auto overflow-y-visible pb-12">
+                <div className="bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12">
                     <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>

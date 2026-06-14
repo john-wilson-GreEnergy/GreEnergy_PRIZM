@@ -386,7 +386,7 @@ const handleManualRefresh = async () => {
         </div>
       )}
       {/* Main Strings Table Engine */}
-      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative overflow-x-auto overflow-y-visible pb-12" id="strings-dashboard-scroll">
+      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
          <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
              <thead className="sticky top-[102px] z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
