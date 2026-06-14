@@ -95,20 +95,19 @@ async function doBackgroundPoll() {
       // 2. We use the existing siteOperations logic to build everything
       const parsed = await buildSiteOperationsSummaryFromCache();
       
-      const connStatus = parsed.cacheMeta ? { ...parsed.cacheMeta } : getEmsConnectionStatus();
+      const connStatus = getEmsConnectionStatus();
       
       let state: "LIVE" | "PARTIAL" | "CACHED" | "OFFLINE" = "OFFLINE";
-      if (parsed.siteState === "LIVE" || parsed.siteState === "PARTIAL") {
-          state = parsed.siteState as "LIVE" | "PARTIAL";
-      } else if (parsed.siteState === "OFFLINE") {
-          state = "OFFLINE";
-      }
+      if (!latestError && connStatus.source === "live") state = "LIVE";
+      else if (!latestError && connStatus.source === "partial") state = "PARTIAL";
+      else if (connStatus.source === "cached") state = "CACHED";
 
       let sourceOk = true;
       if (state === "OFFLINE" || latestError) sourceOk = false;
       
       const stNow = Date.now();
-      const updatedTime = parsed.lastUpdated ? new Date(parsed.lastUpdated).getTime() : stNow;
+      const rawConn = getEmsConnectionStatus();
+      const updatedTime = rawConn.lastUpdated ? new Date(rawConn.lastUpdated).getTime() : stNow;
       
       let featherCellTempExcludedCollectionSegments = 0;
       const featherNodes = parsed.featherSummary?.devices || [];
@@ -119,8 +118,6 @@ async function doBackgroundPoll() {
          }
       });
       
-      const rawConn = getEmsConnectionStatus();
-
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
               activeProfileId: rawConn.activeProfileId,
@@ -135,8 +132,8 @@ async function doBackgroundPoll() {
               liveAttempted: true,
               liveSucceeded: state === "LIVE" || state === "PARTIAL",
               stale: !!rawConn.staleData,
-              cacheUsed: parsed.cacheUsed,
-              lastUpdated: parsed.lastUpdated,
+              cacheUsed: state === "CACHED",
+              lastUpdated: rawConn.lastUpdated || new Date().toISOString(),
               ageMs: stNow - updatedTime,
               warnings: [],
               errors: []
@@ -171,7 +168,7 @@ async function doBackgroundPoll() {
               lastPollFinishedAt: new Date().toISOString(),
               lastPollDurationMs: Date.now() - startTime,
               normalizedStringRowCount: (parsed.stringSummary?.tableRows || []).length,
-              arraySummarySource: parsed.arraySummarySource as any,
+              arraySummarySource: parsed.debug?.arraySummarySource as any,
               correctiveActionsCount: (parsed.activeIssueGroups || []).length,
               featherCellTempExcludedCollectionSegments,
               errors: latestError ? [latestError.message] : []
