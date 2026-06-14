@@ -454,46 +454,13 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     )}
                 </div>
             </div></div>
-                </div>
-                <div>
-{/* Array Summary */}
-            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
-<h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><PanelTop size={14} className="text-prizm-text"/> ARRAY SUMMARY</h3>
-<div className="overflow-x-auto overflow-y-auto max-h-[350px] no-scrollbar flex-1">
-                 {arraySummaryData.length > 0 ? (
-                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                             <tr>
-                                 <th className="py-1 px-2 font-bold">Array</th>
-                                 <th className="py-1 px-2 font-bold text-center">Comm.</th>
-                                 <th className="py-1 px-2 font-bold text-center">Online SOC</th>
-                                 <th className="py-1 px-2 font-bold text-center">Nearline SOC</th>
-                                 <th className="py-1 px-2 font-bold text-center">Offline SOC</th>
-                                 <th className="py-1 px-2 font-bold text-center">Nearline kWh</th>
-                                 <th className="py-1 px-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
-                                 <th className="py-1 px-2 font-bold text-center">Commanded kW AC</th>
-                                 <th className="py-1 px-2 font-bold text-center">Measured kW AC</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-prizm-border">
-{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="py-1 px-2 text-prizm-primary font-bold">{name}</td> <td className="py-1 px-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="py-1 px-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="py-1 px-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="py-1 px-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
-                         </tbody>
-                     </table>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Array Summary available</div>
-                 )}
-            </div></div>
-                </div>
-            </div>
-
-            {/* STRING SUMMARY ROW */}
-            <div className="mt-2">
+                                <div>
 {/* String Summary */}
-            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-4">
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><Rows4 size={14} className="text-prizm-text"/> STRING SUMMARY</h3>
-<div className="overflow-x-auto no-scrollbar">
+<div className="overflow-x-auto no-scrollbar flex-1">
                  {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
-                     <div className="overflow-x-auto overflow-y-auto max-h-[450px] w-full no-scrollbar">
+                     <div className="overflow-x-auto overflow-y-auto max-h-[350px] w-full no-scrollbar">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                              <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
                                  <tr>
@@ -567,6 +534,40 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                      </div>
                  ) : (
                      <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
+                 )}
+            </div></div>
+                </div> </div>
+            </div>
+
+            {/* ARRAY SUMMARY ROW */}
+            <div className="mt-2">
+{/* Array Summary */}
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-4">
+<h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><PanelTop size={14} className="text-prizm-text"/> ARRAY SUMMARY</h3>
+<div className="overflow-x-auto no-scrollbar">
+                 {arraySummaryData.length > 0 ? (
+                     <div className="overflow-x-auto overflow-y-auto max-h-[450px] w-full no-scrollbar">
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
+                             <tr>
+                                 <th className="py-1 px-2 font-bold min-w-[120px]">Array</th>
+                                 <th className="py-1 px-2 font-bold text-center">Comm.</th>
+                                 <th className="py-1 px-2 font-bold text-center">Online SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Nearline SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Offline SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Nearline kWh</th>
+                                 <th className="py-1 px-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
+                                 <th className="py-1 px-2 font-bold text-center">Commanded kW AC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Measured kW AC</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+ {arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="py-1 px-2 text-prizm-primary font-bold">{name}</td> <td className="py-1 px-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="py-1 px-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="py-1 px-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="py-1 px-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
+                         </tbody>
+                     </table>
+                     </div>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Array Summary available</div>
                  )}
             </div></div>
             </div>
