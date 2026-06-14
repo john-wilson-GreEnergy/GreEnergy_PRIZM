@@ -946,25 +946,21 @@ router.get("/summary", async (req, res) => {
 
         if (!responseData) responseData = {};
 
-        // Merge the cache metadata directly into the root level as requested
-        const cacheMetadata = buildCacheMetadata(policy, wasCacheUsed, wasLiveAttempted, wasLiveSucceeded, prizmCache.get('site-operations-summary'));
-        // Special case: if we waited for refreshSiteOperationsSources, it's basically live-ems and live-modbus mixed.
-        // We will default the requested `source` output:
-        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
-        // if policy is cache-only, source is cache or unavailable.
-        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
-        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
+        const cacheEntry = prizmCache.get('site-operations-summary') || {
+            key: 'site-operations-summary', fetchedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(), ageMs: 0, ttlMs: 5000, 
+            sourceOk: wasLiveSucceeded, isLive: wasLiveSucceeded, isStale: !wasLiveSucceeded,
+            dataClass: "live-status", createdFromLiveSession: false
+        };
+        cacheEntry.dataClass = "live-status";
+        if (wasLiveAttempted && wasLiveSucceeded) cacheEntry.createdFromLiveSession = true;
 
-        Object.assign(responseData, {
-            source: sourceValue,
-            cacheUsed: policy === "live-only" ? false : wasCacheUsed, // Explicitly false for live-only per requirements
-            liveAttempted: wasLiveAttempted,
-            liveSucceeded: wasLiveSucceeded,
-            stale: prizmCache.get('site-operations-summary')?.isStale ?? false,
-            timestamp: new Date().toISOString(),
-            ageMs: prizmCache.get('site-operations-summary')?.ageMs ?? 0,
-            cachePolicy: policy
-        });
+        const meta = prizmCache.getActiveSiteMetadata();
+        const activeIdentity = { activeProfileId: meta.profileId, emsBaseUrl: meta.emsBaseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
+        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, wasLiveAttempted, wasLiveSucceeded, cacheEntry, activeIdentity);
+
+        // Merge the cache metadata directly into the root level as requested
+        Object.assign(responseData, cacheMetadata);
 
         const totalMs = Date.now() - tStart;
         (responseData as any).debug = {

@@ -638,22 +638,16 @@ router.get("/", async (req, res) => {
             prizmHistory.appendSamples(hMetrics);
         }
 
-        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
-        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
-        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
+        cacheEntry.dataClass = "live-telemetry";
+        const meta = prizmCache.getActiveSiteMetadata();
+        const activeIdentity = { activeProfileId: profile?.id, emsBaseUrl: baseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
+        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true', wasLiveSucceeded, cacheEntry, activeIdentity);
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
         res.json({ 
             ...outputData, 
-            source: sourceValue,
-            cacheUsed: policy === "live-only" ? false : wasCacheUsed,
-            liveAttempted: prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true',
-            liveSucceeded: wasLiveSucceeded,
-            stale: cacheEntry.isStale,
-            timestamp: new Date().toISOString(),
-            ageMs: cacheEntry.ageMs,
-            cachePolicy: policy,
+            ...cacheMetadata,
             cache: {
                 key: cacheEntry.key,
                 fetchedAt: cacheEntry.fetchedAt,
@@ -1310,22 +1304,16 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
              prizmHistory.appendSamples(hMetrics);
         }
 
-        let sourceValue = wasCacheUsed ? "cache" : (wasLiveSucceeded ? "live-ems" : "unavailable");
-        if (policy === "cache-only") sourceValue = wasCacheUsed ? "cache" : "unavailable";
-        else if (policy === "live-only") sourceValue = wasLiveSucceeded ? "live-ems" : "unavailable";
+        cacheEntry.dataClass = "live-telemetry";
+        const meta = prizmCache.getActiveSiteMetadata();
+        const activeIdentity = { activeProfileId: profile?.id, emsBaseUrl: baseUrl, stationCode: meta.stationCode, blockIndex: meta.blockIndex };
+        const cacheMetadata = prizmCache.buildCacheMetadata(policy, wasCacheUsed, prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true', wasLiveSucceeded, cacheEntry, activeIdentity);
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
         res.json({ 
             ...outputData, 
-            source: sourceValue,
-            cacheUsed: policy === "live-only" ? false : wasCacheUsed,
-            liveAttempted: prizmCache.shouldFetchLive(policy) || req.query.refresh === 'true',
-            liveSucceeded: wasLiveSucceeded,
-            stale: cacheEntry.isStale,
-            timestamp: new Date().toISOString(),
-            ageMs: cacheEntry.ageMs,
-            cachePolicy: policy,
+            ...cacheMetadata,
             cache: {
                 key: cacheEntry.key,
                 fetchedAt: cacheEntry.fetchedAt,

@@ -41,18 +41,49 @@ export function shouldReadCache(policy: CachePolicy): boolean {
   return policy === "live-first" || policy === "cache-first" || policy === "cache-only";
 }
 
-export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: PrizmCacheEntry<any> | null) {
+export function buildCacheMetadata(policy: CachePolicy, wasCacheUsed: boolean, wasLiveAttempted: boolean, wasLiveSucceeded: boolean, entry?: PrizmCacheEntry<any> | null, activeIdentity?: any) {
+  const isMem = !!entry?.createdFromLiveSession && wasCacheUsed;
+  const isDisk = !entry?.createdFromLiveSession && wasCacheUsed;
+
+  let source = "unavailable";
+  if (wasLiveSucceeded) {
+      if (entry?.sourceUrl?.includes("turtle") || entry?.sourceUrl?.includes("lastCall")) source = "live-ems";
+      else source = "live-modbus";
+  } else if (isMem) {
+      source = "current-session-cache";
+  } else if (wasCacheUsed) {
+      source = "cache";
+  }
+
   return {
-    source: wasLiveSucceeded ? (entry?.sourceUrl?.includes("turtle") || entry?.sourceUrl?.includes("lastCall") ? "live-ems" : "live-modbus") : (wasCacheUsed ? "cache" : "unavailable"), // we refine this per route later.
+    source,
+    dataClass: entry?.dataClass || "last-known",
     cacheUsed: wasCacheUsed,
+    diskCacheUsed: isDisk,
+    memoryCacheUsed: isMem,
     liveAttempted: wasLiveAttempted,
     liveSucceeded: wasLiveSucceeded,
     stale: entry?.isStale ?? false,
+    activeProfileId: activeIdentity?.activeProfileId || entry?.profileId,
+    activeEmsBaseUrl: activeIdentity?.emsBaseUrl || entry?.emsBaseUrl,
+    stationCode: activeIdentity?.stationCode,
+    blockIndex: activeIdentity?.blockIndex || 1,
     timestamp: entry?.updatedAt || new Date().toISOString(),
     ageMs: entry?.ageMs || 0,
     cachePolicy: policy
   };
 }
+
+export type PrizmDataClass =
+  | "live-telemetry"
+  | "live-status"
+  | "live-control-state"
+  | "topology-structure"
+  | "modbus-map"
+  | "modbus-profile"
+  | "static-dictionary"
+  | "offline-history"
+  | "last-known";
 
 export interface PrizmCacheEntry<T = unknown> {
   key: string;
@@ -69,6 +100,8 @@ export interface PrizmCacheEntry<T = unknown> {
   profileId?: string | null;
   emsBaseUrl?: string | null;
   wasFetched?: boolean;
+  dataClass?: PrizmDataClass;
+  createdFromLiveSession?: boolean;
 }
 
 export interface SetCacheOptions {
@@ -78,6 +111,7 @@ export interface SetCacheOptions {
   emsBaseUrl?: string | null;
   isRaw?: boolean;
   rawExt?: string;
+  dataClass?: PrizmDataClass;
 }
 
 export interface GetOrFetchOptions extends SetCacheOptions {
@@ -91,12 +125,16 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
   const allowLive = shouldFetchLive(policy) || options?.forceRefresh;
   const allowCache = shouldReadCache(policy);
   
+  const isLiveDataClass = options?.dataClass === "live-telemetry" || options?.dataClass === "live-status" || options?.dataClass === "live-control-state";
+  const blockDiskCacheForLive = isLiveDataClass && allowLive && policy === "live-first";
+  
   if (allowCache && !options?.forceRefresh) {
     const existing = get<T>(key);
     if (existing) {
-       // if policy is cache-only, we always return it even if stale, or we fetch if not live-only?
-       // if we have it and it's not stale, return it.
-       if (!existing.isStale || policy === "cache-only" || !allowLive) {
+       // block returning disk-backed existing cache if we should try live first and this is live telemetry
+       const allowServingCache = !(blockDiskCacheForLive && !existing.createdFromLiveSession);
+       
+       if (allowServingCache && (!existing.isStale || policy === "cache-only" || !allowLive)) {
            existing.wasFetched = false;
            return existing;
        }
@@ -133,6 +171,8 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
           profileId: options?.profileId,
           emsBaseUrl: options?.emsBaseUrl,
           wasFetched: false,
+          dataClass: options?.dataClass,
+          createdFromLiveSession: true
         };
         return failedEntry;
       }
@@ -152,6 +192,8 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
         profileId: options?.profileId,
         emsBaseUrl: options?.emsBaseUrl,
         wasFetched: false,
+        dataClass: options?.dataClass,
+        createdFromLiveSession: false
       };
   }
 }
@@ -314,7 +356,9 @@ export function get<T>(key: string): PrizmCacheEntry<T> | null {
                   isStale: true,
                   sourceUrl: cacheMeta.sourceUrl,
                   profileId: meta.profileId,
-                  emsBaseUrl: cacheMeta.emsBaseUrl
+                  emsBaseUrl: cacheMeta.emsBaseUrl,
+                  dataClass: cacheMeta.dataClass,
+                  createdFromLiveSession: false
                };
                memoryCache.set(key, entry);
           }
@@ -356,6 +400,8 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
     isStale: false,
     profileId: meta.profileId,
     emsBaseUrl: meta.emsBaseUrl,
+    dataClass: options?.dataClass,
+    createdFromLiveSession: true
   };
   memoryCache.set(key, entry);
 
@@ -365,7 +411,7 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
       try { fs.mkdirSync(path.join(p, 'raw'), { recursive: true }); } catch (e) {}
   }
   
-  const diskEntry = {
+  const diskEntry: any = {
       cacheMeta: {
           siteCacheKey: getSiteCacheKey(),
           stationCode: meta.stationCode,
@@ -376,7 +422,8 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
           ttlMs,
           sourceOk: true,
           isLiveAtWrite: true,
-          schemaVersion: 1
+          schemaVersion: 1,
+          dataClass: options?.dataClass
       },
       data
   };

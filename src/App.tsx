@@ -46,11 +46,21 @@ export default function App() {
 
   // Fetch full telemetry, reports & alerts
   const [connectionStatus, setConnectionStatus] = useState<any>(null);
+  const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
   const fetchAllData = async (silent = false) => {
     if (!silent && !connectionStatus) setLoading(true);
     try {
+      const bootRes = await fetch('/api/local/system/boot-status').catch(err => null);
+      if (bootRes && bootRes.ok) {
+          const bs = await bootRes.json();
+          setBootStatus(bs);
+          if (bs.phase !== "ready" && bs.phase !== "offline" && bs.phase !== "degraded") {
+             // still booting, show loading overlay maybe?
+          }
+      }
+      
       const modeRes = await fetch('/api/local/ems/connection-status').catch(err => null);
 
       if (modeRes && modeRes.ok) {
@@ -126,6 +136,29 @@ export default function App() {
       </header>
 
       {/* DASHBOARD CONTROL NAVIGATION TOOLBAR LINE */}
+      {bootStatus?.warnings?.length > 0 && (
+         <div className="bg-amber-900 border-b border-amber-500 text-amber-200 text-xs px-4 py-1.5 font-mono uppercase text-center font-bold tracking-widest shadow-inner shadow-amber-950/50">
+            {bootStatus.warnings.join(' | ')}
+         </div>
+      )}
+{bootStatus && (bootStatus.phase !== "ready" && bootStatus.phase !== "offline" && bootStatus.phase !== "idle") ? (
+   <div className="h-screen flex items-center justify-center p-4 z-50 w-full">
+      <div className="bg-prizm-surface-strong p-8 rounded border border-prizm-border max-w-lg w-full text-center">
+         <h2 className="text-xl font-bold mb-4 font-mono">PRIZM BOOT SEQUENCE</h2>
+         <div className="text-sm text-prizm-text-muted mb-2 font-mono">Connecting to EMS {bootStatus.activeEmsBaseUrl}...</div>
+         <div className="text-xs bg-prizm-bg p-2 rounded mb-6 font-mono text-cyan-400 border border-white/5">{bootStatus.phase.toUpperCase()}</div>
+         
+         <div className="text-left space-y-2 font-mono text-xs mb-8">
+            <div className="flex justify-between"><span>Site Operations:</span> <span className={bootStatus.preloadStatus.siteOperations ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.siteOperations ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Topology:</span> <span className={bootStatus.preloadStatus.topology ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.topology ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Strings:</span> <span className={bootStatus.preloadStatus.stringsDashboard ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.stringsDashboard ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Feather/HVAC:</span> <span className={bootStatus.preloadStatus.featherDevices ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.featherDevices ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Modbus Setup:</span> <span className={bootStatus.preloadStatus.modbusProfile ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.modbusProfile ? "READY" : "WAITING"}</span></div>
+         </div>
+      </div>
+   </div>
+) : (
+  <>
       <section className="bg-prizm-surface-strong border-b border-prizm-border z-40 sticky top-14 transition-all shrink-0">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between overflow-x-auto no-scrollbar scroll-smooth">
@@ -252,6 +285,9 @@ export default function App() {
           <span>{emsMetadata?.isDemoFallback ? 'VER: 4.3.0-DEMO' : 'VER: 4.3.0-PROD'}</span>
         </div>
       </footer>
+
+      </>
+      )}
 
     </div>
   );

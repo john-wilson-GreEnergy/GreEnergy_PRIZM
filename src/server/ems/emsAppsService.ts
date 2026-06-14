@@ -9,7 +9,7 @@ let lastFetchTime = 0;
 
 import { getEmsCachedLastCall } from "../emsTurtleClient";
 
-export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], status: string, rawLastCall: any }> {
+export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], status: string, rawLastCall: any, cacheEntry: any }> {
     const lastCallCache = getEmsCachedLastCall();
     const lastCallData = lastCallCache?.data;
 
@@ -20,8 +20,9 @@ export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], sta
     
     return {
         apps,
-        status: lastCallCache?.staleData ? "cached_timeout" : "ok",
-        rawLastCall: lastCallData
+        status: lastCallCache?.isStale ? "cached_timeout" : "ok",
+        rawLastCall: lastCallData,
+        cacheEntry: lastCallCache
     };
 }
 

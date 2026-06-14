@@ -8,7 +8,8 @@ import {
   runProfileValidation,
   emulateModbusRead,
   saveProfileSnapshot,
-  runLiveDiagnostics
+  runLiveDiagnostics,
+  getModbusReader
 } from "./modbusProfileManager";
 
 const router = express.Router();
@@ -99,7 +100,8 @@ router.post("/profile/revalidate", async (req, res) => {
     return res.status(400).json({ success: false, error: "No active profile to validate" });
   }
   try {
-    const report = await runProfileValidation(active, emulateModbusRead);
+    const reader = getModbusReader();
+    const report = await runProfileValidation(active, reader);
     if (report.validationStatus === "Verified" || report.validationStatus === "Cautious") {
       active.isStale = false;
     }

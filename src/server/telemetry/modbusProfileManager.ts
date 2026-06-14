@@ -1042,8 +1042,8 @@ export async function triggerRebuildModbusProfile(): Promise<ModbusProfile> {
   discoveryStatus.probeStatus = "Probing Port 4502...";
   discoveryStatus.lastTestedPort = 4502;
 
-  // Extend the existing LAN discovery of active modbus_map.csv
-  let mapCSV = getEmsCachedModbusMap()?.data || "";
+  const mapCacheHit = getEmsCachedModbusMap();
+  let mapCSV = mapCacheHit?.data || "";
   
   // If no map CSV fetched, let's create a rich fallback default modbus CSV
   if (!mapCSV) {
@@ -1084,14 +1084,21 @@ String 2 Min Cell Temp, 40117, 1 word, INT16, R, 0.1, C, Cold group temp`;
 
   // Load existing profile to check for matches
   const cached = loadCachedProfile(stationCode, blockCode);
-  if (cached && cached.profile.mapHash === mapHash) {
-    // Verified cached profile matches perfectly!
-    activeProfile = cached.profile;
-    activeValidationReport = cached.report;
-    discoveryStatus.probeStatus = "Loaded verified cached profile";
-    discoveryStatus.activeSourceMode = "Modbus verified";
-    discoveryStatus.success = true;
-    return activeProfile;
+  
+  // If mapCacheHit.source === "live" or "partial" and mapping isn't stale it means it was reachable
+  const isEmsReachable = mapCacheHit && (mapCacheHit as any).source === "live";
+  
+  if (cached) {
+      if (!isEmsReachable || cached.profile.mapHash === mapHash) {
+          // If EMS is NOT reachable, fallback to cached profile. 
+          // If EMS is reachable, we require hash to match.
+          activeProfile = cached.profile;
+          activeValidationReport = cached.report;
+          discoveryStatus.probeStatus = !isEmsReachable ? "Loaded cached profile (EMS unreachable)" : "Loaded verified cached profile";
+          discoveryStatus.activeSourceMode = !isEmsReachable ? "Stale fallback" : "Modbus verified";
+          discoveryStatus.success = true;
+          return activeProfile;
+      }
   }
 
   // Generate candidate profile

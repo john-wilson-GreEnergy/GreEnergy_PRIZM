@@ -64,6 +64,24 @@ app.use("/api/local/modbus", modbusRouter);
 app.use("/api/local/telemetry", modbusRouter);
 app.use("/api/local/ems-apps", emsAppRoutes);
 
+import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
+
+app.get("/api/local/system/boot-status", (req, res) => {
+  res.json(getBootStatus());
+});
+
+app.post("/api/local/system/reinitialize", (req, res) => {
+  handleProfileChange();
+  res.json(getBootStatus());
+});
+
+app.post("/api/local/system/refresh-live", async (req, res) => {
+  // trigger background action
+  startBackgroundPolling();
+  res.json({ success: true, message: "Triggered live refresh" });
+});
+
+
 // Ensure data folder exists
 const DATA_DIR = path.join(process.cwd(), "data");
 if (!fs.existsSync(DATA_DIR)) {
@@ -406,12 +424,7 @@ for (let i = 15; i >= 0; i--) {
 
 // ==================== LOCAL EMS TURTLE INTEGRATION API ROUTES ====================
 // Setup background interval polling for EMS Turtle from configure interval
-const emsPollInterval = Number(process.env.EMS_POLL_INTERVAL_MS) || 3000;
-setInterval(async () => {
-  await pollEmsTurtle();
-  recordTelemetrySample(emsCache, getFeatherCache());
-}, emsPollInterval);
-
+// background polling is now handled by prizmBootOrchestrator
 // Kick off initial bootstrap cache seed
 bootstrapEmsAndSeedCache().then(() => {
     bootstrapFeatherDiscoveryAndSeedCache();
@@ -2369,6 +2382,7 @@ if (process.env.PRIZM_FORCE_DEV === "true") {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+  initializePrizmBootFlow().catch(console.error);
 });
 
 server.on('error', (e: any) => {
