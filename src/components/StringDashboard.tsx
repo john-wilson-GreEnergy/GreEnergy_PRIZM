@@ -3,6 +3,7 @@ import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers } from "lu
 import StringDetailDashboard from "./StringDetailDashboard";
 
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
+import RotationModal, { RotationTarget } from './RotationModal';
 
 export default function StringDashboard() {
   const [data, setData] = useState<any>(null);
@@ -18,6 +19,12 @@ export default function StringDashboard() {
   const [selectedString, setSelectedString] = useState<any | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [rotationCapabilities, setRotationCapabilities] = useState<any>(null);
+  const [rotationModalOpen, setRotationModalOpen] = useState(false);
+  const [rotationModalAction, setRotationModalAction] = useState<'in' | 'out'>('in');
+  const [rotationModalTargets, setRotationModalTargets] = useState<any[]>([]);
+  useEffect(() => { fetch('/api/local/capabilities').then(r => r.json()).then(setRotationCapabilities).catch(()=>{}); }, []);
 
   useEffect(() => {
     let unmounted = false;
@@ -50,7 +57,36 @@ export default function StringDashboard() {
     };
   }, [refreshInterval, selectedString?.id]);
 
-  const handleManualRefresh = async () => {
+  const handleRotationConfirm = async (req: any) => {
+    await fetch("/api/local/strings/rotation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+    setRotationModalOpen(false);
+    setSelectedIds(new Set());
+    handleManualRefresh();
+  };
+
+  const getSelectedTargets = () => {
+    // Array optimization
+    const targets: RotationTarget[] = [];
+    const grouped = new Map<number, number[]>();
+    for (const id of selectedIds) {
+        const s = strings.find((st:any) => st.id === id);
+        if (s && s.arrayNumber) {
+           if (!grouped.has(s.arrayNumber)) grouped.set(s.arrayNumber, []);
+           grouped.get(s.arrayNumber)!.push(s.stringNumber);
+        }
+    }
+    for (const [arr, strs] of grouped.entries()) {
+        const totalInArr = strings.filter((fs:any) => fs.arrayNumber === arr).length;
+        if (strs.length === totalInArr) {
+             targets.push({ array: arr, allStrings: true });
+        } else {
+             strs.forEach(st => targets.push({ array: arr, string: st }));
+        }
+    }
+    return targets;
+  };
+
+const handleManualRefresh = async () => {
       setIsRefreshing(true);
       try {
         const res = await fetch(`/api/local/strings/dashboard?array=ALL&enrich=none&refresh=true&maxAgeMs=${cacheTtlMs}`);
@@ -308,16 +344,55 @@ export default function StringDashboard() {
           <button onClick={downloadJson} title="Export API JSON" className="bg-white/5 hover:bg-white/10 text-prizm-info border border-prizm-border px-3 py-1.5 rounded transition-colors cursor-pointer shrink-0">
             <Layers size={14} />
           </button>
-        </div>
-      </div>
+        
 
+</div>
+      </div>
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between px-3 py-2 bg-[#001a1a] border-x border-b border-prizm-border shadow-md z-[60] relative saturate-150">
+           <div className="flex items-center gap-4">
+              <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
+              <button 
+                 onClick={() => setSelectedIds(new Set())}
+                 className="text-[10px] text-prizm-text-muted hover:text-white uppercase tracking-widest underline decoration-prizm-text-muted/30 underline-offset-4 transition-colors"
+              >
+                 Clear
+              </button>
+           </div>
+           <div className="flex items-center gap-2" title={!rotationCapabilities?.strings?.single ? "String Rotation Control capability not verified on local EMS" : ""}>
+              <button
+                  disabled={!rotationCapabilities?.strings?.single}
+                  onClick={() => {
+                     setRotationModalAction('in');
+                     setRotationModalTargets(getSelectedTargets());
+                     setRotationModalOpen(true);
+                  }}
+                  className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                  Set In Rotation
+              </button>
+              <button
+                  disabled={!rotationCapabilities?.strings?.single}
+                  onClick={() => {
+                     setRotationModalAction('out');
+                     setRotationModalTargets(getSelectedTargets());
+                     setRotationModalOpen(true);
+                  }}
+                  className="px-3 py-1 bg-slate-500/20 text-slate-300 border border-slate-500/50 hover:bg-slate-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                  Set Out Rotation
+              </button>
+           </div>
+        </div>
+      )}
       {/* Main Strings Table Engine */}
       <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg overflow-y-auto no-scrollbar relative min-h-0" id="strings-dashboard-scroll">
          <table className="w-full text-left text-[10px] font-mono whitespace-nowrap border-collapse">
              <thead className="sticky top-0 z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[54px] sm:left-[64px] bg-prizm-surface-strong z-[80] whitespace-nowrap">STR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[30px] bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
+                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] whitespace-nowrap">STR</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Contactors</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Rotation</th>
                   <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Meas V</th>
@@ -346,7 +421,12 @@ export default function StringDashboard() {
                   <td colSpan={9} className="px-4 py-12 text-center text-prizm-text-muted font-bold tracking-widest text-xs">NO STRINGS MATCHING FILTERS</td>
                 </tr>
               ) : (
-                filtered.map((s:any) => {
+                filtered.map((s:any, idx: number) => {
+                  const isArrFirst = idx === 0 || filtered[idx-1].arrayNumber !== s.arrayNumber;
+                  const arrStrings = filtered.filter((fs:any) => fs.arrayNumber === s.arrayNumber);
+                  const arrSelectedCount = arrStrings.filter((fs:any) => selectedIds.has(fs.id)).length;
+                  const isArrAllSelected = arrSelectedCount > 0 && arrSelectedCount === arrStrings.length;
+                  const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrStrings.length;
                   
                   // Rotation Dots
                   const commsOk = s.badReport === false || (new Date().getTime() - new Date(s.timestampUtc || 0).getTime() < 300000);
@@ -396,7 +476,7 @@ export default function StringDashboard() {
                     <td className={`px-3 py-1.5 border-r border-prizm-border/20 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 min-w-[54px] sm:min-w-[64px] ${borderClass}`} title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
                        <span className="text-prizm-primary font-mono font-bold">{s.arrayNumber}</span>
                     </td>
-                    <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[54px] sm:left-[64px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
+                    <td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[84px] sm:left-[94px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
                        {s.stringNumber}
                     </td>
                     <td className="px-3 py-1.5">
@@ -464,6 +544,14 @@ export default function StringDashboard() {
         <span className="text-xl leading-none">&uarr;</span> TOP
       </button>
 
+          <RotationModal
+        isOpen={rotationModalOpen}
+        onClose={() => setRotationModalOpen(false)}
+        onConfirm={handleRotationConfirm}
+        targets={rotationModalTargets}
+        action={rotationModalAction}
+        targetType="string"
+      />
     </div>
   );
 }

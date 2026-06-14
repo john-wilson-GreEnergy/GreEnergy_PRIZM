@@ -7,6 +7,7 @@ import historyRoutes from "./src/server/history/historyRoutes";
 import siteOperationsRouter from "./src/server/siteOperations";
 import { topologyRouter } from "./src/server/topology/topologyRoutes";
 import modbusRouter from "./src/server/telemetry/modbusRoutes";
+import { rotationRouter } from "./src/server/rotationRoutes";
 import emsAppRoutes from "./src/server/ems/emsAppRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
 
@@ -62,6 +63,7 @@ app.use("/api/local/history", historyRoutes);
 app.use("/api/local", topologyRouter);
 app.use("/api/local/modbus", modbusRouter);
 app.use("/api/local/telemetry", modbusRouter);
+app.use("/api/local", rotationRouter);
 app.use("/api/local/ems-apps", emsAppRoutes);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
