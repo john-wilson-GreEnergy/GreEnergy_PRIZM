@@ -449,32 +449,32 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><TriangleAlert size={14} className="text-prizm-danger"/> CORRECTIVE ACTIONS (DATA-BASED FAULTS)</h3>
 <div className="overflow-x-auto no-scrollbar flex-1">
-                <div className="max-h-[300px] overflow-y-auto no-scrollbar">
+                <div className="max-h-[220px] overflow-y-auto no-scrollbar">
                     {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                            <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                                <tr>
-                                    <th className="p-2 font-bold w-1/8">Level</th>
-                                    <th className="p-2 font-bold w-1/6">Fault / ID</th>
-                                    <th className="p-2 font-bold w-1/6">Affected</th>
-                                    <th className="p-2 font-bold w-1/3">Suggested Action</th>
+                            <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
+                            <tr>
+                                <th className="py-1 px-2 font-bold w-1/8">Level</th>
+                                    <th className="py-1 px-2 font-bold w-1/6">Fault / ID</th>
+                                    <th className="py-1 px-2 font-bold w-1/6">Affected</th>
+                                    <th className="py-1 px-2 font-bold w-1/3">Suggested Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-prizm-border">
                                 {sum.correctiveActions.map((issue: any, i: number) => (
                                     <tr key={i} className="hover:bg-prizm-surface transition-colors">
-                                        <td className="p-2">
+                                        <td className="py-1 px-2">
                                             <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
                                                 {issue.level}
                                             </span>
                                         </td>
-                                        <td className="p-2 text-prizm-primary font-bold">
+                                        <td className="py-1 px-2 text-prizm-primary font-bold">
                                             {issue.fault}
                                         </td>
-                                        <td className="p-2 text-prizm-text">
+                                        <td className="py-1 px-2 text-prizm-text">
                                             {issue.object} {issue.count > 1 ? `(+${issue.count - 1} more)` : ''}
                                         </td>
-                                        <td className="p-2 text-prizm-text">
+                                        <td className="py-1 px-2 text-prizm-text">
                                             {issue.suggestedAction}
                                         </td>
                                     </tr>
@@ -491,24 +491,24 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 {/* Array Summary */}
             <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><PanelTop size={14} className="text-prizm-text"/> ARRAY SUMMARY</h3>
-<div className="overflow-x-auto no-scrollbar flex-1">
+<div className="overflow-x-auto overflow-y-auto max-h-[260px] no-scrollbar flex-1">
                  {arraySummaryData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
-                                 <th className="p-2 font-bold">Array</th>
-                                 <th className="p-2 font-bold text-center">Comm.</th>
-                                 <th className="p-2 font-bold text-center">Online SOC</th>
-                                 <th className="p-2 font-bold text-center">Nearline SOC</th>
-                                 <th className="p-2 font-bold text-center">Offline SOC</th>
-                                 <th className="p-2 font-bold text-center">Nearline kWh</th>
-                                 <th className="p-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
-                                 <th className="p-2 font-bold text-center">Commanded kW AC</th>
-                                 <th className="p-2 font-bold text-center">Measured kW AC</th>
+                                 <th className="py-1 px-2 font-bold">Array</th>
+                                 <th className="py-1 px-2 font-bold text-center">Comm.</th>
+                                 <th className="py-1 px-2 font-bold text-center">Online SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Nearline SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Offline SOC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Nearline kWh</th>
+                                 <th className="py-1 px-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
+                                 <th className="py-1 px-2 font-bold text-center">Commanded kW AC</th>
+                                 <th className="py-1 px-2 font-bold text-center">Measured kW AC</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
-{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="p-2 text-prizm-primary font-bold">{name}</td> <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="p-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="p-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="p-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="p-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="p-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
+{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="py-1 px-2 text-prizm-primary font-bold">{name}</td> <td className="py-1 px-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="py-1 px-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="py-1 px-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="py-1 px-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="py-1 px-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="py-1 px-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
                          </tbody>
                      </table>
                  ) : (
@@ -525,55 +525,75 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><Rows4 size={14} className="text-prizm-text"/> STRING SUMMARY</h3>
 <div className="overflow-x-auto no-scrollbar">
                  {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
-                     <div className="overflow-x-auto w-full">
+                     <div className="overflow-x-auto overflow-y-auto max-h-[300px] w-full no-scrollbar">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
+                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
                                  <tr>
-                                     <th className="p-2 font-bold min-w-[200px]">Parameter</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-300">Nearline</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">Offline</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-danger">Not Comm</th>
+                                     <th className="py-1 px-2 font-bold min-w-[200px]">Parameter</th>
+                                     <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
+                                     <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-emerald-300">Nearline</th>
+                                     <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">Offline</th>
+                                     <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-danger">Not Comm</th>
                                  </tr>
                              </thead>
                              <tbody className="divide-y divide-prizm-border">
-                                 {[
-                                     { label: "Strings", key: "count" },
-                                     { label: "SOC (kWh avg)", key: "socKwhAvg", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Current (A)", key: "maxCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Min Current (A)", key: "minCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Cell Voltage (mV)", key: "maxCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "Average Cell Voltage (mV)", key: "avgCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Min Cell Voltage (mV)", key: "minCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVoltageDeltaMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "High Cell Temp (°C)", key: "highCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Average Cell Temp (°C)", key: "avgCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Low Cell Temp (°C)", key: "lowCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDeltaC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) }
-                                 ].map((row, idx) => {
-                                     const renderVal = (statObj: any) => {
-                                         if (!statObj || !hasVal(statObj[row.key])) return '--';
-                                         const v = statObj[row.key];
-                                         const formatted = row.format ? row.format(v) : v;
-                                         return `${formatted}${row.suffix || ''}`;
-                                     };
-                                     return (
-                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="p-2 text-prizm-text uppercase">{row.label}</td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(onlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(nearlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(offlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(notCommStats)}
-                                         </td>
-                                     </tr>
-                                 )})}
+                                {(() => {
+                                    const formatVal = (v: any, suffix = "", toFixed = 1) => {
+                                        if (v === null || v === undefined) return "--";
+                                        const num = Number(v);
+                                        if (isNaN(num)) return "--";
+                                        return num.toFixed(toFixed).replace(/\.0+$/, '') + (suffix ? " " + suffix : "");
+                                    };
+                                    const buckets = ['online', 'nearline', 'offline', 'notCommunicating'];
+                                    const renderRow = (label: string, field: string, suffix = "", toFixed = 1) => (
+                                        <tr className="hover:bg-prizm-surface transition-colors">
+                                            <td className="py-1 px-2 text-prizm-text-muted">{label}</td>
+                                            {buckets.map((b, i) => {
+                                              let val = sum.stringSummary.rollups?.[b]?.[field];
+                                              return <td key={i} className={`py-1 px-2 text-center border-l border-prizm-border ${b === 'online' ? 'text-emerald-400' : b === 'nearline' ? 'text-emerald-300' : b === 'notCommunicating' ? 'text-prizm-danger' : 'text-prizm-text-muted'}`}>{formatVal(val, suffix, toFixed)}</td>
+                                            })}
+                                        </tr>
+                                    );
+                                    
+                                    const renderSocRow = () => (
+                                        <tr className="hover:bg-prizm-surface transition-colors">
+                                            <td className="py-1 px-2 text-prizm-text-muted">SOC (kWh)</td>
+                                            {buckets.map((b, i) => {
+                                              let soc = sum.stringSummary.rollups?.[b]?.socPctAvg;
+                                              let kwh = sum.stringSummary.rollups?.[b]?.kWhAvg;
+                                              let txt = "--";
+                                              if (soc !== null && soc !== undefined) txt = formatVal(soc, "%");
+                                              if (kwh !== null && kwh !== undefined) txt += " (" + formatVal(kwh, "kWh") + ")";
+                                              const finalTxt = txt === "--" ? "--" : txt.replace(/^-- \((.*?)\)$/, "$1").replace(/^(.*?) \(--\)$/, "$1");
+                                              return <td key={i} className={`py-1 px-2 text-center border-l border-prizm-border ${b === 'online' ? 'text-emerald-400' : b === 'nearline' ? 'text-emerald-300' : b === 'notCommunicating' ? 'text-prizm-danger' : 'text-prizm-text-muted'}`}>{finalTxt}</td>
+                                            })}
+                                        </tr>
+                                    );
+
+                                    return (
+                                        <>
+                                            <tr className="hover:bg-prizm-surface transition-colors">
+                                                <td className="py-1 px-2 text-prizm-text-muted">Strings</td>
+                                                {buckets.map((b, i) => <td key={i} className={`py-1 px-2 text-center border-l border-prizm-border ${b === 'online' ? 'text-emerald-400' : b === 'nearline' ? 'text-emerald-300' : b === 'notCommunicating' ? 'text-prizm-danger' : 'text-prizm-text-muted'}`}>{sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0}</td>)}
+                                            </tr>
+                                            <tr className="hover:bg-prizm-surface transition-colors">
+                                                <td className="py-1 px-2 text-prizm-text-muted">Connection Permitted</td>
+                                                {buckets.map((b, i) => <td key={i} className={`py-1 px-2 text-center border-l border-prizm-border ${b === 'online' ? 'text-emerald-400' : b === 'nearline' ? 'text-emerald-300' : b === 'notCommunicating' ? 'text-prizm-danger' : 'text-prizm-text-muted'}`}>{b === 'online' || b === 'nearline' ? (sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0) : "--"}</td>)}
+                                            </tr>
+                                            {renderSocRow()}
+                                            {renderRow("Max Current (A)", "maxCurrentA", "A", 1)}
+                                            {renderRow("Min Current (A)", "minCurrentA", "A", 1)}
+                                            {renderRow("Max Cell Voltage (mV)", "maxCellVoltageMv", "mV", 0)}
+                                            {renderRow("Average Cell Voltage (mV)", "avgCellVoltageMv", "mV", 0)}
+                                            {renderRow("Min Cell Voltage (mV)", "minCellVoltageMv", "mV", 0)}
+                                            {renderRow("Max Cell Voltage Delta (mV)", "maxCellVoltageDeltaMv", "mV", 0)}
+                                            {renderRow("High Cell Temp (°C)", "highCellTempC", "°C", 1)}
+                                            {renderRow("Average Cell Temp (°C)", "avgCellTempC", "°C", 1)}
+                                            {renderRow("Low Cell Temp (°C)", "lowCellTempC", "°C", 1)}
+                                            {renderRow("Max Cell Temp Delta (°C)", "maxCellTempDeltaC", "°C", 1)}
+                                        </>
+                                    );
+                                })()}
                              </tbody>
                          </table>
                      </div>
@@ -602,13 +622,13 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
-                                 <th className="p-2 font-bold text-center">Pri</th>
-                                 <th className="p-2 font-bold">App Code</th>
-                                 <th className="p-2 font-bold">App Name</th>
-                                 {isAdvancedMode && <th className="p-2 font-bold text-center">Action</th>}
-                                 <th className="p-2 font-bold">Configuration</th>
-                                 <th className="p-2 font-bold text-center">Status</th>
-                                 <th className="p-2 font-bold">Details</th>
+                                 <th className="py-1 px-2 font-bold text-center">Pri</th>
+                                 <th className="py-1 px-2 font-bold">App Code</th>
+                                 <th className="py-1 px-2 font-bold">App Name</th>
+                                 {isAdvancedMode && <th className="py-1 px-2 font-bold text-center">Action</th>}
+                                 <th className="py-1 px-2 font-bold">Configuration</th>
+                                 <th className="py-1 px-2 font-bold text-center">Status</th>
+                                 <th className="py-1 px-2 font-bold">Details</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
@@ -624,11 +644,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
                                  return (
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-center text-prizm-text-muted">{app.priority !== undefined && app.priority !== null ? app.priority : "--"}</td>
-                                     <td className="p-2 text-prizm-text font-bold">{app.appCode || "--"}</td>
-                                     <td className="p-2 text-prizm-primary font-bold">{app.appName || "--"}</td>
+                                     <td className="py-1 px-2 text-center text-prizm-text-muted">{app.priority !== undefined && app.priority !== null ? app.priority : "--"}</td>
+                                     <td className="py-1 px-2 text-prizm-text font-bold">{app.appCode || "--"}</td>
+                                     <td className="py-1 px-2 text-prizm-primary font-bold">{app.appName || "--"}</td>
                                      {isAdvancedMode && (
-                                         <td className="p-2 text-center w-[100px]">
+                                         <td className="py-1 px-2 text-center w-[100px]">
                                              <button 
                                                 onClick={() => {
                                                     setEmsAppCandidate(app);
@@ -646,11 +666,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                              </button>
                                          </td>
                                      )}
-                                     <td className="p-2 text-prizm-text-muted text-xs">{app.configName || "--"} {app.configVersionId ? `(v${app.configVersionId})` : ""}</td>
-                                     <td className="p-2 text-center">
+                                     <td className="py-1 px-2 text-prizm-text-muted text-xs">{app.configName || "--"} {app.configVersionId ? `(v${app.configVersionId})` : ""}</td>
+                                     <td className="py-1 px-2 text-center">
                                          <span className={`px-2 py-[2px] rounded font-bold ${statusColor}`}>{displayStatus}</span>
                                      </td>
-                                     <td className="p-2 text-prizm-text whitespace-pre-wrap leading-tight">{(app.hasShortAppStatus && app.shortAppStatus ? app.shortAppStatus : app.appStatus || "--").replace(/<br\s*\/?>/gi, '\n')}</td>
+                                     <td className="py-1 px-2 text-prizm-text whitespace-pre-wrap leading-tight">{(app.hasShortAppStatus && app.shortAppStatus ? app.shortAppStatus : app.appStatus || "--").replace(/<br\s*\/?>/gi, '\n')}</td>
                                  </tr>
                              )})}
                          </tbody>
@@ -666,17 +686,17 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
-                                 <th className="p-2 font-bold">Meter ID</th>
-                                 <th className="p-2 font-bold">kW</th>
-                                 <th className="p-2 font-bold">Voltage</th>
+                                 <th className="py-1 px-2 font-bold">Meter ID</th>
+                                 <th className="py-1 px-2 font-bold">kW</th>
+                                 <th className="py-1 px-2 font-bold">Voltage</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
                              {(state.overviewDiscovery?.discoveredSections || {}).blockMeters.sampleItems.map((item: any, idx: number) => (
                                  <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                     <td className="p-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
-                                     <td className="p-2 text-prizm-text">{item.kw !== undefined ? item.kw : "--"}</td>
-                                     <td className="p-2 text-prizm-text-muted">{item.voltage !== undefined ? item.voltage : "--"}</td>
+                                     <td className="py-1 px-2 text-prizm-primary font-bold">{item.id || item.name || "--"}</td>
+                                     <td className="py-1 px-2 text-prizm-text">{item.kw !== undefined ? item.kw : "--"}</td>
+                                     <td className="py-1 px-2 text-prizm-text-muted">{item.voltage !== undefined ? item.voltage : "--"}</td>
                                  </tr>
                              ))}
                          </tbody>
@@ -692,17 +712,17 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                              <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                  <tr>
-                                     <th className="p-2 font-bold min-w-[80px]">PCS Identity</th>
-                                     <th className="p-2 font-bold min-w-[80px]">Array Index</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">DC V</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">DC A</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">AC V</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">AC A</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">Real P (kW)</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">Reactive (kVAR)</th>
-                                     <th className="p-2 font-bold text-right min-w-[80px]">Freq (Hz)</th>
-                                     <th className="p-2 font-bold text-center min-w-[120px]">Rotation Status</th>
-                                     <th className="p-2 font-bold text-center min-w-[120px]">Actions</th>
+                                     <th className="py-1 px-2 font-bold min-w-[80px]">PCS Identity</th>
+                                     <th className="py-1 px-2 font-bold min-w-[80px]">Array Index</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">DC V</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">DC A</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">AC V</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">AC A</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">Real P (kW)</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">Reactive (kVAR)</th>
+                                     <th className="py-1 px-2 font-bold text-right min-w-[80px]">Freq (Hz)</th>
+                                     <th className="py-1 px-2 font-bold text-center min-w-[120px]">Rotation Status</th>
+                                     <th className="py-1 px-2 font-bold text-center min-w-[120px]">Actions</th>
                                  </tr>
                              </thead>
                              <tbody className="divide-y divide-prizm-border">
@@ -714,17 +734,17 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                      const aIndex = hasVal(item.arrayIndex) ? Number(item.arrayIndex) : 1;
                                      return (
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="p-2 text-prizm-primary font-bold">{hasVal(item.pcsIndex) ? `PCS ${item.pcsIndex}` : `PCS ${item.id || item.name || "--"}`}</td>
-                                         <td className="p-2 text-prizm-text">{hasVal(item.arrayIndex) ? item.arrayIndex : "--"}</td>
-                                         <td className="p-2 text-right">{hasVal(item.dcVoltage) ? Number(item.dcVoltage).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{hasVal(item.dcCurrent) ? Number(item.dcCurrent).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text">{item.acVoltageDisplay !== "-- / -- / --" ? item.acVoltageDisplay : (hasVal(item.acVoltage) ? Number(item.acVoltage).toFixed(1) : "--")}</td>
-                                         <td className="p-2 text-right">{hasVal(item.acCurrent) ? Number(item.acCurrent).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text font-bold">{hasVal(item.acRealPowerKw) ? Number(item.acRealPowerKw).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right">{hasVal(item.acReactivePowerKvar) ? Number(item.acReactivePowerKvar).toFixed(1) : "--"}</td>
-                                         <td className="p-2 text-right text-prizm-text-muted">{hasVal(item.frequencyHz) ? Number(item.frequencyHz).toFixed(2) : "--"}</td>
+                                         <td className="py-1 px-2 text-prizm-primary font-bold">{hasVal(item.pcsIndex) ? `PCS ${item.pcsIndex}` : `PCS ${item.id || item.name || "--"}`}</td>
+                                         <td className="py-1 px-2 text-prizm-text">{hasVal(item.arrayIndex) ? item.arrayIndex : "--"}</td>
+                                         <td className="py-1 px-2 text-right">{hasVal(item.dcVoltage) ? Number(item.dcVoltage).toFixed(1) : "--"}</td>
+                                         <td className="py-1 px-2 text-right">{hasVal(item.dcCurrent) ? Number(item.dcCurrent).toFixed(1) : "--"}</td>
+                                         <td className="py-1 px-2 text-right text-prizm-text">{item.acVoltageDisplay !== "-- / -- / --" ? item.acVoltageDisplay : (hasVal(item.acVoltage) ? Number(item.acVoltage).toFixed(1) : "--")}</td>
+                                         <td className="py-1 px-2 text-right">{hasVal(item.acCurrent) ? Number(item.acCurrent).toFixed(1) : "--"}</td>
+                                         <td className="py-1 px-2 text-right text-prizm-text font-bold">{hasVal(item.acRealPowerKw) ? Number(item.acRealPowerKw).toFixed(1) : "--"}</td>
+                                         <td className="py-1 px-2 text-right">{hasVal(item.acReactivePowerKvar) ? Number(item.acReactivePowerKvar).toFixed(1) : "--"}</td>
+                                         <td className="py-1 px-2 text-right text-prizm-text-muted">{hasVal(item.frequencyHz) ? Number(item.frequencyHz).toFixed(2) : "--"}</td>
                                          
-                                         <td className="p-2 text-center">
+                                         <td className="py-1 px-2 text-center">
                                             <div className="flex justify-center items-center gap-1.5">
                                                 <div className={`w-2 h-2 rounded-full ${inRotation ? 'bg-emerald-500' : outRotation ? 'bg-slate-400' : 'bg-prizm-warning'}`}></div>
                                                 <span className={`text-[9px] font-bold uppercase ${inRotation ? 'text-emerald-500' : outRotation ? 'text-slate-400' : 'text-prizm-warning'}`}>
@@ -732,7 +752,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                                 </span>
                                             </div>
                                          </td>
-                                         <td className="p-2 text-center">
+                                         <td className="py-1 px-2 text-center">
                                             <div className="flex justify-center items-center gap-2" title={!rotationCapabilities?.pcs?.single ? "PCS Rotation Control capability not verified on local EMS" : ""}>
                                                 <button 
                                                     disabled={inRotation || !rotationCapabilities?.pcs?.single}
@@ -773,21 +793,21 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                          <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
-                                 <th className="p-2 font-bold">Enclosure / Location</th>
-                                 <th className="p-2 font-bold">Sensor ID</th>
-                                 <th className="p-2 font-bold">Source IP/Device</th>
-                                 <th className="p-2 font-bold">Temperature</th>
-                                 <th className="p-2 font-bold">Humidity</th>
+                                 <th className="py-1 px-2 font-bold">Enclosure / Location</th>
+                                 <th className="py-1 px-2 font-bold">Sensor ID</th>
+                                 <th className="py-1 px-2 font-bold">Source IP/Device</th>
+                                 <th className="py-1 px-2 font-bold">Temperature</th>
+                                 <th className="py-1 px-2 font-bold">Humidity</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-prizm-border">
                              {htsData.map((item: any, idx: number) => (
                                      <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="p-2 text-prizm-primary font-bold">{item.enclosureLabel || "--"}</td>
-                                         <td className="p-2 text-prizm-text">{item.sensorId || "--"}</td>
-                                         <td className="p-2 text-prizm-text-muted">{item.sourceIp || item.deviceName || "--"}</td>
-                                         <td className="p-2 text-cyan-400 font-bold">{item.temperatureC !== undefined && item.temperatureC !== null ? `${Number(item.temperatureC).toFixed(1)}°C` : "--"}</td>
-                                         <td className="p-2 text-emerald-400 font-bold">{item.humidityPct !== undefined && item.humidityPct !== null ? `${Number(item.humidityPct).toFixed(1)}%` : "--"}</td>
+                                         <td className="py-1 px-2 text-prizm-primary font-bold">{item.enclosureLabel || "--"}</td>
+                                         <td className="py-1 px-2 text-prizm-text">{item.sensorId || "--"}</td>
+                                         <td className="py-1 px-2 text-prizm-text-muted">{item.sourceIp || item.deviceName || "--"}</td>
+                                         <td className="py-1 px-2 text-cyan-400 font-bold">{item.temperatureC !== undefined && item.temperatureC !== null ? `${Number(item.temperatureC).toFixed(1)}°C` : "--"}</td>
+                                         <td className="py-1 px-2 text-emerald-400 font-bold">{item.humidityPct !== undefined && item.humidityPct !== null ? `${Number(item.humidityPct).toFixed(1)}%` : "--"}</td>
                                      </tr>
                                  ))}
                          </tbody>
@@ -845,21 +865,21 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                            <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                                 <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                     <tr>
-                                        <th className="p-2 font-bold">Entity</th>
-                                        <th className="p-2 font-bold min-w-[200px]">Status Message</th>
-                                        <th className="p-2 font-bold text-center">Enabled</th>
-                                        <th className="p-2 font-bold text-center">Source</th>
-                                        <th className="p-2 font-bold text-center">Action</th>
+                                        <th className="py-1 px-2 font-bold">Entity</th>
+                                        <th className="py-1 px-2 font-bold min-w-[200px]">Status Message</th>
+                                        <th className="py-1 px-2 font-bold text-center">Enabled</th>
+                                        <th className="py-1 px-2 font-bold text-center">Source</th>
+                                        <th className="py-1 px-2 font-bold text-center">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-prizm-border">
                                     {clearableFaults.map((f: any, idx: number) => (
                                          <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                             <td className="p-2 font-bold text-prizm-primary">{f.displayKey || f.entityKey}</td>
-                                             <td className="p-2 text-prizm-text whitespace-pre-wrap max-w-sm">{f.statusMessageText || f.statusMessage}</td>
-                                             <td className="p-2 text-center text-prizm-text-muted">{f.enabled ? 'Yes' : 'No'}</td>
-                                             <td className="p-2 text-center text-prizm-text-muted uppercase">{f.source}</td>
-                                             <td className="p-2 text-center">
+                                             <td className="py-1 px-2 font-bold text-prizm-primary">{f.displayKey || f.entityKey}</td>
+                                             <td className="py-1 px-2 text-prizm-text whitespace-pre-wrap max-w-sm">{f.statusMessageText || f.statusMessage}</td>
+                                             <td className="py-1 px-2 text-center text-prizm-text-muted">{f.enabled ? 'Yes' : 'No'}</td>
+                                             <td className="py-1 px-2 text-center text-prizm-text-muted uppercase">{f.source}</td>
+                                             <td className="py-1 px-2 text-center">
                                                  <button onClick={() => setClearCandidate(f)} className="px-2 py-1 bg-prizm-danger/10 text-prizm-danger rounded hover:bg-prizm-danger hover:text-white transition-colors">Clear</button>
                                              </td>
                                          </tr>
@@ -884,17 +904,17 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                             <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                                 <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                     <tr>
-                                        <th className="p-2 font-bold w-1/4">Source</th>
-                                        <th className="p-2 font-bold w-1/4">Module</th>
-                                        <th className="p-2 font-bold w-1/2">Status</th>
+                                        <th className="py-1 px-2 font-bold w-1/4">Source</th>
+                                        <th className="py-1 px-2 font-bold w-1/4">Module</th>
+                                        <th className="py-1 px-2 font-bold w-1/2">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-prizm-border">
                                     {combinedSources.map((src, i) => (
                                         <tr key={i} className="hover:bg-prizm-surface transition-colors">
-                                            <td className="p-2 font-bold text-prizm-text">{src.name}</td>
-                                            <td className="p-2 text-prizm-text-muted">{src.type}</td>
-                                            <td className="p-2">
+                                            <td className="py-1 px-2 font-bold text-prizm-text">{src.name}</td>
+                                            <td className="py-1 px-2 text-prizm-text-muted">{src.type}</td>
+                                            <td className="py-1 px-2">
                                                 <span className={src.ok ? "text-emerald-400 font-bold flex items-center gap-1" : "text-prizm-danger font-bold flex items-center gap-1"} title={src.error || ""}>
                                                     {src.ok ? <><CheckCircle2 size={12}/> OK</> : <><ServerOff size={12}/> FAILED</>}
                                                 </span>
@@ -916,23 +936,23 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                 <tr>
-                                    <th className="p-2 font-bold">Timestamp</th>
-                                    <th className="p-2 font-bold">Severity</th>
-                                    <th className="p-2 font-bold">Source</th>
-                                    <th className="p-2 font-bold">Message</th>
+                                    <th className="py-1 px-2 font-bold">Timestamp</th>
+                                    <th className="py-1 px-2 font-bold">Severity</th>
+                                    <th className="py-1 px-2 font-bold">Source</th>
+                                    <th className="py-1 px-2 font-bold">Message</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-prizm-border">
                                 {state.historyEvents.events.map((e: any, i: number) => (
                                     <tr key={i} className="hover:bg-prizm-surface transition-colors">
-                                        <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(e.timestamp)}</td>
-                                        <td className="p-2">
+                                        <td className="py-1 px-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(e.timestamp)}</td>
+                                        <td className="py-1 px-2">
                                             <span className={`px-2 py-[2px] rounded font-bold ${e.severity === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : e.severity === 'WARNING' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-slate-500/10 text-slate-400'}`}>
                                                 {e.severity}
                                             </span>
                                         </td>
-                                        <td className="p-2 font-bold text-prizm-text">{e.source}</td>
-                                        <td className="p-2 text-prizm-text whitespace-normal min-w-[200px]">{e.message}</td>
+                                        <td className="py-1 px-2 font-bold text-prizm-text">{e.source}</td>
+                                        <td className="py-1 px-2 text-prizm-text whitespace-normal min-w-[200px]">{e.message}</td>
                                     </tr>
                                 ))}
                             </tbody>

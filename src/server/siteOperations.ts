@@ -99,6 +99,32 @@ function collectEmsAppCandidates(root: any, path: string = ""): any[] {
     return results;
 }
 
+export type NormalizedStringRow = {
+  arrayNumber: number | null;
+  stringNumber: number | null;
+  connectionState: string;
+  bucket: "online" | "nearline" | "offline" | "notCommunicating";
+  outRotation: boolean;
+  inRotation: boolean;
+  contactorsClosed: boolean;
+  connectionPermitted: boolean | null;
+  socPct: number | null;
+  kWh: number | null;
+  currentA: number | null;
+  powerKw: number | null;
+  maxCellVoltageMv: number | null;
+  avgCellVoltageMv: number | null;
+  minCellVoltageMv: number | null;
+  voltageDeltaMv: number | null;
+  maxTempC: number | null;
+  avgTempC: number | null;
+  minTempC: number | null;
+  tempDeltaC: number | null;
+  warningCount: number;
+  alarmCount: number;
+  raw: any;
+};
+
 export function buildStringBucketSummary(stringsData: any[]) {
     function bool(v: any) {
         if (v === true || v === false) return v;
@@ -115,7 +141,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
     let totalStrings = 0;
 
-    const tableRows = stringsData.map(row => {
+    const tableRows: NormalizedStringRow[] = stringsData.map(row => {
         totalStrings++;
 
         const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber);
@@ -126,14 +152,19 @@ export function buildStringBucketSummary(stringsData: any[]) {
         const negClosed = bool(row.NegativeContactorClosed ?? row.negativeContactorClosed);
         const contactorsClosed = posClosed && negClosed;
 
-        let bucket = 'offline';
-        if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM')) {
+        let bucket: 'online' | 'nearline' | 'offline' | 'notCommunicating' = 'offline';
+        const inRotation = !outRotation;
+        const commFalse = row.communicating === false || row.lossComms || row.LossComms;
+        
+        if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM') || commFalse) {
             bucket = 'notCommunicating';
-        } else if (connectionState === 'OFFLINE' || outRotation) {
+        } else if (outRotation || connectionState === 'OFFLINE') {
             bucket = 'offline';
-        } else if (connectionState === 'ONLINE' && !outRotation && contactorsClosed) {
+        } else if (connectionState === 'ONLINE' && inRotation && contactorsClosed) {
             bucket = 'online';
-        } else if (connectionState === 'ONLINE' && !outRotation && !contactorsClosed) {
+        } else if (connectionState === 'ONLINE' && inRotation && !contactorsClosed) {
+            bucket = 'nearline';
+        } else if (connectionState.includes('ONLINE') && !contactorsClosed) {
             bucket = 'nearline';
         } else {
             bucket = 'offline';
@@ -149,7 +180,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
         let minTempRaw = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
         let avgTempRaw = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
 
-        if (maxTempRaw !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
+        if (maxTempC !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
         if (minTempRaw !== null && Math.abs(minTempRaw) > 100) minTempRaw = minTempRaw / 10;
         if (avgTempRaw !== null && Math.abs(avgTempRaw) > 100) avgTempRaw = avgTempRaw / 10;
 
@@ -168,9 +199,10 @@ export function buildStringBucketSummary(stringsData: any[]) {
             minCellVoltageMv,
             avgCellVoltageMv,
             voltageDeltaMv: (maxCellVoltageMv !== null && minCellVoltageMv !== null) ? (maxCellVoltageMv - minCellVoltageMv) : null,
-            maxTempRaw,
-            minTempRaw,
-            avgTempRaw,
+            maxTempC: maxTempRaw,
+            minTempC: minTempRaw,
+            avgTempC: avgTempRaw,
+            tempDeltaC: (maxTempC !== null && minTempRaw !== null) ? maxTempRaw - minTempRaw : null,
             warningCount: num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? 0),
             alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0)
         };
@@ -214,8 +246,8 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
         const maxVoltageMv = maxNum('maxCellVoltageMv');
         const minVoltageMv = minNum('minCellVoltageMv');
-        const maxTemp = maxNum('maxTempRaw');
-        const minTemp = minNum('minTempRaw');
+        const maxTemp = maxNum('maxTempC');
+        const minTemp = minNum('minTempC');
 
         return {
             count,
@@ -229,7 +261,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
             minCellVoltageMv: minVoltageMv,
             maxCellVoltageDeltaMv: maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null,
             highCellTempC: maxTemp,
-            avgCellTempC: avgNum('avgTempRaw'),
+            avgCellTempC: avgNum('avgTempC'),
             lowCellTempC: minTemp,
             maxCellTempDeltaC: maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null,
             warningCount: sumNum('warningCount') || 0,
@@ -958,26 +990,30 @@ export async function buildSiteOperationsSummaryFromCache() {
 
         // Process activeIssueGroups
         activeIssueGroups.forEach((g: any) => {
-            if (ignoredRegex.test(g.faultName) || ignoredRegex.test(String(g.faultId))) return;
-            if (String(g.faultId) === "2534" || String(g.faultId) === "2561") return; // Skip known mapped OOR codes if missed
+            const faultName = g.faultName || g.displayText || g.message || "";
+            const faultId = g.faultId || g.code || "";
+            if (ignoredRegex.test(faultName) || ignoredRegex.test(String(faultId))) return;
+            if (String(faultId) === "2534" || String(faultId) === "2561") return; // Skip known mapped OOR codes if missed
 
             let action = "Inspect affected device and review logs";
-            if (/door/i.test(g.faultName)) action = "Inspect and secure enclosure door";
-            else if (/comms|communication|reachable/i.test(g.faultName)) action = "Check device power/network path";
-            else if (/fss|fire/i.test(g.faultName)) action = "Inspect fire safety signal chain";
-            else if (/hvac|mio/i.test(g.faultName)) action = "Inspect HVAC controller and MIO status";
-            else if (/high cell temp|thermal/i.test(g.faultName)) action = "Inspect affected string/enclosure thermal conditions";
-            else if (/cell voltage|imbalance/i.test(g.faultName)) action = "Inspect BPC/cell imbalance and balancing status";
-            else if (g.source === "BPC" || /string/i.test(g.faultName)) action = "Open String List details and inspect BPC status";
+            if (/door/i.test(faultName)) action = "Inspect and secure enclosure door";
+            else if (/comms|communication|reachable/i.test(faultName)) action = "Check device power/network path";
+            else if (/fss|fire/i.test(faultName)) action = "Inspect fire safety signal chain";
+            else if (/hvac|mio/i.test(faultName)) action = "Inspect HVAC controller and MIO status";
+            else if (/high cell temp|thermal/i.test(faultName)) action = "Inspect affected string/enclosure thermal conditions";
+            else if (/cell voltage|imbalance/i.test(faultName)) action = "Inspect BPC/cell imbalance and balancing status";
+            else if (g.source === "BPC" || /string/i.test(faultName)) action = "Open String List details and inspect BPC status";
+
+            const sampleDevice = g.sampleDevice || g.occurrences?.[0]?.enclosureLabel || "Multiple";
 
             correctiveActions.push({
                 level: g.severity === "WARNING" ? "WARNING" : g.severity === "ALARM" ? "ALARM" : "FAULT",
                 source: g.source || "System",
-                fault: g.faultName,
-                object: g.sampleDevice || "Multiple",
-                details: "Affected units: " + g.occurrenceCount,
+                fault: faultName,
+                object: sampleDevice,
+                details: "Affected units: " + (g.occurrenceCount || 1),
                 firstSeen: new Date().toISOString(),
-                count: g.occurrenceCount,
+                count: g.occurrenceCount || 1,
                 suggestedAction: action
             });
         });
@@ -1018,6 +1054,8 @@ export async function buildSiteOperationsSummaryFromCache() {
             activeIssueGroups,
             sourceHealth,
             debug: {
+               featherCellTempExcludedCollectionSegments,
+               normalizedStringRowCount: stringSummary.tableRows.length,
                pcsDebugKeys: Array.from(new Set(pcsDebugKeys)),
                appDebugKeys: [],
                emsAppCandidateCount: emsApps.length,
