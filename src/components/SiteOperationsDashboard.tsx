@@ -329,110 +329,258 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
             {/* KPI CARD GRID */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Battery size={14} className="text-prizm-primary"/> System State of Charge
-                    </h3>
-                    <div className="flex items-end gap-2 mt-4">
-                        <div className="text-3xl font-bold text-prizm-text font-mono">{rollups?.averageSoc?.toFixed(1) || "--"}<span className="text-lg text-prizm-text-muted">%</span></div>
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <BoxSelect size={14} className="text-prizm-primary"/> Topology Overview
+                        </h3>
+                        <div className="flex flex-col gap-1 text-[11px] font-mono mt-3">
+                            <div className="flex justify-between pb-1 border-b border-prizm-border/50"><span className="text-prizm-text-muted uppercase">Arrays</span><span className="font-bold text-prizm-text">{sum?.topologyCounts?.arrayCount ?? "--"}</span></div>
+                            <div className="flex justify-between pb-1 border-b border-prizm-border/50"><span className="text-prizm-text-muted uppercase">Strings</span><span className="font-bold text-prizm-text">{sum?.topologyCounts?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? "--"}</span></div>
+                            <div className="flex justify-between pb-1 border-b border-prizm-border/50"><span className="text-prizm-text-muted uppercase">PCS Units</span><span className="font-bold text-prizm-text">{sum?.topologyCounts?.pcsCount ?? "--"}</span></div>
+                            <div className="flex justify-between pb-1 border-b border-prizm-border/50"><span className="text-prizm-text-muted uppercase">Feather</span><span className="font-bold text-prizm-text">{sum?.topologyCounts?.featherDeviceCount ?? "--"}</span></div>
+                            <div className="flex justify-between"><span className="text-prizm-text-muted uppercase">AC Batts</span><span className="font-bold text-prizm-text">{sum?.topologyCounts?.acBatteryCount ?? "--"}</span></div>
+                        </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-prizm-border text-[11px] font-mono text-prizm-text-muted flex justify-between">
+                </div>
+
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <Battery size={14} className="text-prizm-primary"/> System State of Charge
+                        </h3>
+                        <div className="flex items-end gap-2 mt-4">
+                            <div className="text-3xl font-bold text-prizm-text font-mono">{rollups?.averageSoc?.toFixed(1) || "--"}<span className="text-lg text-prizm-text-muted">%</span></div>
+                        </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono text-prizm-text-muted flex justify-between">
                         <span>Target:</span> <span className="text-prizm-text font-bold">{(rollups?.onlineAvailableKWh || 0).toLocaleString()} <span className="text-[9px]">kWh</span></span>
                     </div>
                 </div>
 
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Zap size={14} className="text-prizm-primary"/> Fleet Capacity
-                    </h3>
-                    <div className="flex items-end gap-2 mt-4">
-                        <div className="text-2xl font-bold text-prizm-text font-mono">{((rollups?.onlineAvailableKWh || 0) / 1000).toFixed(2)}<span className="text-sm text-prizm-text-muted ml-1">MWh</span></div>
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <Zap size={14} className="text-prizm-primary"/> Fleet Capacity
+                        </h3>
+                        <div className="flex items-end gap-2 mt-4">
+                            <div className="text-2xl font-bold text-prizm-text font-mono">{((rollups?.onlineAvailableKWh || 0) / 1000).toFixed(2)}<span className="text-sm text-prizm-text-muted ml-1">MWh</span></div>
+                        </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-prizm-border text-[11px] font-mono flex justify-between">
-                        <span className="text-prizm-text-muted">Charge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableChargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
-                    </div>
-                    <div className="mt-1 flex justify-between text-[11px] font-mono">
-                        <span className="text-prizm-text-muted">Discharge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableDischargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
+                    <div>
+                        <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono flex justify-between">
+                            <span className="text-prizm-text-muted">Charge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableChargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
+                        </div>
+                        <div className="mt-1 flex justify-between text-[11px] font-mono">
+                            <span className="text-prizm-text-muted">Discharge Lim:</span> <span className="text-emerald-400 font-bold">{((rollups.availableDischargeKW || 0)/1000).toFixed(2)} <span className="text-[9px]">MW</span></span>
+                        </div>
                     </div>
                 </div>
 
-                <div className="col-span-2 md:col-span-1 lg:col-span-2 bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Cpu size={14} className={((sum?.bessFleetSummary?.warningStrings || 0) + (sum?.bessFleetSummary?.alarmStrings || 0)) > 0 ? "text-prizm-warning" : "text-prizm-primary"}/> String Fleet Status
-                    </h3>
-                    <div className="grid grid-cols-2 gap-2 mt-4">
-                        <div>
-                             <div className="text-2xl font-bold text-prizm-warning font-mono">{sum?.bessFleetSummary?.warningStrings ?? rollups.warnings ?? "--"}</div>
-                             <div className="text-[10px] text-prizm-text-muted uppercase">Strings Warn</div>
-                        </div>
-                        <div>
-                             <div className="text-2xl font-bold text-red-500 font-mono">{sum?.bessFleetSummary?.alarmStrings ?? rollups.alarms ?? "--"}</div>
-                             <div className="text-[10px] text-prizm-text-muted uppercase">Strings Alarm</div>
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <Cpu size={14} className={((sum?.bessFleetSummary?.warningStrings || 0) + (sum?.bessFleetSummary?.alarmStrings || 0)) > 0 ? "text-prizm-warning" : "text-prizm-primary"}/> String Fleet Status
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2 mt-4">
+                            <div>
+                                 <div className="text-xl font-bold text-prizm-warning font-mono">{sum?.bessFleetSummary?.warningStrings ?? rollups.warnings ?? "--"}</div>
+                                 <div className="text-[10px] text-prizm-text-muted uppercase">Strings Warn</div>
+                            </div>
+                            <div>
+                                 <div className="text-xl font-bold text-red-500 font-mono">{sum?.bessFleetSummary?.alarmStrings ?? rollups.alarms ?? "--"}</div>
+                                 <div className="text-[10px] text-prizm-text-muted uppercase">Strings Alarm</div>
+                            </div>
                         </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-prizm-border">
-                        <div className="text-lg font-bold text-prizm-text font-mono">{(sum?.bessFleetSummary?.warningStrings || 0) + (sum?.bessFleetSummary?.alarmStrings || 0) || "--"}</div>
-                        <div className="text-[10px] text-prizm-text-muted uppercase">Total Active</div>
+                    <div className="mt-4 pt-3 border-t border-prizm-border flex justify-between items-baseline">
+                        <span className="text-[10px] text-prizm-text-muted uppercase">Total Active</span>
+                        <span className="text-lg font-bold text-prizm-text font-mono">{(sum?.bessFleetSummary?.totalStrings || 0)}</span>
                     </div>
                 </div>
 
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Activity size={14} className="text-prizm-primary"/> Cell Metrics Average
-                    </h3>
-                    <div className="space-y-2 mt-4">
-                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
-                            <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Voltage</span>
-                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellVoltageMv != null ? `${sum.bessFleetSummary.avgCellVoltageMv.toFixed(1)} mV` : "--"}</div>
-                        </div>
-                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
-                            <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
-                            <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null ? `Δ ${sum.bessFleetSummary.maxCellVoltageDeltaMv.toFixed(0)} mV` : "--"}</div>
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <Activity size={14} className="text-prizm-primary"/> Cell Metrics Average
+                        </h3>
+                        <div className="space-y-2 mt-4">
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Voltage</span>
+                                <div className="text-sm font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellVoltageMv != null ? `${sum.bessFleetSummary.avgCellVoltageMv.toFixed(1)} mV` : "--"}</div>
+                            </div>
+                            <div className="flex justify-between items-center px-1">
+                                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
+                                <div className="text-sm font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null ? `Δ ${sum.bessFleetSummary.maxCellVoltageDeltaMv.toFixed(0)} mV` : "--"}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Thermometer size={14} className="text-prizm-danger"/> Thermal Average
-                    </h3>
-                    <div className="space-y-2 mt-4">
-                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
-                           <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Cells</span>
-                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellTempC != null ? `${sum.bessFleetSummary.avgCellTempC.toFixed(1)} °C` : "--"}</div>
-                        </div>
-                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
-                           <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
-                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellTempDeltaC != null ? `Δ ${sum.bessFleetSummary.maxCellTempDeltaC.toFixed(1)} °C` : "--"}</div>
-                        </div>
-                        <div className="flex justify-between items-center bg-prizm-background/50 px-3 py-2 rounded">
-                           <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">HVAC Max</span>
-                           <div className="text-lg font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxSpaceTempC != null ? `${sum.featherSummary.maxSpaceTempC.toFixed(1)} °C` : "--"}</div>
+                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                            <Thermometer size={14} className="text-prizm-danger"/> Thermal Average
+                        </h3>
+                        <div className="space-y-2 mt-4">
+                            <div className="flex justify-between items-center px-1">
+                               <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Cells</span>
+                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.avgCellTempC != null ? `${sum.bessFleetSummary.avgCellTempC.toFixed(1)} °C` : "--"}</div>
+                            </div>
+                            <div className="flex justify-between items-center px-1">
+                               <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">Max Δ</span>
+                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.bessFleetSummary?.maxCellTempDeltaC != null ? `Δ ${sum.bessFleetSummary.maxCellTempDeltaC.toFixed(1)} °C` : "--"}</div>
+                            </div>
+                            <div className="flex justify-between items-center px-1">
+                               <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">HVAC Max</span>
+                               <div className="text-sm font-bold text-prizm-text font-mono">{sum?.featherSummary?.maxSpaceTempC != null ? `${sum.featherSummary.maxSpaceTempC.toFixed(1)} °C` : "--"}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                
-                <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border">
-                    <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <BoxSelect size={14} className="text-prizm-primary"/> Topology Overview
-                    </h3>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] font-mono">
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Arrays</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.arrayCount ?? "--"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Strings</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? "--"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">PCS Units</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.pcsCount ?? "--"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase pb-1 border-b border-prizm-border/50">Feather</div>
-                        <div className="text-right pb-1 border-b border-prizm-border/50 font-bold text-prizm-text">{sum?.topologyCounts?.featherDeviceCount ?? "--"}</div>
-                        
-                        <div className="text-prizm-text-muted uppercase">AC Batts</div>
-                        <div className="text-right font-bold text-prizm-text">{sum?.topologyCounts?.acBatteryCount ?? "--"}</div>
-                    </div>
+            </div>
+
+            
+
+            {/* DASHBOARD CORE SUMMARIES ROW */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
+                <div>
+{/* Corrective Actions */}
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
+<h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><TriangleAlert size={14} className="text-prizm-danger"/> CORRECTIVE ACTIONS (DATA-BASED FAULTS)</h3>
+<div className="overflow-x-auto no-scrollbar flex-1">
+                <div className="max-h-[300px] overflow-y-auto no-scrollbar">
+                    {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
+                        <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                            <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                <tr>
+                                    <th className="p-2 font-bold w-1/8">Level</th>
+                                    <th className="p-2 font-bold w-1/6">Fault / ID</th>
+                                    <th className="p-2 font-bold w-1/6">Affected</th>
+                                    <th className="p-2 font-bold w-1/3">Suggested Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-prizm-border">
+                                {sum.correctiveActions.map((issue: any, i: number) => (
+                                    <tr key={i} className="hover:bg-prizm-surface transition-colors">
+                                        <td className="p-2">
+                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
+                                                {issue.level}
+                                            </span>
+                                        </td>
+                                        <td className="p-2 text-prizm-primary font-bold">
+                                            {issue.fault}
+                                        </td>
+                                        <td className="p-2 text-prizm-text">
+                                            {issue.object} {issue.count > 1 ? `(+${issue.count - 1} more)` : ''}
+                                        </td>
+                                        <td className="p-2 text-prizm-text">
+                                            {issue.suggestedAction}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active corrective actions detected.</div>
+                    )}
                 </div>
+            </div></div>
+                </div>
+                <div>
+{/* Array Summary */}
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
+<h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><PanelTop size={14} className="text-prizm-text"/> ARRAY SUMMARY</h3>
+<div className="overflow-x-auto no-scrollbar flex-1">
+                 {arraySummaryData.length > 0 ? (
+                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <tr>
+                                 <th className="p-2 font-bold">Array</th>
+                                 <th className="p-2 font-bold text-center">Comm.</th>
+                                 <th className="p-2 font-bold text-center">Online SOC</th>
+                                 <th className="p-2 font-bold text-center">Nearline SOC</th>
+                                 <th className="p-2 font-bold text-center">Offline SOC</th>
+                                 <th className="p-2 font-bold text-center">Nearline kWh</th>
+                                 <th className="p-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
+                                 <th className="p-2 font-bold text-center">Commanded kW AC</th>
+                                 <th className="p-2 font-bold text-center">Measured kW AC</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-prizm-border">
+{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="p-2 text-prizm-primary font-bold">{name}</td> <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="p-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="p-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="p-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="p-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="p-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
+                         </tbody>
+                     </table>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Array Summary available</div>
+                 )}
+            </div></div>
+                </div>
+            </div>
+
+            {/* STRING SUMMARY ROW */}
+            <div className="mt-2">
+{/* String Summary */}
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-4">
+<h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><Rows4 size={14} className="text-prizm-text"/> STRING SUMMARY</h3>
+<div className="overflow-x-auto no-scrollbar">
+                 {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
+                     <div className="overflow-x-auto w-full">
+                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
+                                 <tr>
+                                     <th className="p-2 font-bold min-w-[200px]">Parameter</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-300">Nearline</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">Offline</th>
+                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-danger">Not Comm</th>
+                                 </tr>
+                             </thead>
+                             <tbody className="divide-y divide-prizm-border">
+                                 {[
+                                     { label: "Strings", key: "count" },
+                                     { label: "SOC (kWh avg)", key: "socKwhAvg", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Current (A)", key: "maxCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Min Current (A)", key: "minCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Cell Voltage (mV)", key: "maxCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "Average Cell Voltage (mV)", key: "avgCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Min Cell Voltage (mV)", key: "minCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVoltageDeltaMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
+                                     { label: "High Cell Temp (°C)", key: "highCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Average Cell Temp (°C)", key: "avgCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Low Cell Temp (°C)", key: "lowCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
+                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDeltaC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) }
+                                 ].map((row, idx) => {
+                                     const renderVal = (statObj: any) => {
+                                         if (!statObj || !hasVal(statObj[row.key])) return '--';
+                                         const v = statObj[row.key];
+                                         const formatted = row.format ? row.format(v) : v;
+                                         return `${formatted}${row.suffix || ''}`;
+                                     };
+                                     return (
+                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                         <td className="p-2 text-prizm-text uppercase">{row.label}</td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {renderVal(onlineStats)}
+                                         </td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {renderVal(nearlineStats)}
+                                         </td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {renderVal(offlineStats)}
+                                         </td>
+                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
+                                             {renderVal(notCommStats)}
+                                         </td>
+                                     </tr>
+                                 )})}
+                             </tbody>
+                         </table>
+                     </div>
+                 ) : (
+                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
+                 )}
+            </div></div>
             </div>
 
             {/* EMS Apps */}
@@ -649,131 +797,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  )}
             </CollapsibleSection>
 
-            {/* Array Summary */}
-            <CollapsibleSection title="Array Summary" icon={PanelTop} defaultExpanded={true}>
-                 {arraySummaryData.length > 0 ? (
-                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                             <tr>
-                                 <th className="p-2 font-bold">Array</th>
-                                 <th className="p-2 font-bold text-center">Comm.</th>
-                                 <th className="p-2 font-bold text-center">Online SOC</th>
-                                 <th className="p-2 font-bold text-center">Nearline SOC</th>
-                                 <th className="p-2 font-bold text-center">Offline SOC</th>
-                                 <th className="p-2 font-bold text-center">Nearline kWh</th>
-                                 <th className="p-2 font-bold text-center">Available kW AC (Chg / Dis)</th>
-                                 <th className="p-2 font-bold text-center">Commanded kW AC</th>
-                                 <th className="p-2 font-bold text-center">Measured kW AC</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-prizm-border">
-{arraySummaryData.map((arr: any, idx: number) => { const name = arr.friendlyString || ("Array " + (arr.arrayNumber ?? arr.arrayIndex ?? idx+1)); const formatSOC = (val: any) => { if (!hasVal(val)) return "--"; const num = Number(val); if (isNaN(num)) return "--"; return (num < 1 ? num * 100 : num).toFixed(1).replace(/\.0$/, "") + " %"; }; const formatVal = (val: any, suffix = "") => { if (!hasVal(val)) return "--"; return String(val) + (suffix ? " " + suffix : ""); }; const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW); let chargeDischargeDisplay = "--"; if (hasChargeDischarge) { chargeDischargeDisplay = String(arr.availableACChargekW) + " / " + String(arr.availableACDischargekW); } return ( <tr key={idx} className="hover:bg-prizm-surface transition-colors cursor-pointer" onClick={() => navigate("arrays-strings")}> <td className="p-2 text-prizm-primary font-bold">{name}</td> <td className="p-2 text-center text-emerald-400">{arr.communicating !== false ? "OK" : <XOctagon size={12} className="inline text-prizm-danger" />}</td> <td className="p-2 text-center text-prizm-text">{formatSOC(arr.onlineSOC)}</td> <td className="p-2 text-center text-emerald-300">{formatSOC(arr.nearlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatSOC(arr.offlineSOC)}</td> <td className="p-2 text-center text-prizm-text-muted">{formatVal(arr.nearlineAvailableKWh, "kWh")}</td> <td className="p-2 text-center text-prizm-text">{chargeDischargeDisplay}</td> <td className="p-2 text-center text-prizm-warning">{formatVal(arr.commandedkW)}</td> <td className="p-2 text-center text-prizm-text">{formatVal(arr.measuredkW)}</td> </tr> ); })}
-                         </tbody>
-                     </table>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No Array Summary available</div>
-                 )}
-            </CollapsibleSection>
+            
 
-            {/* String Summary */}
-            <CollapsibleSection title="String Summary" icon={Rows4} defaultExpanded={false}>
-                 {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
-                     <div className="overflow-x-auto w-full">
-                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
-                                 <tr>
-                                     <th className="p-2 font-bold min-w-[200px]">Parameter</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-300">Nearline</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">Offline</th>
-                                     <th className="p-2 font-bold text-center border-l border-prizm-border text-prizm-danger">Not Comm</th>
-                                 </tr>
-                             </thead>
-                             <tbody className="divide-y divide-prizm-border">
-                                 {[
-                                     { label: "Strings", key: "count" },
-                                     { label: "SOC (kWh avg)", key: "socKwhAvg", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Current (A)", key: "maxCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Min Current (A)", key: "minCurrentA", suffix: " A", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Cell Voltage (mV)", key: "maxCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "Average Cell Voltage (mV)", key: "avgCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Min Cell Voltage (mV)", key: "minCellVoltageMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "Max Cell Voltage Delta (mV)", key: "maxCellVoltageDeltaMv", suffix: " mV", format: (v:any)=>Number(v).toFixed(0) },
-                                     { label: "High Cell Temp (°C)", key: "highCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Average Cell Temp (°C)", key: "avgCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Low Cell Temp (°C)", key: "lowCellTempC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) },
-                                     { label: "Max Cell Temp Delta (°C)", key: "maxCellTempDeltaC", suffix: " °C", format: (v:any)=>Number(v).toFixed(1) }
-                                 ].map((row, idx) => {
-                                     const renderVal = (statObj: any) => {
-                                         if (!statObj || !hasVal(statObj[row.key])) return '--';
-                                         const v = statObj[row.key];
-                                         const formatted = row.format ? row.format(v) : v;
-                                         return `${formatted}${row.suffix || ''}`;
-                                     };
-                                     return (
-                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="p-2 text-prizm-text uppercase">{row.label}</td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(onlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(nearlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(offlineStats)}
-                                         </td>
-                                         <td className="p-2 text-center text-prizm-text-muted border-l border-prizm-border">
-                                             {renderVal(notCommStats)}
-                                         </td>
-                                     </tr>
-                                 )})}
-                             </tbody>
-                         </table>
-                     </div>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
-                 )}
-            </CollapsibleSection>
+            
 
-            {/* Corrective Actions */}
-            <CollapsibleSection title="Corrective Actions" icon={TriangleAlert} defaultExpanded={true}>
-                <div className="max-h-[300px] overflow-y-auto no-scrollbar">
-                    {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
-                        <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                            <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                                <tr>
-                                    <th className="p-2 font-bold w-1/8">Level</th>
-                                    <th className="p-2 font-bold w-1/6">Fault / ID</th>
-                                    <th className="p-2 font-bold w-1/6">Affected</th>
-                                    <th className="p-2 font-bold w-1/3">Suggested Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-prizm-border">
-                                {sum.correctiveActions.map((issue: any, i: number) => (
-                                    <tr key={i} className="hover:bg-prizm-surface transition-colors">
-                                        <td className="p-2">
-                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
-                                                {issue.level}
-                                            </span>
-                                        </td>
-                                        <td className="p-2 text-prizm-primary font-bold">
-                                            {issue.fault}
-                                        </td>
-                                        <td className="p-2 text-prizm-text">
-                                            {issue.object} {issue.count > 1 ? `(+${issue.count - 1} more)` : ''}
-                                        </td>
-                                        <td className="p-2 text-prizm-text">
-                                            {issue.suggestedAction}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active corrective actions detected.</div>
-                    )}
-                </div>
-            </CollapsibleSection>
+            
 
                 <CollapsibleSection title="Feather / HVAC Health" icon={Wind} defaultExpanded={false}>
                     {sum?.featherSummary?.totalDevices === null ? (
