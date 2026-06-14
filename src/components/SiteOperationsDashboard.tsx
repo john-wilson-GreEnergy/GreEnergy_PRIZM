@@ -453,8 +453,10 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                         <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active corrective actions detected.</div>
                     )}
                 </div>
-            </div></div>
-                                <div>
+            </div>
+            </div>
+            </div>
+            <div>
 {/* String Summary */}
             <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
 <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border"><Rows4 size={14} className="text-prizm-text"/> STRING SUMMARY</h3>
@@ -536,7 +538,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                      <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No String Summary available</div>
                  )}
             </div></div>
-                </div> </div>
+                </div>
             </div>
 
             {/* ARRAY SUMMARY ROW */}
