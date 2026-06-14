@@ -197,7 +197,7 @@ const handleManualRefresh = async () => {
   const { summary } = data;
 
   return (
-    <div className="flex flex-col overflow-hidden font-sans transition-all bg-transparent pb-20" style={{ height: 'calc(100vh - 150px)' }}>
+    <div className="flex flex-col font-sans transition-all bg-transparent pb-24">
       
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 font-mono">
@@ -317,31 +317,31 @@ const handleManualRefresh = async () => {
           />
         </div>
         <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-          <select value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-3 py-1.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Array: All</option>
             {arrays.map(a => <option key={String(a)} value={String(a)}>Array {a}</option>)}
           </select>
-          <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-3 py-1.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">State: All</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
           </select>
-          <select value={healthFilter} onChange={e => setHealthFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-3 py-1.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select value={healthFilter} onChange={e => setHealthFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Health: All</option>
             <option value="warnings">Warnings</option>
             <option value="alarms">Alarms</option>
           </select>
-          <select value={refreshInterval} onChange={e => setRefreshInterval(Number(e.target.value))} className="bg-black/20 border border-prizm-border rounded px-3 py-1.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select value={refreshInterval} onChange={e => setRefreshInterval(Number(e.target.value))} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value={0}>Refresh: Paused</option>
             <option value={5000}>Refresh: 5s</option>
             <option value={10000}>Refresh: 10s</option>
             <option value={30000}>Refresh: 30s</option>
             <option value={60000}>Refresh: 60s</option>
           </select>
-          <button onClick={downloadCsv} title="Export CSV" className="bg-white/5 hover:bg-white/10 text-prizm-text border border-prizm-border px-3 py-1.5 rounded transition-colors cursor-pointer shrink-0">
+          <button onClick={downloadCsv} title="Export CSV" className="bg-white/5 hover:bg-white/10 text-prizm-text border border-prizm-border px-1.5 py-0.5 rounded transition-colors cursor-pointer shrink-0">
             <Download size={14} />
           </button>
-          <button onClick={downloadJson} title="Export API JSON" className="bg-white/5 hover:bg-white/10 text-prizm-info border border-prizm-border px-3 py-1.5 rounded transition-colors cursor-pointer shrink-0">
+          <button onClick={downloadJson} title="Export API JSON" className="bg-white/5 hover:bg-white/10 text-prizm-info border border-prizm-border px-1.5 py-0.5 rounded transition-colors cursor-pointer shrink-0">
             <Layers size={14} />
           </button>
         
@@ -349,7 +349,7 @@ const handleManualRefresh = async () => {
 </div>
       </div>
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-3 py-2 bg-[#001a1a] border-x border-b border-prizm-border shadow-md z-[60] relative saturate-150">
+        <div className="flex items-center justify-between px-1.5 py-0.5 bg-[#001a1a] border-x border-b border-prizm-border shadow-md z-[60] relative saturate-150">
            <div className="flex items-center gap-4">
               <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
               <button 
@@ -386,34 +386,34 @@ const handleManualRefresh = async () => {
         </div>
       )}
       {/* Main Strings Table Engine */}
-      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg overflow-y-auto no-scrollbar relative min-h-0" id="strings-dashboard-scroll">
-         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap border-collapse">
-             <thead className="sticky top-0 z-[70] bg-prizm-surface-strong shadow-sm">
+      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative overflow-x-auto overflow-y-visible pb-12" id="strings-dashboard-scroll">
+         <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
+             <thead className="sticky top-[102px] z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
-                  <th className="px-2 py-2 border-b border-prizm-border sticky top-0 left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[30px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[54px] sm:min-w-[64px]">ARR</th>
-                  <th className="px-2 py-2 border-b border-prizm-border sticky top-0 left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] w-[30px]"></th>
-                  <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 left-[114px] sm:left-[124px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[48px]">STR</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Contactors</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Rotation</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Meas V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Calc V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Bus V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Amps</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">kW</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">SOC %</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Ah</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Min Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Max Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Δ Cell V</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Min Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Max Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Δ Temp</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">BAL CT</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">BAL MODE</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Location</th>
-                  <th className="px-3 py-2 border-b border-prizm-border sticky top-0 bg-prizm-surface-strong z-[50]">Fans</th>
-                  <th className="px-3 py-2 border-b border-prizm-border text-right sticky top-0 bg-prizm-surface-strong z-[50]">Timestamp</th>
+                  <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-[30px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[54px] sm:min-w-[64px]">ARR</th>
+                  <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] w-[30px]"></th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-[114px] sm:left-[124px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[48px]">STR</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Contactors</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Rotation</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Meas V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Calc V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Bus V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Amps</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">kW</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">SOC %</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Ah</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Min Cell V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Cell V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Cell V</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Min Temp</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Temp</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Temp</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL CT</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL MODE</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Location</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Fans</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border text-right sticky top-[102px] bg-prizm-surface-strong z-[50]">Timestamp</th>
                </tr>
             </thead>
             <tbody className="divide-y divide-prizm-border/20">
@@ -474,7 +474,7 @@ const handleManualRefresh = async () => {
 
                   return (
                   <tr key={s.id} onClick={() => setSelectedString(s)} className="group hover:bg-prizm-primary/5 cursor-pointer transition-colors relative">
-<td className={"px-2 py-1.5 border-r border-prizm-border/10 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center " + borderClass}>
+<td className={"px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center " + borderClass}>
    {isArrFirst ? (
      <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
        checked={isArrAllSelected}
@@ -495,10 +495,10 @@ const handleManualRefresh = async () => {
      />
    ) : null}
 </td>
-<td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[30px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 min-w-[54px] sm:min-w-[64px]" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
+<td className="px-1.5 py-0.5 border-r border-prizm-border/20 sticky left-[30px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 min-w-[54px] sm:min-w-[64px]" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
    {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{s.arrayNumber}</span> : null}
 </td>
-<td className="px-2 py-1.5 border-r border-prizm-border/10 sticky left-[84px] sm:left-[94px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center">
+<td className="px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-[84px] sm:left-[94px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center">
    <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
      checked={selectedIds.has(s.id)}
      onChange={() => {}}
@@ -511,10 +511,10 @@ const handleManualRefresh = async () => {
      }} 
    />
 </td>
-<td className="px-3 py-1.5 border-r border-prizm-border/20 sticky left-[114px] sm:left-[124px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
+<td className="px-1.5 py-0.5 border-r border-prizm-border/20 sticky left-[114px] sm:left-[124px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
    {s.stringNumber}
 </td>
-<td className="px-3 py-1.5">
+<td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
                          title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected?"CLOSED":"OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed!==undefined?(s.positiveContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Negative: ${s.negativeContactorClosed!==undefined?(s.negativeContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Reclose Count: ${s.recloseCount ?? "--"}`}
@@ -525,7 +525,7 @@ const handleManualRefresh = async () => {
                            <span className="ml-1 text-[9px] text-prizm-text-muted">R:{s.recloseCount ?? "--"}</span>
                        </div>
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
                          title={`Comms: ${commsOk?"OK":"Stale"} | Rotation: ${inRotation?"IN":"OUT"} | Alerts: ${alertsState}`}
@@ -535,31 +535,31 @@ const handleManualRefresh = async () => {
                           <div className={`w-2 h-2 rounded-full ${rotDot3}`}></div>
                        </div>
                     </td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text-muted">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-prizm-text truncate max-w-[100px]" title={s.balanceMode}>{s.balanceMode || "--"}</td>
-                    <td className="px-3 py-1.5 font-bold text-prizm-text-muted text-xs">
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-emerald-400">{s.measuredVoltage !== null ? s.measuredVoltage : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-info">{s.calculatedVoltage !== null ? s.calculatedVoltage : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text truncate max-w-[100px]" title={s.balanceMode}>{s.balanceMode || "--"}</td>
+                    <td className="px-1.5 py-0.5 font-bold text-prizm-text-muted text-xs">
                         {locStr}
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className="px-1.5 py-0.5">
                        <div 
                            title={`Fan Requested: ${s.fanCommandRequested ?? "--"} | Match: ${fanMatch}`}
                            className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDot}`}
                        ></div>
                     </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-prizm-text-muted text-[10px]">
+                    <td className="px-1.5 py-0.5 text-right font-mono text-prizm-text-muted text-[10px]">
                        <div className="flex items-center justify-end gap-2">
                            <span>{s.rawTimestamp || s.timestampDisplay || formatPrizmUtcTimestamp(s.timestampUtc || 0)}</span>
                            <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-prizm-primary" />
@@ -574,7 +574,7 @@ const handleManualRefresh = async () => {
 
       <button
         className="fixed bottom-6 right-6 z-50 bg-prizm-surface-strong text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary hover:text-prizm-bg px-4 py-2 rounded-full font-bold shadow-lg shadow-prizm-primary/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer outline-none"
-        onClick={() => document.getElementById('strings-dashboard-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })}
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
       >
         <span className="text-xl leading-none">&uarr;</span> TOP
       </button>

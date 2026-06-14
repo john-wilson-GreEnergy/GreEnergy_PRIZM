@@ -112,7 +112,7 @@ export default function PcsDashboard() {
     }, [pcsList]);
 
     return (
-        <div className="flex flex-col overflow-hidden font-sans transition-all bg-transparent text-prizm-text h-full">
+        <div className="flex flex-col font-sans transition-all bg-transparent text-prizm-text h-full">
             <div className="max-w-7xl mx-auto space-y-6 w-full pb-20">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 mt-6 font-mono border-b border-prizm-border pb-4">
                     <div>
@@ -137,7 +137,7 @@ export default function PcsDashboard() {
                 )}
                 
                 {selectedIds.size > 0 && (
-                    <div className="flex items-center justify-between px-3 py-2 bg-[#001a1a] border border-prizm-border shadow-md z-[60] relative saturate-150 rounded">
+                    <div className="flex items-center justify-between px-1.5 py-0.5 bg-[#001a1a] border border-prizm-border shadow-md z-[60] relative saturate-150 rounded">
                        <div className="flex items-center gap-4">
                           <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
                           <button 
@@ -172,16 +172,16 @@ export default function PcsDashboard() {
                     </div>
                 )}
 
-                <div className="bg-prizm-surface border border-prizm-border rounded overflow-hidden">
-                    <table className="w-full text-left font-mono border-collapse" style={{fontSize: "10px"}}>
+                <div className="bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative overflow-x-auto overflow-y-visible pb-12">
+                    <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>
-                                <th className="px-2 py-2 border-b border-prizm-border font-bold sticky top-0 left-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select Array"></th>
-                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
-                                <th className="px-2 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select PCS"></th>
-                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[80] whitespace-nowrap">PCS</th>
-                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[50]">Rotation Status</th>
-                                <th className="px-3 py-2 border-b border-prizm-border font-bold sticky top-0 bg-prizm-surface-strong z-[50]">Telemetry (Power & V)</th>
+                                <th className="px-1 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select Array"></th>
+                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
+                                <th className="px-1 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] w-[30px]" title="Select PCS"></th>
+                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] whitespace-nowrap">PCS</th>
+                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[50]">Rotation Status</th>
+                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[50]">Telemetry (Power & V)</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-prizm-border/20">
@@ -196,7 +196,7 @@ export default function PcsDashboard() {
 
                                 return (
                                 <tr key={pcs.id} className="group hover:bg-prizm-primary/5 transition-colors">
-                                    <td className="px-2 py-1.5 border-r border-prizm-border/10 bg-transparent text-center">
+                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/10 bg-transparent text-center">
                                        {isArrFirst ? (
                                          <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
                                            checked={isArrAllSelected}
@@ -215,11 +215,11 @@ export default function PcsDashboard() {
                                          />
                                        ) : null}
                                     </td>
-                                    <td className="px-3 py-1.5 border-r border-prizm-border/20 bg-transparent min-w-[54px]">
+                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/20 bg-transparent min-w-[54px]">
                                        {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{pcs.arrayIndex}</span> : null}
                                     </td>
                                     
-                                    <td className="px-2 py-1.5 border-r border-prizm-border/10 bg-transparent text-center">
+                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/10 bg-transparent text-center">
                                        <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
                                          checked={selectedIds.has(pcs.id)}
                                          onChange={() => {}}
@@ -232,11 +232,11 @@ export default function PcsDashboard() {
                                          }} 
                                        />
                                     </td>
-                                    <td className="px-3 py-1.5 border-r border-prizm-border/20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
+                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
                                         {pcs.pcsIndex}
                                     </td>
 
-                                    <td className="px-3 py-1.5">
+                                    <td className="px-1.5 py-0.5">
                                         <div className="flex items-center gap-2">
                                             {rot === "IN" ? (
                                                 <div className="flex items-center gap-1.5" title="IN ROTATION">
@@ -256,7 +256,7 @@ export default function PcsDashboard() {
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-3 py-1.5 text-prizm-text-muted">
+                                    <td className="px-1.5 py-0.5 text-prizm-text-muted">
                                         State: <span className="text-prizm-text">{pcs.state || 'N/A'}</span> <br/>
                                         Power: <span className="text-prizm-text">{pcs.realPwr ? `${pcs.realPwr} kW` : '---'}</span> | V: <span className="text-prizm-text">{pcs.vDc ? `${pcs.vDc} V` : '---'}</span>
                                     </td>
