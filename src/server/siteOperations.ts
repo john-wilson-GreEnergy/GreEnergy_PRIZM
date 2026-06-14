@@ -305,6 +305,13 @@ function getFeatherSpaceHumidity(f: any): number | null {
     return h !== undefined && h !== null ? Number(h) : null;
 }
 
+function isCollectionSegmentFeather(device: any): boolean {
+    const ip = device.deviceIp || device.ip || device.sourceIp || device.lastKnownIp || "";
+    const p = String(ip).split(".");
+    if (p.length !== 4) return false;
+    const lastOctet = Number(p.pop());
+    return Number.isFinite(lastOctet) && lastOctet === 3;
+}
 function getFeatherCellTemp(f: any): number | null {
     const rt = f.rawResponse?.thermalData || f.rawResponse || {};
     const t = f.cellTemp ?? f.avgCellTemperature ?? f.avgCellTemp ?? rt.cellTemp ?? rt.avgCellTemperature;
@@ -409,6 +416,8 @@ export async function buildSiteOperationsSummaryFromCache() {
         let maxST: number | null = null;
         let maxCT: number | null = null;
         const devicesWithIssues: any[] = [];
+        let featherCellTempExcludedCollectionSegments = 0;
+        let featherCellTempIncludedDevices = 0;
 
         fDevices.forEach((f: any) => {
             const hasLost = hasLostComms(f);
@@ -425,9 +434,17 @@ export async function buildSiteOperationsSummaryFromCache() {
             if ((f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) && (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM) > maxH) maxH = (f.hydrogen1PPM ?? f.thermalData?.hydrogen1PPM);
             const st = getFeatherSpaceTemp(f);
             if (st !== null && !Number.isNaN(st)) maxST = maxST === null ? st : Math.max(maxST, st);
+
             const ct = getFeatherCellTemp(f);
-            if (ct !== null && !Number.isNaN(ct)) maxCT = maxCT === null ? ct : Math.max(maxCT, ct);
-            
+            if (isCollectionSegmentFeather(f)) {
+                 featherCellTempExcludedCollectionSegments++;
+            } else {
+                 if (ct !== null && !Number.isNaN(ct)) {
+                      maxCT = maxCT === null ? ct : Math.max(maxCT, ct);
+                 }
+                 featherCellTempIncludedDevices++;
+            }
+
             if (!f.reachable || hasLost || isFssInv || isDoorsInv || isHvacInv || (f.warningCount > 0) || (f.alarmCount > 0)) {
                  devicesWithIssues.push(f);
             }
@@ -935,7 +952,57 @@ export async function buildSiteOperationsSummaryFromCache() {
              }
         }
 
+        // Compute Corrective Actions Log
+        const correctiveActions: any[] = [];
+        const ignoredRegex = /oor|out of rotation|outrotation|contactor open|contactors open/i;
+
+        // Process activeIssueGroups
+        activeIssueGroups.forEach((g: any) => {
+            if (ignoredRegex.test(g.faultName) || ignoredRegex.test(String(g.faultId))) return;
+            if (String(g.faultId) === "2534" || String(g.faultId) === "2561") return; // Skip known mapped OOR codes if missed
+
+            let action = "Inspect affected device and review logs";
+            if (/door/i.test(g.faultName)) action = "Inspect and secure enclosure door";
+            else if (/comms|communication|reachable/i.test(g.faultName)) action = "Check device power/network path";
+            else if (/fss|fire/i.test(g.faultName)) action = "Inspect fire safety signal chain";
+            else if (/hvac|mio/i.test(g.faultName)) action = "Inspect HVAC controller and MIO status";
+            else if (/high cell temp|thermal/i.test(g.faultName)) action = "Inspect affected string/enclosure thermal conditions";
+            else if (/cell voltage|imbalance/i.test(g.faultName)) action = "Inspect BPC/cell imbalance and balancing status";
+            else if (g.source === "BPC" || /string/i.test(g.faultName)) action = "Open String List details and inspect BPC status";
+
+            correctiveActions.push({
+                level: g.severity === "WARNING" ? "WARNING" : g.severity === "ALARM" ? "ALARM" : "FAULT",
+                source: g.source || "System",
+                fault: g.faultName,
+                object: g.sampleDevice || "Multiple",
+                details: "Affected units: " + g.occurrenceCount,
+                firstSeen: new Date().toISOString(),
+                count: g.occurrenceCount,
+                suggestedAction: action
+            });
+        });
+
+        // Add source health errors
+        if (sourceHealth) {
+           sourceHealth.forEach((s: any) => {
+               if (!s.ok && s.error && s.error !== "NONE") {
+                   correctiveActions.push({
+                       level: "ALARM",
+                       source: s.type,
+                       fault: "Source Polling Failed",
+                       object: s.name,
+                       details: "Error: " + s.error,
+                       firstSeen: new Date().toISOString(),
+                       count: 1,
+                       suggestedAction: "Check remote node endpoint connectivity and path config"
+                   });
+               }
+           });
+        }
+
         const responseData = {
+            correctiveActions,
+
             stationCode,
             site,
             topologyCounts: siteTopology.counts,

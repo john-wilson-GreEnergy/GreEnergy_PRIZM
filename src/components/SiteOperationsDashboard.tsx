@@ -452,7 +452,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  </div>
                  {emsAppsData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
                                  <th className="p-2 font-bold text-center">Pri</th>
                                  <th className="p-2 font-bold">App Code</th>
@@ -516,7 +516,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <CollapsibleSection title="Equipment: Block Meters" icon={RadioTower} defaultExpanded={false}>
                  {(state.overviewDiscovery?.discoveredSections || {}).blockMeters?.sampleItems?.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
                                  <th className="p-2 font-bold">Meter ID</th>
                                  <th className="p-2 font-bold">kW</th>
@@ -542,7 +542,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  {pcsData.length > 0 ? (
                     <div className="overflow-x-auto no-scrollbar">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                             <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                  <tr>
                                      <th className="p-2 font-bold min-w-[80px]">PCS Identity</th>
                                      <th className="p-2 font-bold min-w-[80px]">Array Index</th>
@@ -623,7 +623,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <CollapsibleSection title="Equipment: Humidity & Temp Sensors" icon={Thermometer} defaultExpanded={false}>
                  {htsData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
                                  <th className="p-2 font-bold">Enclosure / Location</th>
                                  <th className="p-2 font-bold">Sensor ID</th>
@@ -653,7 +653,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             <CollapsibleSection title="Array Summary" icon={PanelTop} defaultExpanded={true}>
                  {arraySummaryData.length > 0 ? (
                      <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                              <tr>
                                  <th className="p-2 font-bold">Array</th>
                                  <th className="p-2 font-bold text-center">Comm.</th>
@@ -680,7 +680,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  {sum?.stringSummary && ((sum.stringSummary.tableRows && sum.stringSummary.tableRows.length > 0) || (sum.stringSummary.buckets && Object.values(sum.stringSummary.buckets).some(v => Number(v) > 0))) ? (
                      <div className="overflow-x-auto w-full">
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                             <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
+                             <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
                                  <tr>
                                      <th className="p-2 font-bold min-w-[200px]">Parameter</th>
                                      <th className="p-2 font-bold text-center border-l border-prizm-border text-emerald-400">Online</th>
@@ -735,34 +735,42 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  )}
             </CollapsibleSection>
 
-            {/* Active Issues */}
-            <CollapsibleSection title="Active Issues" icon={TriangleAlert} defaultExpanded={true}>
+            {/* Corrective Actions */}
+            <CollapsibleSection title="Corrective Actions" icon={TriangleAlert} defaultExpanded={true}>
                 <div className="max-h-[300px] overflow-y-auto no-scrollbar">
-                    {activeIssues.length > 0 ? (
+                    {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
                         <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                            <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                            <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                 <tr>
-                                    <th className="p-2 font-bold w-1/4">Level</th>
-                                    <th className="p-2 font-bold w-1/4">Source</th>
-                                    <th className="p-2 font-bold w-1/2">Message</th>
+                                    <th className="p-2 font-bold w-1/8">Level</th>
+                                    <th className="p-2 font-bold w-1/6">Fault / ID</th>
+                                    <th className="p-2 font-bold w-1/6">Affected</th>
+                                    <th className="p-2 font-bold w-1/3">Suggested Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-prizm-border">
-                                {activeIssues.map((issue, i) => (
+                                {sum.correctiveActions.map((issue: any, i: number) => (
                                     <tr key={i} className="hover:bg-prizm-surface transition-colors">
                                         <td className="p-2">
-                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.severity === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : issue.severity === 'WARNING' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-slate-500/10 text-slate-400'}`}>
-                                                {issue.severity}
+                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
+                                                {issue.level}
                                             </span>
                                         </td>
-                                        <td className="p-2 text-prizm-primary font-bold">{issue.source}</td>
-                                        <td className="p-2 text-prizm-text">{issue.message}</td>
+                                        <td className="p-2 text-prizm-primary font-bold">
+                                            {issue.fault}
+                                        </td>
+                                        <td className="p-2 text-prizm-text">
+                                            {issue.object} {issue.count > 1 ? `(+${issue.count - 1} more)` : ''}
+                                        </td>
+                                        <td className="p-2 text-prizm-text">
+                                            {issue.suggestedAction}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     ) : (
-                        <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active issues detected.</div>
+                        <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">No active corrective actions detected.</div>
                     )}
                 </div>
             </CollapsibleSection>
@@ -807,7 +815,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                         </div>
                         <div className="overflow-x-auto no-scrollbar">
                            <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                                <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                     <tr>
                                         <th className="p-2 font-bold">Entity</th>
                                         <th className="p-2 font-bold min-w-[200px]">Status Message</th>
@@ -846,7 +854,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                     <div className="overflow-y-auto no-scrollbar max-h-[250px]">
                         {combinedSources.length > 0 ? (
                             <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                                <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                     <tr>
                                         <th className="p-2 font-bold w-1/4">Source</th>
                                         <th className="p-2 font-bold w-1/4">Module</th>
@@ -878,7 +886,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                 <div className="overflow-y-auto no-scrollbar max-h-[300px]">
                     {state.historyEvents?.events?.length > 0 ? (
                          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                            <thead className="bg-black/40 text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                            <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                                 <tr>
                                     <th className="p-2 font-bold">Timestamp</th>
                                     <th className="p-2 font-bold">Severity</th>
@@ -988,7 +996,7 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                         placeholder="Paste confirmation text here"
                                         value={clearConfRef}
                                         onChange={(e) => setClearConfRef(e.target.value)}
-                                        className="w-full bg-black/40 border border-prizm-border rounded p-2 text-prizm-text font-mono focus:border-prizm-primary outline-none focus:ring-1 focus:ring-prizm-primary"
+                                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text font-mono focus:border-prizm-primary outline-none focus:ring-1 focus:ring-prizm-primary"
                                     />
                                 </div>
                             )}
