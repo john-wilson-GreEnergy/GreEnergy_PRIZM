@@ -1315,11 +1315,15 @@ app.get("/api/feather/devices", async (req, res) => {
         return res.json({
             ...lastEnrichedCache,
             source: policy === "cache-only" ? "cache" : "cache",
+            dataClass: "live-telemetry",
+            diskCacheUsed: false,
+            memoryCacheUsed: true,
             cacheUsed: true,
             liveAttempted: false,
             liveSucceeded: false,
             stale: currentFeatherCache.isStale,
-            cachePolicy: policy
+            cachePolicy: policy,
+            lastUpdatedAt: lastEnrichedCache.lastUpdatedAt || new Date().toISOString()
         });
       }
     }
@@ -1330,11 +1334,15 @@ app.get("/api/feather/devices", async (req, res) => {
         return res.json({
             ...lastEnrichedCache,
             source: "cache",
+            dataClass: "live-telemetry",
+            diskCacheUsed: false,
+            memoryCacheUsed: true,
             cacheUsed: true,
             liveAttempted: true,
             liveSucceeded: false,
             stale: currentFeatherCache.isStale,
-            cachePolicy: policy
+            cachePolicy: policy,
+            lastUpdatedAt: lastEnrichedCache.lastUpdatedAt || new Date().toISOString()
         });
     }
 
@@ -1406,12 +1414,17 @@ app.get("/api/feather/devices", async (req, res) => {
         
         return res.json({
             ...data,
-            source: "live-ems", // or "live-feather" but the prompt uses standard mapped sources
+            source: "live-ems",
+            dataClass: "live-telemetry",
+            diskCacheUsed: false,
+            memoryCacheUsed: false,
             cacheUsed: false,
             liveAttempted: wasLiveAttempted,
             liveSucceeded: wasLiveSucceeded,
             stale: currentFeatherCache.isStale,
-            cachePolicy: policy
+            cachePolicy: policy,
+            isDiscovering: !!activeDeviceScanPromise,
+            lastUpdatedAt: new Date().toISOString()
         });
     } else {
         // Background update, return currently cached enrichment or just minimal info
@@ -1452,11 +1465,16 @@ app.get("/api/feather/devices", async (req, res) => {
         return res.json({
              ...dataToReturn,
              source: pSource,
+             dataClass: "live-telemetry",
+             diskCacheUsed: false,
+             memoryCacheUsed: wasCacheUsed,
              cacheUsed: wasCacheUsed,
              liveAttempted: true,
              liveSucceeded: false,
              stale: currentFeatherCache.isStale,
-             cachePolicy: policy
+             cachePolicy: policy,
+             isDiscovering: true,
+             lastUpdatedAt: dataToReturn.lastUpdatedAt || new Date().toISOString()
         });
     }
   } catch (err: any) {

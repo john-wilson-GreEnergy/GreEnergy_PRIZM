@@ -181,14 +181,15 @@ async function hydrateCache() {
      bootStatus.preloadStatus.siteOperations = true;
      updateStatus({});
      
-     // Trigger feather discovery
-     updateStatus({ phase: "discovering-feather" });
-     try {
-       await refreshFeatherCache({ force: true });
-       bootStatus.preloadStatus.featherDevices = true;
-     } catch (e) {
-       console.error(e);
-     }
+     // Trigger feather discovery NON-BLOCKING
+     refreshFeatherCache({ force: false })
+       .then(() => {
+           bootStatus.preloadStatus.featherDevices = true;
+           updateStatus({});
+       })
+       .catch(e => {
+           console.error("Background Feather Cache refresh failed:", e.message);
+       });
   }
 
   updateStatus({ phase: bootStatus.emsReachable ? "ready" : "offline", ready: true });

@@ -22,6 +22,7 @@ import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
 import ToolDashboards from "./components/ToolDashboards";
 import FeatherDashboard from "./components/FeatherDashboard";
+import EmsHealthDashboard from "./components/EmsHealthDashboard";
 import ConnectionSettings from "./components/ConnectionSettings";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
@@ -221,7 +222,7 @@ export default function App() {
             )}
 
             {activeTab === "ems-health" && (
-              <ToolDashboards initialTab="stats" />
+              <EmsHealthDashboard />
             )}
 
             {activeTab === "arrays-strings" && (
