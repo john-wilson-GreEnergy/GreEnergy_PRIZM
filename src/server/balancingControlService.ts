@@ -68,7 +68,7 @@ export async function getBalancingCapabilities() {
 function getEmsBaseUrl(): string {
     const active = ProfileStore.getActiveProfile();
     const status = getEmsConnectionStatus();
-    if (!status.available || !active) throw new Error("EMS Connection not available");
+    if (status.source === "offline" || !active) throw new Error("EMS Connection not available");
     return `http://${active.emsHost}:${active.emsPort}${active.turtlePath.replace(/\/$/, '')}`;
 }
 
