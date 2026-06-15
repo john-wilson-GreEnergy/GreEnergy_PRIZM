@@ -1042,10 +1042,10 @@ export default function SiteOperationsDashboard({
                         <th className="py-1 px-2 font-bold min-w-[200px]">
                           Parameter
                         </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-emerald-400">
+                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-data-green">
                           Online
                         </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-emerald-300">
+                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-[#166534]">
                           Nearline
                         </th>
                         <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">
@@ -1092,7 +1092,7 @@ export default function SiteOperationsDashboard({
                               return (
                                 <td
                                   key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-emerald-400" : b === "nearline" ? "text-emerald-300" : b === "notCommunicating" ? "text-prizm-danger" : "text-prizm-text-muted"}`}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
                                   {formatVal(val, suffix, toFixed)}
                                 </td>
@@ -1124,7 +1124,7 @@ export default function SiteOperationsDashboard({
                               return (
                                 <td
                                   key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-emerald-400" : b === "nearline" ? "text-emerald-300" : b === "notCommunicating" ? "text-prizm-danger" : "text-prizm-text-muted"}`}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
                                   {finalTxt}
                                 </td>
@@ -1142,7 +1142,7 @@ export default function SiteOperationsDashboard({
                               {buckets.map((b, i) => (
                                 <td
                                   key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-emerald-400" : b === "nearline" ? "text-emerald-300" : b === "notCommunicating" ? "text-prizm-danger" : "text-prizm-text-muted"}`}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
                                   {sum.stringSummary.buckets?.[b] ??
                                     sum.stringSummary.rollups?.[b]?.count ??
@@ -1157,7 +1157,7 @@ export default function SiteOperationsDashboard({
                               {buckets.map((b, i) => (
                                 <td
                                   key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-emerald-400" : b === "nearline" ? "text-emerald-300" : b === "notCommunicating" ? "text-prizm-danger" : "text-prizm-text-muted"}`}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
                                   {b === "online" || b === "nearline"
                                     ? (sum.stringSummary.buckets?.[b] ??
@@ -1261,7 +1261,7 @@ export default function SiteOperationsDashboard({
                 title="Communicating, in rotation, contactors closed. Fully operational."
               >
                 <span className="w-2 h-2 rounded-sm bg-emerald-500/20 border border-emerald-500/50 flex-shrink-0"></span>
-                <span className="text-emerald-400 font-bold uppercase">
+                <span className="text-prizm-data-green font-bold uppercase">
                   Online
                 </span>
                 <span className="text-prizm-text-muted lowercase">
@@ -1307,7 +1307,7 @@ export default function SiteOperationsDashboard({
                         Comm.
                       </th>
                       <th
-                        className="py-1.5 px-2 font-bold text-center bg-emerald-500/5 text-emerald-400 border-x border-prizm-border/10"
+                        className="py-1.5 px-2 font-bold text-center bg-emerald-500/5 text-prizm-data-green border-x border-prizm-border/10"
                         title="State of Charge for active Operational strings (Communicating, In-Rotation, Closed Contactors)"
                       >
                         Online SOC
@@ -1380,7 +1380,7 @@ export default function SiteOperationsDashboard({
                           <td className="py-1.5 px-2 text-prizm-primary font-bold">
                             {name}
                           </td>
-                          <td className="py-1.5 px-2 text-center text-emerald-400">
+                          <td className="py-1.5 px-2 text-center text-prizm-data-green font-bold">
                             {arr.communicating !== false ? (
                               "OK"
                             ) : (
@@ -1391,7 +1391,7 @@ export default function SiteOperationsDashboard({
                             )}
                           </td>
                           <td
-                            className="py-1.5 px-2 text-center text-emerald-400 font-semibold bg-emerald-500/5 border-x border-prizm-border/10"
+                            className="py-1.5 px-2 text-center text-prizm-data-green font-bold bg-emerald-500/5 border-x border-prizm-border/10"
                             title="Active fully integrated BESS strings"
                           >
                             {formatSOC(arr.onlineSOC)}

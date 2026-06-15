@@ -3,7 +3,8 @@ import {
   getHvacTargets, 
   applySimulation, 
   getSingleHvacReport, 
-  getAuditLog 
+  getAuditLog,
+  getActiveOverrides
 } from "./hvacSimulationService";
 import { validateHvacReport } from "./hvacSimulationValidation";
 import { HvacSimulationMode } from "./hvacSimulationTypes";
@@ -216,6 +217,204 @@ router.get("/audit", (req, res) => {
     res.json({ success: true, log });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || "Failed to load audit logs" });
+  }
+});
+
+// 8. POST Scan Active Simulations
+router.post("/scan-active", async (req, res) => {
+  try {
+    const targets = getHvacTargets();
+    const overrides = getActiveOverrides();
+    const results: any[] = [];
+    for (const t of targets) {
+      const override = overrides.get(t.ip);
+      if (override) {
+        let rawReport = null;
+        try {
+          rawReport = await getSingleHvacReport(t.ip);
+        } catch (e) {}
+        const validation = validateHvacReport(t.ip, rawReport, override.mode, override.startedAt);
+        results.push({
+          ip: t.ip,
+          arrayIndex: t.arrayIndex,
+          stringIndex: t.stringIndex,
+          entityName: t.entityName,
+          status: validation.status,
+          mode: override.mode,
+          message: validation.message,
+          remainingMinutes: validation.simulationRemainingMinutes ?? override.timeoutMinutes,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    res.json({ success: true, count: results.length, activeSimulations: results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to scan active" });
+  }
+});
+
+// 9. POST Deploy Simulated Override (Alias of Apply)
+router.post("/deploy", async (req, res) => {
+  try {
+    const {
+      targetIps,
+      timeoutMinutes = 30,
+      mode,
+      options = {},
+      normalizeBeforeApply = true,
+      verifyAfterApply = true,
+      concurrency = 8
+    } = req.body;
+
+    if (!Array.isArray(targetIps) || targetIps.length === 0) {
+      return res.status(400).json({ success: false, error: "targetIps must be a non-empty array of strings" });
+    }
+
+    const results = await applySimulation({
+      targetIps,
+      timeoutMinutes: Number(timeoutMinutes),
+      mode,
+      options,
+      normalizeBeforeApply,
+      verifyAfterApply,
+      concurrency
+    });
+
+    res.json({
+      success: true,
+      mode,
+      targetCount: targetIps.length,
+      successCount: results.filter(r => r.commanded).length,
+      failedCount: results.length - results.filter(r => r.commanded).length,
+      results
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to deploy simulation" });
+  }
+});
+
+// 10. POST Clear Selected
+router.post("/clear-selected", async (req, res) => {
+  try {
+    const { targetIps } = req.body;
+    if (!Array.isArray(targetIps) || targetIps.length === 0) {
+      return res.status(400).json({ success: false, error: "targetIps is required" });
+    }
+    const results = await applySimulation({
+      targetIps,
+      timeoutMinutes: 30,
+      mode: "clearAll",
+      normalizeBeforeApply: true,
+      verifyAfterApply: true
+    });
+    res.json({ success: true, results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to clear selected" });
+  }
+});
+
+// 11. POST Clear Array
+router.post("/clear-array", async (req, res) => {
+  try {
+    const { arrayIndex } = req.body;
+    if (arrayIndex === undefined || arrayIndex === null) {
+      return res.status(400).json({ success: false, error: "arrayIndex is required" });
+    }
+    const targets = getHvacTargets().filter(t => t.arrayIndex === Number(arrayIndex));
+    if (targets.length === 0) {
+      return res.json({ success: true, clearedCount: 0, results: [] });
+    }
+    const targetIps = targets.map(t => t.ip);
+    const results = await applySimulation({
+      targetIps,
+      timeoutMinutes: 30,
+      mode: "clearAll",
+      normalizeBeforeApply: true,
+      verifyAfterApply: true
+    });
+    res.json({ success: true, clearedCount: targetIps.length, results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to clear array" });
+  }
+});
+
+// 12. POST Clear All Active
+router.post("/clear-all-active", async (req, res) => {
+  try {
+    const overrides = getActiveOverrides();
+    const targetIps = Array.from(overrides.keys());
+    if (targetIps.length === 0) {
+      return res.json({ success: true, clearedCount: 0, results: [] });
+    }
+    const results = await applySimulation({
+      targetIps,
+      timeoutMinutes: 30,
+      mode: "clearAll",
+      normalizeBeforeApply: true,
+      verifyAfterApply: true
+    });
+    res.json({ success: true, clearedCount: targetIps.length, results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to clear all active" });
+  }
+});
+
+// 13. GET Report
+router.get("/report", async (req, res) => {
+  try {
+    const targetsQuery = req.query.targets as string;
+    if (!targetsQuery) {
+      return res.status(400).json({ success: false, error: "targets query parameter is required" });
+    }
+    const targetIps = targetsQuery.split(",");
+    const overrides = getActiveOverrides();
+    const results = await Promise.all(
+      targetIps.map(async (ip) => {
+        try {
+          const override = overrides.get(ip);
+          const rawReport = await getSingleHvacReport(ip);
+          return validateHvacReport(ip, rawReport, override?.mode || "clearAll", override?.startedAt);
+        } catch (e: any) {
+          return validateHvacReport(ip, null, "clearAll", undefined);
+        }
+      })
+    );
+    res.json({ success: true, results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to fetch report" });
+  }
+});
+
+// 14. GET Timeseries Data
+router.get("/timeseries", (req, res) => {
+  try {
+    const targetsQuery = req.query.targets as string;
+    if (!targetsQuery) {
+      return res.status(400).json({ success: false, error: "targets query parameter is required" });
+    }
+    const targetIps = targetsQuery.split(",");
+    const data: Record<string, any[]> = {};
+    const ticks = Array.from({ length: 10 }).map((_, idx) => {
+      const d = new Date(Date.now() - (10 - idx) * 3000);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    });
+
+    targetIps.forEach(ip => {
+      data[ip] = ticks.map(t => ({
+        time: t,
+        hvac1Current: 14.2 + (Math.random() - 0.5) * 0.5,
+        hvac2Current: 14.0 + (Math.random() - 0.5) * 0.5,
+        spaceTemp: 23.5 + (Math.random() - 0.5) * 0.2,
+        supplyTemp: 18.2 + (Math.random() - 0.5) * 0.2,
+        cellTemp: 21.4 + (Math.random() - 0.5) * 0.1,
+        spaceHumidity: 45 + (Math.random() - 0.5) * 2,
+        outsideHumidity: 50 + (Math.random() - 0.5) * 2,
+        remainingMinutes: 30
+      }));
+    });
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to fetch timeseries" });
   }
 });
 

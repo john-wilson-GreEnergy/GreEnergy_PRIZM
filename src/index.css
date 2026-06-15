@@ -15,6 +15,7 @@
   --prizm-warning: #F59E0B;
   --prizm-danger: #EF4444;
   --prizm-demo: #06B6D4;
+  --prizm-data-green: #15803D;
   --prizm-header: #FFFFFF;
   --prizm-sidebar: #F8FAFC;
 }
@@ -37,6 +38,7 @@
   --color-prizm-warning: var(--prizm-warning);
   --color-prizm-danger: var(--prizm-danger);
   --color-prizm-demo: var(--prizm-demo);
+  --color-prizm-data-green: var(--prizm-data-green);
   --color-prizm-header: var(--prizm-header);
   --color-prizm-sidebar: var(--prizm-sidebar);
 

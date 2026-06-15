@@ -44,6 +44,8 @@ import {
   HvacAuditEntry 
 } from "../server/hvacSimulation/hvacSimulationTypes";
 
+import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
+
 // Constants & helper formatting
 const formatTimestampWithUtc = (isoStr: string) => {
   if (!isoStr) return "-";
@@ -80,6 +82,23 @@ export default function HvacSimulationDashboard() {
   // Targets
   const [allTargets, setAllTargets] = useState<HvacSimulationTarget[]>([]);
   const [selectedIps, setSelectedIps] = useState<string[]>([]);
+
+  // Scanning and accordion active states
+  const [scannedActive, setScannedActive] = useState<any[]>([]);
+  const [isScanningActive, setIsScanningActive] = useState<boolean>(false);
+  const [scannedAtLeastOnce, setScannedAtLeastOnce] = useState<boolean>(false);
+  const [expandedArrays, setExpandedArrays] = useState<Record<number, boolean>>({ 1: true });
+
+  // Targets Grouped by Array Index
+  const groupedTargets = React.useMemo(() => {
+    const groups: Record<number, HvacSimulationTarget[]> = {};
+    allTargets.forEach(t => {
+      const arrIdx = t.arrayIndex ?? 1; // Default to Array 1 if undefined
+      if (!groups[arrIdx]) groups[arrIdx] = [];
+      groups[arrIdx].push(t);
+    });
+    return groups;
+  }, [allTargets]);
   
   // Filters
   const [blockFilter, setBlockFilter] = useState<string>("all");
@@ -152,12 +171,8 @@ export default function HvacSimulationDashboard() {
           const body = await tRes.json();
           const list: HvacSimulationTarget[] = body.targets || [];
           setAllTargets(list);
-          // Pre-select first 4 reachable normal targets
-          const initial = list
-            .filter(t => !t.isCollectionSegment && t.reachable)
-            .map(t => t.ip)
-            .slice(0, 4);
-          setSelectedIps(initial);
+          // Defaults to no selected targets initially as per technician safety guidelines
+          setSelectedIps([]);
         }
         fetchAudits();
       } catch (e: any) {
@@ -299,6 +314,16 @@ export default function HvacSimulationDashboard() {
         setLatestResults(body.results || []);
         setPollingActive(true);
         fetchAudits();
+        // Pre-populate timeseries data immediately on success
+        try {
+          fetch(`/api/local/hvac-simulation/timeseries?targets=${selectedIps.join(",")}`)
+            .then(r => r.json())
+            .then(tsData => {
+              if (tsData.success) {
+                setTimeSeriesData(tsData.data || {});
+              }
+            }).catch(() => {});
+        } catch (e) {}
         setTimeout(() => executeVerifyFetch(), 1000);
       } else {
         setErrorMsg("Failed deploying commands: " + (body.error || "Hardware reject."));
@@ -342,6 +367,77 @@ export default function HvacSimulationDashboard() {
       }
     } catch (e: any) {
       setErrorMsg("Failed link connectivity with server service: " + e.message);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  // Active Sim Scanner methods
+  const handleActiveScan = async () => {
+    setIsScanningActive(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/local/hvac-simulation/scan-active", {
+        method: "POST"
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setScannedActive(body.activeSimulations || []);
+        setScannedAtLeastOnce(true);
+        if (body.activeSimulations && body.activeSimulations.length > 0) {
+          setSuccessMsg(`Detected ${body.activeSimulations.length} active simulations.`);
+        }
+      } else {
+        setErrorMsg("Failed scanning active simulations.");
+      }
+    } catch (e: any) {
+      setErrorMsg("Error scanning active: " + e.message);
+    } finally {
+      setIsScanningActive(false);
+    }
+  };
+
+  const clearSelectedActive = async () => {
+    if (selectedIps.length === 0) return;
+    setIsApplying(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/local/hvac-simulation/clear-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetIps: selectedIps })
+      });
+      if (res.ok) {
+        setSuccessMsg(`Cleared simulation on ${selectedIps.length} selected targets.`);
+        executeVerifyFetch();
+        handleActiveScan();
+      }
+    } catch (e: any) {
+      setErrorMsg("Failed to clear selected: " + e.message);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const clearAllActive = async () => {
+    setIsApplying(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/local/hvac-simulation/clear-all-active", {
+        method: "POST"
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setSuccessMsg(`Cleared simulation on ${body.clearedCount || 0} active targets across site.`);
+        setSelectedIps([]);
+        setLatestResults([]);
+        setScannedActive([]);
+      }
+    } catch (e: any) {
+      setErrorMsg("Failed to clear all active: " + e.message);
     } finally {
       setIsApplying(false);
     }
@@ -557,8 +653,8 @@ export default function HvacSimulationDashboard() {
         <aside className="lg:col-span-4 space-y-6">
           
           {/* STEP 1: TARGET SELECTION REDESIGN */}
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3 shadow-sm">
-            <div className="flex items-center justify-between border-b border-prizm-border pb-1.5">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between border-b border-prizm-border pb-1.5Mac text-white">
               <h2 className="text-xs font-bold font-mono uppercase text-white flex items-center gap-1.5">
                 <span className="bg-prizm-primary/25 text-prizm-primary px-1.5 rounded text-[10px]">1</span>
                 Select Target Nodes
@@ -574,7 +670,7 @@ export default function HvacSimulationDashboard() {
                 <div>
                   <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5">Block selection</label>
                   <select 
-                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer"
+                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
                     value={blockFilter}
                     onChange={e => setBlockFilter(e.target.value)}
                   >
@@ -600,9 +696,9 @@ export default function HvacSimulationDashboard() {
                 </div>
 
                 <div>
-                  <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5">String ES Node</label>
+                  <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5 font-mono">String ES Node</label>
                   <select
-                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer"
+                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
                     value={stringFilter}
                     onChange={e => setStringFilter(e.target.value)}
                   >
@@ -643,22 +739,22 @@ export default function HvacSimulationDashboard() {
                   onClick={() => setSelectedIps(allTargets.map(t => t.ip))}
                   className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-black/20 text-prizm-text-muted uppercase font-bold rounded"
                 >
-                  Select All
+                  All
                 </button>
                 <button 
                   onClick={() => setSelectedIps([])}
                   className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-black/20 text-prizm-text-muted uppercase font-bold rounded"
                 >
-                  Deselect All
+                  None
                 </button>
                 <button 
                   onClick={() => {
-                    const filtered = filteredTargets.map(t => t.ip);
-                    setSelectedIps(prev => Array.from(new Set([...prev, ...filtered])));
+                    const reachable = allTargets.filter(t => t.reachable && (!t.isCollectionSegment || includeCollection)).map(t => t.ip);
+                    setSelectedIps(reachable);
                   }}
-                  className="py-1 text-[8.5px] font-mono border border-prizm-primary/30 bg-prizm-primary/10 text-prizm-primary hover:bg-prizm-primary/25 uppercase font-bold rounded"
+                  className="py-1 text-[8.5px] font-mono border border-prizm-primary/20 bg-prizm-primary/5 hover:bg-prizm-primary/15 text-prizm-primary uppercase font-bold rounded"
                 >
-                  Filtered
+                  Reachable
                 </button>
                 <button 
                   onClick={() => {
@@ -667,56 +763,226 @@ export default function HvacSimulationDashboard() {
                   }}
                   className="py-1 text-[8.5px] font-mono border border-prizm-danger/30 bg-prizm-danger/10 text-prizm-danger hover:bg-prizm-danger/25 uppercase font-bold rounded"
                 >
-                  Failed Only
+                  Failed
                 </button>
               </div>
             </div>
 
-            {/* Checklist items container */}
-            <div className="max-h-[140px] overflow-y-auto no-scrollbar border border-prizm-border/60 rounded bg-prizm-bg divide-y divide-prizm-border/25">
-              {filteredTargets.length === 0 ? (
-                <div className="p-3 text-center text-[10px] uppercase text-prizm-text-muted font-mono">No nodes match search filters</div>
+            {/* Checklist items container Grouped by Array */}
+            <div className="max-h-[170px] overflow-y-auto no-scrollbar border border-prizm-border/60 rounded bg-prizm-bg divide-y divide-prizm-border/25 p-1 space-y-1.5">
+              {Object.keys(groupedTargets).length === 0 ? (
+                <div className="p-3 text-center text-[10px] uppercase text-prizm-text-muted font-mono">No nodes match filters</div>
               ) : (
-                filteredTargets.map(t => {
-                  const check = selectedIps.includes(t.ip);
+                Object.keys(groupedTargets).sort((a, b) => Number(a) - Number(b)).map(arrayKey => {
+                  const arrNum = Number(arrayKey);
+                  const targetsInArray = groupedTargets[arrNum].filter(t => {
+                    if (blockFilter !== "all" && t.blockId !== blockFilter) return false;
+                    if (arrayFilter !== "all" && String(t.arrayIndex) !== arrayFilter) return false;
+                    if (stringFilter !== "all" && String(t.stringIndex) !== stringFilter) return false;
+                    if (reachableOnly && !t.reachable) return false;
+                    if (!includeCollection && t.isCollectionSegment) return false;
+                    return true;
+                  });
+                  if (targetsInArray.length === 0) return null;
+
+                  const isExpanded = !!expandedArrays[arrNum];
+                  const arrayIps = targetsInArray.map(t => t.ip);
+                  const selectedInArray = arrayIps.filter(ip => selectedIps.includes(ip));
+                  const allSelectedInArray = targetsInArray.length > 0 && selectedInArray.length === targetsInArray.length;
+
                   return (
-                    <div 
-                      key={t.ip}
-                      onClick={() => {
-                        setSelectedIps(prev => prev.includes(t.ip) ? prev.filter(ip => ip !== t.ip) : [...prev, t.ip]);
-                      }}
-                      className={`p-1.5 flex items-center justify-between text-[11px] font-mono cursor-pointer transition-colors ${
-                        check ? "bg-prizm-primary/10 hover:bg-prizm-primary/15" : "hover:bg-prizm-surface-strong/60"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <input type="checkbox" checked={check} onChange={() => {}} className="accent-prizm-primary pointer-events-none scale-90" />
-                        <span className={`font-semibold ${check ? "text-prizm-primary" : "text-white"}`}>{t.ip}</span>
-                        <span className="text-[9px] text-prizm-text-muted block truncate">{t.entityName}</span>
+                    <div key={arrNum} className="border border-prizm-border/40 rounded bg-prizm-surface-strong/60 overflow-hidden">
+                      {/* Accordion Header */}
+                      <div className="flex items-center justify-between p-1.5 bg-prizm-surface border-b border-prizm-border/40">
+                        <div 
+                          className="flex items-center gap-1.5 cursor-pointer flex-1"
+                          onClick={() => setExpandedArrays(prev => ({ ...prev, [arrNum]: !prev[arrNum] }))}
+                        >
+                          <ChevronDown size={11} className={`text-prizm-text-muted transition-transform ${isExpanded ? "transform rotate-0" : "transform -rotate-90"}`} />
+                          <span className="text-[9.5px] font-mono font-bold text-white uppercase">
+                            Array {arrNum} <span className="text-[8px] text-prizm-text-muted font-normal">({selectedInArray.length}/{targetsInArray.length})</span>
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (allSelectedInArray) {
+                                setSelectedIps(prev => prev.filter(ip => !arrayIps.includes(ip)));
+                              } else {
+                                setSelectedIps(prev => Array.from(new Set([...prev, ...arrayIps])));
+                              }
+                            }}
+                            className="px-1.5 py-0.5 text-[8px] font-mono rounded bg-prizm-primary/10 hover:bg-prizm-primary/25 text-prizm-primary border border-prizm-primary/30 font-bold"
+                          >
+                            {allSelectedInArray ? "Unselect" : "Select Array"}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {t.isCollectionSegment && <span className="text-[7.5px] font-bold bg-cyan-900 border border-cyan-700/60 px-1 rounded text-cyan-300">COL</span>}
-                        <span className={`w-1.5 h-1.5 rounded-full ${t.reachable ? "bg-green-400 animate-pulse" : "bg-prizm-danger"}`} />
-                      </div>
+
+                      {/* Accordion Body */}
+                      {isExpanded && (
+                        <div className="divide-y divide-prizm-border/10 bg-prizm-bg/30">
+                          {targetsInArray.map(t => {
+                            const check = selectedIps.includes(t.ip);
+                            const parsed = normalizeIpToEquipmentCallout(t.ip);
+                            return (
+                              <div
+                                key={t.ip}
+                                onClick={() => {
+                                  setSelectedIps(prev => prev.includes(t.ip) ? prev.filter(ip => ip !== t.ip) : [...prev, t.ip]);
+                                }}
+                                className={`p-1.5 flex items-center justify-between text-[10px] font-mono cursor-pointer transition-colors ${
+                                  check ? "bg-prizm-primary/15 hover:bg-prizm-primary/20" : "hover:bg-prizm-surface-strong/60"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <input type="checkbox" checked={check} onChange={() => {}} className="accent-prizm-primary pointer-events-none scale-75" />
+                                  <span className={`font-semibold ${check ? "text-prizm-primary" : "text-white"}`}>{parsed.label}</span>
+                                  <span className="text-[8.5px] text-prizm-text-muted">({t.ip})</span>
+                                </div>
+                                <span className={`w-1.5 h-1.5 rounded-full ${t.reachable ? "bg-green-400 animate-pulse" : "bg-prizm-danger"}`} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })
               )}
             </div>
 
-            {/* Selection summary */}
-            <div className="bg-prizm-bg/50 p-2 border border-prizm-border/60 rounded text-[10px] font-mono leading-tight">
-              <span className="text-prizm-text-muted uppercase text-[9px] block mb-1">Active Target Nodes Set ({selectedIps.length})</span>
-              {selectedIps.length === 0 ? (
-                <span className="text-prizm-danger/90 font-bold uppercase">No target gateways selected! Deploy blocked.</span>
-              ) : selectedIps.length <= 8 ? (
-                <div className="flex flex-wrap gap-1">
-                  {selectedIps.map(ip => <span key={ip} className="bg-prizm-surface border border-prizm-border px-1 rounded text-[9.5px] text-white">{ip}</span>)}
-                </div>
+            {/* ACTIVE SIMULATIONS SCANNER */}
+            <div className="p-3 bg-prizm-bg/90 border border-prizm-border/60 rounded space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                  <Activity size={12} className="text-prizm-primary" />
+                  Active Sim Scanner
+                </span>
+                <button
+                  type="button"
+                  onClick={handleActiveScan}
+                  disabled={isScanningActive}
+                  className="px-2 py-0.5 text-[9px] font-mono bg-prizm-primary hover:bg-prizm-primary/80 text-black font-black uppercase rounded flex items-center gap-1 transition shadow font-sans"
+                >
+                  {isScanningActive ? <RefreshCw className="animate-spin" size={10} /> : null}
+                  Scan Active Simulations
+                </button>
+              </div>
+
+              {scannedAtLeastOnce ? (
+                scannedActive.length === 0 ? (
+                  <div className="p-2 border border-dashed border-prizm-border/40 rounded text-center text-[10px] uppercase text-prizm-text-muted font-mono leading-tight bg-black/10">
+                    No active simulations detected across reachable targets.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[120px] overflow-y-auto no-scrollbar">
+                    <div className="text-[10px] text-white flex justify-between font-mono items-center">
+                      <span>Active Simulations Found: <strong className="text-yellow-400">{scannedActive.length}</strong></span>
+                      <button 
+                        type="button"
+                        onClick={() => setSelectedIps(scannedActive.map(sa => sa.ip))} 
+                        className="text-[9px] underline text-prizm-primary uppercase hover:text-white font-bold"
+                      >
+                        Select All Active
+                      </button>
+                    </div>
+                    {/* List grouped by array */}
+                    {Array.from(new Set(scannedActive.map(sa => sa.arrayIndex ?? 1))).sort().map(arrIdx => {
+                      const activesInArray = scannedActive.filter(sa => (sa.arrayIndex ?? 1) === arrIdx);
+                      return (
+                        <div key={arrIdx} className="bg-prizm-surface-strong/40 p-1.5 rounded border border-prizm-border/40 text-[9px] font-mono space-y-1">
+                          <span className="text-white font-bold block uppercase truncate">Array {arrIdx}</span>
+                          <div className="divide-y divide-prizm-border/10 space-y-1">
+                            {activesInArray.map(sa => {
+                              const callout = normalizeIpToEquipmentCallout(sa.ip);
+                              const selectCheck = selectedIps.includes(sa.ip);
+                              return (
+                                <div key={sa.ip} className="flex justify-between items-center py-0.5 text-prizm-text leading-tight">
+                                  <div className="flex items-center gap-1.5 truncate">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={selectCheck} 
+                                      onChange={() => setSelectedIps(prev => prev.includes(sa.ip) ? prev.filter(ip => ip !== sa.ip) : [...prev, sa.ip])} 
+                                      className="scale-75 accent-prizm-primary cursor-pointer pointer-events-auto"
+                                    />
+                                    <span className="text-white font-bold">{callout.label}</span>
+                                    <span className="text-prizm-text-muted">({sa.ip})</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-cyan-400 font-bold uppercase">{sa.mode}</span>
+                                    <span className={`px-1 py-0.1 select-none text-[8px] rounded border ${
+                                      sa.status === "PASS" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
+                                    }`}>
+                                      {sa.status || "MONITOR"}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : (
-                <div className="flex justify-between items-center text-white">
-                  <span>Selected count: <strong className="text-yellow-400 font-bold">{selectedIps.length} target IPs</strong></span>
-                  <button onClick={() => setSelectedIps([])} className="text-[9px] underline text-prizm-danger font-bold hover:text-white">Clear List</button>
+                <div className="p-2 border border-dashed border-prizm-border/30 rounded text-center text-[9.5px] uppercase text-prizm-text-muted font-mono bg-black/10">
+                  Click Scan Active to identify live simulations on site
+                </div>
+              )}
+
+              {/* Scanner Global Quick Buttons */}
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={clearSelectedActive}
+                  disabled={selectedIps.length === 0}
+                  className="py-1 text-[8.5px] font-mono border border-prizm-danger/30 bg-prizm-danger/5 hover:bg-prizm-danger/15 text-prizm-danger uppercase font-bold rounded disabled:opacity-40 transition"
+                >
+                  Clear Selected Active
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAllActive}
+                  className="py-1 text-[8.5px] font-mono border border-prizm-danger/40 bg-prizm-danger/10 hover:bg-prizm-danger/25 text-prizm-danger uppercase font-bold rounded transition"
+                >
+                  Clear All Active
+                </button>
+              </div>
+            </div>
+
+            {/* Sticky Bottom Selected Summary */}
+            <div className="bg-prizm-bg/90 p-2 border border-prizm-border/60 rounded text-[10px] font-mono leading-tight sticky bottom-0 z-10 bg-prizm-surface shadow-inner space-y-1 bg-neutral-900 border-l-4 border-l-prizm-primary">
+              <div className="flex justify-between items-center">
+                <span className="text-prizm-text::muted uppercase text-[8.5px] font-bold text-prizm-text-muted tracking-tight">Active Target Nodes Set ({selectedIps.length})</span>
+                {selectedIps.length > 0 && (
+                  <button onClick={() => setSelectedIps([])} className="text-[8.5px] underline text-prizm-danger font-bold hover:text-white uppercase transition">
+                    Clear Selection
+                  </button>
+                )}
+              </div>
+              {selectedIps.length === 0 ? (
+                <span className="text-[#EF4444] font-bold uppercase block text-center py-1 text-[9.5px] tracking-tight">
+                  Select an array, target, or scan active simulations to begin.
+                </span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1 pt-1">
+                  {selectedIps.slice(0, 4).map(ip => {
+                    const parsed = normalizeIpToEquipmentCallout(ip);
+                    return (
+                      <span key={ip} className="bg-prizm-surface border border-prizm-border px-1.5 py-0.5 rounded text-[8.5px] text-white">
+                        {parsed.label}
+                      </span>
+                    );
+                  })}
+                  {selectedIps.length > 4 && (
+                    <span className="text-[8.5px] text-yellow-400 font-bold ml-1">
+                      +{selectedIps.length - 4} more
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -731,7 +997,7 @@ export default function HvacSimulationDashboard() {
               </h2>
             </div>
 
-            {/* Grid of action cards/tiles */}
+            {/* Grid of action cards/tiles with highly readable neutral backgrounds */}
             <div className="grid grid-cols-2 gap-2">
               {SIM_MODES.map(modeItem => {
                 const active = selectedMode === modeItem.id;
@@ -742,8 +1008,8 @@ export default function HvacSimulationDashboard() {
                     onClick={() => setSelectedMode(modeItem.id as HvacSimulationMode)}
                     className={`p-2.5 rounded border text-left cursor-pointer transition-all flex flex-col justify-between relative ${
                       active
-                        ? "bg-prizm-primary/10 border-prizm-primary shadow-sm"
-                        : "bg-prizm-bg/60 border-prizm-border/40 hover:bg-prizm-surface"
+                        ? "bg-[#1E293B] border-prizm-primary border-2 shadow-md ring-1 ring-prizm-primary/30"
+                        : "bg-[#0F172A]/70 border-prizm-border/40 hover:bg-[#1E293B]/70"
                     }`}
                   >
                     {isSpecial && (
@@ -752,19 +1018,24 @@ export default function HvacSimulationDashboard() {
                       </span>
                     )}
                     <div>
-                      <span className={`block text-[11px] font-bold font-mono ${active ? "text-prizm-primary" : "text-white"}`}>
-                        {modeItem.label}
-                      </span>
-                      <span className="block text-[9px] text-prizm-text-muted mt-0.5 leading-snug font-light">
+                      <div className="flex items-center gap-1">
+                        <span className={`block text-[11px] font-bold font-mono leading-tight ${active ? "text-prizm-primary" : "text-white"}`}>
+                          {modeItem.label}
+                        </span>
+                        {active && (
+                          <span className="text-[7.5px] font-black uppercase text-prizm-primary bg-prizm-primary/10 border border-prizm-primary/30 px-1 rounded leading-none select-none">ACTIVE</span>
+                        )}
+                      </div>
+                      <span className="block text-[9px] text-prizm-text-muted mt-1 leading-snug font-light">
                         {modeItem.desc}
                       </span>
                     </div>
 
-                    <div className="mt-2 pt-1 border-t border-prizm-border/20 flex items-center justify-between">
+                    <div className="mt-2.5 pt-1.5 border-t border-prizm-border/20 flex items-center justify-between">
                       <span className="text-[8px] text-prizm-text-muted tracking-tight font-mono whitespace-nowrap block truncate max-w-full">
                         {modeItem.threshold}
                       </span>
-                      <span className={`w-1 h-1 rounded-full ${active ? "bg-prizm-primary" : "bg-transparent"}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-prizm-primary" : "bg-transparent"}`} />
                     </div>
                   </div>
                 );
@@ -1008,74 +1279,97 @@ export default function HvacSimulationDashboard() {
         {/* RIGHT METRICS & RESULTS INTERACTIVE LAYOUT (65%) */}
         <main className="lg:col-span-8 space-y-6">
           
-          {/* STEP 4: DEPLOY / CLEAR COMMAND CARD */}
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 shadow-md flex flex-col md:flex-row items-stretch md:items-center justify-between gap-5 relative overflow-hidden">
-            <div className="space-y-1.5 flex-1 relative z-10">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-ping" />
-                <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-widest block">
-                  Step 4: Deploy & Override Controller Limits
-                </span>
-              </div>
-              
-              <h3 className="text-base font-bold text-white uppercase font-mono tracking-tight">
-                Ready to Command: <span className="text-prizm-primary">{currentModeConfig.label}</span>
-              </h3>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-[10.5px] font-mono leading-relaxed text-prizm-text-muted">
-                <div>
-                  Targets Selected: <span className="text-white font-bold">{selectedIps.length} units</span>
-                </div>
-                <div>
-                  Runtime Duration: <span className="text-white font-bold">{timeoutMinutes} mins</span>
-                </div>
-                <div>
-                  Immediate Probe Verification: <span className="text-white font-bold">{verifyAfterApply ? "ACTIVE" : "BYPASSED"}</span>
-                </div>
-                <div>
-                  Expected Response: <span className="text-cyan-400 font-bold block truncate max-w-[200px]" title={currentModeConfig.expected}>
-                    {currentModeConfig.expected}
-                  </span>
-                </div>
-              </div>
+          {/* STEP 4: DEPLOY / CLEAR COMMAND CARD & DEPLOYMENT REVIEW PANEL */}
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 shadow-md space-y-4 relative overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-prizm-border/40 pb-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-ping" />
+              <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-widest block">
+                Step 4: Deployment Safety Review & Execute Commands
+              </span>
             </div>
 
-            {/* Run Action triggers */}
-            <div className="flex flex-row md:flex-col gap-2 w-full md:w-auto relative z-10 sm:min-w-[190px]">
-              <button
-                onClick={() => {
-                  if (selectedIps.length === 0) {
-                    setErrorMsg("You must select at least one target gateway node first to deploy simulation.");
-                    return;
-                  }
-                  setErrorMsg(null);
-                  setSuccessMsg(null);
-                  setShowConfirmModal(true);
-                }}
-                disabled={isApplying || selectedIps.length === 0}
-                className="flex-1 py-2.5 px-4 bg-green-500 hover:bg-green-600 text-black font-black font-mono text-xs uppercase rounded tracking-wider flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow"
-              >
-                {isApplying ? <RefreshCw className="animate-spin" size={13} /> : <Play size={13} />}
-                Deploy Simulation
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+              <div className="md:col-span-8 space-y-2 font-mono">
+                <h3 className="text-base font-bold text-white uppercase tracking-tight">
+                  Configured Mode: <span className="text-prizm-primary">{currentModeConfig.label}</span>
+                </h3>
 
-              <button
-                onClick={handleClearAllSimulation}
-                disabled={isApplying || selectedIps.length === 0}
-                className="flex-1 py-1.5 px-4 bg-prizm-bg border border-prizm-danger hover:bg-prizm-danger/10 text-prizm-danger font-bold font-mono text-[10.5px] uppercase rounded tracking-wider flex items-center justify-center gap-1.5 transition active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                <Trash2 size={12} />
-                Clear Overrides
-              </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[10.5px] leading-relaxed text-prizm-text-muted">
+                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
+                    Targets Selected: <span className="text-white font-bold block text-xs mt-0.5">{selectedIps.length} units</span>
+                  </div>
+                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
+                    Concurrency Blocks: <span className="text-yellow-400 font-bold block text-xs mt-0.5">{selectedIps.length > 0 ? Math.ceil(selectedIps.length / concurrency) : 0} batches <span className="text-[9px] text-prizm-text-muted font-normal">(size {concurrency})</span></span>
+                  </div>
+                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
+                    Runtime Duration: <span className="text-white font-bold block text-xs mt-0.5">{timeoutMinutes} mins</span>
+                  </div>
+                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
+                    Live Probe Verify: <span className="text-green-400 font-bold block text-xs mt-0.5">{verifyAfterApply ? "ACTIVE (ENABLED)" : "BYPASSED"}</span>
+                  </div>
+                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20 col-span-2">
+                    Min Load Thresholds: <span className="text-cyan-400 font-bold block text-xs mt-0.5">Compressor: {compressorCurrentMinA}A | Fan: {fanCurrentMinA}A</span>
+                  </div>
+                </div>
 
-              <div className="hidden sm:flex gap-1 text-[9px] font-mono">
-                <button 
-                  onClick={() => executeVerifyFetch()} 
-                  disabled={selectedIps.length === 0}
-                  className="flex-1 py-1 bg-[#1F2937] hover:bg-black/30 border border-prizm-border rounded text-center uppercase tracking-tighter"
+                <div className="text-[10px] text-prizm-text-muted pt-1">
+                  Expected Response: <span className="text-white bg-black/30 px-1.5 py-0.5 rounded border border-prizm-border/20 inline-block font-mono mt-1 max-w-full truncate">{currentModeConfig.expected}</span>
+                </div>
+              </div>
+
+              {/* Action triggers with explicit Deploy & Cancel buttons */}
+              <div className="md:col-span-4 flex flex-col gap-2 relative z-10 sm:min-w-[190px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedIps.length === 0) {
+                      setErrorMsg("You must select at least one target gateway node first to deploy simulation.");
+                      return;
+                    }
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                    setShowConfirmModal(true);
+                  }}
+                  disabled={isApplying || selectedIps.length === 0}
+                  className="w-full py-2.5 px-4 bg-green-500 hover:bg-green-600 text-black font-black font-mono text-xs uppercase rounded tracking-wider flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow animate-pulse"
                 >
-                  Recall Report
+                  {isApplying ? <RefreshCw className="animate-spin" size={13} /> : <Play size={13} />}
+                  Deploy Simulation
                 </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedIps([]);
+                      setSuccessMsg("Safely cancelled and cleared active selection.");
+                    }}
+                    disabled={selectedIps.length === 0}
+                    className="py-1.5 px-2 bg-prizm-bg border border-prizm-border hover:bg-white/5 text-white font-mono text-[9.5px] uppercase rounded tracking-wider transition disabled:opacity-45"
+                  >
+                    Cancel Select
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClearAllSimulation}
+                    disabled={isApplying || selectedIps.length === 0}
+                    className="py-1.5 px-2 bg-prizm-bg border border-prizm-danger hover:bg-prizm-danger/10 text-prizm-danger font-mono text-[9.5px] uppercase rounded tracking-wider transition disabled:opacity-45"
+                  >
+                    Clear Active
+                  </button>
+                </div>
+
+                <div className="hidden sm:flex gap-1 text-[9px] font-mono">
+                  <button 
+                    type="button"
+                    onClick={() => executeVerifyFetch()} 
+                    disabled={selectedIps.length === 0}
+                    className="flex-1 py-1 bg-[#1F2937] hover:bg-black/30 border border-prizm-border rounded text-center uppercase tracking-tighter"
+                  >
+                    Recall Report
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1176,7 +1470,7 @@ export default function HvacSimulationDashboard() {
             </div>
 
             {/* REAL-TIME CHARTS PANEL */}
-            {selectedIps.length > 0 && (
+            {selectedIps.length > 0 ? (
               <div className="bg-prizm-bg p-3 border border-prizm-border/80 rounded-lg space-y-3">
                 <div className="flex items-center justify-between pb-1.5 border-b border-prizm-border/40 font-mono text-[10.5px]">
                   <div className="flex items-center gap-1.5">
@@ -1192,7 +1486,7 @@ export default function HvacSimulationDashboard() {
                     <select
                       value={graphingIp}
                       onChange={e => setGraphingIp(e.target.value)}
-                      className="bg-prizm-surface border border-prizm-border text-white text-[10px] font-mono rounded px-1.5 cursor-pointer"
+                      className="bg-prizm-surface border border-prizm-border text-white text-[10px] font-mono rounded px-1.5 cursor-pointer font-sans"
                     >
                       <option value="aggregate">★ ALL SELECTED (AGGREGATE)</option>
                       {selectedIps.map(ip => <option key={ip} value={ip}>{ip}</option>)}
@@ -1251,6 +1545,32 @@ export default function HvacSimulationDashboard() {
 
                   </div>
                 )}
+              </div>
+            ) : (
+              <div className="bg-prizm-bg p-5 border border-dashed border-prizm-border/60 rounded-lg text-center space-y-3 font-mono">
+                <div className="max-w-md mx-auto space-y-2">
+                  <TrendingUp className="text-prizm-text-muted mx-auto opacity-40 animate-pulse" size={32} />
+                  <h4 className="text-white text-xs uppercase font-bold tracking-wider">No Target Units Selected for Tracing</h4>
+                  <p className="text-[10px] text-prizm-text-muted leading-relaxed">
+                    Select equipment units or initiate a live passive scanning process to trace telemetry trends.
+                  </p>
+                  
+                  {/* Visual workflow timeline guide */}
+                  <div className="grid grid-cols-3 gap-2.5 pt-3.5 border-t border-prizm-border/20 text-left text-[9px] leading-tight">
+                    <div className="space-y-1">
+                      <span className="text-prizm-primary font-black block">01. IDENTIFY</span>
+                      <span className="text-prizm-text-muted block">Select targets or scan active live controllers in Step 1.</span>
+                    </div>
+                    <div className="space-y-1 border-l border-prizm-border/20 pl-2">
+                      <span className="text-prizm-primary font-black block">02. OVERRIDE</span>
+                      <span className="text-prizm-text-muted block">Select simulation mode and define runtime duration limits.</span>
+                    </div>
+                    <div className="space-y-1 border-l border-prizm-border/20 pl-2">
+                      <span className="text-prizm-primary font-black block">03. REVISE</span>
+                      <span className="text-prizm-text-muted block">Deploy simulation. Check real-time load/temperature patterns.</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
