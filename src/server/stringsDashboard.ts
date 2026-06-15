@@ -15,6 +15,7 @@ import { ProfileStore } from "./profiles/profileStore";
 import * as prizmCache from "./cache/prizmCache";
 import * as prizmHistory from "./history/prizmHistory";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } from "../lib/bessStatusCodes";
+import { classifyStringOperationalState } from "../lib/stringClassifier";
 
 const router = Router();
 
@@ -131,6 +132,7 @@ router.get("/", async (req, res) => {
         let warningStrings = 0;
         let alarmStrings = 0;
         let offlineStrings = 0;
+        let nearlineStrings = 0;
         let totalBpcs = 0;
         let knownBpcCount = 0;
         let warningBpcs = 0;
@@ -381,17 +383,25 @@ router.get("/", async (req, res) => {
             if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
             else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
 
-            let operationalState = "UNKNOWN";
-            if (row.StringConnectionState === "OFFLINE") operationalState = "OFFLINE";
-            else if (isOnline === false) operationalState = "OFFLINE";
-            else if (alarmCount > 0) operationalState = "ALARM";
-            else if (warningCount > 0) operationalState = "WARNING";
-            else if (isOnline === true || row.StringConnectionState === "ONLINE" || row.StringConnectionState === "NORMAL") operationalState = "NORMAL";
+            const classification = classifyStringOperationalState(row);
+            let operationalState = "OFFLINE";
+            if (classification.state === "online") {
+                if (alarmCount > 0) operationalState = "ALARM";
+                else if (warningCount > 0) operationalState = "WARNING";
+                else operationalState = "NORMAL";
+            } else if (classification.state === "nearline") {
+                if (alarmCount > 0) operationalState = "ALARM";
+                else if (warningCount > 0) operationalState = "WARNING";
+                else operationalState = "NEARLINE";
+            } else {
+                operationalState = "OFFLINE";
+            }
             
             if (operationalState === "NORMAL") normalStrings++;
             if (operationalState === "WARNING") warningStrings++;
             if (operationalState === "ALARM") alarmStrings++;
             if (operationalState === "OFFLINE") offlineStrings++;
+            if (operationalState === "NEARLINE") nearlineStrings++;
 
              if (minCellVoltage !== null) {
                  if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
@@ -523,6 +533,7 @@ router.get("/", async (req, res) => {
                 totalStrings: strings.length > 0 ? strings.length : 320,
                 normal: normalStrings,
                 offline: offlineStrings,
+                nearline: nearlineStrings,
                 warnings: gWarnCount,
                 alarms: gAlarmCount,
                 totalBpcs: totalBpcs || knownBpcCount,
@@ -537,6 +548,7 @@ router.get("/", async (req, res) => {
                 totalStrings: strings.length > 0 ? strings.length : 320,
                 normal: normalStrings,
                 offline: offlineStrings,
+                nearline: nearlineStrings,
                 warnings: gWarnCount,
                 alarms: gAlarmCount,
                 totalBpcs: totalBpcs || knownBpcCount,
@@ -551,13 +563,14 @@ router.get("/", async (req, res) => {
             arrayCount: new Set(strings.map(s => s.arrayNumber)).size,
             normal: normalStrings,
             offline: offlineStrings,
+            nearline: nearlineStrings,
             warnings: gWarnCount,
             alarms: gAlarmCount,
             totalBpcs: totalBpcs || knownBpcCount,
             summary: {
                 totalArrays: new Set(strings.map(s => s.arrayNumber)).size,
                 totalStrings,
-                normalStrings, warningStrings, alarmStrings, offlineStrings,
+                normalStrings, warningStrings, alarmStrings, offlineStrings, nearlineStrings,
                 totalBpcs, warningBpcs, alarmBpcs,
                 minCellVoltage: gMinV, maxCellVoltage: gMaxV, avgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
                 maxCellVoltageDelta: gMaxVDelta,

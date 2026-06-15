@@ -550,33 +550,118 @@ export default function SiteOperationsDashboard({
           </div>
         </div>
 
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between group relative">
           <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <Zap size={14} className="text-prizm-primary" /> Fleet Capacity
+            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center justify-between border-b border-prizm-border pb-2">
+              <span className="flex items-center gap-2">
+                <Zap size={14} className="text-prizm-primary" /> Fleet Capacity
+              </span>
+              <span className="text-prizm-text-muted group-hover:text-prizm-text cursor-help font-mono text-[9px] border border-prizm-border px-1 rounded transition-colors">
+                HOVER BREAKDOWN
+              </span>
             </h3>
-            <div className="flex items-end gap-2 mt-4">
-              <div className="text-2xl font-bold text-prizm-text font-mono">
-                {((rollups?.onlineAvailableKWh || 0) / 1000).toFixed(2)}
-                <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
-              </div>
+
+            {/* Hover Tooltip Popup panel */}
+            {(() => {
+              const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+              const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
+              return (
+                <div className="absolute hidden group-hover:block bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-50 text-[11px] font-mono space-y-2">
+                  <div className="font-bold border-b border-slate-700 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                    Installed Capacity (MWh)
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-1">
+                    <span>Total:</span>
+                    <span className="text-right font-bold">{formatVal(fc?.installedCapacityKWh)}</span>
+                    <span className="text-emerald-400">● Online:</span>
+                    <span className="text-right">{formatVal(fc?.onlineInstalledKWh)}</span>
+                    <span className="text-blue-400">● Nearline:</span>
+                    <span className="text-right">{formatVal(fc?.nearlineInstalledKWh)}</span>
+                    <span className="text-rose-400">● Offline/Unavail:</span>
+                    <span className="text-right">{formatVal(fc?.unavailableInstalledKWh)}</span>
+                  </div>
+                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                    Stored Energy (MWh)
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-1">
+                    <span>Available:</span>
+                    <span className="text-right font-bold">{formatVal(fc?.availableStoredKWh)}</span>
+                    <span className="text-emerald-400">Online:</span>
+                    <span className="text-right">{formatVal(fc?.onlineStoredKWh)}</span>
+                    <span className="text-blue-400">Nearline:</span>
+                    <span className="text-right">{formatVal(fc?.nearlineStoredKWh)}</span>
+                    <span className="text-amber-400">Offline:</span>
+                    <span className="text-right">{formatVal(fc?.offlineStoredKWh)}</span>
+                    <span className="text-rose-400">No Comm:</span>
+                    <span className="text-right">{formatVal(fc?.notCommunicatingStoredKWh)}</span>
+                  </div>
+                  {fc?.installedCapacityKWh == null && (
+                    <div className="text-[9px] text-amber-300 pt-1 border-t border-slate-800 text-center font-sans italic">
+                      Installed capacity not mapped
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex flex-col mt-4">
+              {(() => {
+                const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+                const headlineKWh = fc?.installedCapacityKWh ?? rollups?.onlineAvailableKWh;
+                const formatMWh = (v: number | null | undefined): string => {
+                  if (v == null) return "--";
+                  return (v / 1000).toFixed(2);
+                };
+                return (
+                  <>
+                    <div className="text-2xl font-bold text-prizm-text font-mono">
+                      {formatMWh(headlineKWh)}
+                      <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                    </div>
+                    {fc?.installedCapacityKWh == null && (
+                      <div className="text-[10px] text-amber-500 font-sans italic mt-1">
+                        Installed capacity not mapped
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
           <div>
-            <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono flex justify-between">
-              <span className="text-prizm-text-muted">Charge Lim:</span>{" "}
-              <span className="text-emerald-400 font-bold">
-                {((rollups.availableChargeKW || 0) / 1000).toFixed(2)}{" "}
-                <span className="text-[9px]">MW</span>
-              </span>
-            </div>
-            <div className="mt-1 flex justify-between text-[11px] font-mono">
-              <span className="text-prizm-text-muted">Discharge Lim:</span>{" "}
-              <span className="text-emerald-400 font-bold">
-                {((rollups.availableDischargeKW || 0) / 1000).toFixed(2)}{" "}
-                <span className="text-[9px]">MW</span>
-              </span>
-            </div>
+            {(() => {
+              const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+              const formatMWh = (v: number | null | undefined): string => {
+                if (v == null) return "--";
+                return (v / 1000).toFixed(2);
+              };
+              const formatPct = (v: number | null | undefined): string => {
+                if (v == null) return "--";
+                return v.toFixed(1);
+              };
+
+              const storedVal = fc?.availableStoredKWh ?? rollups?.onlineAvailableKWh;
+              const socVal = sum?.bessFleetSummary?.systemSocPct ?? rollups?.averageSoc;
+              const chargeVal = fc?.availableChargeKW ?? rollups?.availableChargeKW;
+              const dischargeVal = fc?.availableDischargeKW ?? rollups?.availableDischargeKW;
+
+              return (
+                <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-prizm-text-muted">Stored:</span>
+                    <span className="text-prizm-text font-bold">
+                      {formatMWh(storedVal)} MWh ({formatPct(socVal)}%)
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-prizm-text-muted">Limits:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {formatMWh(chargeVal)} / {formatMWh(dischargeVal)} MW
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 

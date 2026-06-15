@@ -2,6 +2,7 @@ import { getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo
 import { getFeatherCache } from "../feather/featherClient";
 import { ProfileStore } from "../profiles/profileStore";
 import { describeBessStatusCode } from "../../lib/bessStatusCodes";
+import { classifyStringOperationalState } from "../../lib/stringClassifier";
 
 export type StringAvailabilityClass = "online" | "nearline" | "offline";
 
@@ -12,12 +13,15 @@ export interface StringClassificationInput {
 }
 
 export function classifyStringAvailability(input: StringClassificationInput): StringAvailabilityClass {
-  if (input.communicating === false) return "offline";
-  if (input.inRotation === false) return "offline";
-  if (input.communicating === true && input.inRotation === true) {
-    if (input.contactorsClosed === true) return "online";
-    return "nearline";
-  }
+  const result = classifyStringOperationalState({
+    communicating: input.communicating,
+    inRotation: input.inRotation,
+    outRotation: input.inRotation === false,
+    positiveContactorClosed: input.contactorsClosed,
+    negativeContactorClosed: input.contactorsClosed
+  });
+  if (result.state === "online") return "online";
+  if (result.state === "nearline") return "nearline";
   return "offline";
 }
 

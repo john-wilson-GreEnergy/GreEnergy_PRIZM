@@ -14,6 +14,7 @@ import {
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
+import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
 
@@ -126,6 +127,7 @@ export type NormalizedStringRow = {
   tempDeltaC: number | null;
   warningCount: number;
   alarmCount: number;
+  wattHourCapacity?: number | null;
   raw: any;
 };
 
@@ -150,25 +152,13 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
         const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber);
         const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber);
-        const connectionState = String(row.StringConnectionState ?? row.stringConnectionState ?? row.connectionState ?? '').toUpperCase();
-        const outRotation = bool(row.OutRotation ?? row.outRotation ?? row.outOfRotation);
-        const posClosed = bool(row.PositiveContactorClosed ?? row.positiveContactorClosed);
-        const negClosed = bool(row.NegativeContactorClosed ?? row.negativeContactorClosed);
-        const contactorsClosed = posClosed && negClosed;
-
-        let bucket: 'online' | 'nearline' | 'offline' | 'notCommunicating' = 'offline';
-        const inRotation = !outRotation;
-        const commFalse = row.communicating === false || row.lossComms || row.LossComms;
-        const communicating = !(connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM') || commFalse);
         
-        const availabilityClass = classifyStringAvailability({ communicating, inRotation, contactorsClosed });
-        if (availabilityClass === 'online') {
-            bucket = 'online';
-        } else if (availabilityClass === 'nearline') {
-            bucket = 'nearline';
-        } else {
-            bucket = communicating ? 'offline' : 'notCommunicating';
-        }
+        // Use the unified shared classifier!
+        const classification = classifyStringOperationalState(row);
+        const bucket = classification.bucket;
+        const outRotation = !classification.inRotation;
+        const contactorsClosed = classification.contactorsClosed;
+        const communicating = classification.communicating;
 
         const socPct = num(row.Soc ?? row.soc);
         const kWh = num(row.KWh ?? row.kWh);
@@ -184,12 +174,14 @@ export function buildStringBucketSummary(stringsData: any[]) {
         if (minTempRaw !== null && Math.abs(minTempRaw) > 100) minTempRaw = minTempRaw / 10;
         if (avgTempRaw !== null && Math.abs(avgTempRaw) > 100) avgTempRaw = avgTempRaw / 10;
 
+        const wattHourCapacity = num(row.wattHourCapacity ?? row.WattHourCapacity ?? row.watt_hour_capacity ?? row.Watt_Hour_Capacity ?? row.CapacityWh ?? row.capacityWh ?? row.CapacityWH ?? row.capacityWH ?? null);
+
         return {
             ...row,
             arrayNumber,
             stringNumber,
             bucket,
-            communicating: bucket !== 'notCommunicating',
+            communicating,
             inRotation: !outRotation,
             contactorsClosed,
             socPct,
@@ -204,7 +196,8 @@ export function buildStringBucketSummary(stringsData: any[]) {
             avgTempC: avgTempRaw,
             tempDeltaC: (maxTempRaw !== null && minTempRaw !== null) ? maxTempRaw - minTempRaw : null,
             warningCount: num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? 0),
-            alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0)
+            alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0),
+            wattHourCapacity
         };
     });
 
@@ -831,6 +824,120 @@ export async function buildSiteOperationsSummaryFromCache() {
              });
         }
 
+        // Part H - Fleet Capacity rollups and dedicated fleetCapacity object
+        let validInstalledCount = 0;
+        let totalInstalledWh = 0;
+        let onlineInstalledWh = 0;
+        let nearlineInstalledWh = 0;
+        let offlineInstalledWh = 0;
+        let unavailableInstalledWh = 0;
+
+        let onlineStoredWh = 0;
+        let nearlineStoredWh = 0;
+        let offlineStoredWh = 0;
+        let notCommunicatingStoredWh = 0;
+        let hasValidStored = false;
+
+        stringSummary.tableRows.forEach((r: any) => {
+            const whCap = numOrNull(r.wattHourCapacity ?? r.raw?.wattHourCapacity ?? r.raw?.WattHourCapacity ?? r.raw?.watt_hour_capacity ?? r.raw?.CapacityWh ?? null);
+            if (whCap !== null) {
+                validInstalledCount++;
+                totalInstalledWh += whCap;
+                if (r.bucket === 'online') {
+                    onlineInstalledWh += whCap;
+                } else if (r.bucket === 'nearline') {
+                    nearlineInstalledWh += whCap;
+                } else if (r.bucket === 'offline') {
+                    offlineInstalledWh += whCap;
+                    unavailableInstalledWh += whCap;
+                } else if (r.bucket === 'notCommunicating') {
+                    unavailableInstalledWh += whCap;
+                }
+            }
+
+            const cellSoc = numOrNull(r.socPct ?? r.raw?.Soc ?? r.raw?.soc ?? null);
+            let stringKWh: number | null = numOrNull(r.kWh ?? r.raw?.KWh ?? r.raw?.kWh ?? null);
+            if (stringKWh === null && cellSoc !== null) {
+                const capWh = whCap ?? 371250;
+                stringKWh = (cellSoc / 100) * (capWh / 1000);
+            }
+
+            if (stringKWh !== null) {
+                hasValidStored = true;
+                if (r.bucket === 'online') {
+                    onlineStoredWh += stringKWh;
+                } else if (r.bucket === 'nearline') {
+                    nearlineStoredWh += stringKWh;
+                } else if (r.bucket === 'offline') {
+                    offlineStoredWh += stringKWh;
+                } else if (r.bucket === 'notCommunicating') {
+                    notCommunicatingStoredWh += stringKWh;
+                }
+            }
+        });
+
+        const installedCapacityKWh = validInstalledCount > 0 ? (totalInstalledWh / 1000) : null;
+        const onlineInstalledKWh = validInstalledCount > 0 ? (onlineInstalledWh / 1000) : null;
+        const nearlineInstalledKWh = validInstalledCount > 0 ? (nearlineInstalledWh / 1000) : null;
+        const offlineInstalledKWh = validInstalledCount > 0 ? (offlineInstalledWh / 1000) : null;
+        const unavailableInstalledKWh = validInstalledCount > 0 ? (unavailableInstalledWh / 1000) : null;
+
+        const onlineStoredKWh = hasValidStored ? onlineStoredWh : null;
+        const nearlineStoredKWh = hasValidStored ? nearlineStoredWh : null;
+        const offlineStoredKWh = hasValidStored ? offlineStoredWh : null;
+        const notCommunicatingStoredKWh = hasValidStored ? notCommunicatingStoredWh : null;
+        const availableStoredKWh = hasValidStored ? (onlineStoredWh + nearlineStoredWh) : null;
+
+        let activeChargeSum: number | null = null;
+        let activeDischargeSum: number | null = null;
+        arraySummary.forEach((arr: any) => {
+            const chg = numOrNull(arr.availableACChargekW ?? arr.raw?.availableACChargekW ?? null);
+            if (chg !== null) {
+                if (activeChargeSum === null) activeChargeSum = 0;
+                activeChargeSum += chg;
+            }
+            const dis = numOrNull(arr.availableACDischargekW ?? arr.raw?.availableACDischargekW ?? null);
+            if (dis !== null) {
+                if (activeDischargeSum === null) activeDischargeSum = 0;
+                activeDischargeSum += dis;
+            }
+        });
+
+        const availableChargeKW = numOrNull(block.availableACChargekW ?? block.availableChargeKW ?? activeChargeSum ?? null);
+        const availableDischargeKW = numOrNull(block.availableACDischargekW ?? block.availableDischargeKW ?? activeDischargeSum ?? null);
+
+        const fleetCapacity = {
+            installedCapacityKWh,
+            onlineStoredKWh,
+            nearlineStoredKWh,
+            offlineStoredKWh,
+            notCommunicatingStoredKWh,
+            availableStoredKWh,
+            onlineInstalledKWh,
+            nearlineInstalledKWh,
+            offlineInstalledKWh,
+            unavailableInstalledKWh,
+            availableChargeKW,
+            availableDischargeKW,
+            source: {
+                installedCapacity: "string.wattHourCapacity",
+                storedEnergy: "string.kWh or derived from SOC",
+                chargeLimit: "array.availableACChargekW | null",
+                dischargeLimit: "array.availableACDischargekW | null"
+            }
+        };
+
+        // Inject into stringSummary.rollups
+        if (!stringSummary.rollups) stringSummary.rollups = {};
+        stringSummary.rollups.fleetCapacity = fleetCapacity;
+        stringSummary.rollups.classificationSource = "shared-string-operational-state-v1";
+        stringSummary.rollups.capacitySource = {
+            installedCapacity: "string.wattHourCapacity",
+            storedEnergy: "string.kWh or derived from SOC",
+            chargeLimit: "array.availableACChargekW | null",
+            dischargeLimit: "array.availableACDischargekW | null"
+        };
+
         
         // Part J - Safety Summary
         let topology = block.topology || status.topology || lastCall.topology || [];
@@ -1243,6 +1350,14 @@ export async function buildSiteOperationsSummaryFromCache() {
             safetySummary,
             activeIssueGroups,
             sourceHealth,
+            fleetCapacity,
+            classificationSource: "shared-string-operational-state-v1",
+            capacitySource: {
+                installedCapacity: "string.wattHourCapacity",
+                storedEnergy: "string.kWh or derived from SOC",
+                chargeLimit: "array.availableACChargekW | null",
+                dischargeLimit: "array.availableACDischargekW | null"
+            },
             debug: {
                featherCellTempExcludedCollectionSegments,
                normalizedStringRowCount: stringSummary.tableRows.length,
