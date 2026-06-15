@@ -205,32 +205,72 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
 
 
     const triggerRefresh = (sectionRefresh = false) => {
-         const url = sectionRefresh ? "/api/local/site-operations/summary?refresh=true" : "/api/local/site-operations/summary";
-         fetchJsonWithTimeout(url, { timeoutMs: sectionRefresh ? 5000 : 3000 }).then(summaryRes => {
+         let url = "/api/local/site-operations/summary";
+         if (sectionRefresh || state.cacheStatus?.policy === 'live-only') {
+             url += "?refresh=true";
+         }
+         fetchJsonWithTimeout(url, { timeoutMs: sectionRefresh ? 20000 : 5000 }).then(summaryRes => {
              setState(prev => ({ ...prev, siteSummary: summaryRes, loading: false }));
          }).catch(err => {
-             setState(prev => ({ ...prev, loading: false }));
+             setState(prev => ({ ...prev, siteSummary: { error: err.message }, loading: false }));
          });
     };
 
     useEffect(() => {
         let unmounted = false;
+        
+        const fetchSummary = async (isFirst = false, cachePol = null) => {
+            let url = "/api/local/site-operations/summary";
+            if (cachePol === 'live-only') {
+                 url += "?refresh=true";
+            }
+            try {
+                const summaryRes = await fetchJsonWithTimeout(url, { timeoutMs: isFirst ? 25000 : 5000 });
+                if (!unmounted) setState(prev => ({ ...prev, siteSummary: summaryRes, loading: false }));
+            } catch(err: any) {
+                if (!unmounted) setState(prev => ({ ...prev, siteSummary: { error: err.message }, loading: false }));
+            }
+        };
+
         const fetchData = async () => {
-             fetchJsonWithTimeout("/api/local/site-operations/summary", { timeoutMs: 3000 }).then(summaryRes => {
-                 if (!unmounted) setState(prev => ({ ...prev, siteSummary: summaryRes, loading: false }));
-             }).catch(err => {
-                 if (!unmounted) setState(prev => ({ ...prev, loading: false }));
-             });
+             let currentPol = state.cacheStatus?.policy;
+             if (!currentPol) {
+                 const status = await fetchJsonWithTimeout("/api/local/cache/status", { timeoutMs: 1500 }).catch(()=>{});
+                 if (!unmounted && status) {
+                     setState(p => ({...p, cacheStatus: status}));
+                     currentPol = status.policy;
+                 }
+             }
+
+             await fetchSummary(true, currentPol);
 
              // Side fetches
              if (!unmounted) {
-                 fetchJsonWithTimeout("/api/local/cache/status", { timeoutMs: 1500 }).then(v => { if(!unmounted) setState(p => ({...p, cacheStatus: v}))}).catch(()=>{});
                  fetchJsonWithTimeout("/api/local/history/events?range=24h", { timeoutMs: 1500 }).then(v => { if(!unmounted) setState(p => ({...p, historyEvents: v}))}).catch(()=>{});
              }
         };
 
         fetchData();
-        const interval = setInterval(fetchData, 15000);
+        const interval = setInterval(async () => {
+            if (unmounted) return;
+            const status = await fetchJsonWithTimeout("/api/local/cache/status", { timeoutMs: 1500 }).catch(()=>{});
+            if (!unmounted && status) {
+                 setState(p => ({...p, cacheStatus: status}));
+                 let url = "/api/local/site-operations/summary";
+                 if (status.policy === 'live-only') {
+                     url += "?refresh=true";
+                 }
+                 try {
+                     const summaryRes = await fetchJsonWithTimeout(url, { timeoutMs: 5000 });
+                     if (!unmounted) {
+                         // Only clear error if we succeeded
+                         setState(prev => ({ ...prev, siteSummary: summaryRes }));
+                     }
+                 } catch(err) {
+                      // Do not overwrite with error on background polling failure, just let it ride
+                 }
+            }
+        }, 15000);
         return () => {
             unmounted = true;
             clearInterval(interval);
@@ -240,12 +280,35 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     
 
     const sum = state.siteSummary;
+
+    if (state.loading && !sum) {
+         return <div className="p-6 text-prizm-text uppercase tracking-widest font-mono text-sm animate-pulse">Loading Site Operations Summary...</div>;
+    }
+
+    if (sum?.error) {
+         return (
+              <div className="flex-1 flex flex-col items-center justify-center p-10 mt-10">
+                   <div className="bg-prizm-surface-strong border border-prizm-danger shadow-xl p-6 rounded-lg text-center max-w-md">
+                        <TriangleAlert size={48} className="text-prizm-danger mx-auto mb-4 opacity-80" />
+                        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-wide">Summary Unavailable</h2>
+                        <p className="text-prizm-text-muted mb-6 font-mono text-[11px]">{sum.error}</p>
+                        <button 
+                             onClick={() => triggerRefresh(true)} 
+                             className="px-6 py-2 bg-prizm-primary/20 text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary/30 rounded uppercase tracking-wider font-bold transition-colors"
+                        >
+                             Retry Live Refresh
+                        </button>
+                   </div>
+              </div>
+         );
+    }
+
     let siteState = "UNAVAILABLE";
-    if (sum?.site?.connectionState === "disconnected") {
+    if (sum?.site?.connectionState === "disconnected" || sum?.source === "offline") {
       siteState = "OFFLINE";
-    } else if (sum?.site?.source === "partial" || sum?.cacheMeta?.cacheState === "STALE") {
+    } else if (sum?.site?.source === "partial" || sum?.stale) {
       siteState = "PARTIAL";
-    } else if (sum?.site?.connectionState || sum?.site?.source || sum?.cacheMeta?.cacheState) {
+    } else if (sum?.site?.connectionState || sum?.source || sum?.cacheUsed !== undefined) {
       siteState = "LIVE";
     }
     
