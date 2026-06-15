@@ -161,16 +161,33 @@ export function normalizeFeatherStatus(
     let lost = rawJson.devicesWithLostComms ?? rawJson.deviceWithLostComms ?? null;
     if (Array.isArray(lost)) {
       baseline.lostComms = lost.map(item => {
-        if (typeof item === 'string') return item;
+        if (typeof item === 'string') {
+          if (item.trim().startsWith('{')) {
+            try {
+              const p = JSON.parse(item);
+              return p.device || p.deviceName || p.name || p.type || p.label || p.id || item;
+            } catch { /* ignore */ }
+          }
+          return item;
+        }
         if (item && typeof item === 'object') {
-           return item.deviceName || item.name || item.type || JSON.stringify(item);
+           return item.device || item.deviceName || item.name || item.type || item.label || item.id || JSON.stringify(item);
         }
         return String(item);
       }).join(", ");
     } else if (lost !== null && typeof lost === "object") {
-      baseline.lostComms = JSON.stringify(lost);
+      baseline.lostComms = lost.device || lost.deviceName || lost.name || lost.type || lost.label || lost.id || JSON.stringify(lost);
     } else {
-      baseline.lostComms = lost ? String(lost) : null;
+      if (typeof lost === 'string' && lost.trim().startsWith('{')) {
+        try {
+          const p = JSON.parse(lost);
+          baseline.lostComms = p.device || p.deviceName || p.name || p.type || p.label || p.id || lost;
+        } catch {
+          baseline.lostComms = lost;
+        }
+      } else {
+        baseline.lostComms = lost ? String(lost) : null;
+      }
     }
 
     // 8. Warnings / Alarms evaluation

@@ -111,6 +111,13 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
     });
 
     const [isAdvancedMode, setIsAdvancedMode] = useState(false);
+    const [expandedCorrectiveActions, setExpandedCorrectiveActions] = useState<Record<number, boolean>>({});
+    const toggleCorrectiveAction = (idx: number) => {
+        setExpandedCorrectiveActions(prev => ({
+            ...prev,
+            [idx]: !prev[idx]
+        }));
+    };
     const [rotationCapabilities, setRotationCapabilities] = useState<any>(null);
     const [pcsModalOpen, setPcsModalOpen] = useState(false);
     const [pcsModalTargets, setPcsModalTargets] = useState<RotationTarget[]>([]);
@@ -500,29 +507,68 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-prizm-border">
-                                {sum.correctiveActions.map((issue: any, i: number) => (
-                                    <tr key={i} className="hover:bg-prizm-surface transition-colors">
-                                        <td className="py-1 px-2">
-                                            <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
-                                                {issue.level}
-                                            </span>
-                                        </td>
-                                        <td className="py-1 px-2 text-prizm-primary font-bold">
-                                            {issue.fault}
-                                        </td>
-                                        <td className="py-1 px-2 text-prizm-text">
-                                            {issue.object} {issue.count > 1 ? `(+${issue.count - 1} more)` : ''}
-                                        </td>
-                                        <td className="py-1 px-2 text-prizm-text">
-                                            {issue.suggestedAction}
-                                            {issue.suggestedAction?.toLowerCase().includes('balance') || issue.suggestedAction?.toLowerCase().includes('balancing') ? (
-                                                <button onClick={() => window.dispatchEvent(new CustomEvent('navigate-tab', {detail: 'arrays-strings'}))} className="ml-2 px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors">
-                                                    Open in String List
-                                                </button>
-                                            ) : null}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {sum.correctiveActions.map((issue: any, i: number) => {
+                                    const hasOccurrences = Array.isArray(issue.occurrences) && issue.occurrences.length > 0;
+                                    const isExpanded = !!expandedCorrectiveActions[i];
+                                    return (
+                                        <React.Fragment key={i}>
+                                            <tr 
+                                                className={`${hasOccurrences ? 'cursor-pointer hover:bg-prizm-surface-strong/70' : 'hover:bg-prizm-surface'} transition-colors`}
+                                                onClick={() => hasOccurrences && toggleCorrectiveAction(i)}
+                                            >
+                                                <td className="py-1 px-2">
+                                                    <span className={`px-2 py-[2px] rounded font-bold ${issue.level === 'FAULT' || issue.level === 'ALARM' ? 'bg-prizm-danger/10 text-prizm-danger' : 'bg-prizm-warning/10 text-prizm-warning'}`}>
+                                                        {issue.level}
+                                                    </span>
+                                                </td>
+                                                <td className="py-1 px-2 text-prizm-primary font-bold">
+                                                    <div className="flex items-center gap-1">
+                                                        {hasOccurrences && (
+                                                            <span className="inline-flex items-center">
+                                                                {isExpanded ? <ChevronDown size={11} className="text-prizm-text-muted" /> : <ChevronRight size={11} className="text-prizm-text-muted" />}
+                                                            </span>
+                                                        )}
+                                                        <span>{issue.fault}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-1 px-2 text-prizm-text">
+                                                    {issue.object} {issue.count > 1 ? <span className="text-prizm-warning font-semibold text-[9px] bg-prizm-warning/10 px-1 py-[1px] rounded ml-1">{`(+${issue.count - 1} more)`}</span> : ''}
+                                                </td>
+                                                <td className="py-1 px-2 text-prizm-text">
+                                                    {issue.suggestedAction}
+                                                    {issue.suggestedAction?.toLowerCase().includes('balance') || issue.suggestedAction?.toLowerCase().includes('balancing') ? (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('navigate-tab', {detail: 'arrays-strings'})); }} 
+                                                            className="ml-2 px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors"
+                                                        >
+                                                            Open in String List
+                                                        </button>
+                                                    ) : null}
+                                                </td>
+                                            </tr>
+                                            {hasOccurrences && isExpanded && (
+                                                <tr className="bg-black/15 border-l border-prizm-warning/40">
+                                                    <td colSpan={4} className="py-1.5 px-3">
+                                                        <div className="text-[9px] uppercase tracking-wider text-prizm-text-muted mb-1 font-bold font-sans">
+                                                            All Affected Segments / Strings ({issue.occurrences.length}):
+                                                        </div>
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 py-0.5 max-h-[120px] overflow-y-auto no-scrollbar">
+                                                            {issue.occurrences.map((occ: any, oIdx: number) => {
+                                                                const label = occ.enclosureLabel || occ.deviceIp || occ.endpoint || "Unknown Unit";
+                                                                return (
+                                                                    <div key={oIdx} className="flex items-center gap-1.5 px-1.5 py-0.5 bg-prizm-surface rounded border border-prizm-border/30 text-[9px] text-prizm-text font-mono">
+                                                                        <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse flex-shrink-0"></span>
+                                                                        <span className="truncate" title={label}>{label}</span>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     ) : (

@@ -12,6 +12,7 @@ import {
     getEmsSourcesDebugInfo 
 } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
+import { BESS_STATUS_CODE_MAP } from "../lib/bessStatusCodes";
 
 const router = Router();
 
@@ -284,12 +285,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
 function buildStatusCodeDescriptionMap(raw: any): Record<string, string> {
     const defaultMap: Record<string, string> = {
-        "1004": "CellGroup Low Voltage Alarm",
-        "2024": "BPC Disconnect Warning",
-        "2073": "CellGroup Discharge Balancer Warning",
-        "2074": "CellGroup Charge Balancer Warning",
-        "2534": "Contactors Open Warning",
-        "2561": "String OOR Warning"
+        ...BESS_STATUS_CODE_MAP
     };
     
     if (!raw) return defaultMap;
@@ -371,6 +367,41 @@ function extractCodes(value: any): string[] {
 
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { pollEmsTurtle } from "./emsTurtleClient";
+
+function getEntityOrHostFromEndpoint(endpoint: string): string {
+    if (!endpoint) return "Unknown Entity";
+    if (endpoint === "emsApps") return "EMS Applications";
+    
+    // Extract IP from endpoint
+    const ipMatch = endpoint.match(/(?:[0-9]{1,3}\.){3}[0-9]{1,3}/);
+    const ip = ipMatch ? ipMatch[0] : "";
+    
+    if (!ip) {
+        try {
+            const url = new URL(endpoint);
+            return url.host;
+        } catch {
+            return endpoint.split('/').pop() || endpoint;
+        }
+    }
+    
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+        const o3 = parseInt(parts[2], 10);
+        const o4 = parseInt(parts[3], 10);
+        if (!isNaN(o3) && !isNaN(o4)) {
+            if (o4 === 3) {
+                return `Array ${o3} CS (${ip})`;
+            }
+            if (o4 >= 10 && o4 <= 50) {
+                const stringIdx = Math.floor((o4 - 10) / 5) + 1;
+                return `Array ${o3} ES${stringIdx} (${ip})`;
+            }
+            return `Array ${o3} (${ip})`;
+        }
+    }
+    return ip;
+}
 
 let siteOpsInFlight: Promise<any> | null = null;
 let lastSummaryCache: any = null;
@@ -820,10 +851,52 @@ export async function buildSiteOperationsSummaryFromCache() {
         
         const groupMap = new Map<string, any>();
         
+        function cleanFaultString(fault: string): string {
+            if (!fault) return fault;
+            if (fault.includes("Lost Comms with:")) {
+                const prefixMatch = fault.match(/(Lost Comms with:\s*)(.*)/i);
+                if (prefixMatch) {
+                    const prefix = prefixMatch[1];
+                    let rest = prefixMatch[2].trim();
+                    if (rest.startsWith("{")) {
+                        try {
+                            const parsed = JSON.parse(rest);
+                            const name = parsed.device || parsed.deviceName || parsed.name || parsed.label || parsed.id || rest;
+                            return prefix + name;
+                        } catch (e) {
+                            // fall back
+                        }
+                    }
+                }
+            }
+            if (fault.trim().startsWith("{")) {
+                try {
+                    const parsed = JSON.parse(fault);
+                    const name = parsed.device || parsed.deviceName || parsed.name || parsed.label || parsed.id || fault;
+                    return name;
+                } catch (e) {
+                    // fall back
+                }
+            }
+            return fault;
+        }
+
         function formatFeatherIssue(item: any): string {
-            if (typeof item === 'string') return item;
+            if (typeof item === 'string') {
+                if (item.trim().startsWith('{')) {
+                    try {
+                        const parsed = JSON.parse(item);
+                        const name = parsed.device || parsed.deviceName || parsed.name || parsed.label || parsed.id || item;
+                        return 'Lost Comms with: ' + name;
+                    } catch (e) {
+                        return item;
+                    }
+                }
+                return cleanFaultString(item);
+            }
             if (item && typeof item === 'object') {
                 const name = 
+                  item.device ||
                   item.deviceName || 
                   item.deviceType || 
                   item.name || 
@@ -933,7 +1006,8 @@ export async function buildSiteOperationsSummaryFromCache() {
 
              
              alarms.forEach(ac => {
-                 const codeDesc = scMap[ac] || 'Alarm Code ' + ac;
+                 const desc = scMap[ac] || "";
+                 const codeDesc = desc ? `Alarm Code ${ac}: ${desc}` : `Alarm Code ${ac}`;
                  if (isIssueFiltered(codeDesc, String(ac))) return;
                  const key = 'string_alarm_' + ac;
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'ALARM', source: 'String Controller', code: String(ac), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
@@ -941,7 +1015,8 @@ export async function buildSiteOperationsSummaryFromCache() {
              });
              
              warnings.forEach(wc => {
-                 const codeDesc = scMap[wc] || 'Warning Code ' + wc;
+                 const desc = scMap[wc] || "";
+                 const codeDesc = desc ? `Warning Code ${wc}: ${desc}` : `Warning Code ${wc}`;
                  if (isIssueFiltered(codeDesc, String(wc))) return;
                  const key = 'string_warn_' + wc;
                  if (!groupMap.has(key)) groupMap.set(key, { id: key, severity: 'WARNING', source: 'String Controller', code: String(wc), message: codeDesc, displayText: codeDesc, occurrenceCount: 0, affectedEnclosureCount: 0, occurrences: [] });
@@ -958,6 +1033,7 @@ export async function buildSiteOperationsSummaryFromCache() {
 
         const sourceHealth = getEmsSourcesDebugInfo().map((d: any) => ({
             name: d.endpoint.split('/').pop() || d.endpoint,
+            endpoint: d.endpoint,
             type: d.endpoint.includes('feather') ? 'Feather' : 'EMS',
             ok: d.success,
             error: d.lastError === "NONE" ? undefined : d.lastError
@@ -965,6 +1041,7 @@ export async function buildSiteOperationsSummaryFromCache() {
 
         sourceHealth.push({
             name: "emsApps",
+            endpoint: "emsApps",
             type: "EMS",
             ok: emsAppsResult.status !== "error",
             error: emsAppsResult.status === "cached_timeout" ? "cached_timeout" : (emsAppsResult.status === "error" ? "error" : undefined)
@@ -1084,15 +1161,17 @@ export async function buildSiteOperationsSummaryFromCache() {
         if (sourceHealth) {
            sourceHealth.forEach((s: any) => {
                if (!s.ok && s.error && s.error !== "NONE") {
+                   const affectedLabel = getEntityOrHostFromEndpoint(s.endpoint || s.name);
                    correctiveActions.push({
                        level: "ALARM",
                        source: s.type,
                        fault: "Source Polling Failed",
-                       object: s.name,
-                       details: "Error: " + s.error,
+                       object: affectedLabel,
+                       details: "Error: " + s.error + " (Endpoint: " + (s.endpoint || s.name) + ")",
                        firstSeen: new Date().toISOString(),
                        count: 1,
-                       suggestedAction: "Check remote node endpoint connectivity and path config"
+                       suggestedAction: "Check remote endpoint connectivity for " + affectedLabel,
+                       occurrences: [{ enclosureLabel: affectedLabel, deviceIp: s.endpoint || s.name }]
                    });
                }
            });
