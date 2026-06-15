@@ -1,4 +1,6 @@
 import * as prizmCache from "./src/server/cache/prizmCache";
+import AdmZip from "adm-zip";
+import { getCorrectiveActionsFromNormalizedFaults } from "./src/server/faults/normalizedFaultSource";
 import safetyFaultClearRouter from "./src/server/safetyFaultClear";
 import stringsDashboardRouter from "./src/server/stringsDashboard";
 import overviewDiscoveryRouter from "./src/server/overviewDiscovery";
@@ -1967,6 +1969,487 @@ app.delete("/api/reports/:id", (req, res) => {
 });
 
 // POST: Dynamic Instant Report Export & Download (Generates actual file output!)
+const reportsDir = path.join(process.cwd(), "data", "reports");
+if (!fs.existsSync(reportsDir)) {
+  fs.mkdirSync(reportsDir, { recursive: true });
+}
+
+const executeReportsCleanup = () => {
+  try {
+    const files = fs.readdirSync(reportsDir);
+    const now = Date.now();
+    let totalSize = 0;
+    const fileStats = files.map(file => {
+      const filePath = path.join(reportsDir, file);
+      const stat = fs.statSync(filePath);
+      return { file, filePath, mtime: stat.mtimeMs, size: stat.size };
+    });
+
+    // 14 days retention: 14 * 24 * 60 * 60 * 1000
+    const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
+    fileStats.forEach(f => {
+      if (now - f.mtime > maxAgeMs) {
+        if (fs.existsSync(f.filePath)) {
+          fs.unlinkSync(f.filePath);
+        }
+      } else {
+        totalSize += f.size;
+      }
+    });
+
+    // 1GB Max Capacity
+    const maxSizeBytes = 1024 * 1024 * 1024;
+    if (totalSize > maxSizeBytes) {
+      fileStats.sort((a, b) => a.mtime - b.mtime);
+      for (const f of fileStats) {
+        if (fs.existsSync(f.filePath)) {
+          fs.unlinkSync(f.filePath);
+          totalSize -= f.size;
+          if (totalSize <= maxSizeBytes) break;
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[ReportsCleanup] Error executing cleanup:", error);
+  }
+};
+
+// Start periodic report retention checks every hour
+setInterval(executeReportsCleanup, 60 * 60 * 1000);
+
+// NEW CONSOLIDATED REPORTING ENDPOINTS
+
+// 1. GET: Report Catalog
+app.get("/api/local/reports/catalog", (req, res) => {
+  const catalog = [
+    {
+      id: "site-validation-package",
+      name: "One-Click Site Validation Evidence Package",
+      description: "Full commissioning evidence package including system metadata, active topology configuration models, status maps, real-time error logs, and HVAC / Lineup audit results. Pre-packaged for direct utility or lead technician validation sign-off.",
+      formats: ["zip"],
+      category: "Commissioning"
+    },
+    {
+      id: "corrective-actions",
+      name: "Corrective Action & Punch List",
+      description: "Remediation priority checklist of all active errors and warnings across block string loops with suggested technician actions, occurrences maps, and notes field.",
+      formats: ["csv", "json", "pdf"],
+      category: "Fault/Corrective Action"
+    },
+    {
+      id: "hvac-simulation",
+      name: "HVAC Thermal & Contactor Simulation Run Log",
+      description: "Dynamic log archives capturing simulated cell imbalance operations, fan speeds, active warnings, and contactor state audits.",
+      formats: ["csv", "json"],
+      category: "Simulation"
+    },
+    {
+      id: "lightbar-audit",
+      name: "Lineup Lightbar Command & Comm Audit",
+      description: "Comm trace log auditing the multi-block lineup lightbar registers, state toggling commands, pulse checks, and visualizer active indices.",
+      formats: ["csv", "json"],
+      category: "Lightbar"
+    },
+    {
+      id: "site-snapshot",
+      name: "BESS Site Snapshot & Live Metrics",
+      description: "Live block levels, string SOCs, voltages, and thermal margins packaged for instant SCADA audits.",
+      formats: ["csv", "json"],
+      category: "Quick Exports"
+    }
+  ];
+  res.json({ success: true, catalog });
+});
+
+// 2. GET: List Generated/Recent Exports
+app.get("/api/local/reports/recent", (req, res) => {
+  try {
+    const files = fs.readdirSync(reportsDir);
+    const recent = files
+      .map(file => {
+        const filePath = path.join(reportsDir, file);
+        const stat = fs.statSync(filePath);
+        
+        let type = "other";
+        if (file.includes("prizm_site_validation")) type = "site-validation-package";
+        else if (file.includes("corrective_actions")) type = "corrective-actions";
+        else if (file.includes("hvac_simulation")) type = "hvac-simulation";
+        else if (file.includes("lightbar")) type = "lightbar-audit";
+        else if (file.includes("site_snapshot")) type = "site-snapshot";
+
+        return {
+          id: file,
+          filename: file,
+          sizeBytes: stat.size,
+          timestamp: stat.mtime,
+          type,
+          url: `/api/local/reports/download/${file}`
+        };
+      })
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    res.json({ success: true, reports: recent });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. GET: Download Report file
+app.get("/api/local/reports/download/:id", (req, res) => {
+  try {
+    const filename = path.basename(req.params.id);
+    const filePath = path.join(reportsDir, filename);
+    if (fs.existsSync(filePath)) {
+      res.download(filePath);
+    } else {
+      res.status(404).send("Report file not found or has been cleaned by storage policy.");
+    }
+  } catch (err: any) {
+    res.status(500).send("Error downloading file: " + err.message);
+  }
+});
+
+// 4. DELETE: Remove report file
+app.delete("/api/local/reports/:id", (req, res) => {
+  try {
+    const filename = path.basename(req.params.id);
+    const filePath = path.join(reportsDir, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      res.json({ success: true, message: "Report deleted successfully" });
+    } else {
+      res.status(404).json({ success: false, error: "File not found" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. POST: Trigger Immediate Cleanup
+app.post("/api/local/reports/cleanup", (req, res) => {
+  try {
+    executeReportsCleanup();
+    res.json({ success: true, message: "Storage cleanup run completed successfully" });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. POST: Generate Report
+app.post("/api/local/reports/generate", (req, res) => {
+  try {
+    const { reportType, format, includeRawJson, includeCsv, includePdf } = req.body;
+    
+    const activeProfile: any = ProfileStore.getActiveProfile() || {
+      profileName: "Default Active",
+      siteName: "Prizm BESS Station",
+      stationCode: "BHE0020",
+      blockIndex: 1,
+      emsHost: "10.0.0.3",
+      emsPort: 8080,
+      turtlePath: "/turtle",
+      modbusHost: "10.0.0.3",
+      modbusPort: 502,
+      topologyModel: getDefaultTopologyModel()
+    };
+    
+    const stationCode = activeProfile.stationCode || "BHE0020";
+    const ts = Date.now();
+    const cleanFormat = (format || "json").toLowerCase();
+
+    // Query active telemetry
+    const liveMetrics: any = getEmsCachedStatus() || {};
+    const blockSummary: any = getEmsCachedBlock() || {};
+    const rawStrings: any = getEmsCachedRawStrings() || {};
+
+    // Get corrective actions
+    const rawCorrectiveActions = getCorrectiveActionsFromNormalizedFaults() || [];
+    const correctiveActions = rawCorrectiveActions.map(act => {
+      const level = act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "FAULT";
+      const firstAffected = act.affected[0];
+      const source = firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System";
+      const object = act.affected.length === 1 ? firstAffected.label : "Multiple";
+      return {
+        level,
+        source,
+        fault: act.faultLabel,
+        object,
+        details: "Affected: " + act.affected.length + " unit(s) / " + act.affected.map((u: any) => u.label).join(", "),
+        firstSeen: new Date().toISOString(),
+        count: act.affected.length,
+        suggestedAction: act.suggestedAction,
+        status: "Open - Field Check Required",
+        notes: "Diagnostic state auto-locked via Prizm active loop analysis"
+      };
+    });
+
+    if (reportType === "site-validation-package") {
+      // ZIP EVIDENCE PACKAGE
+      const zipFilename = `prizm_site_validation_${stationCode}_${ts}.zip`;
+      const zipPath = path.join(reportsDir, zipFilename);
+      const zip = new AdmZip();
+
+      // Form 1: Profile metadata
+      const metaObj = {
+        title: "Prizm Field Commissioning Validation Package",
+        stationCode,
+        activeProfileName: activeProfile.profileName || "Active-Live Profile",
+        generatedAt: new Date().toISOString(),
+        siteName: activeProfile.siteName,
+        emsHost: activeProfile.emsHost,
+        emsPort: activeProfile.emsPort,
+        modbusHost: activeProfile.modbusHost,
+        modbusPort: activeProfile.modbusPort,
+        metricsSummary: {
+          blocksReachable: blockSummary?.gatewayReachable || false,
+          totalStrings: rawStrings?.data?.length || 0,
+          averageSoc: liveMetrics?.bessFleetSummary?.avgSoc ?? 0,
+        }
+      };
+      zip.addFile("metadata.json", Buffer.from(JSON.stringify(metaObj, null, 2), "utf-8"));
+
+      // Form 2: Topology Config
+      zip.addFile("topology_config.json", Buffer.from(JSON.stringify(activeProfile.topologyModel || {}, null, 2), "utf-8"));
+
+      // Form 3: Live Telemetry
+      zip.addFile("live_telemetry_snapshot.json", Buffer.from(JSON.stringify({ liveMetrics, blockSummary, rawStrings }, null, 2), "utf-8"));
+
+      // Form 4: Corrective Actions Punch List JSON & CSV
+      zip.addFile("corrective_actions_punchlist.json", Buffer.from(JSON.stringify(correctiveActions, null, 2), "utf-8"));
+      
+      let caCsv = "Remediation Level,Source Component,Detected Fault,Affected Object,Occurrence Details,First Detected Time,Severity Index,Suggested Action,Status,Notes\r\n";
+      correctiveActions.forEach(act => {
+        caCsv += `"${act.level}","${act.source}","${act.fault}","${act.object}","${act.details}","${act.firstSeen}",${act.count},"${act.suggestedAction}","${act.status}","${act.notes}"\r\n`;
+      });
+      zip.addFile("corrective_actions_punchlist.csv", Buffer.from(caCsv, "utf-8"));
+
+      // Form 5: Active error logs from logger
+      const activeAlerts = logs.filter(l => l.level === "ERROR" || l.level === "CRITICAL");
+      zip.addFile("system_active_alerts.json", Buffer.from(JSON.stringify(activeAlerts, null, 2), "utf-8"));
+
+      // Form 6: HVAC / simulation audits if present
+      const hvacAuditPath = path.join(process.cwd(), "data", "hvac_simulation_audit.json");
+      if (fs.existsSync(hvacAuditPath)) {
+        zip.addFile("hvac_simulation_audit.json", fs.readFileSync(hvacAuditPath));
+      } else {
+        zip.addFile("hvac_simulation_audit.json", Buffer.from("[]", "utf-8"));
+      }
+
+      // Form 7: Lightbar audit logs if present
+      const lbAuditPath = path.join(process.cwd(), "data", "prizm_lightbar_audit.json");
+      if (fs.existsSync(lbAuditPath)) {
+        zip.addFile("lineup_lightbar_audit.json", fs.readFileSync(lbAuditPath));
+      } else {
+        zip.addFile("lineup_lightbar_audit.json", Buffer.from("[]", "utf-8"));
+      }
+
+      // Write ZIP to local disk
+      zip.writeZip(zipPath);
+      const stat = fs.statSync(zipPath);
+
+      return res.json({
+        success: true,
+        reportId: zipFilename,
+        filename: zipFilename,
+        sizeBytes: stat.size,
+        downloadUrl: `/api/local/reports/download/${zipFilename}`
+      });
+
+    } else if (reportType === "corrective-actions") {
+      // Corrective Actions Specific report
+      const prefix = `prizm_corrective_actions_${stationCode}_${ts}`;
+      if (cleanFormat === "csv") {
+        const filename = `${prefix}.csv`;
+        const filePath = path.join(reportsDir, filename);
+        let caCsv = "Remediation Level,Source Component,Detected Fault,Affected Object,Occurrence Details,First Detected Time,Severity Index,Suggested Action,Status,Notes\r\n";
+        correctiveActions.forEach(act => {
+          caCsv += `"${act.level}","${act.source}","${act.fault}","${act.object}","${act.details}","${act.firstSeen}",${act.count},"${act.suggestedAction}","${act.status}","${act.notes}"\r\n`;
+        });
+        fs.writeFileSync(filePath, caCsv, "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+
+      } else if (cleanFormat === "pdf") {
+        // PDF Summary output (rendered as an elegant structured text report file)
+        const filename = `${prefix}.pdf`;
+        const filePath = path.join(reportsDir, filename);
+        let content = `================================================================================\n`;
+        content += `                 PRIZM FIELD REMEDIATION & PUNCH LIST REPORT                    \n`;
+        content += `================================================================================\n\n`;
+        content += `Station-Code:      ${stationCode}\n`;
+        content += `Generated At:      ${new Date().toUTCString()}\n`;
+        content += `Active Profile:    ${activeProfile.profileName || "Active-Live Profile"}\n`;
+        content += `Total Outstanding: ${correctiveActions.length} active issues detected\n`;
+        content += `--------------------------------------------------------------------------------\n\n`;
+        
+        if (correctiveActions.length === 0) {
+          content += `✔ SYSTEM STATUS NOMINAL: No corrective action entries or faults present.\n`;
+        } else {
+          correctiveActions.forEach((act, idx) => {
+            content += `${idx + 1}. [${act.level}] ${act.fault} on ${act.object}\n`;
+            content += `   Source:           ${act.source}\n`;
+            content += `   Detailed Context: ${act.details}\n`;
+            content += `   Remedy Action:    ${act.suggestedAction}\n`;
+            content += `   Status:           ${act.status}\n`;
+            content += `   Technician Notes: ________________________________________________________\n\n`;
+          });
+        }
+        content += `--------------------------------------------------------------------------------\n`;
+        content += `Utility / Lead Auditor Sign-off:\n\n`;
+        content += `Name:   _______________________     Signature: _______________________\n`;
+        content += `Date:   _______________________     Time:      _______________________\n`;
+        content += `================================================================================\n`;
+
+        fs.writeFileSync(filePath, content, "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      } else {
+        // JSON format
+        const filename = `${prefix}.json`;
+        const filePath = path.join(reportsDir, filename);
+        fs.writeFileSync(filePath, JSON.stringify(correctiveActions, null, 2), "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      }
+
+    } else if (reportType === "hvac-simulation") {
+      // HVAC Simulation logger
+      const prefix = `hvac_simulation_report_${stationCode}_${ts}`;
+      const hvacAuditPath = path.join(process.cwd(), "data", "hvac_simulation_audit.json");
+      const hvacData = fs.existsSync(hvacAuditPath) ? JSON.parse(fs.readFileSync(hvacAuditPath, "utf-8")) : [];
+
+      if (cleanFormat === "csv") {
+        const filename = `${prefix}.csv`;
+        const filePath = path.join(reportsDir, filename);
+        let csv = "Timestamp,Simulated Cell Index,Ambient T,Aggregated Alarm,Fan Control State\r\n";
+        hvacData.forEach((row: any) => {
+          csv += `"${row.timestamp || ""}","${row.cellIndex || ""}","${row.ambientTempC || ""}","${row.alarmActive || ""}","${row.fanState || ""}"\r\n`;
+        });
+        fs.writeFileSync(filePath, csv, "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      } else {
+        const filename = `${prefix}.json`;
+        const filePath = path.join(reportsDir, filename);
+        fs.writeFileSync(filePath, JSON.stringify(hvacData, null, 2), "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      }
+
+    } else if (reportType === "lightbar-audit") {
+      // Lightbar audit runner
+      const prefix = `lightbar_audit_report_${stationCode}_${ts}`;
+      const lbAuditPath = path.join(process.cwd(), "data", "prizm_lightbar_audit.json");
+      const lbData = fs.existsSync(lbAuditPath) ? JSON.parse(fs.readFileSync(lbAuditPath, "utf-8")) : [];
+
+      if (cleanFormat === "csv") {
+        const filename = `${prefix}.csv`;
+        const filePath = path.join(reportsDir, filename);
+        let csv = "Timestamp,Action Type,Operator,Status,Detail\r\n";
+        lbData.forEach((row: any) => {
+          csv += `"${row.timestamp || ""}","${row.action || ""}","${row.operator || ""}","${row.status || ""}","${row.details || ""}"\r\n`;
+        });
+        fs.writeFileSync(filePath, csv, "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      } else {
+        const filename = `${prefix}.json`;
+        const filePath = path.join(reportsDir, filename);
+        fs.writeFileSync(filePath, JSON.stringify(lbData, null, 2), "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      }
+
+    } else {
+      // DEFAULT: site-snapshot
+      const prefix = `site_snapshot_report_${stationCode}_${ts}`;
+      if (cleanFormat === "csv") {
+        const filename = `${prefix}.csv`;
+        const filePath = path.join(reportsDir, filename);
+        let csv = "Metric,Value\r\n";
+        csv += `"Station Code","${stationCode}"\r\n`;
+        csv += `"Average SOC","${liveMetrics?.bessFleetSummary?.avgSoc ?? "N/A"}"\r\n`;
+        csv += `"Active Alarms","${correctiveActions.length}"\r\n`;
+        csv += `"Total Strings","${rawStrings?.data?.length || 0}"\r\n`;
+        fs.writeFileSync(filePath, csv, "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      } else {
+        const filename = `${prefix}.json`;
+        const filePath = path.join(reportsDir, filename);
+        const snapshot = {
+          stationCode,
+          exportedAt: new Date().toISOString(),
+          activeProfileName: activeProfile.profileName,
+          liveMetrics,
+          rawStringsCount: rawStrings?.data?.length || 0,
+          outstandingFaults: correctiveActions.length
+        };
+        fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), "utf-8");
+        const stat = fs.statSync(filePath);
+        return res.json({
+          success: true,
+          reportId: filename,
+          filename,
+          sizeBytes: stat.size,
+          downloadUrl: `/api/local/reports/download/${filename}`
+        });
+      }
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Original endpoint bridged compatibility fallback
 app.post("/api/reports/generate", (req, res) => {
   const { configId, selectedFormat } = req.body;
   

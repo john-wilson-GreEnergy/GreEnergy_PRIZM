@@ -81,9 +81,10 @@ interface EmsProfile {
 
 interface ConnectionSettingsProps {
   onProfileChanged?: () => void;
+  mode?: "profile" | "cache" | "all";
 }
 
-export default function ConnectionSettings({ onProfileChanged }: ConnectionSettingsProps) {
+export default function ConnectionSettings({ onProfileChanged, mode = "all" }: ConnectionSettingsProps) {
   const [profiles, setProfiles] = useState<EmsProfile[]>([]);
   const [activeProfile, setActiveProfile] = useState<EmsProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -745,9 +746,11 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   };
 
   return (
-    <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6">
-      
-      {/* Top action header and labels */}
+    <div className={mode === "all" ? "bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6" : "font-mono space-y-6"}>
+      {mode !== "cache" && (
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6">
+          
+          {/* Top action header and labels */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-prizm-border">
         <div>
           <div className="flex items-center gap-2">
@@ -1386,9 +1389,11 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
           </div>
         </div>
       )}
+      </div>
+      )}
 
       {/* PRIZM Durable Local Cache Orchestration Diagnostics */}
-      {cacheStatus && (
+      {mode !== "profile" && cacheStatus && (
         <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6">
            <div className="flex justify-between items-center mb-4">
               <h3 className="text-xs font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">

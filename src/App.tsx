@@ -28,11 +28,16 @@ import ConnectionSettings from "./components/ConnectionSettings";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import LineupLightbarControl from "./components/LineupLightbarControl";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
+import SiteConfigurationDashboard from "./components/SiteConfigurationDashboard";
+import SafetyAdvancedDashboard from "./components/SafetyAdvancedDashboard";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
+type AppTabId = "overview" | "arrays-strings" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "pcs-dashboard" | "tool-dashboards" | "feather-hvac" | "hvac-simulation" | "settings" | "reports" | "advanced" | "safety-fault" | "lightbar-control">("overview");
+  const [activeTab, setActiveTab] = useState<AppTabId>("overview");
+  const [featherSub, setFeatherSub] = useState<"feather" | "simulation">("feather");
   const [loading, setLoading] = useState(true);
 
   // Monitor EMS metadata
@@ -43,7 +48,16 @@ export default function App() {
 
   useEffect(() => {
     const handleNavigate = (e: any) => {
-        if (e.detail) setActiveTab(e.detail);
+        if (e.detail) {
+          const tab = e.detail;
+          if (tab === "settings" || tab === "ems-health" || tab === "tool-dashboards") {
+            setActiveTab("site-configuration");
+          } else if (tab === "safety-fault" || tab === "advanced" || tab === "safety-advanced") {
+            setActiveTab("advanced");
+          } else {
+            setActiveTab(tab);
+          }
+        }
     };
     window.addEventListener('navigate-tab', handleNavigate);
     return () => window.removeEventListener('navigate-tab', handleNavigate);
@@ -181,22 +195,18 @@ export default function App() {
             <div className="flex space-x-1 py-1">
               {( [
                 { id: "overview", label: "Block Summary", icon: Activity },
-                { id: "ems-health", label: "EMS Health", icon: Activity },
                 { id: "arrays-strings", label: "String List", icon: Cpu },
                 { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
-                { id: "tool-dashboards", label: "Configuration / Diagnostics", icon: Sliders },
-                { id: "lightbar-control", label: "Lineup Lightbar Control", icon: Sliders },
-                { id: "feather-hvac", label: "Feather Reports", icon: Network },
-                { id: "hvac-simulation", label: "HVAC Simulation + Validation", icon: Sliders },
-                { id: "settings", label: "Connection Settings", icon: Settings },
+                { id: "site-configuration", label: "Site Configuration", icon: Settings },
+                { id: "feather-hvac", label: "Feather / HVAC", icon: Network },
+                { id: "lightbar-control", label: "Lineup Lightbar", icon: Sliders },
                 { id: "reports", label: "Reports / Exports", icon: FileText },
-                { id: "advanced", label: "Advanced / Locked", icon: Lock },
-                { id: "safety-fault", label: "Safety Fault Clear", icon: ShieldAlert }
+                { id: "advanced", label: "Safety / Advanced", icon: ShieldAlert }
               ] as const ).map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all ${
+                  className={`flex items-center gap-2 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all ${
                     activeTab === tab.id
                       ? "bg-prizm-info/10 border-b-2 border-prizm-primary text-prizm-primary font-bold"
                       : "text-prizm-text-muted hover:text-prizm-text hover:bg-black/5"
@@ -237,10 +247,6 @@ export default function App() {
               <SiteOperationsDashboard setActiveTab={setActiveTab} />
             )}
 
-            {activeTab === "ems-health" && (
-              <EmsHealthDashboard />
-            )}
-
             {activeTab === "arrays-strings" && (
               <StringDashboard />
             )}
@@ -248,24 +254,40 @@ export default function App() {
               <PcsDashboard />
             )}
 
-            {activeTab === "tool-dashboards" && (
-              <ToolDashboards initialTab="ip-maps" />
+            {activeTab === "site-configuration" && (
+              <SiteConfigurationDashboard />
+            )}
+
+            {activeTab === "feather-hvac" && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
+                  <button
+                    onClick={() => setFeatherSub("feather")}
+                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                      featherSub === "feather"
+                        ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                        : "border-transparent text-prizm-text-muted hover:text-white"
+                    }`}
+                  >
+                    Feather Core Controls
+                  </button>
+                  <button
+                    onClick={() => setFeatherSub("simulation")}
+                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                      featherSub === "simulation"
+                        ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                        : "border-transparent text-prizm-text-muted hover:text-white"
+                    }`}
+                  >
+                    HVAC Simulation & Validation
+                  </button>
+                </div>
+                {featherSub === "feather" ? <FeatherDashboard /> : <HvacSimulationDashboard />}
+              </div>
             )}
 
             {activeTab === "lightbar-control" && (
               <LineupLightbarControl />
-            )}
-
-            {activeTab === "feather-hvac" && (
-              <FeatherDashboard />
-            )}
-
-            {activeTab === "hvac-simulation" && (
-              <HvacSimulationDashboard />
-            )}
-
-            {activeTab === "settings" && (
-              <ConnectionSettings />
             )}
 
             {activeTab === "reports" && (
@@ -277,12 +299,8 @@ export default function App() {
               />
             )}
 
-            {activeTab === "safety-fault" && (
-              <SafetyFaultClearView />
-            )}
-
             {activeTab === "advanced" && (
-              <LineupLightbarControl />
+              <SafetyAdvancedDashboard />
             )}
           </div>
         )}
