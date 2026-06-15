@@ -451,6 +451,11 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                                         </td>
                                         <td className="py-1 px-2 text-prizm-text">
                                             {issue.suggestedAction}
+                                            {issue.suggestedAction?.toLowerCase().includes('balance') || issue.suggestedAction?.toLowerCase().includes('balancing') ? (
+                                                <button onClick={() => window.dispatchEvent(new CustomEvent('navigate-tab', {detail: 'arrays-strings'}))} className="ml-2 px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors">
+                                                    Open in String List
+                                                </button>
+                                            ) : null}
                                         </td>
                                     </tr>
                                 ))}

@@ -4,6 +4,7 @@ import StringDetailDashboard from "./StringDetailDashboard";
 
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import RotationModal, { RotationTarget } from './RotationModal';
+import BalancingModal from './BalancingModal';
 
 export default function StringDashboard() {
   const [data, setData] = useState<any>(null);
@@ -20,10 +21,14 @@ export default function StringDashboard() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
   const [rotationCapabilities, setRotationCapabilities] = useState<any>(null);
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
   const [rotationModalAction, setRotationModalAction] = useState<'in' | 'out'>('in');
   const [rotationModalTargets, setRotationModalTargets] = useState<any[]>([]);
+  
+  const [balancingModalOpen, setBalancingModalOpen] = useState(false);
+  
   useEffect(() => { fetch('/api/local/capabilities').then(r => r.json()).then(setRotationCapabilities).catch(()=>{}); }, []);
 
   useEffect(() => {
@@ -62,6 +67,26 @@ export default function StringDashboard() {
     setRotationModalOpen(false);
     setSelectedIds(new Set());
     handleManualRefresh();
+  };
+
+  const handleBalancingPreflight = async (req: any) => {
+      const res = await fetch("/api/local/balancing/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to execute balancing preflight");
+      }
+      return res.json();
+  };
+
+  const handleBalancingConfirm = async (req: any) => {
+      const res = await fetch("/api/local/balancing/execute", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to execute balancing");
+      }
+      setBalancingModalOpen(false);
+      setSelectedIds(new Set());
+      handleManualRefresh();
   };
 
   const getSelectedTargets = () => {
@@ -382,6 +407,14 @@ const handleManualRefresh = async () => {
               >
                   Set Out Rotation
               </button>
+              <button
+                  onClick={() => {
+                     setBalancingModalOpen(true);
+                  }}
+                  className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                  Set Balancing
+              </button>
            </div>
         </div>
       )}
@@ -585,6 +618,15 @@ const handleManualRefresh = async () => {
         onConfirm={handleRotationConfirm}
         targets={rotationModalTargets}
         action={rotationModalAction}
+        targetType="string"
+      />
+
+      <BalancingModal
+        isOpen={balancingModalOpen}
+        onClose={() => setBalancingModalOpen(false)}
+        onPreflight={handleBalancingPreflight}
+        onConfirm={handleBalancingConfirm}
+        targets={getSelectedTargets()}
         targetType="string"
       />
     </div>

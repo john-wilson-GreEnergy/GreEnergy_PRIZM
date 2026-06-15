@@ -105,7 +105,7 @@ export async function setStringRotation(req: any) {
     if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
     if (req.action !== 'in' && req.action !== 'out') throw new Error("Invalid action");
     
-    if (!req.confirmation) throw new Error("Explicit confirmation phrase is required");
+    if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
 
     const results = [];
     let successes = 0;
@@ -127,9 +127,9 @@ export async function setStringRotation(req: any) {
         action: `String Rotation ${req.action.toUpperCase()}`,
         level: "warning",
         category: "Control",
-        details: `Requested rotation ${req.action} for ${req.targets.length} target arrays/strings. Successful executions: ${successes}`,
+        details: `Requested rotation ${req.action} for ${req.targets.length} target arrays/strings. Reason: ${req.reason || 'None'}. Note: ${req.note || 'None'}. Successful executions: ${successes}`,
         user: "LocalOperator",
-        metadata: { request: req, results }
+        metadata: { request: req, results, confirmed: req.confirmed, reason: req.reason, note: req.note }
     });
 
     return { success: successes > 0, results };
@@ -139,7 +139,7 @@ export async function setPcsRotation(req: any) {
     if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
     if (req.action !== 'in' && req.action !== 'out') throw new Error("Invalid action");
     
-    if (!req.confirmation) throw new Error("Explicit confirmation phrase is required");
+    if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
 
     const results = [];
     let successes = 0;
@@ -161,9 +161,9 @@ export async function setPcsRotation(req: any) {
         action: `PCS Rotation ${req.action.toUpperCase()}`,
         level: "warning",
         category: "Control",
-        details: `Requested rotation ${req.action} for ${req.targets.length} target PCS. Successful executions: ${successes}`,
+        details: `Requested rotation ${req.action} for ${req.targets.length} target PCS. Reason: ${req.reason || 'None'}. Note: ${req.note || 'None'}. Successful executions: ${successes}`,
         user: "LocalOperator",
-        metadata: { request: req, results }
+        metadata: { request: req, results, confirmed: req.confirmed, reason: req.reason, note: req.note }
     });
 
     return { success: successes > 0, results };

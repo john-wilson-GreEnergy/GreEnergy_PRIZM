@@ -16,9 +16,8 @@ interface RotationModalProps {
         targets: RotationTarget[]; 
         action: 'in' | 'out'; 
         reason: string; 
-        excused: boolean; 
-        explanation: string; 
-        confirmation: string;
+        note: string; 
+        confirmed: boolean;
     }) => Promise<void>;
     targets: RotationTarget[];
     action: 'in' | 'out';
@@ -27,42 +26,17 @@ interface RotationModalProps {
 
 export default function RotationModal({ isOpen, onClose, onConfirm, targets, action, targetType }: RotationModalProps) {
     const [reason, setReason] = useState('Maintenance');
-    const [excused, setExcused] = useState(false);
-    const [explanation, setExplanation] = useState('');
-    const [confirmation, setConfirmation] = useState('');
+    const [note, setNote] = useState('');
     const [pending, setPending] = useState(false);
     const [error, setError] = useState('');
 
     if (!isOpen) return null;
 
-    let expectedCount = 0;
-    if (targets.length === 1 && (targets[0].allStrings || targets[0].allPcs)) {
-        expectedCount = 1;
-    } else {
-        expectedCount = targets.length;
-    }
-
-    let confirmationHint = '';
-    if (targets.length === 1 && targets[0].allStrings) {
-        confirmationHint = `${action.toUpperCase()} ARRAY ${targets[0].array} STRINGS`;
-    } else if (targets.length === 1 && targets[0].allPcs) {
-        confirmationHint = `${action.toUpperCase()} ARRAY ${targets[0].array} PCS`;
-    } else if (targetType === 'string') {
-        confirmationHint = `${action.toUpperCase()} ${targets.length} STRINGS`;
-    } else {
-        confirmationHint = `${action.toUpperCase()} ${targets.length} PCS`;
-    }
-
     const handleConfirm = async () => {
         try {
             setError('');
-            const cleanedConf = confirmation.trim().toUpperCase();
-            if (cleanedConf !== confirmationHint.toUpperCase() && cleanedConf !== confirmationHint.toUpperCase() + 'ES') {
-                setError(`Confirmation phrase must be exactly: "${confirmationHint}"`);
-                return;
-            }
             setPending(true);
-            await onConfirm({ targets, action, reason, excused, explanation, confirmation });
+            await onConfirm({ targets, action, reason, note, confirmed: true });
         } catch (e: any) {
             setError(e.message || 'Failed to execute');
         } finally {
@@ -84,8 +58,15 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
                 
                 <div className="p-4 flex flex-col gap-4 text-xs font-mono">
                     <div className={`p-3 rounded border ${action === 'in' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
-                        <strong>Action:</strong> {action === 'in' ? 'IN ROTATION' : 'OUT OF ROTATION'}<br/>
-                        <strong>Target(s):</strong> {targets.length} {targetType.toUpperCase()}(S)
+                        <strong>Action:</strong> Set Rotation: {action === 'in' ? 'IN' : 'OUT'}<br/>
+                        <strong>Targets:</strong><br/>
+                        {targets.map((t, i) => {
+                            if (targetType === 'string') {
+                                return <span key={i}>Array {t.array} / {t.allStrings ? 'All Strings' : `String ${t.string}`}<br/></span>;
+                            } else {
+                                return <span key={i}>Array {t.array} / {t.allPcs ? 'All PCS' : `PCS ${t.pcs}`}<br/></span>;
+                            }
+                        })}
                     </div>
 
                     {error && (
@@ -95,28 +76,24 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
                    )}
 
                     <div className="flex flex-col gap-1">
-                        <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Reason Code</label>
+                        <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Reason</label>
                         <select className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={reason} onChange={e => setReason(e.target.value)} disabled={pending}>
                             <option value="Maintenance">Maintenance</option>
+                            <option value="Commissioning">Commissioning</option>
+                            <option value="Troubleshooting">Troubleshooting</option>
+                            <option value="Corrective Action">Corrective Action</option>
                             <option value="Testing">Testing</option>
-                            <option value="Fault">Fault/Issue</option>
                             <option value="Other">Other</option>
                         </select>
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1">
-                        <input type="checkbox" id="excusedToggle" checked={excused} onChange={e => setExcused(e.target.checked)} disabled={pending} />
-                        <label htmlFor="excusedToggle" className="text-prizm-text uppercase tracking-wider cursor-pointer">Mark as Excused Availability</label>
+                    <div className="flex flex-col gap-1 mt-1">
+                        <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Note (Optional)</label>
+                        <textarea className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded no-scrollbar min-h-[60px]" value={note} onChange={e => setNote(e.target.value)} placeholder="Enter details..." disabled={pending} />
                     </div>
 
-                    <div className="flex flex-col gap-1">
-                        <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Explanation</label>
-                        <textarea className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded no-scrollbar min-h-[60px]" value={explanation} onChange={e => setExplanation(e.target.value)} placeholder="Enter details..." disabled={pending} />
-                    </div>
-
-                    <div className="flex flex-col gap-1 mt-2">
-                        <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Type to confirm: <span className="text-white">{confirmationHint}</span></label>
-                        <input type="text" className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={confirmation} onChange={e => setConfirmation(e.target.value)} placeholder={confirmationHint} disabled={pending} />
+                    <div className="text-prizm-warning font-bold mt-2">
+                        This will send a live EMS command to the selected target(s).
                     </div>
                 </div>
 
@@ -127,7 +104,7 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
                         disabled={pending}
                         className={`px-4 py-2 rounded flex items-center gap-2 ${action === 'in' ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 hover:bg-emerald-500/30' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`}
                     >
-                        {pending ? <><Activity size={14} className="animate-spin" /> Executing...</> : 'Execute'}
+                        {pending ? <><Activity size={14} className="animate-spin" /> Executing...</> : `Confirm Rotation`}
                     </button>
                 </div>
             </div>

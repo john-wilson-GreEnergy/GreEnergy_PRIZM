@@ -40,6 +40,14 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(new Date("2026-05-29T14:19:25Z"));
 
   useEffect(() => {
+    const handleNavigate = (e: any) => {
+        if (e.detail) setActiveTab(e.detail);
+    };
+    window.addEventListener('navigate-tab', handleNavigate);
+    return () => window.removeEventListener('navigate-tab', handleNavigate);
+  }, []);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(prev => new Date(prev.getTime() + 1000));
     }, 1000);
