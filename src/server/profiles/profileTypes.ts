@@ -58,6 +58,18 @@ export interface EmsProfile {
   createdAt: string;
   updatedAt: string;
   topologyModel?: TopologyModel;
+  ipLayout?: {
+    arraySubnetMode?: "third-octet" | "explicit-map" | "custom";
+    baseNetwork?: string;
+    arrayOctetIndex?: number;
+    hostOctetIndex?: number;
+    csHostOctets?: number[];
+    esStartHostOctet?: number;
+    esHostStep?: number;
+    esCountPerArray?: number;
+    arrayIndexOffset?: number;
+    explicitDeviceMap?: Record<string, string>;
+  };
   lastTestedAt?: string | null;
   lastTestResult?: {
     success: boolean;

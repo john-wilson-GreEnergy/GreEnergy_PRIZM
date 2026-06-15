@@ -14,6 +14,8 @@ import {
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
+import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
+import { ProfileStore } from "./profiles/profileStore";
 
 const router = Router();
 
@@ -1120,46 +1122,109 @@ export async function buildSiteOperationsSummaryFromCache() {
              if (maxTemp !== -Infinity) bessFleetSummary.maxCellTempC = maxTemp;
         }
 
-        // Compute Corrective Actions Log
-        const sharedCorrectiveActions = getCorrectiveActionsFromNormalizedFaults();
-        const correctiveActions: any[] = sharedCorrectiveActions.map(act => {
-            const level = act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "FAULT";
-            const firstAffected = act.affected[0];
-            const source = firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System";
-            const object = act.affected.length === 1 ? firstAffected.label : "Multiple";
-            
-            return {
-                level,
-                source,
-                fault: act.faultLabel,
-                object,
-                details: "Affected units: " + act.affected.length,
-                firstSeen: new Date().toISOString(),
-                count: act.affected.length,
-                suggestedAction: act.suggestedAction,
-                affected: act.affected
-            };
-        });
+         // Compute Corrective Actions Log
+         const activeProfile = ProfileStore.getActiveProfile();
+         const liveDevices = fDevices;
 
-        // Add source health errors
-        if (sourceHealth) {
-           sourceHealth.forEach((s: any) => {
-               if (!s.ok && s.error && s.error !== "NONE") {
-                   const affectedLabel = getEntityOrHostFromEndpoint(s.endpoint || s.name);
-                   correctiveActions.push({
-                       level: "ALARM",
-                       source: s.type,
-                       fault: "Source Polling Failed",
-                       object: affectedLabel,
-                       details: "Error: " + s.error + " (Endpoint: " + (s.endpoint || s.name) + ")",
-                       firstSeen: new Date().toISOString(),
-                       count: 1,
-                       suggestedAction: "Check remote endpoint connectivity for " + affectedLabel,
-                       occurrences: [{ enclosureLabel: affectedLabel, deviceIp: s.endpoint || s.name }]
-                   });
-               }
-           });
-        }
+         const sharedCorrectiveActions = getCorrectiveActionsFromNormalizedFaults();
+         const correctiveActions: any[] = sharedCorrectiveActions.map(act => {
+             const level: "ALARM" | "WARNING" | "INFO" = act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "INFO";
+             
+             // Map affected into affectedTargets
+             const affectedTargets: any[] = act.affected.map(aff => {
+                 const targetIp = aff.ip;
+                 const resolvedTarget = normalizeIpToEquipmentCallout(targetIp || aff.label, activeProfile, liveDevices);
+                 
+                 return {
+                     raw: targetIp || aff.label,
+                     label: resolvedTarget.mapped ? resolvedTarget.label : (aff.label || resolvedTarget.label),
+                     displayLabel: resolvedTarget.mapped 
+                         ? `${resolvedTarget.label} — ${targetIp}` 
+                         : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel),
+                     mapped: resolvedTarget.mapped,
+                     type: resolvedTarget.type,
+                     arrayIndex: resolvedTarget.arrayIndex ?? aff.arrayIndex,
+                     stringIndex: resolvedTarget.stringIndex ?? aff.stringIndex ?? aff.segmentIndex,
+                     enclosureIndex: resolvedTarget.enclosureIndex ?? aff.stringIndex ?? aff.segmentIndex,
+                     hostOctet: resolvedTarget.hostOctet,
+                     ip: targetIp || undefined,
+                     source: aff.source,
+                     rawFault: aff.rawFault || act.faultLabel,
+                     rawCode: aff.rawCode || act.faultCode,
+                     blockIndex: aff.blockIndex
+                 };
+             });
+
+             const count = affectedTargets.length;
+             let affectedSummary = "";
+             if (count === 1) {
+                 affectedSummary = affectedTargets[0].label;
+             } else if (count > 1) {
+                 affectedSummary = `${affectedTargets[0].label} (+${count - 1} more)`;
+             }
+
+             const firstAffected = act.affected[0];
+             const source = firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System";
+             const object = count === 1 ? affectedTargets[0].label : "Multiple";
+
+             return {
+                 id: act.id,
+                 level,
+                 source,
+                 fault: act.faultLabel,
+                 faultName: act.faultLabel,
+                 faultId: act.faultCode,
+                 object,
+                 details: "Affected units: " + count,
+                 firstSeen: new Date().toISOString(),
+                 count,
+                 affectedCount: count,
+                 affectedSummary,
+                 suggestedAction: act.suggestedAction,
+                 affected: affectedTargets,
+                 affectedTargets
+             };
+         });
+
+         // Add source health errors
+         if (sourceHealth) {
+            sourceHealth.forEach((s: any) => {
+                if (!s.ok && s.error && s.error !== "NONE") {
+                    const affectedLabel = getEntityOrHostFromEndpoint(s.endpoint || s.name);
+                    const host = s.endpoint || s.name;
+                    const resolvedTarget = normalizeIpToEquipmentCallout(host, activeProfile, liveDevices);
+                    const calloutLabel = resolvedTarget.mapped ? resolvedTarget.label : affectedLabel;
+
+                    const target: any = {
+                        raw: host,
+                        label: calloutLabel,
+                        displayLabel: resolvedTarget.mapped ? `${calloutLabel} — ${host}` : `${calloutLabel} — ${host}`,
+                        mapped: resolvedTarget.mapped,
+                        type: resolvedTarget.type || "unknown",
+                        ip: host,
+                        source: s.type
+                    };
+
+                    correctiveActions.push({
+                        id: `source_health_${s.type}_${host}`,
+                        level: "ALARM",
+                        source: s.type,
+                        fault: "Source Polling Failed",
+                        faultName: "Source Polling Failed",
+                        faultId: "SOURCE_POLL_FAIL",
+                        object: calloutLabel,
+                        details: "Error: " + s.error + " (Endpoint: " + host + ")",
+                        firstSeen: new Date().toISOString(),
+                        count: 1,
+                        affectedCount: 1,
+                        affectedSummary: calloutLabel,
+                        suggestedAction: "Check remote endpoint connectivity for " + calloutLabel,
+                        affected: [target],
+                        affectedTargets: [target]
+                    });
+                }
+            });
+         }
 
         const responseData = {
             correctiveActions,

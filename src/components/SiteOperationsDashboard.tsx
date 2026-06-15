@@ -772,16 +772,11 @@ export default function SiteOperationsDashboard({
                                       )}
                                     </span>
                                   )}
-                                  <span>{issue.fault}</span>
+                                  <span>{issue.faultName || issue.fault}</span>
                                 </div>
                               </td>
                               <td className="py-1 px-2 text-prizm-text">
-                                {issue.object}{" "}
-                                {issue.count > 1 ? (
-                                  <span className="text-prizm-warning font-semibold text-[9px] bg-prizm-warning/10 px-1 py-[1px] rounded ml-1">{`(+${issue.count - 1} more)`}</span>
-                                ) : (
-                                  ""
-                                )}
+                                {issue.affectedSummary || issue.object}
                               </td>
                               <td className="py-1 px-2 text-prizm-text">
                                 {issue.suggestedAction}
@@ -837,7 +832,7 @@ export default function SiteOperationsDashboard({
                                               String/Segment
                                             </th>
                                             <th className="py-1 px-2 font-bold">
-                                              Device IP
+                                              Device IP / Callout
                                             </th>
                                             <th className="py-1 px-2 font-bold">
                                               Source
@@ -870,7 +865,7 @@ export default function SiteOperationsDashboard({
                                                     "N/A"}
                                                 </td>
                                                 <td className="py-1 px-2 text-prizm-primary font-semibold">
-                                                  {aff.ip || "N/A"}
+                                                  {aff.displayLabel || aff.ip || "N/A"}
                                                 </td>
                                                 <td className="py-1 px-2 text-prizm-text">
                                                   <span
