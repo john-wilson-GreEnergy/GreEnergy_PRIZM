@@ -611,6 +611,36 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
     data = generateDynamicStringIpMap(activeRef);
   }
 
+  // Intercept and dynamically append arrayPcsList to EMS block data to ensure that both the PCS Dashboard
+  // and the Rotation Control Service have a unified, high-fidelity list of all array PCS telemetry.
+  if (key === "block" && data) {
+    const arrays = data.arrays || [];
+    const arrayPcsList: any[] = [];
+    arrays.forEach((arr: any) => {
+      const arrayIndex = arr.arrayIndex ?? arr.arrayNumber ?? arr.id ?? 1;
+      const pcsList = arr.pcs || arr.arrayPcs || [];
+      if (Array.isArray(pcsList)) {
+        pcsList.forEach((p: any) => {
+          const pcsIndex = p.arrayPcsIndex ?? p.pcsIndex ?? p.index ?? p.pcsNum ?? 1;
+          arrayPcsList.push({
+            id: p.id || `${arrayIndex}-${pcsIndex}`,
+            arrayIndex: arrayIndex,
+            pcsIndex: pcsIndex,
+            rotation: p.rotation ?? (p.outRotation === true ? "OUT" : "IN"),
+            state: p.state || p.status || "RUNNING",
+            vDc: p.dcVoltageVolt ?? p.dcVoltage ?? p.dcVolt ?? p.dcV ?? 0,
+            realPwr: p.acRealPowerKW ?? p.acRealPowerKw ?? p.acRealPower ?? p.kw ?? p.kW ?? 0,
+            ...p
+          });
+        });
+      }
+    });
+    data = {
+      ...data,
+      arrayPcsList
+    };
+  }
+
   return {
     source,
     staleData: isStale,

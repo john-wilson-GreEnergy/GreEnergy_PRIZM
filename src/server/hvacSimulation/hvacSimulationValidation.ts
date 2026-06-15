@@ -26,6 +26,11 @@ export function validateHvacReport(
 ): HvacValidationResult {
   const cfg = { ...HVAC_VALIDATION_DEFAULTS, ...customDefaults };
   
+  // Unify and consolidate cooling simulation controls as requested (lead cooling/both cooling do the same thing)
+  if (mode === "ldcool" || mode === "bcool") {
+    mode = "cooling";
+  }
+  
   const now = new Date();
   const startTime = startedAt ? new Date(startedAt) : null;
   const elapsedSec = startTime ? (now.getTime() - startTime.getTime()) / 1000 : 999;
@@ -250,77 +255,6 @@ export function validateHvacReport(
           res.hvac1.passed = false;
           res.hvac2.passed = false;
         }
-      }
-
-      checkCurrentAndFan(res.hvac1, "HVAC1");
-      checkCurrentAndFan(res.hvac2, "HVAC2");
-      break;
-    }
-
-    case "ldcool": {
-      res.hvac1.expected = true;
-      res.hvac2.expected = false; // By default we expect exactly one hvac called
-
-      const h1Active = !!res.hvac1.compressorOn;
-      const h2Active = !!res.hvac2.compressorOn;
-
-      if (!h1Active && !h2Active) {
-        if (!inGracePeriod) {
-          res.flags.push("COMPRESSOR_NOT_CALLED");
-          res.flags.push("FAN_HIGH_NOT_CALLED");
-          res.hvac1.passed = false;
-        }
-      } else if (h1Active && h2Active) {
-        res.flags.push("LEAD_COOL_EXTRA_HVAC_ACTIVE");
-        res.hvac2.passed = false; // HVAC2 active cooling represents an extra HVAC when lead-only expected
-      } else {
-        // Exactly one active cooling response. Ensure fanHighOn is active for the active one.
-        const activeHvac = h1Active ? res.hvac1 : res.hvac2;
-        activeHvac.expected = true;
-        if (!activeHvac.fanHighOn && !inGracePeriod) {
-          res.flags.push("FAN_HIGH_NOT_CALLED");
-          activeHvac.passed = false;
-        }
-      }
-
-      checkCurrentAndFan(res.hvac1, "HVAC1");
-      checkCurrentAndFan(res.hvac2, "HVAC2");
-      break;
-    }
-
-    case "bcool": {
-      res.hvac1.expected = true;
-      res.hvac2.expected = true;
-
-      const h1Comp = !!res.hvac1.compressorOn;
-      const h2Comp = !!res.hvac2.compressorOn;
-
-      if (!h1Comp && !h2Comp) {
-        if (!inGracePeriod) {
-          res.flags.push("HVAC1_COMPRESSOR_NOT_CALLED");
-          res.flags.push("HVAC2_COMPRESSOR_NOT_CALLED");
-          res.hvac1.passed = false;
-          res.hvac2.passed = false;
-        }
-      } else if (!h1Comp || !h2Comp) {
-        res.flags.push("BOTH_COOL_PARTIAL_RESPONSE");
-        if (!h1Comp) {
-          res.hvac1.passed = false;
-          res.flags.push("HVAC1_COMPRESSOR_NOT_CALLED");
-        }
-        if (!h2Comp) {
-          res.hvac2.passed = false;
-          res.flags.push("HVAC2_COMPRESSOR_NOT_CALLED");
-        }
-      }
-
-      if (!res.hvac1.fanHighOn && !inGracePeriod) {
-        res.flags.push("HVAC1_FAN_HIGH_NOT_CALLED");
-        res.hvac1.passed = false;
-      }
-      if (!res.hvac2.fanHighOn && !inGracePeriod) {
-        res.flags.push("HVAC2_FAN_HIGH_NOT_CALLED");
-        res.hvac2.passed = false;
       }
 
       checkCurrentAndFan(res.hvac1, "HVAC1");

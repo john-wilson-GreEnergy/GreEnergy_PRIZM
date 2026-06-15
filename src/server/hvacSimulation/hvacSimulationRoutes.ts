@@ -18,8 +18,6 @@ router.get("/capabilities", (req, res) => {
     executor: "direct-feather",
     supportedActions: [
       "cooling",
-      "ldcool",
-      "bcool",
       "heating",
       "dehumidification",
       "lowerTopCap",
@@ -88,7 +86,7 @@ router.post("/apply", async (req, res) => {
 
     // Validate mode
     const validModes: HvacSimulationMode[] = [
-      "cooling", "ldcool", "bcool", "heating", "dehumidification", "lowerTopCap", "leakAlarm", "acDoor", "emergencyVentilation", "clearAll"
+      "cooling", "heating", "dehumidification", "lowerTopCap", "leakAlarm", "acDoor", "emergencyVentilation", "clearAll"
     ];
     if (!validModes.includes(mode)) {
       return res.status(400).json({ success: false, error: `Invalid simulation mode: ${mode}` });

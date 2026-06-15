@@ -551,7 +551,7 @@ export default function HvacSimulationDashboard() {
               <span className="p-1 rounded bg-prizm-primary/20 text-prizm-primary animate-pulse">
                 <Sliders size={18} />
               </span>
-              <h1 className="text-lg font-mono font-bold tracking-tight text-white uppercase">
+              <h1 className="text-lg font-mono font-bold tracking-tight text-prizm-text uppercase">
                 HVAC Simulation & Diagnostics Console
               </h1>
             </div>
@@ -572,43 +572,43 @@ export default function HvacSimulationDashboard() {
           
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Executor</span>
-            <span className="text-[11px] font-bold text-cyan-400 font-mono">Direct Feather</span>
+            <span className="text-[11px] font-bold text-prizm-info font-mono">Direct Feather</span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Active Profile</span>
-            <span className="text-[11px] font-bold text-prizm-primary font-mono truncate max-w-full block">{profileName}</span>
+            <span className="text-[11px] font-bold text-prizm-primary-strong font-mono truncate max-w-full block">{profileName}</span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Topology Source</span>
-            <span className="text-[11px] font-bold text-gray-300 font-mono">Active profile</span>
+            <span className="text-[11px] font-bold text-prizm-text font-mono">Active profile</span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Selected Targets</span>
-            <span className={`text-[11px] font-bold font-mono ${selectedIps.length > 0 ? "text-yellow-400" : "text-prizm-text-muted"}`}>
+            <span className={`text-[11px] font-bold font-mono ${selectedIps.length > 0 ? "text-amber-600" : "text-prizm-text-muted"}`}>
               {selectedIps.length} units
             </span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Polling Mode</span>
-            <span className={`text-[11px] font-bold font-mono inline-flex items-center gap-1 justify-center ${pollingActive ? "text-green-400" : "text-prizm-text-muted"}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${pollingActive ? "bg-green-400 animate-pulse" : "bg-gray-500"}`} />
+            <span className={`text-[11px] font-bold font-mono inline-flex items-center gap-1 justify-center ${pollingActive ? "text-prizm-primary-strong" : "text-prizm-text-muted"}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${pollingActive ? "bg-prizm-primary animate-pulse" : "bg-gray-500"}`} />
               {pollingActive ? "ACTIVE" : "STOPPED"}
             </span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Last Report</span>
-            <span className="text-[11px] font-bold text-gray-200 font-mono truncate">{lastPollTime || "-"}</span>
+            <span className="text-[11px] font-bold text-prizm-text font-mono truncate">{lastPollTime || "-"}</span>
           </div>
 
           <div className="bg-prizm-bg p-2 rounded border border-prizm-border/60 text-center">
             <span className="text-[9px] text-prizm-text-muted block uppercase font-mono">Validation Metrics</span>
             <span className="text-[10px] font-bold block leading-tight font-mono">
-              <span className="text-green-400">{cPass} P</span> / <span className="text-prizm-danger">{cFail + cOffline} F</span>
+              <span className="text-prizm-primary-strong">{cPass} P</span> / <span className="text-prizm-danger">{cFail + cOffline} F</span>
             </span>
           </div>
 
@@ -616,11 +616,11 @@ export default function HvacSimulationDashboard() {
 
         {/* Partial Connection Alert */}
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-2 text-[11px] flex items-center justify-between font-mono">
-          <div className="flex items-center gap-2 text-yellow-500">
+          <div className="flex items-center gap-2 text-amber-700">
             <AlertTriangle size={14} className="animate-bounce" />
             <span>Connection Partial — simulation operates against direct network targets, but secondary EMS profiles remain static.</span>
           </div>
-          <span className="text-[8px] bg-yellow-500/20 px-1 py-0.5 rounded text-white font-black uppercase">DIRECT LAN</span>
+          <span className="text-[8px] bg-yellow-500/20 px-1 py-0.5 rounded text-amber-900 font-extrabold uppercase">DIRECT LAN</span>
         </div>
       </div>
 
@@ -1024,13 +1024,13 @@ export default function HvacSimulationDashboard() {
                           <span className="text-[7.5px] font-black uppercase text-prizm-primary bg-prizm-primary/10 border border-prizm-primary/30 px-1 rounded leading-none select-none">ACTIVE</span>
                         )}
                       </div>
-                      <span className="block text-[9px] text-prizm-text-muted mt-1 leading-snug font-light">
+                      <span className={`block text-[9.5px] mt-1 leading-snug ${active ? "text-prizm-primary-strong font-semibold" : "text-slate-700 font-semibold"}`}>
                         {modeItem.desc}
                       </span>
                     </div>
 
                     <div className="mt-2.5 pt-1.5 border-t border-prizm-border/20 flex items-center justify-between">
-                      <span className={`text-[8px] tracking-tight font-mono whitespace-nowrap block truncate max-w-full ${active ? "text-prizm-primary-strong font-semibold" : "text-prizm-text-muted"}`}>
+                      <span className={`text-[8.5px] tracking-tight font-mono whitespace-nowrap block truncate max-w-full ${active ? "text-prizm-primary-strong font-bold" : "text-slate-800 font-semibold"}`}>
                         {modeItem.threshold}
                       </span>
                       <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-prizm-primary" : "bg-transparent"}`} />

@@ -766,12 +766,11 @@ export default function FeatherDashboard() {
                           {d.reachable ? (d.deviceState || "NORMAL") : (d.sourceCoverage?.directFeather ? 'OFFLINE' : 'Not reporting')}
                         </span>
                       </td>
-
-                      <td className="p-3 text-center">
+                       <td className="p-3 text-center">
                         {isWarned && d.warnInfo && d.warnInfo.length > 0 ? (
                            <div className="flex flex-col gap-1 items-center">
                              {d.warnInfo.map((n, i) => (
-                               <span key={i} title={typeof n === 'object' ? JSON.stringify((n as any).raw ?? n) : undefined} className="px-1.5 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px] whitespace-nowrap">
+                               <span key={`${d.ip}-warn-${typeof n === 'object' ? JSON.stringify(n) : String(n)}-${i}`} title={typeof n === 'object' ? JSON.stringify((n as any).raw ?? n) : undefined} className="px-1.5 py-0.5 bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 rounded font-black text-[9px] whitespace-nowrap">
                                  {formatFeatherDiagnosticValue(n)}
                                </span>
                              ))}
@@ -785,7 +784,7 @@ export default function FeatherDashboard() {
                         {isTripped && d.alarmFaults && d.alarmFaults.length > 0 ? (
                            <div className="flex flex-col gap-1 items-center">
                                {d.alarmFaults.map((f, i) => (
-                                 <span key={i} title={typeof f === 'object' ? JSON.stringify((f as any).raw ?? f) : undefined} className="px-1.5 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse whitespace-nowrap">
+                                 <span key={`${d.ip}-alarm-${typeof f === 'object' ? JSON.stringify(f) : String(f)}-${i}`} title={typeof f === 'object' ? JSON.stringify((f as any).raw ?? f) : undefined} className="px-1.5 py-0.5 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 rounded font-extrabold text-[9px] animate-pulse whitespace-nowrap">
                                    {formatFeatherDiagnosticValue(f)}
                                  </span>
                                ))}
