@@ -240,12 +240,17 @@ const handleManualRefresh = async () => {
            >
               <RefreshCw size={10} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
            </button>
-           <div className={`p-1.5 border rounded ${
-                (!data.cache || !data.cache.sourceOk) ? 'bg-prizm-danger/20 border-prizm-danger text-prizm-danger' : 
-                (data.cache.isStale ? 'bg-prizm-warning/20 border-prizm-warning text-prizm-warning' : 
-                 (data.cache.wasFetched ? 'bg-prizm-primary/20 border-prizm-primary text-prizm-primary font-bold' : 'bg-prizm-primary/10 border-prizm-primary/50 text-prizm-primary/80'))
+           <div className={`p-1.5 border rounded flex items-center gap-1.5 ${
+                (!data.cache || !data.cache.sourceOk) ? 'bg-prizm-danger/10 border-prizm-danger/30 text-prizm-danger' : 
+                isRefreshing ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' :
+                (data.cache.isStale ? 'bg-prizm-warning/10 border-prizm-warning/30 text-prizm-warning' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-bold')
            }`}>
-                {(!data.cache || !data.cache.sourceOk) ? 'SOURCE OFFLINE' : (data.cache.isStale ? `STALE CACHE` : (data.cache.wasFetched ? 'LIVE FETCHED' : `LIVE CACHE`))}
+                {(() => {
+                    if (!data.cache || !data.cache.sourceOk) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline</>;
+                    if (isRefreshing) return <><span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse"></span>Refreshing Live</>;
+                    if (data.cache.isStale) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning"></span>Connection Partial</>;
+                    return <><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Connection Live</>;
+                })()}
            </div>
            <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
               SRC: <span className="text-prizm-text">{data.emsBaseUrl}</span>

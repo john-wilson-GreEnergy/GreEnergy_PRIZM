@@ -522,6 +522,81 @@ export function getStatus() {
   };
 }
 
+export interface HistoricalCacheSettings {
+  historicalSnapshotLoggingEnabled: boolean;
+  retentionPolicy: "1h" | "6h" | "24h" | "7d" | "manual";
+  snapshotFrequency: "every-refresh" | "30s" | "1m" | "5m";
+}
+
+const SETTINGS_FILE = path.join(CACHE_ROOT, "settings", "history-settings.json");
+
+export function getHistoricalCacheSettings(): HistoricalCacheSettings {
+  if (fs.existsSync(SETTINGS_FILE)) {
+    try {
+      return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    } catch (e) {}
+  }
+  return {
+    historicalSnapshotLoggingEnabled: false,
+    retentionPolicy: "24h",
+    snapshotFrequency: "1m"
+  };
+}
+
+export function setHistoricalCacheSettings(settings: HistoricalCacheSettings) {
+  try {
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  } catch (e) {}
+}
+
+function parseRetentionMs(policy: string): number | null {
+  if (policy === "1h") return 60 * 60 * 1000;
+  if (policy === "6h") return 6 * 60 * 60 * 1000;
+  if (policy === "24h") return 24 * 60 * 60 * 1000;
+  if (policy === "7d") return 7 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+export function pruneHistoricalCache(policy: string) {
+  if (policy === "manual") return;
+  const maxAgeMs = parseRetentionMs(policy);
+  if (!maxAgeMs) return;
+
+  const sitesDir = path.join(HISTORY_ROOT, "sites");
+  if (!fs.existsSync(sitesDir)) return;
+
+  const now = Date.now();
+  const dirs = fs.readdirSync(sitesDir);
+  for (const siteFolder of dirs) {
+    const p = path.join(sitesDir, siteFolder);
+    if (!fs.statSync(p).isDirectory()) continue;
+    const files = fs.readdirSync(p);
+    for (const f of files) {
+      if (f.endsWith('.jsonl')) {
+        const fp = path.join(p, f);
+        try {
+          const content = fs.readFileSync(fp, 'utf8');
+          const lines = content.split('\n').filter(l => l.trim().length > 0);
+          const keep = lines.filter(l => {
+            try {
+              const obj = JSON.parse(l);
+              if (obj.timestampUtc) {
+                 const age = now - new Date(obj.timestampUtc).getTime();
+                 return age <= maxAgeMs;
+              }
+            } catch(e) {}
+            return false;
+          });
+          if (keep.length !== lines.length) {
+            fs.writeFileSync(fp, keep.join('\n') + '\n');
+          }
+        } catch(e) {}
+      }
+    }
+  }
+}
+
 export function writeHistory(sourceKey: string, data: any) {
     const siteKey = getSiteCacheKey();
     const activeMeta = getActiveSiteMetadata();
@@ -539,4 +614,12 @@ export function writeHistory(sourceKey: string, data: any) {
     try {
         fs.appendFileSync(path.join(p, `${sourceKey}.jsonl`), JSON.stringify(record) + "\n");
     } catch(e) {}
+}
+
+export function writeTelemetryHistoryIfEnabled(sourceKey: string, data: any) {
+   const settings = getHistoricalCacheSettings();
+   if (!settings.historicalSnapshotLoggingEnabled) return;
+   
+   writeHistory(sourceKey, data);
+   pruneHistoricalCache(settings.retentionPolicy);
 }

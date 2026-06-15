@@ -1145,7 +1145,7 @@ export async function refreshSiteOperationsSources() {
             const data = await buildSiteOperationsSummaryFromCache();
             if (data) {
                 prizmCache.set('site-operations-summary', data, { ttlMs: 15000 });
-                if (prizmCache.writeHistory) prizmCache.writeHistory('site-operations', data);
+                if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('site-operations', data);
                 lastSummaryCache = data;
                 lastSummaryTime = Date.now();
             }

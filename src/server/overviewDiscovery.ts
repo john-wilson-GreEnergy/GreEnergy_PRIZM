@@ -248,7 +248,7 @@ router.get("/discovery", async (req, res) => {
         try {
             const prizmCache = require('./cache/prizmCache');
             prizmCache.set('overview-discovery', responseData, { ttlMs: 15000 });
-            if (prizmCache.writeHistory) prizmCache.writeHistory('overview-discovery', responseData);
+            if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('overview-discovery', responseData);
         } catch(e) {}
         res.json(responseData);
 

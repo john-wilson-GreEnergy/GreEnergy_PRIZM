@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getDashboardConnectionStatus } from '../utils/statusDisplay';
 import { 
     Activity, 
     Battery, 
@@ -1021,9 +1022,15 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
                  <div className="flex flex-wrap items-center gap-4">
                      <div className="flex items-center gap-2">
                         <span className="text-prizm-text-muted">CACHE STATE:</span>
-                        <span className={`font-bold px-1.5 py-0.5 rounded ${state.siteSummary?.site?.connectionState === 'disconnected' ? 'bg-prizm-warning/10 text-prizm-warning' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                            {state.siteSummary?.site?.connectionState === 'disconnected' ? 'CACHED / OFFLINE' : 'LIVE'}
-                        </span>
+                        {(() => {
+                           const st = getDashboardConnectionStatus(state.siteSummary, state.loading);
+                           return (
+                             <span className={`font-bold px-1.5 py-0.5 rounded flex items-center gap-1.5 ${st.bgClass} ${st.colorClass}`}>
+                                {st.pulse && <span className={`h-1.5 w-1.5 rounded-full ${st.bgClass.replace('/10','')} animate-pulse`} />}
+                                {st.text}
+                             </span>
+                           );
+                        })()}
                      </div>
                      <div className="flex items-center gap-2">
                         <span className="text-prizm-text-muted">LAST FETCHED:</span>

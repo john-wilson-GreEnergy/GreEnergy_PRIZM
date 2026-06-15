@@ -179,7 +179,7 @@ async function doBackgroundPoll() {
 
       // Ensure cache layer has this info available so it doesn't need to rebuild
       prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
-      if (prizmCache.writeHistory) prizmCache.writeHistory('prizm-site-snapshot', centralSnapshot);
+      if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('prizm-site-snapshot', centralSnapshot);
       
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();

@@ -348,7 +348,7 @@ router.get("/candidates", async (req, res) => {
         try {
             const prizmCache = require('./cache/prizmCache');
             prizmCache.set('safety-candidates', responseData, { ttlMs: 15000 });
-            if (prizmCache.writeHistory) prizmCache.writeHistory('safety-candidates', responseData);
+            if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('safety-candidates', responseData);
         } catch(e) {}
         res.json(responseData);
     } catch (err: any) {

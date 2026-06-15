@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getHistoricalCacheSettings, pruneHistoricalCache } from '../cache/prizmCache';
 
 export interface PrizmTelemetrySample {
   timestampUtc: string;
@@ -34,6 +35,9 @@ function parseRangeMs(rangeStr: string): number {
 }
 
 export async function appendSamples(samples: PrizmTelemetrySample[]): Promise<void> {
+    const settings = getHistoricalCacheSettings();
+    if (!settings.historicalSnapshotLoggingEnabled) return;
+
     if (!samples.length) return;
     try {
         if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });

@@ -76,16 +76,27 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   const [customTestLoading, setCustomTestLoading] = useState(false);
   const [showTestResultModal, setShowTestResultModal] = useState(false);
 
-  // Cache States
+  // Cache and History States
   const [cacheStatus, setCacheStatus] = useState<any>(null);
+  const [historyStatus, setHistoryStatus] = useState<any>(null);
   const [cachePolicy, setCachePolicy] = useState<string>("live-first");
   const [changePolicyLoading, setChangePolicyLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  useEffect(() => {
+  const loadCacheStates = () => {
      fetch('/api/local/cache/status')
         .then(r => r.json())
         .then(setCacheStatus)
         .catch(console.error);
+
+     fetch('/api/local/cache/history/status')
+        .then(r => r.json())
+        .then(setHistoryStatus)
+        .catch(console.error);
+  };
+
+  useEffect(() => {
+     loadCacheStates();
         
      fetch('/api/local/cache/policy')
         .then(r => r.json())
@@ -128,8 +139,40 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
       if (window.confirm('Are you sure you want to clear ALL PRIZM local site caches?')) {
          try {
              await fetch('/api/local/cache/clear-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: 'CLEAR_ALL_PRIZM_CACHE' }) });
-             const res = await fetch('/api/local/cache/status');
-             setCacheStatus(await res.json());
+             loadCacheStates();
+         } catch(e) {}
+      }
+  };
+
+  const handleClearCurrentActiveCacheOnly = async () => {
+      if (window.confirm('Clearing current active snapshot cache will temporarily blank dashboards until live data repopulates... Proceed?')) {
+         try {
+             await fetch('/api/local/cache/history/current/clear', { method: 'POST' });
+             loadCacheStates();
+             window.location.reload(); 
+         } catch(e) {}
+      }
+  };
+
+  const handleUpdateHistoryConfig = async (key: string, val: any) => {
+      setHistoryLoading(true);
+      try {
+         await fetch('/api/local/cache/history/settings', { 
+             method: 'POST', 
+             headers: { 'Content-Type': 'application/json' }, 
+             body: JSON.stringify({ [key]: val })
+         });
+         loadCacheStates();
+      } catch(e) {} finally {
+         setHistoryLoading(false);
+      }
+  };
+
+  const handleClearHistoricalCache = async () => {
+      if (window.confirm('Clear all timestamped telemetry snapshots? Current dashboard caches and audit event logs will not be affected.')) {
+         try {
+             await fetch('/api/local/cache/history/clear', { method: 'POST' });
+             loadCacheStates();
          } catch(e) {}
       }
   };
@@ -912,7 +955,7 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                </div>
            </div>
 
-           <div className="space-y-2">
+           <div className="space-y-2 mt-4 pt-4 border-t border-prizm-border">
                <div className="text-[11px] uppercase font-bold text-prizm-text mb-2">Available Offline Datasets By Site Namespace:</div>
                {cacheStatus.availableSiteCaches?.length === 0 ? (
                   <div className="text-xs text-prizm-text-muted p-2 bg-black/10 rounded border border-prizm-border/50">No durable cache namespaces discovered locally.</div>
@@ -932,6 +975,115 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                   ))
                )}
            </div>
+        </div>
+      )}
+
+      {historyStatus && (
+        <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
+                 <Database size={14} className="text-cyan-500" />
+                 History & Storage
+              </h3>
+              <div className="flex gap-2">
+                <button onClick={handleClearCurrentActiveCacheOnly} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 transition-colors">
+                   Clear Current Snapshot Cache
+                </button>
+                <button onClick={handleClearHistoricalCache} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/50 text-red-500 bg-red-500/5 rounded hover:bg-red-500/20 transition-colors">
+                   Clear Historical Snapshot Cache
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-3">
+                 <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1">Current Snapshot Cache</div>
+                 <div className="text-xs text-prizm-text">
+                    <span className="text-prizm-primary font-bold">Enabled</span> (Required for live dashboards)
+                 </div>
+                 <div className="text-[10px] text-prizm-text-muted italic">
+                    Stores the latest known state. Overwritten automatically.
+                 </div>
+                 <div className="text-[10px] space-y-1">
+                    <div className="flex justify-between"><span className="text-prizm-text-muted">Status:</span><span className="text-emerald-400">Active</span></div>
+                    <div className="flex justify-between"><span className="text-prizm-text-muted">Folder Path:</span><span className="text-prizm-text truncate ml-2 max-w-[200px]">{cacheStatus?.cacheRoot}</span></div>
+                 </div>
+              </div>
+
+              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-3">
+                 <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1">Historical Snapshot Logging</div>
+                 
+                 <div className="flex items-center justify-between">
+                     <span className="text-xs text-prizm-text">Logging Enabled</span>
+                     <button 
+                        disabled={historyLoading}
+                        onClick={() => handleUpdateHistoryConfig('enabled', !historyStatus.enabled)}
+                        className={`w-10 h-5 rounded-full relative transition-colors ${historyStatus.enabled ? "bg-cyan-500" : "bg-prizm-border"}`}
+                     >
+                        <div className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-all ${historyStatus.enabled ? "translate-x-5" : ""}`} />
+                     </button>
+                 </div>
+
+                 {!historyStatus.enabled && (
+                    <div className="text-[10px] text-orange-400 italic">
+                        History logging is currently OFF.
+                    </div>
+                 )}
+
+                 <div className="flex justify-between items-center">
+                     <span className="text-[10px] text-prizm-text-muted uppercase">Retention</span>
+                     <select 
+                        value={historyStatus.retentionPolicy}
+                        onChange={(e) => handleUpdateHistoryConfig('retentionPolicy', e.target.value)}
+                        disabled={historyLoading}
+                        className="bg-prizm-surface border border-prizm-border rounded p-1 text-xs text-prizm-primary outline-none"
+                     >
+                        <option value="1h">1 Hour</option>
+                        <option value="6h">6 Hours</option>
+                        <option value="24h">24 Hours</option>
+                        <option value="7d">7 Days</option>
+                        <option value="manual">Manual/No Prune</option>
+                     </select>
+                 </div>
+              </div>
+            </div>
+
+            <div className="bg-black/20 p-3 rounded border border-white/5">
+               <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1 mb-2">Local Historical Cache Viewer</div>
+               {historyStatus.historyExists ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[10px]">
+                      <div>
+                         <span className="text-prizm-text-muted block">Saved Locally</span>
+                         <span className="text-prizm-text font-bold">Yes</span>
+                      </div>
+                      <div>
+                         <span className="text-prizm-text-muted block">Folder Size</span>
+                         <span className="text-prizm-text font-bold">{historyStatus.totalSizeDisplay}</span>
+                      </div>
+                      <div>
+                         <span className="text-prizm-text-muted block">Files</span>
+                         <span className="text-prizm-primary font-bold">{historyStatus.snapshotCount}</span>
+                      </div>
+                      <div className="col-span-full">
+                         <span className="text-prizm-text-muted block">Categories Present</span>
+                         <div className="mt-1 flex flex-wrap gap-2">
+                            {historyStatus.categories?.map((c: any) => (
+                                <span key={c.name} className="px-1.5 py-0.5 bg-prizm-surface border border-prizm-border rounded text-prizm-text text-[9px]">{c.name} ({(c.bytes/1024).toFixed(1)} KB)</span>
+                            ))}
+                         </div>
+                         {!historyStatus.enabled && historyStatus.historyExists && (
+                             <div className="mt-2 text-orange-400 italic">
+                                Historical snapshot logging is off, but previously saved historical data exists locally.
+                             </div>
+                         )}
+                      </div>
+                  </div>
+               ) : (
+                  <div className="text-xs text-prizm-text-muted py-2">
+                     No historical snapshots are currently saved on this device.
+                  </div>
+               )}
+            </div>
         </div>
       )}
 
