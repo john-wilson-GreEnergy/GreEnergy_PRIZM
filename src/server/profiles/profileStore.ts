@@ -1,9 +1,26 @@
 import fs from "fs";
 import path from "path";
-import { EmsProfile } from "./profileTypes";
+import { EmsProfile, TopologyModel } from "./profileTypes";
 
 const PROFILES_DIR = path.join(process.cwd(), "data");
 const PROFILES_FILE = path.join(PROFILES_DIR, "prizm_connection_profiles.json");
+
+export function getDefaultTopologyModel(): TopologyModel {
+  return {
+    type: "standard-array-segment",
+    basePrefix: "10.0",
+    arrayOctet: 3,
+    segmentOctet: 4,
+    arrayStart: 1,
+    arrayEnd: 8,
+    segmentStart: 3,
+    segmentEnd: 110,
+    csSegment: 3,
+    esSegmentStart: 10,
+    esSegmentStep: 5,
+    esCountPerArray: 20
+  };
+}
 
 function getDefaultProfile(): EmsProfile {
   const now = new Date().toISOString();
@@ -18,6 +35,7 @@ function getDefaultProfile(): EmsProfile {
     turtlePath: "/turtle",
     modbusHost: "10.0.0.3",
     modbusPort: 4502,
+    modbusUnitId: 1,
     arrayCount: 8,
     stringsPerArray: 40,
     notes: "Default local EMS profile",
@@ -25,7 +43,8 @@ function getDefaultProfile(): EmsProfile {
     createdAt: now,
     updatedAt: now,
     lastTestedAt: null,
-    lastTestResult: null
+    lastTestResult: null,
+    topologyModel: getDefaultTopologyModel()
   };
 }
 
@@ -57,8 +76,27 @@ export class ProfileStore {
               if (!p.turtlePath) p.turtlePath = "/turtle";
               if (!p.modbusHost) p.modbusHost = p.emsHost;
               if (p.modbusPort === undefined) p.modbusPort = 4502;
+              if (p.modbusUnitId === undefined) p.modbusUnitId = 1;
               if (p.arrayCount === undefined) p.arrayCount = 8;
               if (p.stringsPerArray === undefined) p.stringsPerArray = 40;
+              if (!p.topologyModel) {
+                p.topologyModel = getDefaultTopologyModel();
+              } else {
+                // Ensure all standard fields exist
+                const tm = p.topologyModel;
+                if (!tm.type) tm.type = "standard-array-segment";
+                if (!tm.basePrefix) tm.basePrefix = "10.0";
+                if (tm.arrayOctet === undefined) tm.arrayOctet = 3;
+                if (tm.segmentOctet === undefined) tm.segmentOctet = 4;
+                if (tm.arrayStart === undefined) tm.arrayStart = 1;
+                if (tm.arrayEnd === undefined) tm.arrayEnd = 8;
+                if (tm.segmentStart === undefined) tm.segmentStart = 3;
+                if (tm.segmentEnd === undefined) tm.segmentEnd = 110;
+                if (tm.csSegment === undefined) tm.csSegment = 3;
+                if (tm.esSegmentStart === undefined) tm.esSegmentStart = 10;
+                if (tm.esSegmentStep === undefined) tm.esSegmentStep = 5;
+                if (tm.esCountPerArray === undefined) tm.esCountPerArray = 20;
+              }
             });
             // Enforce active single profile sanity
             const activeCount = list.filter(p => p.isActive).length;

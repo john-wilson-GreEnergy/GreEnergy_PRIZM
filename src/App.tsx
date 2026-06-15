@@ -182,7 +182,7 @@ export default function App() {
                 { id: "ems-health", label: "EMS Health", icon: Activity },
                 { id: "arrays-strings", label: "String List", icon: Cpu },
                 { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
-                { id: "tool-dashboards", label: "Tool Dashboards", icon: Sliders },
+                { id: "tool-dashboards", label: "Configuration / Diagnostics", icon: Sliders },
                 { id: "feather-hvac", label: "Feather Reports", icon: Network },
                 { id: "settings", label: "Connection Settings", icon: Settings },
                 { id: "reports", label: "Reports / Exports", icon: FileText },

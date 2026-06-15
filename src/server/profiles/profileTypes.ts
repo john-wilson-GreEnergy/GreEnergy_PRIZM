@@ -1,3 +1,18 @@
+export interface TopologyModel {
+  type: "standard-array-segment" | "custom-manual";
+  basePrefix: string;
+  arrayOctet: number;
+  segmentOctet: number;
+  arrayStart: number;
+  arrayEnd: number;
+  segmentStart: number;
+  segmentEnd: number;
+  csSegment: number;
+  esSegmentStart: number;
+  esSegmentStep: number;
+  esCountPerArray: number;
+}
+
 export interface EmsProfile {
   id: string;
   profileName: string;
@@ -9,12 +24,14 @@ export interface EmsProfile {
   turtlePath: string;
   modbusHost: string;
   modbusPort: number;
+  modbusUnitId?: number;
   arrayCount: number;
   stringsPerArray: number;
   notes: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  topologyModel?: TopologyModel;
   lastTestedAt?: string | null;
   lastTestResult?: {
     success: boolean;

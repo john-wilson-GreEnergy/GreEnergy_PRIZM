@@ -32,6 +32,7 @@ import {
 import FeatherDashboard from "./FeatherDashboard";
 import DataDiscovery from "./DataDiscovery";
 import ModbusProfileManagerUI from "./ModbusProfileManagerUI";
+import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
 
 interface TelemetryMetadata {
   source: "live" | "cached" | "offline" | "demo";
@@ -121,7 +122,7 @@ interface ModbusRegisterRow {
   serverId: number;
 }
 
-export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: "stats" | "status-codes" | "strings" | "ip-maps" | "last-call" | "modbus" | "feather" | "locked-controls" }) {
+export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: "stats" | "status-codes" | "strings" | "ip-maps" | "last-call" | "modbus" | "feather" | "locked-controls" | "connection-topology" | "data-discovery" }) {
   const [activeSubTab, setActiveSubTab] = useState<
     | "stats"
     | "status-codes"
@@ -131,7 +132,9 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
     | "modbus"
     | "feather"
     | "locked-controls"
-  >(initialTab);
+    | "connection-topology"
+    | "data-discovery"
+  >(initialTab as any);
 
   // Sync state if initialTab prop changes
   useEffect(() => {
@@ -564,6 +567,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
 
           <div className="flex flex-col gap-1.5 font-mono">
             {[
+              { id: "connection-topology", label: "Connection & Topology", icon: Network },
               { id: "stats", label: "Controller Stats", icon: HardDrive },
               { id: "status-codes", label: "Status & Notifications", icon: AlertTriangle },
               { id: "strings", label: "String Diagnostics", icon: Cpu },
@@ -651,6 +655,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
           <div>
             <h2 className="text-prizm-text font-mono text-sm font-bold uppercase tracking-wider flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-prizm-surface-strong"></span>
+              {activeSubTab === "connection-topology" && "BESS Subnet IP Topology Mapping"}
               {activeSubTab === "stats" && "EMS Controller Hardware Statistics"}
               {activeSubTab === "status-codes" && "Alarms Register & Codes Interpreter"}
               {activeSubTab === "strings" && "High-Density Cell String Diagnostics Grid"}
@@ -662,6 +667,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               {activeSubTab === "locked-controls" && "Guarded High-Voltage Commands Terminal"}
             </h2>
             <p className="text-[11px] text-prizm-text-muted mt-1">
+              {activeSubTab === "connection-topology" && "Technician-friendly network subnet configurations mapping base prefixes, arrays, and device segment suffixes."}
               {activeSubTab === "stats" && "Real-time CPU diagnostics, JVM storage partitions, and LAN loop performance counters."}
               {activeSubTab === "status-codes" && "Active hardware faults decoded directly to descriptive alarms log indices."}
               {activeSubTab === "strings" && "Granulated DC line voltages, measured currents, and thermistor telemetry groupings."}
@@ -1208,6 +1214,11 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
         {/* ------------------------- 2H. FEATHER / HVAC DEVICES ------------------------- */}
         {activeSubTab === "feather" && (
           <FeatherDashboard />
+        )}
+
+        {/* ------------------------- 2J. CONNECTION & TOPOLOGY WORKFLOW ------------------------- */}
+        {activeSubTab === "connection-topology" && (
+          <ConnectionTopologyWorkflow />
         )}
 
         {/* ------------------------- 2I. LOCAL DATA DISCOVERY ------------------------- */}
