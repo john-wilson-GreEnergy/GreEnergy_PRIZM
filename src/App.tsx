@@ -26,12 +26,13 @@ import FeatherDashboard from "./components/FeatherDashboard";
 import EmsHealthDashboard from "./components/EmsHealthDashboard";
 import ConnectionSettings from "./components/ConnectionSettings";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
+import LineupLightbarControl from "./components/LineupLightbarControl";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "hvac-simulation" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "pcs-dashboard" | "tool-dashboards" | "feather-hvac" | "hvac-simulation" | "settings" | "reports" | "advanced" | "safety-fault" | "lightbar-control">("overview");
   const [loading, setLoading] = useState(true);
 
   // Monitor EMS metadata
@@ -184,6 +185,7 @@ export default function App() {
                 { id: "arrays-strings", label: "String List", icon: Cpu },
                 { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
                 { id: "tool-dashboards", label: "Configuration / Diagnostics", icon: Sliders },
+                { id: "lightbar-control", label: "Lineup Lightbar Control", icon: Sliders },
                 { id: "feather-hvac", label: "Feather Reports", icon: Network },
                 { id: "hvac-simulation", label: "HVAC Simulation + Validation", icon: Sliders },
                 { id: "settings", label: "Connection Settings", icon: Settings },
@@ -250,6 +252,10 @@ export default function App() {
               <ToolDashboards initialTab="ip-maps" />
             )}
 
+            {activeTab === "lightbar-control" && (
+              <LineupLightbarControl />
+            )}
+
             {activeTab === "feather-hvac" && (
               <FeatherDashboard />
             )}
@@ -276,13 +282,7 @@ export default function App() {
             )}
 
             {activeTab === "advanced" && (
-              <div className="flex flex-col items-center justify-center space-y-4 p-12 bg-prizm-surface border border-prizm-border rounded-lg text-center">
-                <Lock size={48} className="text-prizm-warning" />
-                <h2 className="text-prizm-text text-xl font-bold font-mono">Advanced / Locked Workflows</h2>
-                <p className="max-w-md text-prizm-text-muted">
-                  Guarded workflow pending. This control action is intentionally disabled until pre-checks, confirmation, batch execution, post-command verification, and audit logging are implemented.
-                </p>
-              </div>
+              <LineupLightbarControl />
             )}
           </div>
         )}

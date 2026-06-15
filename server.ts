@@ -59,6 +59,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+import lightbarRouter from "./src/server/lightbar/lightbarRoutes";
+
+app.use("/api/local/lightbar", lightbarRouter);
 app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
 app.use("/api/local/strings/dashboard", stringsDashboardRouter);
 app.use("/api/local/overview", overviewDiscoveryRouter);

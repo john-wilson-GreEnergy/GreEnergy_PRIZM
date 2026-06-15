@@ -33,6 +33,7 @@ import FeatherDashboard from "./FeatherDashboard";
 import DataDiscovery from "./DataDiscovery";
 import ModbusProfileManagerUI from "./ModbusProfileManagerUI";
 import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
+import LineupLightbarControl from "./LineupLightbarControl";
 
 interface TelemetryMetadata {
   source: "live" | "cached" | "offline" | "demo";
@@ -122,7 +123,7 @@ interface ModbusRegisterRow {
   serverId: number;
 }
 
-export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: "stats" | "status-codes" | "strings" | "ip-maps" | "last-call" | "modbus" | "feather" | "locked-controls" | "connection-topology" | "data-discovery" }) {
+export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: "stats" | "status-codes" | "strings" | "ip-maps" | "last-call" | "modbus" | "feather" | "locked-controls" | "connection-topology" | "data-discovery" | "lightbar" }) {
   const [activeSubTab, setActiveSubTab] = useState<
     | "stats"
     | "status-codes"
@@ -134,6 +135,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
     | "locked-controls"
     | "connection-topology"
     | "data-discovery"
+    | "lightbar"
   >(initialTab as any);
 
   // Sync state if initialTab prop changes
@@ -568,6 +570,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
           <div className="flex flex-col gap-1.5 font-mono">
             {[
               { id: "connection-topology", label: "Connection & Topology", icon: Network },
+              { id: "lightbar", label: "Lineup Lightbar Control", icon: Sliders },
               { id: "stats", label: "Controller Stats", icon: HardDrive },
               { id: "status-codes", label: "Status & Notifications", icon: AlertTriangle },
               { id: "strings", label: "String Diagnostics", icon: Cpu },
@@ -665,6 +668,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               {activeSubTab === "feather" && "Feather / HVAC Devices Controller Diagnostics"}
               {activeSubTab === "data-discovery" && "Data Discovery & Taxonomy Mapping"}
               {activeSubTab === "locked-controls" && "Guarded High-Voltage Commands Terminal"}
+              {activeSubTab === "lightbar" && "Lineup Lightbar Control"}
             </h2>
             <p className="text-[11px] text-prizm-text-muted mt-1">
               {activeSubTab === "connection-topology" && "Technician-friendly network subnet configurations mapping base prefixes, arrays, and device segment suffixes."}
@@ -677,6 +681,7 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
               {activeSubTab === "feather" && "Live status overview, direct ping latencies, and HVAC thermal metrics for site units."}
               {activeSubTab === "data-discovery" && "Direct payload scan and endpoint analysis for dashboard field mapping."}
               {activeSubTab === "locked-controls" && "Safety lock preventing write scripts execution in raw production environments."}
+              {activeSubTab === "lightbar" && "Deploy visual RGBW lightbar commands to selected arrays and strings through Turtle."}
             </p>
           </div>
 
@@ -1224,6 +1229,11 @@ export default function ToolDashboards({ initialTab = "stats" }: { initialTab?: 
         {/* ------------------------- 2I. LOCAL DATA DISCOVERY ------------------------- */}
         {activeSubTab === "data-discovery" && (
           <DataDiscovery />
+        )}
+
+        {/* ------------------------- LINEUP LIGHTBAR CONTROL ------------------------- */}
+        {activeSubTab === "lightbar" && (
+          <LineupLightbarControl />
         )}
 
         {/* ------------------------- ADVANCED DEBUG DRAWER VIEW ------------------------- */}
