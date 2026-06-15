@@ -25,12 +25,13 @@ import ToolDashboards from "./components/ToolDashboards";
 import FeatherDashboard from "./components/FeatherDashboard";
 import EmsHealthDashboard from "./components/EmsHealthDashboard";
 import ConnectionSettings from "./components/ConnectionSettings";
+import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "ems-health" | "arrays-strings" | "tool-dashboards" | "feather-hvac" | "hvac-simulation" | "settings" | "reports" | "advanced" | "safety-fault">("overview");
   const [loading, setLoading] = useState(true);
 
   // Monitor EMS metadata
@@ -184,6 +185,7 @@ export default function App() {
                 { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
                 { id: "tool-dashboards", label: "Configuration / Diagnostics", icon: Sliders },
                 { id: "feather-hvac", label: "Feather Reports", icon: Network },
+                { id: "hvac-simulation", label: "HVAC Simulation + Validation", icon: Sliders },
                 { id: "settings", label: "Connection Settings", icon: Settings },
                 { id: "reports", label: "Reports / Exports", icon: FileText },
                 { id: "advanced", label: "Advanced / Locked", icon: Lock },
@@ -250,6 +252,10 @@ export default function App() {
 
             {activeTab === "feather-hvac" && (
               <FeatherDashboard />
+            )}
+
+            {activeTab === "hvac-simulation" && (
+              <HvacSimulationDashboard />
             )}
 
             {activeTab === "settings" && (

@@ -49,6 +49,7 @@ import { getFeatherCache, clearFeatherCache, queryFeatherDevice } from "./src/se
 import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTopology";
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
 import { executeDataDiscovery } from "./src/server/telemetry/discovery";
+import hvacSimulationRouter from "./src/server/hvacSimulation/hvacSimulationRoutes";
 
 
 const app = express();
@@ -68,6 +69,7 @@ app.use("/api/local/telemetry", modbusRouter);
 app.use("/api/local", rotationRouter);
 app.use("/api/local/balancing", balancingRouter);
 app.use("/api/local/ems-apps", emsAppRoutes);
+app.use("/api/local/hvac-simulation", hvacSimulationRouter);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 
