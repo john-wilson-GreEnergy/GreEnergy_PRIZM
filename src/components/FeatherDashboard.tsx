@@ -755,11 +755,11 @@ export default function FeatherDashboard() {
                             ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20"
                             : d.reachable && d.deviceState === "WARNING"
                             ? "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20"
-                            : !d.reachable && d.sourceCoverage.directFeather 
+                            : !d.reachable && d.sourceCoverage?.directFeather 
                             ? "bg-black/40 text-prizm-text-muted border border-prizm-border" 
                             : "bg-prizm-surface-strong text-prizm-text-muted"
                         }`}>
-                          {d.reachable ? (d.deviceState || "NORMAL") : (d.sourceCoverage.directFeather ? 'OFFLINE' : 'Not reporting')}
+                          {d.reachable ? (d.deviceState || "NORMAL") : (d.sourceCoverage?.directFeather ? 'OFFLINE' : 'Not reporting')}
                         </span>
                       </td>
 
