@@ -538,6 +538,10 @@ export async function buildSiteOperationsSummaryFromCache() {
                      stringIndex: f.stringIndex ?? null,
                      temperatureC: tempC,
                      humidityPct: hum,
+                     cellTemperatureC: getFeatherCellTemp(f),
+                     supplyAirTempC: f.supplyAirTempC ?? f.supplyAirTemp ?? rt.supplyAirTemp ?? rt.supplyAirTempC ?? null,
+                     coolingSetpointC: f.coolingSetpointC ?? f.coolingSetpoint ?? rt.coolingSetpoint ?? rt.coolingSetpointC ?? null,
+                     heatingSetpointC: f.heatingSetpointC ?? f.heatingSetpoint ?? rt.heatingSetpoint ?? rt.heatingSetpointC ?? null,
                      source: "feather",
                      raw: f
                  });

@@ -836,33 +836,80 @@ export default function SiteOperationsDashboard({ setActiveTab }: { setActiveTab
             </CollapsibleSection>
 
             <CollapsibleSection title="Equipment: Humidity & Temp Sensors" icon={Thermometer} defaultExpanded={false}>
-                 {htsData.length > 0 ? (
-                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                             <tr>
-                                 <th className="py-1 px-2 font-bold">Enclosure / Location</th>
-                                 <th className="py-1 px-2 font-bold">Sensor ID</th>
-                                 <th className="py-1 px-2 font-bold">Source IP/Device</th>
-                                 <th className="py-1 px-2 font-bold">Temperature</th>
-                                 <th className="py-1 px-2 font-bold">Humidity</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-prizm-border">
-                             {htsData.map((item: any, idx: number) => (
-                                     <tr key={idx} className="hover:bg-prizm-surface transition-colors">
-                                         <td className="py-1 px-2 text-prizm-primary font-bold">{item.enclosureLabel || "--"}</td>
-                                         <td className="py-1 px-2 text-prizm-text">{item.sensorId || "--"}</td>
-                                         <td className="py-1 px-2 text-prizm-text-muted">{item.sourceIp || item.deviceName || "--"}</td>
-                                         <td className="py-1 px-2 text-cyan-400 font-bold">{item.temperatureC !== undefined && item.temperatureC !== null ? `${Number(item.temperatureC).toFixed(1)}°C` : "--"}</td>
-                                         <td className="py-1 px-2 text-emerald-400 font-bold">{item.humidityPct !== undefined && item.humidityPct !== null ? `${Number(item.humidityPct).toFixed(1)}%` : "--"}</td>
-                                     </tr>
-                                 ))}
-                         </tbody>
-                     </table>
-                 ) : (
-                     <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No HTS data discovered</div>
-                 )}
-            </CollapsibleSection>
+                  {htsData.length > 0 ? (
+                      (() => {
+                          const parseIp = (ipStr: string): number[] => {
+                              if (!ipStr) return [999, 999, 999, 999];
+                              const clean = ipStr.replace(/[^0-9.]/g, "");
+                              const parts = clean.split(".").map(Number);
+                              while (parts.length < 4) parts.push(0);
+                              return parts;
+                          };
+
+                          const compareIps = (ipA: string, ipB: string): number => {
+                              const a = parseIp(ipA);
+                              const b = parseIp(ipB);
+                              for (let i = 0; i < 4; i++) {
+                                  if (a[i] !== b[i]) {
+                                      return a[i] - b[i];
+                                  }
+                              }
+                              return 0;
+                          };
+
+                          const sortedHtsData = [...htsData].sort((a, b) => {
+                              return compareIps(a.sourceIp || a.sensorId || "", b.sourceIp || b.sensorId || "");
+                          });
+
+                          return (
+                              <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                                  <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                                      <tr>
+                                          <th className="py-1 px-2 font-bold">Enclosure / Location</th>
+                                          <th className="py-1 px-2 font-bold text-center">Space Temp</th>
+                                          <th className="py-1 px-2 font-bold text-center">Supply Air Temp</th>
+                                          <th className="py-1 px-2 font-bold text-center">Cell Temp</th>
+                                          <th className="py-1 px-2 font-bold text-center">Cooling SP</th>
+                                          <th className="py-1 px-2 font-bold text-center">Heating SP</th>
+                                          <th className="py-1 px-2 font-bold text-center">Humidity</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-prizm-border">
+                                      {sortedHtsData.map((item, idx) => {
+                                          const ip = item.sourceIp || item.sensorId || "";
+                                          const isDotThree = ip.endsWith(".3");
+                                          return (
+                                              <tr key={idx} className="hover:bg-prizm-surface transition-colors">
+                                                  <td className="py-1 px-2 text-prizm-primary font-bold">{item.enclosureLabel || "--"}</td>
+                                                  <td className="py-1 px-2 text-cyan-400 font-bold text-center">
+                                                      {item.temperatureC !== undefined && item.temperatureC !== null ? `${Number(item.temperatureC).toFixed(1)}°C` : "--"}
+                                                  </td>
+                                                  <td className="py-1 px-2 text-sky-400/80 text-center">
+                                                      {item.supplyAirTempC !== undefined && item.supplyAirTempC !== null ? `${Number(item.supplyAirTempC).toFixed(1)}°C` : "--"}
+                                                  </td>
+                                                  <td className="py-1 px-2 text-center font-semibold">
+                                                      {isDotThree ? <span className="text-prizm-text-muted">N/A</span> : (item.cellTemperatureC !== undefined && item.cellTemperatureC !== null ? <span className="text-pink-400">`${Number(item.cellTemperatureC).toFixed(1)}°C`</span> : <span className="text-prizm-text-muted">--</span>)}
+                                                  </td>
+                                                  <td className="py-1 px-2 text-amber-400 font-semibold text-center">
+                                                      {item.coolingSetpointC !== undefined && item.coolingSetpointC !== null ? `${Number(item.coolingSetpointC).toFixed(1)}°C` : "--"}
+                                                  </td>
+                                                  <td className="py-1 px-2 text-orange-400 font-semibold text-center">
+                                                      {item.heatingSetpointC !== undefined && item.heatingSetpointC !== null ? `${Number(item.heatingSetpointC).toFixed(1)}°C` : "--"}
+                                                  </td>
+                                                  <td className="py-1 px-2 text-emerald-400 font-bold text-center">
+                                                      {item.humidityPct !== undefined && item.humidityPct !== null ? `${Number(item.humidityPct).toFixed(1)}%` : "--"}
+                                                  </td>
+                                              </tr>
+                                          );
+                                      })}
+                                  </tbody>
+                              </table>
+                          );
+                      })()
+                  ) : (
+                      <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">No HTS data discovered</div>
+                  )}
+             </CollapsibleSection>
 
             
 
