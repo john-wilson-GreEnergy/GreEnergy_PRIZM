@@ -42,7 +42,7 @@ export function parseCsvQuotesAware(csvStr: string): string[][] {
   return rows;
 }
 
-export function parseTurtleJsonOrLabeledSections(raw: string): {
+export function parseTurtleJsonOrLabeledSections(raw: any): {
 
   kind: "json" | "labeled-sections" | "text" | "empty";
   data: any;
@@ -50,7 +50,29 @@ export function parseTurtleJsonOrLabeledSections(raw: string): {
   flattened: any[];
   error?: string;
 } {
-  if (!raw || typeof raw !== "string" || !raw.trim()) {
+  if (!raw) {
+    return { kind: "empty", data: null, sections: [], flattened: [] };
+  }
+
+  if (Array.isArray(raw)) {
+    return {
+      kind: "json",
+      data: raw,
+      sections: [],
+      flattened: raw,
+    };
+  }
+
+  if (typeof raw === "object") {
+    return {
+      kind: "json",
+      data: raw,
+      sections: [],
+      flattened: [raw],
+    };
+  }
+
+  if (typeof raw !== "string" || !raw.trim()) {
     return { kind: "empty", data: null, sections: [], flattened: [] };
   }
 

@@ -449,6 +449,123 @@ async function fetchAndRecord(endpoint: string, customTimeoutMs?: number, return
   }
 }
 
+// Helper to construct a dynamic site IP Map based on the active profile's topologyModel
+export function generateDynamicSiteIpMap(profile: any): any[] {
+  const model = profile?.topologyModel || {
+    type: "standard-array-segment",
+    basePrefix: "10.0",
+    arrayStart: 1,
+    arrayEnd: 8,
+    segmentStart: 3,
+    segmentEnd: 110,
+    csSegment: 3,
+    esSegmentStart: 10,
+    esSegmentStep: 5,
+    esCountPerArray: 20
+  };
+
+  const basePrefix = (model.basePrefix || "10.0").trim();
+  const arrayStart = Number(model.arrayStart ?? 1);
+  const arrayEnd = Number(model.arrayEnd ?? 8);
+  const csSegment = Number(model.csSegment ?? 3);
+  const esStart = Number(model.esSegmentStart ?? 10);
+  const esStep = Number(model.esSegmentStep ?? 5);
+  const esCount = Number(model.esCountPerArray ?? 20);
+
+  const ipList: any[] = [];
+
+  // 1. EMS Master Controller
+  const emsHost = profile?.emsHost || "10.0.0.3";
+  ipList.push({
+    target: "EMS Master Controller",
+    ipAddress: emsHost,
+    model: "MOXA DA-682C Site Grid Node",
+    entityType: "controller"
+  });
+
+  // 2. PLC Main Ingress Regulator
+  const emsParts = emsHost.split('.');
+  const plcIp = emsParts.length === 4 ? `${emsParts[0]}.${emsParts[1]}.${emsParts[2]}.12` : `${basePrefix}.0.12`;
+  ipList.push({
+    target: "PLC Main Ingress Regulator",
+    ipAddress: plcIp,
+    model: "Allen-Bradley GuardLogix Ethernet Module",
+    entityType: "plc"
+  });
+
+  // 3. Collection and Energy segments
+  if (model.type === "standard-array-segment") {
+    for (let array = arrayStart; array <= arrayEnd; array++) {
+      // CS Segment
+      const csIp = `${basePrefix}.${array}.${csSegment}`;
+      ipList.push({
+        target: `Lineup ${array} Collection Segment (CS) Device Node`,
+        ipAddress: csIp,
+        model: "MOXA Ingress Collector Inverter Controller",
+        entityType: "cs",
+        arrayIndex: array
+      });
+
+      // ES Segments
+      for (let c = 0; c < esCount; c++) {
+        const segment = esStart + c * esStep;
+        const esIp = `${basePrefix}.${array}.${segment}`;
+        ipList.push({
+          target: `Array ${array} Energy Segment ${c + 1} (ES) Device Node`,
+          ipAddress: esIp,
+          model: "BESS Cell Cluster String Regulator",
+          entityType: "es",
+          arrayIndex: array,
+          stringIndex: c + 1
+        });
+      }
+    }
+  }
+
+  return ipList;
+}
+
+// Helper to construct a dynamic string IP mapping based on the active profile's topologyModel
+export function generateDynamicStringIpMap(profile: any): any[] {
+  const model = profile?.topologyModel || {
+    type: "standard-array-segment",
+    basePrefix: "10.0",
+    arrayStart: 1,
+    arrayEnd: 8,
+    segmentStart: 3,
+    segmentEnd: 110,
+    csSegment: 3,
+    esSegmentStart: 10,
+    esSegmentStep: 5,
+    esCountPerArray: 20
+  };
+
+  const basePrefix = (model.basePrefix || "10.0").trim();
+  const arrayStart = Number(model.arrayStart ?? 1);
+  const arrayEnd = Number(model.arrayEnd ?? 8);
+  const esStart = Number(model.esSegmentStart ?? 10);
+  const esStep = Number(model.esSegmentStep ?? 5);
+  const esCount = Number(model.esCountPerArray ?? 20);
+
+  const stringList: any[] = [];
+
+  if (model.type === "standard-array-segment") {
+    for (let array = arrayStart; array <= arrayEnd; array++) {
+      for (let c = 0; c < esCount; c++) {
+        const segment = esStart + c * esStep;
+        const esIp = `${basePrefix}.${array}.${segment}`;
+        stringList.push({
+          array,
+          string: c + 1,
+          ip: esIp
+        });
+      }
+    }
+  }
+
+  return stringList;
+}
+
 // Wrapper function to structure all responses consistently
 function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
   const isDemo = isDemoActive();
@@ -485,6 +602,13 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
     data = getLiveVal();
   } else {
     data = (OFFLINE_TEMPLATES as any)[key];
+  }
+
+  // Intercept and dynamically generate ipMap and stringIPMap when in demo, offline, or when live data is missing/empty, to align perfectly with the active custom profile topology.
+  if (key === "ipMap" && (!data || (Array.isArray(data) && data.length === 0) || source === "demo" || source === "offline")) {
+    data = generateDynamicSiteIpMap(activeRef);
+  } else if (key === "stringIPMap" && (!data || (Array.isArray(data) && data.length === 0) || source === "demo" || source === "offline")) {
+    data = generateDynamicStringIpMap(activeRef);
   }
 
   return {
