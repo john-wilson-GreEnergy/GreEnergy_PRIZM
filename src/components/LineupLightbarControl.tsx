@@ -100,7 +100,7 @@ interface ManagedState {
 const PRESET_COLORS = [
   { name: "Red", r: 255, g: 0, b: 0, hex: "#EF4444" },
   { name: "Green", r: 0, g: 255, b: 0, hex: "#10B981" },
-  { name: "Blue", r: 0, g: 255, b: 255, hex: "#3B82F6" }, // Royal blue/cyan glow
+  { name: "Blue", r: 0, g: 0, b: 255, hex: "#3B82F6" }, // Royal blue glow
   { name: "Cyan", r: 0, g: 255, b: 255, hex: "#06B6D4" },
   { name: "Magenta", r: 255, g: 0, b: 255, hex: "#D946EF" },
   { name: "Yellow", r: 255, g: 255, b: 0, hex: "#FBBF24" },
@@ -225,11 +225,11 @@ export default function LineupLightbarControl() {
   const fetchActiveProfile = async () => {
     try {
       setProfileLoading(true);
-      const r = await fetch("/api/local/strings/dashboard");
+      const r = await fetch("/api/local/lightbar/status");
       if (r.ok) {
         const body = await r.json();
-        if (body.site) {
-          setActiveProfile(body.site);
+        if (body.activeProfile) {
+          setActiveProfile(body.activeProfile);
         }
       }
     } catch (e) {
@@ -315,7 +315,8 @@ export default function LineupLightbarControl() {
         mode,
         arrays: arraysInput,
         strings: stringsInput,
-        durationSeconds: duration
+        durationSeconds: duration,
+        blockIndex: selectedBlockIdx
       };
 
       if (mode === "single") {
@@ -365,7 +366,8 @@ export default function LineupLightbarControl() {
         durationSeconds: duration,
         confirmed: true,
         concurrency: activeConcurrency,
-        operator: "Admin Terminal"
+        operator: "Admin Terminal",
+        blockIndex: selectedBlockIdx
       };
 
       if (mode === "single") {
@@ -717,6 +719,28 @@ export default function LineupLightbarControl() {
             </div>
 
             <div className="space-y-3">
+              {activeProfile?.blocks && activeProfile.blocks.length > 1 && (
+                <div>
+                  <label className="text-[10px] font-bold font-mono text-prizm-text-muted block uppercase mb-1">
+                    BESS Block Target:
+                  </label>
+                  <select
+                    value={selectedBlockIdx}
+                    onChange={e => setSelectedBlockIdx(Number(e.target.value))}
+                    className="w-full bg-prizm-bg border border-prizm-border p-2 text-xs font-mono rounded text-prizm-text outline-none focus:border-prizm-primary cursor-pointer"
+                  >
+                    {activeProfile.blocks.map((b: any) => (
+                      <option key={b.blockIndex} value={b.blockIndex}>
+                        {b.blockName || `Block ${b.blockIndex}`} (Index {b.blockIndex})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[9px] text-prizm-text-muted mt-1 block">
+                    Routing commands to Turtle endpoint at Block {selectedBlockIdx}
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label className="text-[10px] font-bold font-mono text-prizm-text-muted block uppercase mb-1">
                   Arrays Selector:
@@ -1691,6 +1715,9 @@ export default function LineupLightbarControl() {
                   <table className="w-full text-left font-mono text-[10px] border-collapse border border-prizm-border">
                     <thead className="bg-black/10 text-prizm-text-muted uppercase">
                       <tr>
+                        {activeProfile?.blocks && activeProfile.blocks.length > 1 && (
+                          <th className="p-2 border-b border-prizm-border">BESS Block</th>
+                        )}
                         <th className="p-2 border-b border-prizm-border">Array Index</th>
                         <th className="p-2 border-b border-prizm-border">String Index</th>
                         <th className="p-2 border-b border-prizm-border text-center">Illumination Preview</th>
@@ -1703,6 +1730,9 @@ export default function LineupLightbarControl() {
                       {previewResponse?.preview ? (
                         previewResponse.preview.slice(0, 100).map((item: any, idx: number) => (
                           <tr key={idx} className="hover:bg-black/5">
+                            {activeProfile?.blocks && activeProfile.blocks.length > 1 && (
+                              <td className="p-1.5 font-bold text-prizm-primary">Block {item.blockIndex ?? 1}</td>
+                            )}
                             <td className="p-1.5 font-bold">Array {item.array}</td>
                             <td className="p-1.5 font-bold">S{String(item.string).padStart(2, '0')}</td>
                             <td className="p-1.5 text-center">
@@ -1724,14 +1754,14 @@ export default function LineupLightbarControl() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="text-center p-12 text-prizm-text-muted font-mono leading-relaxed h-[150px]">
+                          <td colSpan={activeProfile?.blocks && activeProfile.blocks.length > 1 ? 7 : 6} className="text-center p-12 text-prizm-text-muted font-mono leading-relaxed h-[150px]">
                             Adjust manual color/range criteria on left side to calculate visual pattern maps.
                           </td>
                         </tr>
                       )}
                       {previewResponse?.preview && previewResponse.preview.length > 100 && (
                         <tr className="bg-black/20">
-                          <td colSpan={6} className="text-center p-2 font-mono text-[9px] text-prizm-text-muted">
+                          <td colSpan={activeProfile?.blocks && activeProfile.blocks.length > 1 ? 7 : 6} className="text-center p-2 font-mono text-[9px] text-prizm-text-muted">
                             Truncated representation display. Showing first 100 items out of {previewResponse.preview.length} command rows. Use export CSV/JSON options to fetch full array maps.
                           </td>
                         </tr>

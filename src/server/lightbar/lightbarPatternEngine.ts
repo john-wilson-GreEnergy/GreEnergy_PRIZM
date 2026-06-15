@@ -87,6 +87,8 @@ export interface PatternGenerateOptions {
   };
   white?: number;                   // For alt4, mirror, usa
   durationSeconds: number;
+  blockId?: string;
+  blockIndex?: number;
 }
 
 export function validatePatternInput(options: PatternGenerateOptions): { valid: boolean; error?: string } {
@@ -231,7 +233,9 @@ export function generatePatternPreview(options: PatternGenerateOptions): Lightba
         blue: b,
         white: w,
         duration: options.durationSeconds,
-        group
+        group,
+        blockId: options.blockId,
+        blockIndex: options.blockIndex
       });
     }
   }

@@ -19,6 +19,8 @@ export interface LightbarPreviewItem {
   white: number;
   duration: number;
   group: string;
+  blockId?: string;
+  blockIndex?: number;
 }
 
 export interface LightbarPreviewResponse {
@@ -43,6 +45,8 @@ export interface LightbarResultItem {
   ok: boolean;
   url: string;
   error: string | null;
+  blockId?: string;
+  blockIndex?: number;
 }
 
 export interface LightbarApplyResponse {

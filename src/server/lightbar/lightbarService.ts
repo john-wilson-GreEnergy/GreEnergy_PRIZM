@@ -82,7 +82,27 @@ export class LightbarService {
         const list: LastAppliedLightbarState[] = JSON.parse(content);
         FaultLightbarEngineState.activeManagedLightbars.clear();
         for (const item of list) {
-          FaultLightbarEngineState.activeManagedLightbars.set(item.key, item);
+          let finalKey = item.key;
+          let finalBlockIndex = item.blockIndex;
+          let finalBlockId = item.blockId;
+
+          if (!finalKey.includes("-") || finalKey.split("-").length === 2) {
+            const profile = ProfileStore.getActiveProfile();
+            const defaultBlockIndex = profile?.blockIndex ?? 1;
+            const defaultBlockId = profile?.topologyModel?.blocks?.find(b => b.blockIndex === defaultBlockIndex)?.blockId || `block-${defaultBlockIndex}`;
+            finalBlockIndex = defaultBlockIndex;
+            finalBlockId = defaultBlockId;
+            finalKey = `${finalBlockIndex}-${item.arrayIndex}-${item.stringIndex}`;
+            console.warn(`[Migration] Migrating local managed state ${item.key} without block to block-aware key: ${finalKey}`);
+          }
+
+          const migratedItem = {
+            ...item,
+            key: finalKey,
+            blockIndex: finalBlockIndex,
+            blockId: finalBlockId
+          };
+          FaultLightbarEngineState.activeManagedLightbars.set(finalKey, migratedItem);
         }
       } catch (e) {
         console.error("Failed to load managed lightbar states", e);
@@ -101,21 +121,62 @@ export class LightbarService {
     }
   }
 
+  public static getBlockBaseUrl(blockIndex?: number): string {
+    const profile = ProfileStore.getActiveProfile();
+    if (!profile) {
+      throw new Error("Lightbar command blocked: no active EMS profile/Turtle base URL is configured.");
+    }
+    
+    if (blockIndex !== undefined && profile.topologyModel?.blocks) {
+      const block = profile.topologyModel.blocks.find(b => b.blockIndex === blockIndex);
+      if (block) {
+        if (!block.emsHost || !block.emsPort || !block.turtlePath) {
+          throw new Error(`Lightbar command blocked: target block ${blockIndex} is missing connection parameters.`);
+        }
+        return `http://${block.emsHost}:${block.emsPort}${block.turtlePath}`;
+      }
+    }
+
+    if (!profile.emsHost || !profile.emsPort || !profile.turtlePath) {
+      throw new Error("Lightbar command blocked: no active EMS profile/Turtle base URL is configured.");
+    }
+    return `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
+  }
+
   public static async executeCommandsWithConcurrency(
-    commands: { array: number; string: number; red: number; green: number; blue: number; white: number; duration: number }[],
+    commands: {
+      blockId?: string;
+      blockIndex?: number;
+      emsBaseUrl?: string;
+      array: number;
+      string: number;
+      red: number;
+      green: number;
+      blue: number;
+      white: number;
+      duration: number;
+    }[],
     concurrency: number
   ): Promise<LightbarResultItem[]> {
     const profile = ProfileStore.getActiveProfile();
-    const host = profile?.emsHost || "10.0.0.3";
-    const port = profile?.emsPort || 8080;
-    const turtlePath = profile?.turtlePath || "/turtle";
-    const emsBaseUrl = `http://${host}:${port}${turtlePath}`;
+    if (!profile || !profile.emsHost || !profile.emsPort || !profile.turtlePath) {
+      throw new Error("Lightbar command blocked: no active EMS profile/Turtle base URL is configured.");
+    }
+
+    // Resolve specific targeting urls for block topology
+    for (const cmd of commands) {
+      if (!cmd.emsBaseUrl) {
+        cmd.emsBaseUrl = this.getBlockBaseUrl(cmd.blockIndex);
+      }
+    }
 
     const results = new Array<LightbarResultItem>(commands.length);
     let currentIndex = 0;
 
+    const self = this;
     async function sendCommand(cmd: typeof commands[0]): Promise<LightbarResultItem> {
-      const url = `${emsBaseUrl}/tools/controls/ems/array/${cmd.array}/string/${cmd.string}/lightbarcommand?red=${cmd.red}&green=${cmd.green}&blue=${cmd.blue}&white=${cmd.white}&duration=${cmd.duration}`;
+      const emsUrl = cmd.emsBaseUrl || self.getBlockBaseUrl(cmd.blockIndex);
+      const url = `${emsUrl}/tools/controls/ems/array/${cmd.array}/string/${cmd.string}/lightbarcommand?red=${cmd.red}&green=${cmd.green}&blue=${cmd.blue}&white=${cmd.white}&duration=${cmd.duration}`;
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -251,9 +312,21 @@ export class LightbarService {
     });
 
     // Determine what calls are pending
-    const commandsToRun: { array: number; string: number; red: number; green: number; blue: number; white: number; duration: number; severity: any; signature: string }[] = [];
+    const commandsToRun: {
+      blockId?: string;
+      blockIndex?: number;
+      array: number;
+      string: number;
+      red: number;
+      green: number;
+      blue: number;
+      white: number;
+      duration: number;
+      severity: any;
+      signature: string;
+    }[] = [];
     const keysToClear: string[] = [];
-    const keysToSet: { key: string; severity: any; color: any; signature: string; array: number; string: number }[] = [];
+    const keysToSet: { key: string; severity: any; color: any; signature: string; array: number; string: number; blockId?: string; blockIndex?: number }[] = [];
 
     let alarmCount = 0;
     let warningCount = 0;
@@ -261,7 +334,9 @@ export class LightbarService {
     let clearPendingCount = 0;
 
     for (const state of activeStates) {
-      const key = `${state.arrayIndex}-${state.stringIndex}`;
+      const blockIndex = state.blockIndex ?? 1;
+      const blockId = state.blockId ?? `block-${blockIndex}`;
+      const key = `${blockIndex}-${state.arrayIndex}-${state.stringIndex}`;
       const lastState = FaultLightbarEngineState.activeManagedLightbars.get(key);
 
       if (state.severity === "alarm") {
@@ -299,6 +374,8 @@ export class LightbarService {
       if (changed) {
         if (state.desiredAction === "clear") {
           commandsToRun.push({
+            blockId,
+            blockIndex,
             array: state.arrayIndex,
             string: state.stringIndex,
             red: options.clearColor.red,
@@ -312,6 +389,8 @@ export class LightbarService {
           keysToClear.push(key);
         } else {
           commandsToRun.push({
+            blockId,
+            blockIndex,
             array: state.arrayIndex,
             string: state.stringIndex,
             red: state.desiredColor.red,
@@ -328,7 +407,9 @@ export class LightbarService {
             color: state.desiredColor,
             signature: activeSig,
             array: state.arrayIndex,
-            string: state.stringIndex
+            string: state.stringIndex,
+            blockId,
+            blockIndex
           });
         }
       }
@@ -357,7 +438,7 @@ export class LightbarService {
       for (let i = 0; i < results.length; i++) {
         const res = results[i];
         const cmd = commandsToRun[i];
-        const key = `${cmd.array}-${cmd.string}`;
+        const key = `${cmd.blockIndex ?? 1}-${cmd.array}-${cmd.string}`;
 
         if (res.ok) {
           successCount++;
@@ -366,6 +447,8 @@ export class LightbarService {
           } else {
             FaultLightbarEngineState.activeManagedLightbars.set(key, {
               key,
+              blockId: cmd.blockId,
+              blockIndex: cmd.blockIndex,
               arrayIndex: cmd.array,
               stringIndex: cmd.string,
               severity: cmd.severity,
@@ -382,6 +465,8 @@ export class LightbarService {
     } else {
       // In dry run, we don't dispatch, but let's record results as ok for visualization
       results = commandsToRun.map(cmd => ({
+        blockId: cmd.blockId,
+        blockIndex: cmd.blockIndex,
         array: cmd.array,
         string: cmd.string,
         red: cmd.red,
@@ -395,21 +480,28 @@ export class LightbarService {
       }));
     }
 
-    // Log the event to audit logs
-    this.writeAuditLog({
-      mode: "Fault Visualizer Polling Cycle",
-      source: "fault-visualizer",
-      dryRun: options.dryRun,
-      commandCount: commandsToRun.length,
-      successCount: options.dryRun ? commandsToRun.length : successCount,
-      failedCount: options.dryRun ? 0 : failedCount,
-      duration: options.durationSeconds,
-      arrays: "managed",
-      strings: "managed",
-      operator: options.operator,
-      faultSignatures: commandsToRun.map(c => `[A${c.array}S${c.string}] ${c.severity}: ${c.signature}`),
-      ignoredFaultPatterns: options.ignoredPatterns
-    });
+    // Only write audit if query is NOT a live no-op polling dry-run
+    const isLivePolling = (options as any).isLivePolling === true;
+    const isNoOp = commandsToRun.length === 0;
+    
+    const shouldAudit = !isLivePolling || !isNoOp || failedCount > 0;
+
+    if (shouldAudit) {
+      this.writeAuditLog({
+        mode: isLivePolling ? "Fault Visualizer Polling Cycle" : "Fault Visualizer Run Once",
+        source: "fault-visualizer",
+        dryRun: options.dryRun,
+        commandCount: commandsToRun.length,
+        successCount: options.dryRun ? commandsToRun.length : successCount,
+        failedCount: options.dryRun ? 0 : failedCount,
+        duration: options.durationSeconds,
+        arrays: "managed",
+        strings: "managed",
+        operator: options.operator,
+        faultSignatures: commandsToRun.map(c => `[B${c.blockIndex}A${c.array}S${c.string}] ${c.severity}: ${c.signature}`),
+        ignoredFaultPatterns: options.ignoredPatterns
+      });
+    }
 
     FaultLightbarEngineState.lastRunTime = new Date().toISOString();
     FaultLightbarEngineState.lastSummary = summary;
@@ -457,6 +549,19 @@ export class LightbarService {
 
     console.log("PRIZM Fault Visualizer service is active.");
 
+    this.writeAuditLog({
+      mode: "Fault Visualizer Continuous Loop Started",
+      source: "fault-visualizer",
+      dryRun: config.dryRun,
+      commandCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      duration: config.durationSeconds,
+      arrays: "managed",
+      strings: "managed",
+      operator: config.operator || "Operator"
+    });
+
     const poll = async () => {
       try {
         await this.runFaultVisualizerCycle({
@@ -469,8 +574,9 @@ export class LightbarService {
           alarmColor: FaultLightbarEngineState.alarmColor,
           clearColor: FaultLightbarEngineState.clearColor,
           ignoredPatterns: FaultLightbarEngineState.ignoredPatterns,
-          operator: "Live system daemon"
-        });
+          operator: "Live system daemon",
+          isLivePolling: true
+        } as any);
       } catch (e: any) {
         FaultLightbarEngineState.lastError = e.message || String(e);
         console.error("Error in live fault visualizer polling cycle:", e);
@@ -486,6 +592,21 @@ export class LightbarService {
   }
 
   public static stopLiveFaultVisualizer() {
+    if (FaultLightbarEngineState.liveModeActive) {
+      this.writeAuditLog({
+        mode: "Fault Visualizer Continuous Loop Stopped",
+        source: "fault-visualizer",
+        dryRun: false,
+        commandCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        duration: 0,
+        arrays: "managed",
+        strings: "managed",
+        operator: "Operator"
+      });
+    }
+
     FaultLightbarEngineState.enabled = false;
     FaultLightbarEngineState.liveModeActive = false;
     if (FaultLightbarEngineState.pollTimer) {
@@ -500,6 +621,8 @@ export class LightbarService {
   public static async clearAllManaged(concurrency: number): Promise<LightbarResultItem[]> {
     const list = this.getManagedStates();
     const commands = list.map(item => ({
+      blockId: item.blockId,
+      blockIndex: item.blockIndex,
       array: item.arrayIndex,
       string: item.stringIndex,
       red: FaultLightbarEngineState.clearColor.red,
@@ -516,7 +639,9 @@ export class LightbarService {
       // Remove successfully cleared items from tracked map
       for (const res of results) {
         if (res.ok) {
-          const key = `${res.array}-${res.string}`;
+          const matchedCommand = commands.find(c => c.array === res.array && c.string === res.string);
+          const bIdx = matchedCommand?.blockIndex ?? 1;
+          const key = `${bIdx}-${res.array}-${res.string}`;
           FaultLightbarEngineState.activeManagedLightbars.delete(key);
         }
       }

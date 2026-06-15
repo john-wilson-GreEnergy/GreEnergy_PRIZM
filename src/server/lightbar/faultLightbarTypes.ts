@@ -1,6 +1,8 @@
 export type FaultLightbarSeverity = "none" | "warning" | "alarm";
 
 export interface FaultLightbarState {
+  blockId?: string;
+  blockIndex?: number;
   arrayIndex: number;
   stringIndex: number;
   ip?: string;
@@ -23,6 +25,7 @@ export interface FaultLightbarState {
 export interface LastAppliedLightbarState {
   key: string; // block-array-string or array-string
   blockId?: string;
+  blockIndex?: number;
   arrayIndex: number;
   stringIndex: number;
   severity: FaultLightbarSeverity;

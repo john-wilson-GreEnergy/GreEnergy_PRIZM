@@ -1,6 +1,7 @@
 import { FaultLightbarState, FaultLightbarSeverity, LastAppliedLightbarState } from "./faultLightbarTypes";
 import { getEmsCachedRawStrings } from "../emsTurtleClient";
 import { describeBessStatusCode } from "../../lib/bessStatusCodes";
+import { ProfileStore } from "../profiles/profileStore";
 
 export const FAULT_LIGHTBAR_DEFAULTS = {
   warningColor: { red: 255, green: 255, blue: 0, white: 0 }, // yellow
@@ -156,7 +157,11 @@ export function computeFaultLightbarStates(config: {
       desiredAction = "set-warning";
     }
 
-    const key = `${arrayIndex}-${stringIndex}`;
+    const profile = ProfileStore.getActiveProfile();
+    const blockIndex = Number(row.BlockIndex ?? row.blockIndex ?? row.blockNumber ?? profile?.blockIndex ?? 1);
+    const blockId = String(row.BlockId ?? row.blockId ?? profile?.topologyModel?.blocks?.find((b: any) => b.blockIndex === blockIndex)?.blockId ?? `block-${blockIndex}`);
+
+    const key = `${blockIndex}-${arrayIndex}-${stringIndex}`;
     const lastApplied = FaultLightbarEngineState.activeManagedLightbars.get(key);
 
     if (severity === "none") {
@@ -169,6 +174,8 @@ export function computeFaultLightbarStates(config: {
     }
 
     results.push({
+      blockId,
+      blockIndex,
       arrayIndex,
       stringIndex,
       ip: rowIp,

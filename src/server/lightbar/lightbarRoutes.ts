@@ -7,6 +7,8 @@ import {
   getEffectiveTopologyLimits
 } from "./lightbarPatternEngine";
 import { FaultLightbarEngineState, computeFaultLightbarStates } from "./faultLightbarEngine";
+import { ProfileStore } from "../profiles/profileStore";
+import { getEmsCachedRawStrings } from "../emsTurtleClient";
 
 const router = Router();
 
@@ -14,6 +16,52 @@ const router = Router();
 const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
+
+// Configuration check helper
+const ensureProfileReady = () => {
+  const profile = ProfileStore.getActiveProfile();
+  if (!profile || !profile.emsHost || !profile.emsPort || !profile.turtlePath) {
+    throw new Error("Active EMS profile is missing or connection settings are not configured. Cannot perform lightbar operations.");
+  }
+  return profile;
+};
+
+/**
+ * GET /api/local/lightbar/status
+ */
+router.get("/status", asyncHandler(async (req: Request, res: Response) => {
+  const profile = ProfileStore.getActiveProfile();
+  const ready = !!(profile && profile.emsHost && profile.emsPort && profile.turtlePath);
+  
+  // Calculate raw strings data age
+  const cacheRaw = getEmsCachedRawStrings();
+  const lastUpdated = cacheRaw.lastUpdated;
+  let faultDataAgeSeconds = -1;
+  if (lastUpdated) {
+    faultDataAgeSeconds = Math.max(0, Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 1000));
+  }
+
+  res.json({
+    success: true,
+    ready,
+    activeProfile: profile ? {
+      id: profile.id,
+      profileName: profile.profileName,
+      emsHost: profile.emsHost,
+      emsPort: profile.emsPort,
+      turtlePath: profile.turtlePath,
+      emsBaseUrl: ready ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "Connecting...",
+      blocks: profile.topologyModel?.blocks || []
+    } : null,
+    turtleBaseUrl: ready ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "Connecting...",
+    faultDataLastUpdated: lastUpdated,
+    source: cacheRaw.source,
+    faultDataAgeSeconds,
+    faultVisualizerEnabled: FaultLightbarEngineState.enabled,
+    faultVisualizerDryRun: FaultLightbarEngineState.dryRun,
+    managedLightbarCount: FaultLightbarEngineState.activeManagedLightbars.size
+  });
+}));
 
 /**
  * GET /api/local/lightbar/capabilities
@@ -64,6 +112,7 @@ router.get("/capabilities", asyncHandler(async (req: Request, res: Response) => 
  * POST /api/local/lightbar/preview
  */
 router.post("/preview", asyncHandler(async (req: Request, res: Response) => {
+  ensureProfileReady();
   const options = req.body;
   
   const validation = validatePatternInput(options);
@@ -94,6 +143,7 @@ router.post("/preview", asyncHandler(async (req: Request, res: Response) => {
  * POST /api/local/lightbar/apply
  */
 router.post("/apply", asyncHandler(async (req: Request, res: Response) => {
+  ensureProfileReady();
   const options = req.body;
 
   if (!options.confirmed) {
@@ -135,6 +185,7 @@ router.post("/apply", asyncHandler(async (req: Request, res: Response) => {
  * POST /api/local/lightbar/clear
  */
 router.post("/clear", asyncHandler(async (req: Request, res: Response) => {
+  ensureProfileReady();
   const options = req.body;
 
   if (!options.confirmed) {
@@ -142,10 +193,14 @@ router.post("/clear", asyncHandler(async (req: Request, res: Response) => {
   }
 
   const concurrency = options.concurrency || 8;
+  const { maxArray, maxString } = getEffectiveTopologyLimits();
+  const arrays = `1-${maxArray}`;
+  const strings = `1-${maxString}`;
+
   const clearOptions = {
     mode: "clear" as const,
-    arrays: "1-8",
-    strings: "1-40",
+    arrays,
+    strings,
     color: { red: 0, green: 0, blue: 0, white: 255 },
     durationSeconds: 1
   };
@@ -156,8 +211,8 @@ router.post("/clear", asyncHandler(async (req: Request, res: Response) => {
     "clear",
     preview,
     concurrency,
-    "1-8",
-    "1-40",
+    arrays,
+    strings,
     options.operator || "Operator Dashboard Shortcut"
   );
 
@@ -244,6 +299,8 @@ router.post("/fault-visualizer/preview", asyncHandler(async (req: Request, res: 
     }
 
     return {
+      blockId: state.blockId,
+      blockIndex: state.blockIndex,
       arrayIndex: state.arrayIndex,
       stringIndex: state.stringIndex,
       severity: state.severity,
@@ -282,8 +339,33 @@ router.post("/fault-visualizer/apply-once", asyncHandler(async (req: Request, re
     return res.status(400).json({ success: false, error: "Confirmation is required to trigger fault illumination cycle." });
   }
 
+  const dryRunValue = config.dryRun !== undefined ? config.dryRun : false;
+  if (!dryRunValue) {
+    ensureProfileReady();
+
+    // Data age check
+    const cacheRaw = getEmsCachedRawStrings();
+    const lastUpdated = cacheRaw.lastUpdated;
+    let faultDataAgeSeconds = -1;
+    if (lastUpdated) {
+      faultDataAgeSeconds = Math.max(0, Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 1000));
+    }
+    const isStale = !lastUpdated || faultDataAgeSeconds > 60;
+    const bypass = config.bypassStaleCheck === true || config.overrideStaleCheck === true;
+
+    if (isStale && !bypass) {
+      const ageStr = lastUpdated ? `${faultDataAgeSeconds}s` : "unknown";
+      return res.status(400).json({
+        success: false,
+        error: `Fault telemetry data is stale (age: ${ageStr}). Live commands blocked. Please refresh the strings dashboard first.`,
+        stale: true,
+        ageSeconds: faultDataAgeSeconds
+      });
+    }
+  }
+
   const results = await LightbarService.runFaultVisualizerCycle({
-    dryRun: config.dryRun !== undefined ? config.dryRun : false,
+    dryRun: dryRunValue,
     clearOnResolved: config.clearOnResolved !== undefined ? config.clearOnResolved : true,
     refreshOnChange: config.refreshOnChange !== undefined ? config.refreshOnChange : true,
     concurrency: config.concurrency || 8,
@@ -309,6 +391,29 @@ router.post("/fault-visualizer/start", asyncHandler(async (req: Request, res: Re
   }
 
   const dryRunValue = config.dryRun !== undefined ? config.dryRun : true;
+  if (!dryRunValue) {
+    ensureProfileReady();
+
+    // Data age check
+    const cacheRaw = getEmsCachedRawStrings();
+    const lastUpdated = cacheRaw.lastUpdated;
+    let faultDataAgeSeconds = -1;
+    if (lastUpdated) {
+      faultDataAgeSeconds = Math.max(0, Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 1000));
+    }
+    const isStale = !lastUpdated || faultDataAgeSeconds > 60;
+    const bypass = config.bypassStaleCheck === true || config.overrideStaleCheck === true;
+
+    if (isStale && !bypass) {
+      const ageStr = lastUpdated ? `${faultDataAgeSeconds}s` : "unknown";
+      return res.status(400).json({
+        success: false,
+        error: `Fault telemetry data is stale (age: ${ageStr}). Live loop start blocked. Please refresh the strings dashboard first.`,
+        stale: true,
+        ageSeconds: faultDataAgeSeconds
+      });
+    }
+  }
 
   LightbarService.startLiveFaultVisualizer({
     dryRun: dryRunValue,
@@ -357,11 +462,14 @@ router.post("/fault-visualizer/stop", asyncHandler(async (req: Request, res: Res
  * POST /api/local/lightbar/fault-visualizer/clear-resolved
  */
 router.post("/fault-visualizer/clear-resolved", asyncHandler(async (req: Request, res: Response) => {
+  ensureProfileReady();
   const config = req.body || {};
   const activeStates = computeFaultLightbarStates({});
   
   const pendingClears = activeStates.filter(s => s.desiredAction === "clear");
   const commands = pendingClears.map(s => ({
+    blockId: s.blockId,
+    blockIndex: s.blockIndex,
     array: s.arrayIndex,
     string: s.stringIndex,
     red: FaultLightbarEngineState.clearColor.red,
@@ -376,7 +484,9 @@ router.post("/fault-visualizer/clear-resolved", asyncHandler(async (req: Request
     results = await LightbarService.executeCommandsWithConcurrency(commands, config.concurrency || 8);
     for (const resItem of results) {
       if (resItem.ok) {
-        const key = `${resItem.array}-${resItem.string}`;
+        const cmd = commands.find(c => c.array === resItem.array && c.string === resItem.string);
+        const bIdx = cmd?.blockIndex ?? 1;
+        const key = `${bIdx}-${resItem.array}-${resItem.string}`;
         FaultLightbarEngineState.activeManagedLightbars.delete(key);
       }
     }
