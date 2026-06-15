@@ -23,7 +23,7 @@ topologyRouter.get("/site-topology", async (req, res) => {
                  await refreshSiteOperationsSources().catch(() => {});
             }
             topology = buildSiteTopologyFromCachedSources();
-            wasLiveSucceeded = !!topology?.site?.stationCode;
+            wasLiveSucceeded = !!topology?.siteIdentity?.stationCode || !!topology?.expectedTopology?.blocks?.length;
         }
 
         if (!wasLiveSucceeded && allowCache) {

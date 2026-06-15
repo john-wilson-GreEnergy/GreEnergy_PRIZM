@@ -8,7 +8,7 @@ export interface FeatherNormalizedStatus {
   activeProfileId: string;
   activeProfileName: string;
   activeEmsBaseUrl: string;
-  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual";
+  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual" | "topology-profile";
 
   // Identifiers / derived indexes
   arrayIndex: number | null;
@@ -77,13 +77,19 @@ export interface FeatherCacheEntry {
 
 export interface DiscoveryCandidate {
   deviceIp: string;
-  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual";
+  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual" | "topology-profile";
   arrayIndex?: number | null;
   stringIndex?: number | null;
   entityName?: string | null;
   entityKeyToken?: string | null;
   excluded?: boolean;
   excludeReason?: string;
+  blockId?: string;
+  blockName?: string;
+  blockIndex?: number;
+  basePrefix?: string;
+  segment?: number;
+  isCollectionSegment?: boolean;
 }
 
 export interface ManualScanConfig {

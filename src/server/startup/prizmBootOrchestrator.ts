@@ -3,6 +3,7 @@ import { ProfileStore } from "../profiles/profileStore";
 import { refreshFeatherCache, getFeatherCache } from "../feather/featherClient";
 import * as prizmCache from "../cache/prizmCache";
 import { recordTelemetrySample } from "../telemetry/siteTelemetryAggregator";
+import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 
 export type PrizmBootPhase =
   | "idle"
@@ -83,8 +84,40 @@ export function getBootStatus() {
      bootStatus.warnings.push("MOCK MODBUS DATA ACTIVE - NOT FIELD DATA");
   }
 
+  const activeProfile = ProfileStore.getActiveProfile();
+  const activeProfileName = activeProfile ? activeProfile.profileName : null;
+  const topologySource = activeProfile ? "active-profile" : "legacy-fallback";
+  let topologyBlocks = 1;
+  let topologyCandidateCount = 168; // legacy default
+  let expectedBlocks: any[] = [];
+  
+  if (activeProfile) {
+    try {
+      const model = normalizeTopologyModel(activeProfile);
+      topologyBlocks = model.blocks.length;
+      expectedBlocks = model.blocks.map(b => ({
+         blockName: b.blockName,
+         basePrefix: b.basePrefix,
+         emsHost: b.emsHost
+      }));
+      const candidates = generateFeatherDiscoveryCandidatesFromTopology(activeProfile);
+      topologyCandidateCount = candidates.length;
+    } catch (err) {}
+  }
+  
+  const fCache = getFeatherCache();
+  const featherReachableCount = (fCache?.devices || []).filter(d => d.reachable).length;
+
   updateStatus({}); // just updates updatedAt
-  return { ...bootStatus };
+  return { 
+    ...bootStatus,
+    activeProfileName,
+    topologySource,
+    topologyBlocks,
+    topologyCandidateCount,
+    featherReachableCount,
+    expectedBlocks
+  };
 }
 
 export async function initializePrizmBootFlow() {

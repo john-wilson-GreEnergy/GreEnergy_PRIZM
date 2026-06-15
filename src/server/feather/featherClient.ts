@@ -76,7 +76,7 @@ a single Feather IP, normalizes it, and records it in cache.
  */
 export async function queryFeatherDevice(
   deviceIp: string,
-  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual",
+  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual" | "topology-profile",
   timeoutMs: number = 3000,
   candidateInfo?: DiscoveryCandidate
 ): Promise<FeatherNormalizedStatus> {
@@ -366,8 +366,8 @@ export async function refreshFeatherCache(opts: { timeoutMs?: number, force?: bo
     try {
         const candidates = discoverTopologyCandidates();
         if (candidates.length > 0) {
-            // limit to only candidates likely to exist, we could just do all
-            const limit = 320; // safe arbitrary limit
+            // increased limit to 2000 to cleanly support multi-block site topologies without truncation
+            const limit = 2000; 
             const batches = candidates.slice(0, limit).map(c => 
                 queryFeatherDevice(c.deviceIp, c.sourceDiscoveryMethod, opts.timeoutMs ?? 3000, c)
             );
@@ -388,11 +388,14 @@ export async function bootstrapFeatherDiscoveryAndSeedCache(options?: {
   
   console.log("[Feather Bootstrap] Starting topology-based Feather discovery...");
   const candidates = discoverTopologyCandidates();
-  console.log(`[Feather Bootstrap] Candidate IPs discovered: ${candidates.length}`);
+  const candidateCount = candidates.length;
+  console.log(`[Feather Bootstrap] Candidate IPs discovered: ${candidateCount}`);
   
   if (candidates.length > 0) {
       refreshFeatherCache(options).then(() => {
-          console.log(`[Feather Bootstrap] Feather cache seeded: ${candidates.length} devices`);
+          const freshCache = getFeatherCache();
+          const reachableCount = (freshCache.devices || []).filter(d => d.reachable).length;
+          console.log(`[Feather Bootstrap] Feather scan completed: ${reachableCount} reachable / ${candidateCount} candidates`);
       }).catch(err => {
           console.warn("[Feather Bootstrap] Failed to seed cache:", err);
       });

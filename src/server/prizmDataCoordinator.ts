@@ -218,3 +218,13 @@ export function stopCoordinator() {
 export function getLatestSnapshot(): PrizmSiteSnapshot | null {
     return centralSnapshot;
 }
+
+export function clearSnapshot() {
+    centralSnapshot = null;
+    prizmCache.set('prizm-site-snapshot', null, { ttlMs: 0 });
+}
+
+export function triggerImmediatePoll() {
+    isPolling = false; // Break any locks to force immediate poll
+    return doBackgroundPoll();
+}

@@ -46,6 +46,7 @@ import { ProfileStore, getDefaultTopologyModel } from "./src/server/profiles/pro
 import { ProfileManager, validateTopologyModel, generateTopologyPreview } from "./src/server/profiles/profileManager";
 import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
 import { getFeatherCache, clearFeatherCache, queryFeatherDevice } from "./src/server/feather/featherClient";
+import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTopology";
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
 import { executeDataDiscovery } from "./src/server/telemetry/discovery";
 
@@ -1191,8 +1192,34 @@ app.put("/api/settings/profiles/:id", (req, res) => {
     // If active profile updated, clear cache & trigger poll of new settings
     const active = ProfileStore.getActiveProfile();
     if (active.id === id) {
+      // 1. clear EMS telemetry cache
       clearEmsTelemetryCache();
-      pollEmsTurtle().catch(() => {});
+      
+      // 2. clear Feather cache
+      clearFeatherCache();
+      
+      // 3. rebuild / clear site topology cache artifact
+      try {
+          buildSiteTopologyFromCachedSources();
+      } catch (err) {
+          console.error("Failed to reseed site topology cache after PUT update:", err);
+      }
+      
+      // 4. clear central PRIZM snapshot
+      prizmDataCoordinator.clearSnapshot();
+      
+      // 5. trigger EMS poll
+      pollEmsTurtle().catch(err => console.error("Poll EMS failed after PUT update:", err));
+      
+      // 6. trigger Feather discovery using new active topology in background
+      bootstrapFeatherDiscoveryAndSeedCache({ force: true }).catch(err => {
+           console.error("Bootstrap feather failed after PUT update:", err);
+      });
+      
+      // 7. trigger Data Coordinator refresh
+      prizmDataCoordinator.triggerImmediatePoll().catch(err => {
+           console.error("Data coordinator trigger immediate poll failed after PUT update:", err);
+      });
     }
 
     res.json(updated);
@@ -1223,9 +1250,36 @@ app.post("/api/settings/profiles/:id/activate", (req, res) => {
   try {
     const { id } = req.params;
     const activated = ProfileStore.activateProfile(id);
+    
+    // 1. clear EMS telemetry cache
     clearEmsTelemetryCache();
-    // Instantly poll new target in background
-    pollEmsTurtle().catch(() => {});
+    
+    // 2. clear Feather cache
+    clearFeatherCache();
+    
+    // 3. rebuild / clear site topology cache artifact
+    try {
+        buildSiteTopologyFromCachedSources();
+    } catch (err) {
+        console.error("Failed to reseed site topology cache after activation:", err);
+    }
+    
+    // 4. clear central PRIZM snapshot
+    prizmDataCoordinator.clearSnapshot();
+    
+    // 5. trigger EMS poll
+    pollEmsTurtle().catch(err => console.error("Poll EMS failed during activation:", err));
+    
+    // 6. trigger Feather discovery using new active topology in background
+    bootstrapFeatherDiscoveryAndSeedCache({ force: true }).catch(err => {
+         console.error("Bootstrap feather failed during activation:", err);
+    });
+    
+    // 7. trigger Data Coordinator refresh
+    prizmDataCoordinator.triggerImmediatePoll().catch(err => {
+         console.error("Data coordinator trigger immediate poll failed during activation:", err);
+    });
+
     res.json({ success: true, activatedProfile: activated });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Failed to activate profile" });

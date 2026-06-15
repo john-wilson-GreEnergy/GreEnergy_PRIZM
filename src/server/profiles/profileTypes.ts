@@ -1,6 +1,30 @@
+export interface TopologyBlockModel {
+  blockId: string;
+  blockName: string;
+  blockIndex: number;
+  stationCode?: string;
+  emsHost: string;
+  emsPort: number;
+  turtlePath: string;
+  modbusHost: string;
+  modbusPort: number;
+  modbusUnitId: number;
+  basePrefix: string;
+  arrayStart: number;
+  arrayEnd: number;
+  segmentStart: number;
+  segmentEnd: number;
+  csSegment: number;
+  esSegmentStart: number;
+  esSegmentStep: number;
+  esCountPerArray: number;
+  includeCollectionSegment: boolean;
+}
+
 export interface TopologyModel {
   type: "standard-array-segment" | "custom-manual";
-  basePrefix: string;
+  siteModelVersion: 2;
+  basePrefix?: string; // retained only for legacy migration
   arrayOctet: number;
   segmentOctet: number;
   arrayStart: number;
@@ -11,6 +35,8 @@ export interface TopologyModel {
   esSegmentStart: number;
   esSegmentStep: number;
   esCountPerArray: number;
+  includeCollectionSegment: boolean;
+  blocks: TopologyBlockModel[];
 }
 
 export interface EmsProfile {
@@ -48,3 +74,4 @@ export interface EmsProfile {
     }
   } | null;
 }
+

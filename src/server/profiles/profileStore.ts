@@ -8,17 +8,43 @@ const PROFILES_FILE = path.join(PROFILES_DIR, "prizm_connection_profiles.json");
 export function getDefaultTopologyModel(): TopologyModel {
   return {
     type: "standard-array-segment",
+    siteModelVersion: 2,
     basePrefix: "10.0",
     arrayOctet: 3,
     segmentOctet: 4,
     arrayStart: 1,
     arrayEnd: 8,
     segmentStart: 3,
-    segmentEnd: 110,
+    segmentEnd: 75,
     csSegment: 3,
     esSegmentStart: 10,
     esSegmentStep: 5,
-    esCountPerArray: 20
+    esCountPerArray: 20,
+    includeCollectionSegment: true,
+    blocks: [
+      {
+        blockId: "block-1",
+        blockName: "Block 1",
+        blockIndex: 1,
+        stationCode: "BHE0020",
+        emsHost: "10.0.0.3",
+        emsPort: 8080,
+        turtlePath: "/turtle",
+        modbusHost: "10.0.0.3",
+        modbusPort: 4502,
+        modbusUnitId: 1,
+        basePrefix: "10.0",
+        arrayStart: 1,
+        arrayEnd: 8,
+        segmentStart: 3,
+        segmentEnd: 75,
+        csSegment: 3,
+        esSegmentStart: 10,
+        esSegmentStep: 5,
+        esCountPerArray: 20,
+        includeCollectionSegment: true
+      }
+    ]
   };
 }
 
@@ -64,38 +90,68 @@ export class ProfileStore {
         try {
           const data = fs.readFileSync(PROFILES_FILE, "utf8");
           const list: EmsProfile[] = JSON.parse(data);
+          let modified = false;
           if (!Array.isArray(list) || list.length === 0) {
             fs.writeFileSync(PROFILES_FILE, JSON.stringify([getDefaultProfile()], null, 2), "utf8");
           } else {
             // Validate structure of each profile item & regenerate ID if missing
             list.forEach((p, idx) => {
-              if (!p.id) p.id = "prof-" + Math.random().toString(36).substring(2, 11);
-              if (!p.profileName) p.profileName = `Site Profile ${idx + 1}`;
-              if (!p.emsHost) p.emsHost = "10.0.0.3";
-              if (p.emsPort === undefined) p.emsPort = 8080;
-              if (!p.turtlePath) p.turtlePath = "/turtle";
-              if (!p.modbusHost) p.modbusHost = p.emsHost;
-              if (p.modbusPort === undefined) p.modbusPort = 4502;
-              if (p.modbusUnitId === undefined) p.modbusUnitId = 1;
-              if (p.arrayCount === undefined) p.arrayCount = 8;
-              if (p.stringsPerArray === undefined) p.stringsPerArray = 40;
-              if (!p.topologyModel) {
-                p.topologyModel = getDefaultTopologyModel();
-              } else {
-                // Ensure all standard fields exist
-                const tm = p.topologyModel;
-                if (!tm.type) tm.type = "standard-array-segment";
-                if (!tm.basePrefix) tm.basePrefix = "10.0";
-                if (tm.arrayOctet === undefined) tm.arrayOctet = 3;
-                if (tm.segmentOctet === undefined) tm.segmentOctet = 4;
-                if (tm.arrayStart === undefined) tm.arrayStart = 1;
-                if (tm.arrayEnd === undefined) tm.arrayEnd = 8;
-                if (tm.segmentStart === undefined) tm.segmentStart = 3;
-                if (tm.segmentEnd === undefined) tm.segmentEnd = 110;
-                if (tm.csSegment === undefined) tm.csSegment = 3;
-                if (tm.esSegmentStart === undefined) tm.esSegmentStart = 10;
-                if (tm.esSegmentStep === undefined) tm.esSegmentStep = 5;
-                if (tm.esCountPerArray === undefined) tm.esCountPerArray = 20;
+              if (!p.id) { p.id = "prof-" + Math.random().toString(36).substring(2, 11); modified = true; }
+              if (!p.profileName) { p.profileName = `Site Profile ${idx + 1}`; modified = true; }
+              if (!p.emsHost) { p.emsHost = "10.0.0.3"; modified = true; }
+              if (p.emsPort === undefined) { p.emsPort = 8080; modified = true; }
+              if (!p.turtlePath) { p.turtlePath = "/turtle"; modified = true; }
+              if (!p.modbusHost) { p.modbusHost = p.emsHost; modified = true; }
+              if (p.modbusPort === undefined) { p.modbusPort = 4502; modified = true; }
+              if (p.modbusUnitId === undefined) { p.modbusUnitId = 1; modified = true; }
+              if (p.arrayCount === undefined) { p.arrayCount = 8; modified = true; }
+              if (p.stringsPerArray === undefined) { p.stringsPerArray = 40; modified = true; }
+              if (!p.topologyModel || p.topologyModel.siteModelVersion !== 2) {
+                 const oldTopology = p.topologyModel;
+                 p.topologyModel = {
+                    type: oldTopology?.type || "standard-array-segment",
+                    siteModelVersion: 2,
+                    basePrefix: oldTopology?.basePrefix || p.emsHost.split('.').slice(0, 2).join('.') || "10.0",
+                    arrayOctet: oldTopology?.arrayOctet !== undefined ? Number(oldTopology.arrayOctet) : 3,
+                    segmentOctet: oldTopology?.segmentOctet !== undefined ? Number(oldTopology.segmentOctet) : 4,
+                    arrayStart: oldTopology?.arrayStart !== undefined ? Number(oldTopology.arrayStart) : 1,
+                    arrayEnd: oldTopology?.arrayEnd !== undefined ? Number(oldTopology.arrayEnd) : Number(p.arrayCount || 8),
+                    segmentStart: oldTopology?.segmentStart !== undefined ? Number(oldTopology.segmentStart) : 3,
+                    segmentEnd: oldTopology?.segmentEnd !== undefined ? Number(oldTopology.segmentEnd) : 75,
+                    csSegment: oldTopology?.csSegment !== undefined ? Number(oldTopology.csSegment) : 3,
+                    esSegmentStart: oldTopology?.esSegmentStart !== undefined ? Number(oldTopology.esSegmentStart) : 10,
+                    esSegmentStep: oldTopology?.esSegmentStep !== undefined ? Number(oldTopology.esSegmentStep) : 5,
+                    esCountPerArray: oldTopology?.esCountPerArray !== undefined ? Number(oldTopology.esCountPerArray) : 20,
+                    includeCollectionSegment: (oldTopology as any)?.includeCollectionSegment !== undefined ? !!(oldTopology as any).includeCollectionSegment : true,
+                    blocks: []
+                 };
+                 // Add back block list
+                 const tPrefix = p.topologyModel.basePrefix || "10.0";
+                 p.topologyModel.blocks = [
+                    {
+                       blockId: `block-${p.blockIndex || 1}`,
+                       blockName: `Block ${p.blockIndex || 1}`,
+                       blockIndex: p.blockIndex || 1,
+                       stationCode: p.stationCode || "BHE0020",
+                       emsHost: p.emsHost,
+                       emsPort: p.emsPort,
+                       turtlePath: p.turtlePath,
+                       modbusHost: p.modbusHost,
+                       modbusPort: p.modbusPort,
+                       modbusUnitId: p.modbusUnitId || 1,
+                       basePrefix: tPrefix,
+                       arrayStart: p.topologyModel.arrayStart,
+                       arrayEnd: p.topologyModel.arrayEnd,
+                       segmentStart: p.topologyModel.segmentStart,
+                       segmentEnd: p.topologyModel.segmentEnd,
+                       csSegment: p.topologyModel.csSegment,
+                       esSegmentStart: p.topologyModel.esSegmentStart,
+                       esSegmentStep: p.topologyModel.esSegmentStep,
+                       esCountPerArray: p.topologyModel.esCountPerArray,
+                       includeCollectionSegment: p.topologyModel.includeCollectionSegment
+                    }
+                 ];
+                 modified = true;
               }
             });
             // Enforce active single profile sanity
@@ -104,6 +160,9 @@ export class ProfileStore {
               list.forEach((p, idx) => {
                 p.isActive = idx === 0;
               });
+              modified = true;
+            }
+            if (modified) {
               fs.writeFileSync(PROFILES_FILE, JSON.stringify(list, null, 2), "utf8");
             }
           }

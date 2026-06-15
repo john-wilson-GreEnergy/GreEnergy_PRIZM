@@ -11,6 +11,9 @@ import {
 import { getFeatherCache } from "../feather/featherClient";
 import { parseTurtleJsonOrLabeledSections, parseCsvQuotesAware } from "./turtleParsers";
 import { writeSiteArtifact, getActiveSiteCacheKey } from "../cache/prizmCache";
+import { ProfileStore } from "../profiles/profileStore";
+import { normalizeTopologyModel, buildIpFromStandardTopology } from "../profiles/profileManager";
+import { TopologyModel } from "../profiles/profileTypes";
 
 export type PrizmArrayTopology = {
   arrayIndex: number;
@@ -102,14 +105,17 @@ export type PrizmSiteTopology = {
     emsBaseUrl: string;
     discoveredAt: string;
     sourcePriority: string[];
+    activeProfileId?: string | null;
+    activeProfileName?: string | null;
   };
+  expectedTopology?: TopologyModel;
   counts: {
     arrayCount: number;
     stringCount: number;
     pcsCount: number;
     acBatteryCount: number;
     featherDeviceCount: number;
-    modbusPointCount: number;
+    modbusPointCount: number | null;
   };
   arrays: PrizmArrayTopology[];
   strings: PrizmStringTopology[];
@@ -159,10 +165,37 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
   const modbusMapRaw = getEmsCachedModbusMap().data;
   const connectionStatus = getEmsConnectionStatus();
 
+  // Load expected topology from active profile
+  const activeProfile = ProfileStore.getActiveProfile();
+  const expectedTopology = activeProfile ? normalizeTopologyModel(activeProfile) : undefined;
+
   // Part C - Strings & Arrays
   const stringMap = new Map<string, PrizmStringTopology>();
   const discoveredArrayIndices = new Set<number>();
 
+  // Pre-fill expected arrays and strings from active profile topology configuration
+  if (expectedTopology) {
+    for (const b of expectedTopology.blocks) {
+      for (let arr = b.arrayStart; arr <= b.arrayEnd; arr++) {
+        discoveredArrayIndices.add(arr);
+        for (let si = 1; si <= b.esCountPerArray; si++) {
+          const uniqueKey = `${arr}:${si}`;
+          const segment = b.esSegmentStart + (si - 1) * b.esSegmentStep;
+          const ip = buildIpFromStandardTopology(b.basePrefix, arr, segment);
+          stringMap.set(uniqueKey, {
+            arrayIndex: arr,
+            stringIndex: si,
+            stringKey: `Array ${arr} String ${si} (Expected - ${b.blockName})`,
+            displayKey: `Array ${arr} String ${si}`,
+            ipAddress: ip,
+            sourcePath: 'expected_topology'
+          });
+        }
+      }
+    }
+  }
+
+  // Overlay live strings from strings.csv
   for (const row of rawStrings) {
     const arrayIndexMatches = row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? row.array ?? row.StringArrayIndex;
     const stringIndexMatches = row.StringIndex ?? row.stringIndex ?? row.stringNumber ?? row.string;
@@ -198,9 +231,20 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
   // Array Topology
   const arrayMap = new Map<number, PrizmArrayTopology>();
   for (const ai of discoveredArrayIndices) {
+    let stringCountConfigured = 0;
+    let bName = "";
+    if (expectedTopology) {
+      const b = expectedTopology.blocks.find(blk => ai >= blk.arrayStart && ai <= blk.arrayEnd);
+      if (b) {
+        stringCountConfigured = b.esCountPerArray;
+        bName = b.blockName;
+      }
+    }
     arrayMap.set(ai, {
       arrayIndex: ai,
-      stringCount: 0,
+      arrayKey: bName ? `${bName}_ARR_${ai}` : `ARR_${ai}`,
+      displayKey: bName ? `${bName} Array ${ai}` : `Array ${ai}`,
+      stringCount: stringCountConfigured || 0,
       pcsCount: 0,
       sourcePath: 'discovered_strings',
     });
@@ -344,8 +388,11 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
       blockKey: `${connectionStatus.discoveredStationCode || connectionStatus.stationCode}-${connectionStatus.blockIndex}`,
       emsBaseUrl: connectionStatus.activeEmsBaseUrl,
       discoveredAt: new Date().toISOString(),
-      sourcePriority: ['strings.csv', 'blockviewer', 'lastCall', 'status']
+      sourcePriority: ['strings.csv', 'blockviewer', 'lastCall', 'status'],
+      activeProfileId: activeProfile?.id || null,
+      activeProfileName: activeProfile?.profileName || null
     },
+    expectedTopology,
     counts: {
       arrayCount: arrays.length,
       stringCount: strings.length,
@@ -373,9 +420,9 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
     },
     cacheMeta: {
       siteCacheKey: getActiveSiteCacheKey(),
-      topologyVersion: 1,
+      topologyVersion: 2,
       lastBuiltAt: new Date().toISOString(),
-      sourceFiles: ['strings.csv', 'status.json', 'blockviewer/data', 'lastCall.json', 'ipMap.json', 'stringIPMap.json', 'feather']
+      sourceFiles: ['expected_topology', 'strings.csv', 'status.json', 'blockviewer/data', 'lastCall.json', 'ipMap.json', 'stringIPMap.json', 'feather']
     }
   };
 

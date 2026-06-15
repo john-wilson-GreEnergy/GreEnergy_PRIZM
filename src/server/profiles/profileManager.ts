@@ -1,5 +1,6 @@
-import { EmsProfile } from "./profileTypes";
+import { EmsProfile, TopologyModel, TopologyBlockModel } from "./profileTypes";
 import { ProfileStore } from "./profileStore";
+import { DiscoveryCandidate } from "../feather/featherTypes";
 
 // Helper functions for standard PRIZM topology
 export function buildIpFromStandardTopology(basePrefix: string, array: number, segment: number): string {
@@ -8,6 +9,8 @@ export function buildIpFromStandardTopology(basePrefix: string, array: number, s
 }
 
 export interface TopologyPreviewRow {
+  blockId?: string;
+  blockName?: string;
   array: number;
   device: string;
   segment: number;
@@ -15,53 +18,199 @@ export interface TopologyPreviewRow {
   purpose: string;
 }
 
-export function generateTopologyPreview(profile: any): TopologyPreviewRow[] {
-  const model = profile.topologyModel || {
-    type: "standard-array-segment",
-    basePrefix: "10.0",
-    arrayStart: 1,
-    arrayEnd: 8,
-    segmentStart: 3,
-    segmentEnd: 75,
-    csSegment: 3,
-    esSegmentStart: 10,
-    esSegmentStep: 5,
-    esCountPerArray: 20
-  };
+export function normalizeTopologyModel(profile: any): TopologyModel {
+  const tm = profile?.topologyModel || {};
+  const type = tm.type || "standard-array-segment";
+  const siteModelVersion = 2;
+  const basePrefix = (tm.basePrefix || profile?.emsHost ? (profile.emsHost.split('.').slice(0, 2).join('.')) : "10.0");
+  const arrayOctet = tm.arrayOctet !== undefined ? Number(tm.arrayOctet) : 3;
+  const segmentOctet = tm.segmentOctet !== undefined ? Number(tm.segmentOctet) : 4;
+  const arrayStart = tm.arrayStart !== undefined ? Number(tm.arrayStart) : 1;
+  const arrayEnd = tm.arrayEnd !== undefined ? Number(tm.arrayEnd) : (profile?.arrayCount !== undefined ? Number(profile.arrayCount) : 8);
+  const segmentStart = tm.segmentStart !== undefined ? Number(tm.segmentStart) : 3;
+  const segmentEnd = tm.segmentEnd !== undefined ? Number(tm.segmentEnd) : 75;
+  const csSegment = tm.csSegment !== undefined ? Number(tm.csSegment) : 3;
+  const esSegmentStart = tm.esSegmentStart !== undefined ? Number(tm.esSegmentStart) : 10;
+  const esSegmentStep = tm.esSegmentStep !== undefined ? Number(tm.esSegmentStep) : 5;
+  const esCountPerArray = tm.esCountPerArray !== undefined ? Number(tm.esCountPerArray) : 20;
+  const includeCollectionSegment = tm.includeCollectionSegment !== undefined ? !!tm.includeCollectionSegment : true;
 
-  const rows: TopologyPreviewRow[] = [];
-  const basePrefix = model.basePrefix || "10.0";
-  const arrayStart = Number(model.arrayStart ?? 1);
-  const arrayEnd = Number(model.arrayEnd ?? 8);
-  const csSegment = Number(model.csSegment ?? 3);
-  const esStart = Number(model.esSegmentStart ?? 10);
-  const esStep = Number(model.esSegmentStep ?? 5);
-  const esCount = Number(model.esCountPerArray ?? 20);
-
-  for (let array = arrayStart; array <= arrayEnd; array++) {
-    // Collection Segment (CS)
-    rows.push({
-      array,
-      device: "CS",
-      segment: csSegment,
-      ipAddress: buildIpFromStandardTopology(basePrefix, array, csSegment),
-      purpose: `Collection Segment ${array}`
+  let blocks: TopologyBlockModel[] = [];
+  if (Array.isArray(tm.blocks) && tm.blocks.length > 0) {
+    blocks = tm.blocks.map((b: any, idx: number) => {
+      const bPrefix = (b.basePrefix || basePrefix || "10.0").trim();
+      return {
+        blockId: b.blockId || `block-${idx + 1}`,
+        blockName: b.blockName || `Block ${b.blockIndex ?? idx + 1}`,
+        blockIndex: b.blockIndex !== undefined ? Number(b.blockIndex) : idx + 1,
+        stationCode: b.stationCode || profile?.stationCode || "BHE0020",
+        emsHost: b.emsHost || profile?.emsHost || "10.0.0.3",
+        emsPort: b.emsPort !== undefined ? Number(b.emsPort) : (profile?.emsPort || 8080),
+        turtlePath: b.turtlePath || profile?.turtlePath || "/turtle",
+        modbusHost: b.modbusHost || profile?.modbusHost || b.emsHost || profile?.emsHost || "10.0.0.3",
+        modbusPort: b.modbusPort !== undefined ? Number(b.modbusPort) : (profile?.modbusPort || 4502),
+        modbusUnitId: b.modbusUnitId !== undefined ? Number(b.modbusUnitId) : (profile?.modbusUnitId || 1),
+        basePrefix: bPrefix,
+        arrayStart: b.arrayStart !== undefined ? Number(b.arrayStart) : arrayStart,
+        arrayEnd: b.arrayEnd !== undefined ? Number(b.arrayEnd) : arrayEnd,
+        segmentStart: b.segmentStart !== undefined ? Number(b.segmentStart) : segmentStart,
+        segmentEnd: b.segmentEnd !== undefined ? Number(b.segmentEnd) : segmentEnd,
+        csSegment: b.csSegment !== undefined ? Number(b.csSegment) : csSegment,
+        esSegmentStart: b.esSegmentStart !== undefined ? Number(b.esSegmentStart) : esSegmentStart,
+        esSegmentStep: b.esSegmentStep !== undefined ? Number(b.esSegmentStep) : esSegmentStep,
+        esCountPerArray: b.esCountPerArray !== undefined ? Number(b.esCountPerArray) : esCountPerArray,
+        includeCollectionSegment: b.includeCollectionSegment !== undefined ? !!b.includeCollectionSegment : includeCollectionSegment,
+      };
     });
+  } else {
+    blocks = [
+      {
+        blockId: `block-${profile?.blockIndex || 1}`,
+        blockName: `Block ${profile?.blockIndex || 1}`,
+        blockIndex: profile?.blockIndex !== undefined ? Number(profile.blockIndex) : 1,
+        stationCode: profile?.stationCode || "BHE0020",
+        emsHost: profile?.emsHost || "10.0.0.3",
+        emsPort: profile?.emsPort !== undefined ? Number(profile.emsPort) : 8080,
+        turtlePath: profile?.turtlePath || "/turtle",
+        modbusHost: profile?.modbusHost || profile?.emsHost || "10.0.0.3",
+        modbusPort: profile?.modbusPort !== undefined ? Number(profile.modbusPort) : 4502,
+        modbusUnitId: profile?.modbusUnitId !== undefined ? Number(profile.modbusUnitId) : 1,
+        basePrefix,
+        arrayStart,
+        arrayEnd,
+        segmentStart,
+        segmentEnd,
+        csSegment,
+        esSegmentStart,
+        esSegmentStep,
+        esCountPerArray,
+        includeCollectionSegment
+      }
+    ];
+  }
 
-    // Energy Segments (ES)
-    for (let c = 0; c < esCount; c++) {
-      const segment = esStart + c * esStep;
-      rows.push({
-        array,
-        device: `ES${c + 1}`,
-        segment,
-        ipAddress: buildIpFromStandardTopology(basePrefix, array, segment),
-        purpose: `Energy Segment ${c + 1}`
-      });
+  return {
+    type,
+    siteModelVersion,
+    basePrefix,
+    arrayOctet,
+    segmentOctet,
+    arrayStart,
+    arrayEnd,
+    segmentStart,
+    segmentEnd,
+    csSegment,
+    esSegmentStart,
+    esSegmentStep,
+    esCountPerArray,
+    includeCollectionSegment,
+    blocks
+  };
+}
+
+export function getActiveTopologyBlocks(): TopologyBlockModel[] {
+  const profile = ProfileStore.getActiveProfile();
+  return normalizeTopologyModel(profile).blocks;
+}
+
+export function generateTopologyPreview(profile: any): TopologyPreviewRow[] {
+  const model = normalizeTopologyModel(profile);
+  const rows: TopologyPreviewRow[] = [];
+
+  for (const b of model.blocks) {
+    const basePrefix = b.basePrefix;
+    const arrayStart = b.arrayStart;
+    const arrayEnd = b.arrayEnd;
+    const csSegment = b.csSegment;
+    const esStart = b.esSegmentStart;
+    const esStep = b.esSegmentStep;
+    const esCount = b.esCountPerArray;
+
+    for (let array = arrayStart; array <= arrayEnd; array++) {
+      if (b.includeCollectionSegment) {
+        rows.push({
+          blockId: b.blockId,
+          blockName: b.blockName,
+          array,
+          device: "CS",
+          segment: csSegment,
+          ipAddress: buildIpFromStandardTopology(basePrefix, array, csSegment),
+          purpose: `Collection Segment ${array} [${b.blockName}]`
+        });
+      }
+
+      // Energy Segments (ES)
+      for (let c = 0; c < esCount; c++) {
+        const segment = esStart + c * esStep;
+        rows.push({
+          blockId: b.blockId,
+          blockName: b.blockName,
+          array,
+          device: `ES${c + 1}`,
+          segment,
+          ipAddress: buildIpFromStandardTopology(basePrefix, array, segment),
+          purpose: `Energy Segment ${c + 1} [${b.blockName}]`
+        });
+      }
     }
   }
 
   return rows;
+}
+
+export function generateFeatherDiscoveryCandidatesFromTopology(profile: any): DiscoveryCandidate[] {
+  const model = normalizeTopologyModel(profile);
+  const candidates: DiscoveryCandidate[] = [];
+
+  for (const b of model.blocks) {
+    const basePrefix = b.basePrefix;
+    const arrayStart = b.arrayStart;
+    const arrayEnd = b.arrayEnd;
+    const csSegment = b.csSegment;
+    const esStart = b.esSegmentStart;
+    const esStep = b.esSegmentStep;
+    const esCount = b.esCountPerArray;
+
+    for (let array = arrayStart; array <= arrayEnd; array++) {
+      if (b.includeCollectionSegment) {
+        const csIp = buildIpFromStandardTopology(basePrefix, array, csSegment);
+        candidates.push({
+          deviceIp: csIp,
+          blockId: b.blockId,
+          blockName: b.blockName,
+          blockIndex: b.blockIndex,
+          basePrefix: b.basePrefix,
+          arrayIndex: array,
+          segment: csSegment,
+          isCollectionSegment: true,
+          sourceDiscoveryMethod: "topology-profile",
+          entityName: `${b.blockName} Array ${array} Collection Segment (CS) Device Node`,
+          entityKeyToken: `${b.blockId}_ARR_${array}_CS`
+        });
+      }
+
+      for (let c = 0; c < esCount; c++) {
+        const segment = esStart + c * esStep;
+        const esIp = buildIpFromStandardTopology(basePrefix, array, segment);
+        candidates.push({
+          deviceIp: esIp,
+          blockId: b.blockId,
+          blockName: b.blockName,
+          blockIndex: b.blockIndex,
+          basePrefix: b.basePrefix,
+          arrayIndex: array,
+          segment: segment,
+          stringIndex: c + 1,
+          isCollectionSegment: false,
+          sourceDiscoveryMethod: "topology-profile",
+          entityName: `${b.blockName} Array ${array} Energy Segment ${c + 1} (ES) Device Node`,
+          entityKeyToken: `${b.blockId}_ARR_${array}_STR_${c + 1}_ES`
+        });
+      }
+    }
+  }
+
+  return candidates;
 }
 
 export function validateTopologyModel(profile: any): string[] {
@@ -76,94 +225,102 @@ export function validateTopologyModel(profile: any): string[] {
   if (!profile.stationCode || !profile.stationCode.trim()) {
     errors.push("Station Code is required");
   }
-  
-  const emsPort = Number(profile.emsPort);
-  if (isNaN(emsPort) || emsPort < 1 || emsPort > 65535) {
-    errors.push("EMS HTTP port must be numeric and between 1 and 65535");
-  }
-  
-  const modbusPort = Number(profile.modbusPort);
-  if (isNaN(modbusPort) || modbusPort < 1 || modbusPort > 65535) {
-    errors.push("Modbus port must be numeric and between 1 and 65535");
-  }
 
-  if (!profile.turtlePath || !profile.turtlePath.startsWith("/")) {
-    errors.push("Turtle path must start with '/'");
-  }
+  const model = normalizeTopologyModel(profile);
 
-  const model = profile.topologyModel;
-  if (!model) {
-    errors.push("Topology model is required");
+  if (!model.blocks || model.blocks.length === 0) {
+    errors.push("At least one block is required in topology configuration");
     return errors;
   }
 
-  if (model.type === "standard-array-segment") {
-    const prefix = (model.basePrefix || "").trim();
+  model.blocks.forEach((b, idx) => {
+    const errorPrefix = `[Block ${idx + 1}] `;
+
+    if (!b.blockName || !b.blockName.trim()) {
+      errors.push(`${errorPrefix}Block Name is required`);
+    }
+
+    const emsPort = Number(b.emsPort);
+    if (isNaN(emsPort) || emsPort < 1 || emsPort > 65535) {
+      errors.push(`${errorPrefix}EMS HTTP port must be numeric and between 1 and 65535`);
+    }
+    
+    const modbusPort = Number(b.modbusPort);
+    if (isNaN(modbusPort) || modbusPort < 1 || modbusPort > 65535) {
+      errors.push(`${errorPrefix}Modbus port must be numeric and between 1 and 65535`);
+    }
+
+    if (!b.turtlePath || !b.turtlePath.startsWith("/")) {
+      errors.push(`${errorPrefix}Turtle path must start with '/'`);
+    }
+
+    const prefix = (b.basePrefix || "").trim();
     const parts = prefix.split(".");
     if (parts.length !== 2 || parts.some(p => {
       const num = Number(p);
       return isNaN(num) || num < 0 || num > 255 || p === "";
     })) {
-      errors.push("Base Prefix must be two valid IPv4 octets (e.g. '10.0')");
+      errors.push(`${errorPrefix}Base Prefix must be two valid IPv4 octets (e.g. '10.0')`);
     }
 
-    const arrayStart = Number(model.arrayStart);
-    const arrayEnd = Number(model.arrayEnd);
+    const arrayStart = Number(b.arrayStart);
+    const arrayEnd = Number(b.arrayEnd);
     if (isNaN(arrayStart) || arrayStart < 1 || arrayStart > 254) {
-      errors.push("Array Start must be between 1 and 254");
+      errors.push(`${errorPrefix}Array Start must be between 1 and 254`);
     }
     if (isNaN(arrayEnd) || arrayEnd < 1 || arrayEnd > 254) {
-      errors.push("Array End must be between 1 and 254");
+      errors.push(`${errorPrefix}Array End must be between 1 and 254`);
     }
     if (!isNaN(arrayStart) && !isNaN(arrayEnd) && arrayStart > arrayEnd) {
-      errors.push("Array Start cannot be greater than Array End");
+      errors.push(`${errorPrefix}Array Start cannot be greater than Array End`);
     }
 
-    const segmentStart = Number(model.segmentStart);
-    const segmentEnd = Number(model.segmentEnd);
+    const segmentStart = Number(b.segmentStart);
+    const segmentEnd = Number(b.segmentEnd);
     if (isNaN(segmentStart) || segmentStart < 1 || segmentStart > 254) {
-      errors.push("Segment Start (Min Scan segment) must be between 1 and 254");
+      errors.push(`${errorPrefix}Segment Start must be between 1 and 254`);
     }
     if (isNaN(segmentEnd) || segmentEnd < 1 || segmentEnd > 254) {
-      errors.push("Segment End (Max Scan segment) must be between 1 and 254");
+      errors.push(`${errorPrefix}Segment End must be between 1 and 254`);
     }
     if (!isNaN(segmentStart) && !isNaN(segmentEnd) && segmentStart > segmentEnd) {
-      errors.push("Scan Segment Min cannot be greater than Max");
+      errors.push(`${errorPrefix}Scan Segment Min cannot be greater than Max`);
     }
 
-    const csSegment = Number(model.csSegment);
-    if (isNaN(csSegment) || csSegment < segmentStart || csSegment > segmentEnd) {
-      errors.push(`CS Segment (${csSegment}) must be within the scan range of ${segmentStart}-${segmentEnd}`);
+    const csSegment = Number(b.csSegment);
+    if (b.includeCollectionSegment) {
+      if (isNaN(csSegment) || csSegment < segmentStart || csSegment > segmentEnd) {
+        errors.push(`${errorPrefix}CS Segment (${csSegment}) must be within the scan range of ${segmentStart}-${segmentEnd}`);
+      }
     }
 
-    const esStart = Number(model.esSegmentStart);
+    const esStart = Number(b.esSegmentStart);
     if (isNaN(esStart) || esStart < segmentStart || esStart > segmentEnd) {
-      errors.push(`ES Segment Start (${esStart}) must be within the scan range of ${segmentStart}-${segmentEnd}`);
+      errors.push(`${errorPrefix}ES Segment Start (${esStart}) must be within the scan range of ${segmentStart}-${segmentEnd}`);
     }
 
-    const count = Number(model.esCountPerArray);
-    const step = Number(model.esSegmentStep);
+    const count = Number(b.esCountPerArray);
+    const step = Number(b.esSegmentStep);
     if (isNaN(count) || count < 1) {
-      errors.push("ES Count Per Array must be a positive number");
+      errors.push(`${errorPrefix}ES Count Per Array must be a positive number`);
     }
     if (isNaN(step) || step < 1) {
-      errors.push("ES Segment Step must be a positive number");
+      errors.push(`${errorPrefix}ES Segment Step must be a positive number`);
     }
 
     if (!isNaN(esStart) && !isNaN(count) && !isNaN(step) && !isNaN(segmentEnd)) {
       const maxEsSegment = esStart + (count - 1) * step;
       if (maxEsSegment > segmentEnd) {
-        errors.push(`Generated ES segment IPs (max segment: ${maxEsSegment}) will exceed the Scan Segment Max of ${segmentEnd}`);
+        errors.push(`${errorPrefix}Generated ES segment IPs (max segment: ${maxEsSegment}) will exceed the Scan Segment Max of ${segmentEnd}`);
       }
     }
 
-    // generated IPs must be valid IPv4 addresses
     const sampleIp = `${prefix}.1.3`;
     const ipRegexp = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
     if (!ipRegexp.test(sampleIp)) {
-      errors.push(`Generated sample IP address '${sampleIp}' is not a valid IPv4 address`);
+      errors.push(`${errorPrefix}Generated sample IP address '${sampleIp}' is not a valid IPv4 address`);
     }
-  }
+  });
 
   return errors;
 }

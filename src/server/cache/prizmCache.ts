@@ -229,13 +229,15 @@ export function buildSiteCacheKey(input: {
   const station = (input.stationCode || "UNKNOWN").toUpperCase();
   const block = input.blockIndex || 1;
   const ems = input.emsBaseUrl || "http://10.0.0.3:8080/turtle";
+  const profileId = input.profileId || "";
   let hostPort = "unknown";
   try {
     const urlObj = new URL(ems);
     hostPort = `${urlObj.hostname}-${urlObj.port || (urlObj.protocol === 'https:' ? '443' : '80')}`.replace(/[^a-zA-Z0-9-]/g, '-');
   } catch(e) {}
   
-  let key = `${station}_block-${block}_${hostPort}`;
+  const profPart = profileId ? `prof-${profileId}_` : "";
+  let key = `${station}_block-${block}_${profPart}${hostPort}`;
   return key.replace(/[^a-zA-Z0-9-_]/g, '-');
 }
 

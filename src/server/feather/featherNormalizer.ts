@@ -13,7 +13,7 @@ export function normalizeFeatherStatus(
   activeProfileId: string,
   activeProfileName: string,
   activeEmsBaseUrl: string,
-  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual",
+  sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual" | "topology-profile",
   candidateInfo?: {
     arrayIndex?: number | null;
     stringIndex?: number | null;

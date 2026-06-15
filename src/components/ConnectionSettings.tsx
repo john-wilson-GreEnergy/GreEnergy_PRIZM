@@ -21,6 +21,29 @@ import {
   FileJson
 } from "lucide-react";
 
+interface TopologyBlockModel {
+  blockName: string;
+  blockIndex: number;
+  emsHost: string;
+  modbusHost: string;
+  basePrefix: string;
+  arrayStart: number;
+  arrayEnd: number;
+  includeCollectionSegment: boolean;
+  csSegment: number;
+  esSegmentStart: number;
+  esSegmentStep: number;
+  esCountPerArray: number;
+  segmentMin: number;
+  segmentMax: number;
+}
+
+interface TopologyModel {
+  siteModelVersion?: number;
+  modelType: "standard" | "legacy-direct";
+  blocks: TopologyBlockModel[];
+}
+
 interface EmsProfile {
   id: string;
   profileName: string;
@@ -53,6 +76,7 @@ interface EmsProfile {
       blockviewer?: number;
     }
   } | null;
+  topologyModel?: TopologyModel;
 }
 
 interface ConnectionSettingsProps {
@@ -286,6 +310,108 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
     }
   };
 
+  const getDefaultTopologyModel = (): TopologyModel => {
+    return {
+      siteModelVersion: 2,
+      modelType: "standard",
+      blocks: [
+        {
+          blockName: "Block 1",
+          blockIndex: 1,
+          emsHost: "10.0.0.3",
+          modbusHost: "10.0.0.3",
+          basePrefix: "10.0",
+          arrayStart: 1,
+          arrayEnd: 8,
+          includeCollectionSegment: true,
+          csSegment: 3,
+          esSegmentStart: 10,
+          esSegmentStep: 1,
+          esCountPerArray: 21,
+          segmentMin: 3,
+          segmentMax: 30
+        }
+      ]
+    };
+  };
+
+  const handleModelTypeChange = (val: "standard" | "legacy-direct") => {
+    setFormProfile(prev => {
+      const model = prev.topologyModel || getDefaultTopologyModel();
+      return {
+        ...prev,
+        topologyModel: {
+          ...model,
+          modelType: val
+        }
+      };
+    });
+  };
+
+  const handleUpdateBlock = (blockIdx: number, fields: Partial<TopologyBlockModel>) => {
+    setFormProfile(prev => {
+      const model = prev.topologyModel || getDefaultTopologyModel();
+      const updatedBlocks = [...(model.blocks || [])];
+      if (updatedBlocks[blockIdx]) {
+        updatedBlocks[blockIdx] = {
+          ...updatedBlocks[blockIdx],
+          ...fields
+        };
+      }
+      return {
+        ...prev,
+        topologyModel: {
+          ...model,
+          blocks: updatedBlocks
+        }
+      };
+    });
+  };
+
+  const handleAddBlock = () => {
+    setFormProfile(prev => {
+      const model = prev.topologyModel || getDefaultTopologyModel();
+      const newBlock: TopologyBlockModel = {
+        blockName: `Block ${model.blocks.length + 1}`,
+        blockIndex: model.blocks.length + 1,
+        emsHost: prev.emsHost || "10.0.0.3",
+        modbusHost: prev.modbusHost || "10.0.0.3",
+        basePrefix: "10.0",
+        arrayStart: (model.blocks.length * 8) + 1,
+        arrayEnd: (model.blocks.length * 8) + 8,
+        includeCollectionSegment: true,
+        csSegment: 3,
+        esSegmentStart: 10,
+        esSegmentStep: 1,
+        esCountPerArray: 21,
+        segmentMin: 3,
+        segmentMax: 30
+      };
+      return {
+        ...prev,
+        topologyModel: {
+          ...model,
+          blocks: [...model.blocks, newBlock]
+        }
+      };
+    });
+  };
+
+  const handleRemoveBlock = (idx: number) => {
+    setFormProfile(prev => {
+      const model = prev.topologyModel || getDefaultTopologyModel();
+      if (model.blocks.length <= 1) return prev;
+      const updated = model.blocks.filter((_, i) => i !== idx);
+      return {
+        ...prev,
+        topologyModel: {
+          ...model,
+          blocks: updated
+        }
+      };
+    });
+  };
+
   const handleOpenNewForm = () => {
     setFormProfile({
       profileName: "",
@@ -299,7 +425,8 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
       modbusPort: 4502,
       arrayCount: 8,
       stringsPerArray: 40,
-      notes: ""
+      notes: "",
+      topologyModel: getDefaultTopologyModel()
     });
     setFormIsNew(true);
     setFormError("");
@@ -307,7 +434,32 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   };
 
   const handleOpenEditForm = (p: EmsProfile) => {
-    setFormProfile(p);
+    const formTopology = p.topologyModel || {
+      siteModelVersion: 2,
+      modelType: "standard",
+      blocks: [
+        {
+          blockName: p.profileName || "Block 1",
+          blockIndex: p.blockIndex || 1,
+          emsHost: p.emsHost || "10.0.0.3",
+          modbusHost: p.modbusHost || "10.0.0.3",
+          basePrefix: "10.0",
+          arrayStart: 1,
+          arrayEnd: p.arrayCount || 8,
+          includeCollectionSegment: true,
+          csSegment: 3,
+          esSegmentStart: 10,
+          esSegmentStep: 1,
+          esCountPerArray: p.stringsPerArray || 21,
+          segmentMin: 3,
+          segmentMax: 30
+        }
+      ]
+    };
+    setFormProfile({
+      ...p,
+      topologyModel: formTopology
+    });
     setFormIsNew(false);
     setFormError("");
     setShowForm(true);
@@ -862,6 +1014,220 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
                       min={1}
                     />
                   </div>
+                </div>
+
+                {/* Topology Configuration Section */}
+                <div className="space-y-4 md:col-span-2 pt-2 pb-2 bg-prizm-surface-strong/30 p-3 rounded border border-white/[0.01]">
+                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">
+                    Topology Configuration / Multi-Block Map
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Topology Model Type</label>
+                      <select
+                        value={formProfile.topologyModel?.modelType || "standard"}
+                        onChange={e => handleModelTypeChange(e.target.value as any)}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none cursor-pointer font-bold focus:border-prizm-primary"
+                      >
+                        <option value="standard">Standard Octet Base Prefix (Multi-Block Support)</option>
+                        <option value="legacy-direct font-normal">Legacy Direct / Standard Fallback</option>
+                      </select>
+                    </div>
+                    
+                    {(formProfile.topologyModel?.modelType || "standard") === "standard" && (
+                      <div className="space-y-1 flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={handleAddBlock}
+                          className="px-4 py-2 border border-prizm-primary text-prizm-primary hover:bg-cyan-500/10 text-[10px] font-bold uppercase rounded cursor-pointer transition-all self-start"
+                        >
+                          + Add Multi-Block Subnet
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {(formProfile.topologyModel?.modelType || "standard") === "standard" && (
+                    <div className="space-y-4 pt-2">
+                      {(formProfile.topologyModel?.blocks || []).map((b, idx) => (
+                        <div key={idx} className="border border-prizm-border rounded-lg bg-black/15 overflow-hidden">
+                          <div className="bg-prizm-surface-strong px-3 py-2 border-b border-prizm-border flex justify-between items-center">
+                            <span className="font-extrabold text-[10px] text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+                              <span className="bg-cyan-950 text-cyan-300 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px]">{idx + 1}</span>
+                              Subnet-Block: {b.blockName || `Block ${idx + 1}`}
+                            </span>
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveBlock(idx)}
+                                className="text-red-400 hover:text-red-300 text-[10px] font-extrabold uppercase cursor-pointer bg-red-950/10 hover:bg-red-900/20 px-2 py-0.5 rounded border border-red-500/10 transition-all"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="space-y-1">
+                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Block Name</label>
+                              <input
+                                type="text"
+                                value={b.blockName || ""}
+                                onChange={e => handleUpdateBlock(idx, { blockName: e.target.value })}
+                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] font-bold focus:border-prizm-primary outline-none"
+                                placeholder="Block 1"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Block Index</label>
+                              <input
+                                type="number"
+                                value={b.blockIndex || 1}
+                                onChange={e => handleUpdateBlock(idx, { blockIndex: Number(e.target.value) })}
+                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
+                                min={1}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Base Prefix (X.Y.*.*) *</label>
+                              <input
+                                type="text"
+                                value={b.basePrefix || ""}
+                                onChange={e => handleUpdateBlock(idx, { basePrefix: e.target.value })}
+                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-primary font-bold text-[11px] focus:border-prizm-primary outline-none"
+                                placeholder="10.0"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">EMS Host</label>
+                              <input
+                                type="text"
+                                value={b.emsHost || ""}
+                                onChange={e => handleUpdateBlock(idx, { emsHost: e.target.value })}
+                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Modbus Host</label>
+                              <input
+                                type="text"
+                                value={b.modbusHost || ""}
+                                onChange={e => handleUpdateBlock(idx, { modbusHost: e.target.value })}
+                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div>
+                                <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Array Start</label>
+                                <input
+                                  type="number"
+                                  value={b.arrayStart || 1}
+                                  onChange={e => handleUpdateBlock(idx, { arrayStart: Number(e.target.value) })}
+                                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px]"
+                                  min={1}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Array End</label>
+                                <input
+                                  type="number"
+                                  value={b.arrayEnd || 8}
+                                  onChange={e => handleUpdateBlock(idx, { arrayEnd: Number(e.target.value) })}
+                                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px]"
+                                  min={1}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="bg-black/35 p-3 rounded border border-white/5 space-y-2 col-span-1 sm:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <div className="flex items-center gap-2 pt-1">
+                                <input
+                                  type="checkbox"
+                                  checked={b.includeCollectionSegment ?? true}
+                                  onChange={e => handleUpdateBlock(idx, { includeCollectionSegment: e.target.checked })}
+                                  className="rounded bg-prizm-surface border border-prizm-border w-3.5 h-3.5 cursor-pointer accent-cyan-500"
+                                  id={`include-cs-${idx}`}
+                                />
+                                <label htmlFor={`include-cs-${idx}`} className="text-[9px] text-prizm-text-muted uppercase font-bold cursor-pointer select-none">
+                                  Include CS (.3) Segment
+                                </label>
+                              </div>
+
+                              {(b.includeCollectionSegment ?? true) ? (
+                                <div className="space-y-1">
+                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">CS Segment Number</label>
+                                  <input
+                                    type="number"
+                                    value={b.csSegment ?? 3}
+                                    onChange={e => handleUpdateBlock(idx, { csSegment: Number(e.target.value) })}
+                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                    min={1}
+                                  />
+                                </div>
+                              ) : <div/>}
+                              
+                              <div className="space-y-1">
+                                 <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Count Per Array</label>
+                                 <input
+                                   type="number"
+                                   value={b.esCountPerArray ?? 21}
+                                   onChange={e => handleUpdateBlock(idx, { esCountPerArray: Number(e.target.value) })}
+                                   className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                   min={1}
+                                 />
+                              </div>
+
+                              <div className="space-y-1 col-span-1 sm:col-span-3 border-t border-white/5 pt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <div>
+                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Segment Start</label>
+                                  <input
+                                    type="number"
+                                    value={b.esSegmentStart ?? 10}
+                                    onChange={e => handleUpdateBlock(idx, { esSegmentStart: Number(e.target.value) })}
+                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                    min={0}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Segment Step</label>
+                                  <input
+                                    type="number"
+                                    value={b.esSegmentStep ?? 1}
+                                    onChange={e => handleUpdateBlock(idx, { esSegmentStep: Number(e.target.value) })}
+                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                    min={1}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Segment Min</label>
+                                  <input
+                                    type="number"
+                                    value={b.segmentMin ?? 3}
+                                    onChange={e => handleUpdateBlock(idx, { segmentMin: Number(e.target.value) })}
+                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                    min={0}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Segment Max</label>
+                                  <input
+                                    type="number"
+                                    value={b.segmentMax ?? 30}
+                                    onChange={e => handleUpdateBlock(idx, { segmentMax: Number(e.target.value) })}
+                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
+                                    min={0}
+                                  />
+                                </div>
+                              </div>
+
+                            </div>
+
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Additional instructions/Notes */}
