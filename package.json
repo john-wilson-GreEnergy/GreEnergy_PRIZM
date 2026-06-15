@@ -10,7 +10,7 @@
     "start:prod": "node start-production.cjs",
     "clean": "node clean.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/lib/ipUtils.test.ts && tsx src/server/safetyFaultClear.test.ts && tsx src/server/feather/deviceEnrichment.test.ts",
+    "test": "tsx src/lib/ipUtils.test.ts && tsx src/server/safetyFaultClear.test.ts && tsx src/server/feather/deviceEnrichment.test.ts && tsx src/server/ems/dragonAppControl.test.ts",
     "verify": "npm run lint && npm run test && npm run build && node verify_bundle.js",
     "prestart": "npm run build",
     "stop:port": "node scripts/kill-port-3000.cjs",

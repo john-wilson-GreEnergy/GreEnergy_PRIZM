@@ -1058,3 +1058,16 @@ export function getExtendedConnectionStatus() {
     cacheSeedState
   };
 }
+
+export function setMockLastCall(data: any) {
+  emsCache.lastCall = data;
+  const activeRef = ProfileStore.getActiveProfile();
+  const activeId = activeRef ? activeRef.id : 'default-local-ems';
+  const rawUrl = getNormalizedBaseUrl();
+  cacheProfileId = activeId;
+  cacheEmsBaseUrl = rawUrl;
+  cacheLastUpdatedAt = new Date().toISOString();
+  emsCache.lastUpdated = new Date().toISOString();
+  emsCache.lastError = null;
+}
+
