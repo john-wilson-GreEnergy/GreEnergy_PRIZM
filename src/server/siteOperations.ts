@@ -13,6 +13,7 @@ import {
 } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP } from "../lib/bessStatusCodes";
+import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
 
 const router = Router();
 
@@ -156,19 +157,15 @@ export function buildStringBucketSummary(stringsData: any[]) {
         let bucket: 'online' | 'nearline' | 'offline' | 'notCommunicating' = 'offline';
         const inRotation = !outRotation;
         const commFalse = row.communicating === false || row.lossComms || row.LossComms;
+        const communicating = !(connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM') || commFalse);
         
-        if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM') || commFalse) {
-            bucket = 'notCommunicating';
-        } else if (outRotation || connectionState === 'OFFLINE') {
-            bucket = 'offline';
-        } else if (connectionState === 'ONLINE' && inRotation && contactorsClosed) {
+        const availabilityClass = classifyStringAvailability({ communicating, inRotation, contactorsClosed });
+        if (availabilityClass === 'online') {
             bucket = 'online';
-        } else if (connectionState === 'ONLINE' && inRotation && !contactorsClosed) {
-            bucket = 'nearline';
-        } else if (connectionState.includes('ONLINE') && !contactorsClosed) {
+        } else if (availabilityClass === 'nearline') {
             bucket = 'nearline';
         } else {
-            bucket = 'offline';
+            bucket = communicating ? 'offline' : 'notCommunicating';
         }
 
         const socPct = num(row.Soc ?? row.soc);
@@ -1124,37 +1121,24 @@ export async function buildSiteOperationsSummaryFromCache() {
         }
 
         // Compute Corrective Actions Log
-        const correctiveActions: any[] = [];
-        const ignoredRegex = /oor|out of rotation|outrotation|contactor open|contactors open/i;
-
-        // Process activeIssueGroups
-        activeIssueGroups.forEach((g: any) => {
-            const faultName = g.faultName || g.displayText || g.message || "";
-            const faultId = g.faultId || g.code || "";
-            if (ignoredRegex.test(faultName) || ignoredRegex.test(String(faultId))) return;
-            if (String(faultId) === "2534" || String(faultId) === "2561") return; // Skip known mapped OOR codes if missed
-
-            let action = "Inspect affected device and review logs";
-            if (/door/i.test(faultName)) action = "Inspect and secure enclosure door";
-            else if (/comms|communication|reachable/i.test(faultName)) action = "Check device power/network path";
-            else if (/fss|fire/i.test(faultName)) action = "Inspect fire safety signal chain";
-            else if (/hvac|mio/i.test(faultName)) action = "Inspect HVAC controller and MIO status";
-            else if (/high cell temp|thermal/i.test(faultName)) action = "Inspect affected string/enclosure thermal conditions";
-            else if (/cell voltage|imbalance/i.test(faultName)) action = "Inspect BPC/cell imbalance and balancing status";
-            else if (g.source === "BPC" || /string/i.test(faultName)) action = "Open String List details and inspect BPC status";
-
-            const sampleDevice = g.sampleDevice || g.occurrences?.[0]?.enclosureLabel || "Multiple";
-
-            correctiveActions.push({
-                level: g.severity === "WARNING" ? "WARNING" : g.severity === "ALARM" ? "ALARM" : "FAULT",
-                source: g.source || "System",
-                fault: faultName,
-                object: sampleDevice,
-                details: "Affected units: " + (g.occurrenceCount || 1),
+        const sharedCorrectiveActions = getCorrectiveActionsFromNormalizedFaults();
+        const correctiveActions: any[] = sharedCorrectiveActions.map(act => {
+            const level = act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "FAULT";
+            const firstAffected = act.affected[0];
+            const source = firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System";
+            const object = act.affected.length === 1 ? firstAffected.label : "Multiple";
+            
+            return {
+                level,
+                source,
+                fault: act.faultLabel,
+                object,
+                details: "Affected units: " + act.affected.length,
                 firstSeen: new Date().toISOString(),
-                count: g.occurrenceCount || 1,
-                suggestedAction: action
-            });
+                count: act.affected.length,
+                suggestedAction: act.suggestedAction,
+                affected: act.affected
+            };
         });
 
         // Add source health errors

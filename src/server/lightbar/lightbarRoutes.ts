@@ -265,11 +265,15 @@ router.get("/fault-visualizer/status", asyncHandler(async (req: Request, res: Re
 }));
 
 /**
- * POST /api/local/lightbar/fault-visualizer/preview
+ * GET & POST /api/local/lightbar/fault-visualizer/preview
  */
-router.post("/fault-visualizer/preview", asyncHandler(async (req: Request, res: Response) => {
-  const config = req.body || {};
+const previewHandler = async (req: Request, res: Response) => {
+  const config = { ...FaultLightbarEngineState, ...req.query, ...req.body };
   
+  if (req.query.ignoredPatterns && typeof req.query.ignoredPatterns === "string") {
+    config.ignoredPatterns = req.query.ignoredPatterns.split(",").map((p: string) => p.trim()).filter(Boolean);
+  }
+
   const activeStates = computeFaultLightbarStates({
     warningColor: config.warningColor,
     alarmColor: config.alarmColor,
@@ -278,6 +282,15 @@ router.post("/fault-visualizer/preview", asyncHandler(async (req: Request, res: 
     clearOnResolved: config.clearOnResolved,
     refreshOnChange: config.refreshOnChange
   });
+
+  const cacheRaw = getEmsCachedRawStrings();
+  const lastUpdated = cacheRaw.lastUpdated;
+  const sourceTimestamp = lastUpdated || new Date().toISOString();
+  let sourceAgeSeconds = -1;
+  if (lastUpdated) {
+    sourceAgeSeconds = Math.max(0, Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 1000));
+  }
+  const stale = !lastUpdated || sourceAgeSeconds > 60;
 
   // Calculate actions and summaries
   let alarmCount = 0;
@@ -317,7 +330,10 @@ router.post("/fault-visualizer/preview", asyncHandler(async (req: Request, res: 
 
   res.json({
     success: true,
-    dryRun: config.dryRun !== undefined ? config.dryRun : true,
+    source: "site-operations",
+    sourceTimestamp,
+    sourceAgeSeconds,
+    stale,
     summary: {
       alarmCount,
       warningCount,
@@ -327,7 +343,10 @@ router.post("/fault-visualizer/preview", asyncHandler(async (req: Request, res: 
     },
     actions
   });
-}));
+};
+
+router.get("/fault-visualizer/preview", asyncHandler(previewHandler));
+router.post("/fault-visualizer/preview", asyncHandler(previewHandler));
 
 /**
  * POST /api/local/lightbar/fault-visualizer/apply-once

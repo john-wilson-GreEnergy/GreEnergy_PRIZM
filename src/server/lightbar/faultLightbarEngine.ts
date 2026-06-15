@@ -1,7 +1,7 @@
 import { FaultLightbarState, FaultLightbarSeverity, LastAppliedLightbarState } from "./faultLightbarTypes";
-import { getEmsCachedRawStrings } from "../emsTurtleClient";
 import { describeBessStatusCode } from "../../lib/bessStatusCodes";
 import { ProfileStore } from "../profiles/profileStore";
+import { getNormalizedStringFaults } from "../faults/normalizedFaultSource";
 
 export const FAULT_LIGHTBAR_DEFAULTS = {
   warningColor: { red: 255, green: 255, blue: 0, white: 0 }, // yellow
@@ -73,74 +73,17 @@ export function computeFaultLightbarStates(config: {
   const ignored = config.ignoredPatterns || FaultLightbarEngineState.ignoredPatterns;
   const clearOnRes = config.clearOnResolved !== undefined ? config.clearOnResolved : FaultLightbarEngineState.clearOnResolved;
 
-  const rawStrings = getEmsCachedRawStrings().data || [];
+  const faults = getNormalizedStringFaults(ignored);
   const results: FaultLightbarState[] = [];
 
-  for (const row of rawStrings) {
-    const arrayIndex = Number(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? 0);
-    const stringIndex = Number(row.StringIndex ?? row.stringIndex ?? row.stringNumber ?? 0);
-    if (!arrayIndex || !stringIndex) continue;
+  for (const row of faults) {
+    const arrayIndex = row.arrayIndex;
+    const stringIndex = row.stringIndex;
 
-    const rowIp = row.StringIp ?? row.stringIp ?? row.ip ?? undefined;
-
-    // Retrieve active alarms and warnings lists
-    let rawWarnings: string[] = [];
-    let rawAlarms: string[] = [];
-
-    const warnVal = row.warns || row.warningslist || row.warnings || row.warningList || row.warninglist || [];
-    const alarmVal = row.alarms || row.alarmslist || row.alarmList || row.alarmlist || [];
-
-    if (typeof warnVal === "string") {
-      rawWarnings = warnVal.split(",").map((s: string) => s.trim()).filter(Boolean);
-    } else if (Array.isArray(warnVal)) {
-      rawWarnings = warnVal.map(String).map((s: string) => s.trim()).filter(Boolean);
-    } else if (typeof warnVal === "number") {
-      rawWarnings = [String(warnVal)];
-    }
-
-    if (typeof alarmVal === "string") {
-      rawAlarms = alarmVal.split(",").map((s: string) => s.trim()).filter(Boolean);
-    } else if (Array.isArray(alarmVal)) {
-      rawAlarms = alarmVal.map(String).map((s: string) => s.trim()).filter(Boolean);
-    } else if (typeof alarmVal === "number") {
-      rawAlarms = [String(alarmVal)];
-    }
-
-    // Translate numeric strings using describeBessStatusCode
-    const formatNotif = (codeStr: string) => {
-      if (codeStr.match(/^\d+$/)) {
-        return `${codeStr} - ${describeBessStatusCode(codeStr)}`;
-      }
-      return codeStr;
-    };
-
-    const formattedWarnings = rawWarnings.map(formatNotif);
-    const formattedAlarms = rawAlarms.map(formatNotif);
-
-    // Filter using case-insensitive matching in configured patterns
-    const effectiveWarnings: string[] = [];
-    const ignoredWarnings: string[] = [];
-    for (const w of formattedWarnings) {
-      const lowerW = w.toLowerCase();
-      const isIgnored = ignored.some(pattern => lowerW.includes(pattern.toLowerCase()));
-      if (isIgnored) {
-        ignoredWarnings.push(w);
-      } else {
-        effectiveWarnings.push(w);
-      }
-    }
-
-    const effectiveAlarms: string[] = [];
-    const ignoredAlarms: string[] = [];
-    for (const a of formattedAlarms) {
-      const lowerA = a.toLowerCase();
-      const isIgnored = ignored.some(pattern => lowerA.includes(pattern.toLowerCase()));
-      if (isIgnored) {
-        ignoredAlarms.push(a);
-      } else {
-        effectiveAlarms.push(a);
-      }
-    }
+    const effectiveWarnings = row.effectiveWarnings || [];
+    const ignoredWarnings = row.ignoredWarnings || [];
+    const effectiveAlarms = row.effectiveAlarms || [];
+    const ignoredAlarms = row.ignoredAlarms || [];
 
     // Determine target severity
     let severity: FaultLightbarSeverity = "none";
@@ -157,10 +100,8 @@ export function computeFaultLightbarStates(config: {
       desiredAction = "set-warning";
     }
 
-    const profile = ProfileStore.getActiveProfile();
-    const blockIndex = Number(row.BlockIndex ?? row.blockIndex ?? row.blockNumber ?? profile?.blockIndex ?? 1);
-    const blockId = String(row.BlockId ?? row.blockId ?? profile?.topologyModel?.blocks?.find((b: any) => b.blockIndex === blockIndex)?.blockId ?? `block-${blockIndex}`);
-
+    const blockIndex = row.blockIndex ?? 1;
+    const blockId = row.blockId ?? `block-${blockIndex}`;
     const key = `${blockIndex}-${arrayIndex}-${stringIndex}`;
     const lastApplied = FaultLightbarEngineState.activeManagedLightbars.get(key);
 
@@ -178,10 +119,10 @@ export function computeFaultLightbarStates(config: {
       blockIndex,
       arrayIndex,
       stringIndex,
-      ip: rowIp,
+      ip: row.ip,
       severity,
-      rawWarnings: formattedWarnings,
-      rawAlarms: formattedAlarms,
+      rawWarnings: row.normalizedWarnings || [],
+      rawAlarms: row.normalizedAlarms || [],
       ignoredWarnings,
       ignoredAlarms,
       effectiveWarnings,

@@ -85,7 +85,9 @@ export function getHvacTargets(): HvacSimulationTarget[] {
     for (const cand of candidates) {
       if (!cand.deviceIp) continue;
       
-      const isCol = cand.stringIndex === null || cand.stringIndex === undefined || cand.stringIndex === 1 || (cand.entityName || "").toLowerCase().includes("collection");
+      const parts = (cand.deviceIp || "").split(".");
+      const lastOctet = parts.length === 4 ? Number(parts[3]) : NaN;
+      const isCol = cand.isCollectionSegment === true || lastOctet === 3 || (cand.entityName || "").toLowerCase().includes("collection");
 
       const target: HvacSimulationTarget = {
         ip: cand.deviceIp,
@@ -108,7 +110,9 @@ export function getHvacTargets(): HvacSimulationTarget[] {
     if (cached && cached.devices) {
       for (const d of cached.devices) {
         if (!d.deviceIp) continue;
-        const isCol = d.stringIndex === null || d.stringIndex === undefined || d.stringIndex === 1 || (d.entityName || "").toLowerCase().includes("collection");
+        const parts = (d.deviceIp || "").split(".");
+        const lastOctet = parts.length === 4 ? Number(parts[3]) : NaN;
+        const isCol = (d as any).isCollectionSegment === true || lastOctet === 3 || (d.entityName || "").toLowerCase().includes("collection");
 
         const existing = ipMap.get(d.deviceIp);
         if (existing) {
