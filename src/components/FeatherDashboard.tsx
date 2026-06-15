@@ -133,7 +133,11 @@ export default function FeatherDashboard() {
         }
         setLastRefreshTime(Date.now());
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (e.name === "AbortError" || e.message?.includes("aborted")) {
+        // Silently return since fetch abort/timeout is an expected flow control path, not a failure
+        return;
+      }
       console.error("Failed to load feather devices cache", e);
     }
   };
@@ -713,7 +717,7 @@ export default function FeatherDashboard() {
                   
                   return (
                     <tr
-                      key={d.ip}
+                      key={`${d.ip || "unspecified"}-${index}`}
                       onClick={() => {
                         setSelectedDevice(d);
                         setAdvancedDrawerShowJson(false);

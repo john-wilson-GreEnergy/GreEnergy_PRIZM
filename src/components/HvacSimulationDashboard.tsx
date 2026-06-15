@@ -61,15 +61,13 @@ const formatTimestampWithUtc = (isoStr: string) => {
 };
 
 const SIM_MODES = [
-  { id: "ldcool", label: "Lead Cooling", desc: "HVAC1 High Fan + Compressor call", threshold: "≥12 A on Lead unit", expected: "1 HVAC fan high + compressor, safety bypass verified" },
-  { id: "bcool", label: "Both Cooling", desc: "Dual air units full compressor call", threshold: "≥12 A load each redundant loop", expected: "HVAC1 + HVAC2 fan high + compressor running" },
+  { id: "cooling", label: "Cooling Sim", desc: "HVAC High Fan + Compressor override", threshold: "≥12 A load response", expected: "Compressors active, verify thermal logic stages" },
   { id: "heating", label: "Heating Sim", desc: "Bypasses standard climate to call active heaters", threshold: "SpaceTemp preset = 5°C", expected: "Stage-1/2 electric heating coils active" },
   { id: "dehumidification", label: "Dehumidification", desc: "Injects wet bulb/RH limits into telemetry", threshold: "Relative Humidities @ 99%", expected: "Coils condenser cycle to extract condensation" },
   { id: "lowerTopCap", label: "Lower Top Cap", desc: "Manipulates top state feedback registers", threshold: "Toggle simulated shut limiters", expected: "Telemetry reports LowerTopcapClosed state" },
   { id: "leakAlarm", label: "Leak Alarm", desc: "Dispatches mock safety containment breach calls", threshold: "Inject positive hydrogen levels", expected: "System flags active leak state triggers" },
   { id: "acDoor", label: "AC Door Probe", desc: "Simulates structural door breach/limit switch", threshold: "Air intake security monitoring", expected: "Reports door sensor open/closed telemetry" },
   { id: "emergencyVentilation", label: "Emerg. Vent", desc: "Runs exhaust sequence over standard modes", threshold: "Full high volume blower override", expected: "Emergency ventilation active indicators" },
-  { id: "cooling", label: "General Cooling", desc: "Default variable cooling test simulation", threshold: "Standard temperature baseline", expected: "Compressor response stage checked" },
   { id: "clearAll", label: "Reset / Clear", desc: "Restores standard direct autonomous control", threshold: "Ems autonomous command", expected: "Restores normal real-world telemetry parameters" }
 ];
 
@@ -108,7 +106,7 @@ export default function HvacSimulationDashboard() {
   const [includeCollection, setIncludeCollection] = useState<boolean>(false);
 
   // Active configurations
-  const [selectedMode, setSelectedMode] = useState<HvacSimulationMode>("ldcool");
+  const [selectedMode, setSelectedMode] = useState<HvacSimulationMode>("cooling");
   const [timeoutMinutes, setTimeoutMinutes] = useState<number>(30);
   const [normalizeBeforeApply, setNormalizeBeforeApply] = useState<boolean>(true);
   const [verifyAfterApply, setVerifyAfterApply] = useState<boolean>(true);
@@ -654,8 +652,8 @@ export default function HvacSimulationDashboard() {
           
           {/* STEP 1: TARGET SELECTION REDESIGN */}
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between border-b border-prizm-border pb-1.5Mac text-white">
-              <h2 className="text-xs font-bold font-mono uppercase text-white flex items-center gap-1.5">
+            <div className="flex items-center justify-between border-b border-prizm-border pb-1.5">
+              <h2 className="text-xs font-bold font-mono uppercase text-prizm-text flex items-center gap-1.5">
                 <span className="bg-prizm-primary/25 text-prizm-primary px-1.5 rounded text-[10px]">1</span>
                 Select Target Nodes
               </h2>
@@ -670,7 +668,7 @@ export default function HvacSimulationDashboard() {
                 <div>
                   <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5">Block selection</label>
                   <select 
-                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
+                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
                     value={blockFilter}
                     onChange={e => setBlockFilter(e.target.value)}
                   >
@@ -684,7 +682,7 @@ export default function HvacSimulationDashboard() {
                 <div>
                   <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5 font-sans">Array Octet</label>
                   <select
-                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
+                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
                     value={arrayFilter}
                     onChange={e => setArrayFilter(e.target.value)}
                   >
@@ -698,7 +696,7 @@ export default function HvacSimulationDashboard() {
                 <div>
                   <label className="text-[8.5px] uppercase font-mono font-bold text-prizm-text-muted block mb-0.5 font-mono">String ES Node</label>
                   <select
-                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-white focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
+                    className="w-full bg-prizm-bg border border-prizm-border rounded p-1 text-[10px] text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer font-sans"
                     value={stringFilter}
                     onChange={e => setStringFilter(e.target.value)}
                   >
@@ -712,7 +710,7 @@ export default function HvacSimulationDashboard() {
 
               {/* Toggles bar */}
               <div className="flex gap-4 p-2 bg-prizm-bg rounded border border-prizm-border/50 text-[9.5px] font-mono select-none">
-                <label className="flex items-center gap-1.5 cursor-pointer text-prizm-text hover:text-white">
+                <label className="flex items-center gap-1.5 cursor-pointer text-prizm-text hover:text-prizm-primary transition-colors">
                   <input 
                     type="checkbox" 
                     className="accent-prizm-primary scale-90"
@@ -722,7 +720,7 @@ export default function HvacSimulationDashboard() {
                   Reachable Only
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer text-prizm-text hover:text-white" title="Toggle collection hub targets">
+                <label className="flex items-center gap-1.5 cursor-pointer text-prizm-text hover:text-prizm-primary transition-colors" title="Toggle collection hub targets">
                   <input 
                     type="checkbox" 
                     className="accent-prizm-primary scale-90"
@@ -737,13 +735,13 @@ export default function HvacSimulationDashboard() {
               <div className="grid grid-cols-4 gap-1">
                 <button 
                   onClick={() => setSelectedIps(allTargets.map(t => t.ip))}
-                  className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-black/20 text-prizm-text-muted uppercase font-bold rounded"
+                  className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-prizm-surface hover:text-prizm-text text-prizm-text-muted uppercase font-bold rounded"
                 >
                   All
                 </button>
                 <button 
                   onClick={() => setSelectedIps([])}
-                  className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-black/20 text-prizm-text-muted uppercase font-bold rounded"
+                  className="py-1 text-[8.5px] font-mono border border-prizm-border bg-prizm-bg hover:bg-prizm-surface hover:text-prizm-text text-prizm-text-muted uppercase font-bold rounded"
                 >
                   None
                 </button>
@@ -799,7 +797,7 @@ export default function HvacSimulationDashboard() {
                           onClick={() => setExpandedArrays(prev => ({ ...prev, [arrNum]: !prev[arrNum] }))}
                         >
                           <ChevronDown size={11} className={`text-prizm-text-muted transition-transform ${isExpanded ? "transform rotate-0" : "transform -rotate-90"}`} />
-                          <span className="text-[9.5px] font-mono font-bold text-white uppercase">
+                          <span className="text-[9.5px] font-mono font-bold text-prizm-text uppercase">
                             Array {arrNum} <span className="text-[8px] text-prizm-text-muted font-normal">({selectedInArray.length}/{targetsInArray.length})</span>
                           </span>
                         </div>
@@ -839,7 +837,7 @@ export default function HvacSimulationDashboard() {
                               >
                                 <div className="flex items-center gap-1.5 truncate">
                                   <input type="checkbox" checked={check} onChange={() => {}} className="accent-prizm-primary pointer-events-none scale-75" />
-                                  <span className={`font-semibold ${check ? "text-prizm-primary" : "text-white"}`}>{parsed.label}</span>
+                                  <span className={`font-semibold ${check ? "text-prizm-primary" : "text-prizm-text"}`}>{parsed.label}</span>
                                   <span className="text-[8.5px] text-prizm-text-muted">({t.ip})</span>
                                 </div>
                                 <span className={`w-1.5 h-1.5 rounded-full ${t.reachable ? "bg-green-400 animate-pulse" : "bg-prizm-danger"}`} />
@@ -857,7 +855,7 @@ export default function HvacSimulationDashboard() {
             {/* ACTIVE SIMULATIONS SCANNER */}
             <div className="p-3 bg-prizm-bg/90 border border-prizm-border/60 rounded space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                <span className="text-xs font-mono font-bold text-prizm-text uppercase flex items-center gap-1.5">
                   <Activity size={12} className="text-prizm-primary" />
                   Active Sim Scanner
                 </span>
@@ -879,12 +877,12 @@ export default function HvacSimulationDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-1.5 max-h-[120px] overflow-y-auto no-scrollbar">
-                    <div className="text-[10px] text-white flex justify-between font-mono items-center">
-                      <span>Active Simulations Found: <strong className="text-yellow-400">{scannedActive.length}</strong></span>
+                    <div className="text-[10px] text-prizm-text flex justify-between font-mono items-center">
+                      <span>Active Simulations Found: <strong className="text-prizm-primary">{scannedActive.length}</strong></span>
                       <button 
                         type="button"
                         onClick={() => setSelectedIps(scannedActive.map(sa => sa.ip))} 
-                        className="text-[9px] underline text-prizm-primary uppercase hover:text-white font-bold"
+                        className="text-[9px] underline text-prizm-primary uppercase hover:text-prizm-text transition-colors font-bold"
                       >
                         Select All Active
                       </button>
@@ -894,7 +892,7 @@ export default function HvacSimulationDashboard() {
                       const activesInArray = scannedActive.filter(sa => (sa.arrayIndex ?? 1) === arrIdx);
                       return (
                         <div key={arrIdx} className="bg-prizm-surface-strong/40 p-1.5 rounded border border-prizm-border/40 text-[9px] font-mono space-y-1">
-                          <span className="text-white font-bold block uppercase truncate">Array {arrIdx}</span>
+                          <span className="text-prizm-text font-bold block uppercase truncate">Array {arrIdx}</span>
                           <div className="divide-y divide-prizm-border/10 space-y-1">
                             {activesInArray.map(sa => {
                               const callout = normalizeIpToEquipmentCallout(sa.ip);
@@ -908,13 +906,13 @@ export default function HvacSimulationDashboard() {
                                       onChange={() => setSelectedIps(prev => prev.includes(sa.ip) ? prev.filter(ip => ip !== sa.ip) : [...prev, sa.ip])} 
                                       className="scale-75 accent-prizm-primary cursor-pointer pointer-events-auto"
                                     />
-                                    <span className="text-white font-bold">{callout.label}</span>
+                                    <span className="text-prizm-text font-bold">{callout.label}</span>
                                     <span className="text-prizm-text-muted">({sa.ip})</span>
                                   </div>
                                   <div className="flex items-center gap-1.5">
-                                    <span className="text-cyan-400 font-bold uppercase">{sa.mode}</span>
+                                    <span className="text-cyan-600 font-bold uppercase">{sa.mode}</span>
                                     <span className={`px-1 py-0.1 select-none text-[8px] rounded border ${
-                                      sa.status === "PASS" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
+                                      sa.status === "PASS" ? "bg-green-500/10 border-green-500/30 text-green-600" : "bg-yellow-500/10 border-yellow-500/30 text-yellow-600"
                                     }`}>
                                       {sa.status || "MONITOR"}
                                     </span>
@@ -955,11 +953,11 @@ export default function HvacSimulationDashboard() {
             </div>
 
             {/* Sticky Bottom Selected Summary */}
-            <div className="bg-prizm-bg/90 p-2 border border-prizm-border/60 rounded text-[10px] font-mono leading-tight sticky bottom-0 z-10 bg-prizm-surface shadow-inner space-y-1 bg-neutral-900 border-l-4 border-l-prizm-primary">
-              <div className="flex justify-between items-center">
-                <span className="text-prizm-text::muted uppercase text-[8.5px] font-bold text-prizm-text-muted tracking-tight">Active Target Nodes Set ({selectedIps.length})</span>
+            <div className="bg-prizm-surface p-2 border border-prizm-border rounded text-[10px] font-mono leading-tight sticky bottom-0 z-10 shadow-md border-l-4 border-l-prizm-primary space-y-1">
+              <div className="flex justify-between items-center bg-transparent">
+                <span className="text-prizm-text-muted uppercase text-[8.5px] font-bold tracking-tight">Active Target Nodes Set ({selectedIps.length})</span>
                 {selectedIps.length > 0 && (
-                  <button onClick={() => setSelectedIps([])} className="text-[8.5px] underline text-prizm-danger font-bold hover:text-white uppercase transition">
+                  <button onClick={() => setSelectedIps([])} className="text-[8.5px] underline text-prizm-danger font-bold hover:text-red-700 uppercase transition">
                     Clear Selection
                   </button>
                 )}
@@ -973,13 +971,13 @@ export default function HvacSimulationDashboard() {
                   {selectedIps.slice(0, 4).map(ip => {
                     const parsed = normalizeIpToEquipmentCallout(ip);
                     return (
-                      <span key={ip} className="bg-prizm-surface border border-prizm-border px-1.5 py-0.5 rounded text-[8.5px] text-white">
+                      <span key={ip} className="bg-prizm-bg border border-prizm-border px-1.5 py-0.5 rounded text-[8.5px] text-prizm-text font-bold">
                         {parsed.label}
                       </span>
                     );
                   })}
                   {selectedIps.length > 4 && (
-                    <span className="text-[8.5px] text-yellow-400 font-bold ml-1">
+                    <span className="text-[8.5px] text-prizm-primary font-bold ml-1">
                       +{selectedIps.length - 4} more
                     </span>
                   )}
@@ -991,7 +989,7 @@ export default function HvacSimulationDashboard() {
           {/* STEP 2: SIMULATION MODE SELECTION REDESIGN */}
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3 shadow-sm">
             <div className="border-b border-prizm-border pb-1.5">
-              <h2 className="text-xs font-bold font-mono uppercase text-white flex items-center gap-1.5">
+              <h2 className="text-xs font-bold font-mono uppercase text-prizm-text flex items-center gap-1.5">
                 <span className="bg-prizm-primary/25 text-prizm-primary px-1.5 rounded text-[10px]">2</span>
                 Choose Test Simulation
               </h2>
@@ -1001,25 +999,25 @@ export default function HvacSimulationDashboard() {
             <div className="grid grid-cols-2 gap-2">
               {SIM_MODES.map(modeItem => {
                 const active = selectedMode === modeItem.id;
-                const isSpecial = ["ldcool", "bcool"].includes(modeItem.id);
+                const isSpecial = modeItem.id === "cooling";
                 return (
                   <div
                     key={modeItem.id}
                     onClick={() => setSelectedMode(modeItem.id as HvacSimulationMode)}
                     className={`p-2.5 rounded border text-left cursor-pointer transition-all flex flex-col justify-between relative ${
                       active
-                        ? "bg-[#1E293B] border-prizm-primary border-2 shadow-md ring-1 ring-prizm-primary/30"
-                        : "bg-[#0F172A]/70 border-prizm-border/40 hover:bg-[#1E293B]/70"
+                        ? "bg-prizm-primary/5 border-prizm-primary border-2 shadow-md ring-1 ring-prizm-primary/30"
+                        : "bg-prizm-bg border-prizm-border hover:bg-prizm-surface-strong/60"
                     }`}
                   >
                     {isSpecial && (
-                      <span className="absolute top-1 right-1 text-[7px] font-bold px-1 rounded bg-[#EF4444]/20 border border-[#EF4444]/40 text-[#EF4444] uppercase tracking-wide">
-                        HVAC Stage 
+                      <span className="absolute top-1 right-1 text-[7px] font-bold px-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-600 uppercase tracking-wide">
+                        COOLING SIM
                       </span>
                     )}
                     <div>
                       <div className="flex items-center gap-1">
-                        <span className={`block text-[11px] font-bold font-mono leading-tight ${active ? "text-prizm-primary" : "text-white"}`}>
+                        <span className={`block text-[11px] font-bold font-mono leading-tight ${active ? "text-prizm-primary-strong" : "text-prizm-text"}`}>
                           {modeItem.label}
                         </span>
                         {active && (
@@ -1032,7 +1030,7 @@ export default function HvacSimulationDashboard() {
                     </div>
 
                     <div className="mt-2.5 pt-1.5 border-t border-prizm-border/20 flex items-center justify-between">
-                      <span className="text-[8px] text-prizm-text-muted tracking-tight font-mono whitespace-nowrap block truncate max-w-full">
+                      <span className={`text-[8px] tracking-tight font-mono whitespace-nowrap block truncate max-w-full ${active ? "text-prizm-primary-strong font-semibold" : "text-prizm-text-muted"}`}>
                         {modeItem.threshold}
                       </span>
                       <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-prizm-primary" : "bg-transparent"}`} />
@@ -1101,7 +1099,7 @@ export default function HvacSimulationDashboard() {
           {/* STEP 3: CONFIGURE RUN REDESIGN */}
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3 shadow-sm font-mono text-[10px]">
             <div className="border-b border-prizm-border pb-1.5 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase text-white flex items-center gap-1.5">
+              <h2 className="text-xs font-bold uppercase text-prizm-text flex items-center gap-1.5">
                 <span className="bg-prizm-primary/25 text-prizm-primary px-1.5 rounded text-[10px]">3</span>
                 Configure Run Settings
               </h2>
@@ -1112,7 +1110,7 @@ export default function HvacSimulationDashboard() {
               <div className="bg-prizm-bg p-2.5 rounded border border-prizm-border space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-prizm-text-muted font-bold uppercase text-[9px]">Simulation timeout window:</span>
-                  <span className="text-yellow-400 font-bold bg-yellow-400/5 px-2 py-0.5 rounded">{timeoutMinutes} minutes</span>
+                  <span className="text-yellow-600 font-bold bg-yellow-400/10 px-2 py-0.5 rounded">{timeoutMinutes} minutes</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input 
@@ -1135,7 +1133,7 @@ export default function HvacSimulationDashboard() {
                       if (val < 10) val = 10;
                       setTimeoutMinutes(val);
                     }}
-                    className="w-[50px] bg-prizm-surface border border-prizm-border text-right p-0.5 rounded text-white text-[10px]"
+                    className="w-[50px] bg-prizm-surface border border-prizm-border text-right p-0.5 rounded text-prizm-text text-[10px] font-bold"
                   />
                 </div>
               </div>
@@ -1143,7 +1141,7 @@ export default function HvacSimulationDashboard() {
 
             {/* Boolean option flags */}
             <div className="space-y-1.5 bg-prizm-bg/60 p-2.5 rounded border border-prizm-border/60">
-              <label className="flex items-center gap-2 cursor-pointer text-prizm-text hover:text-white select-none">
+              <label className="flex items-center gap-2 cursor-pointer text-prizm-text hover:text-prizm-primary select-none transition-colors">
                 <input 
                   type="checkbox"
                   checked={normalizeBeforeApply}
@@ -1156,7 +1154,7 @@ export default function HvacSimulationDashboard() {
                 </div>
               </label>
 
-              <label className="flex items-center gap-2 cursor-pointer text-prizm-text hover:text-white select-none">
+              <label className="flex items-center gap-2 cursor-pointer text-prizm-text hover:text-prizm-primary select-none transition-colors">
                 <input 
                   type="checkbox"
                   checked={verifyAfterApply}
@@ -1180,7 +1178,7 @@ export default function HvacSimulationDashboard() {
                   max={16}
                   value={concurrency}
                   onChange={e => setConcurrency(Math.max(1, parseInt(e.target.value) || 8))}
-                  className="w-full bg-prizm-bg text-white rounded p-1 text-[10px] border border-prizm-border text-center"
+                  className="w-full bg-prizm-bg text-prizm-text rounded p-1 text-[10px] border border-prizm-border text-center font-bold"
                 />
               </div>
 
@@ -1189,7 +1187,7 @@ export default function HvacSimulationDashboard() {
                 <select
                   value={pollingIntervalSec}
                   onChange={e => setPollingIntervalSec(Number(e.target.value))}
-                  className="w-full bg-prizm-bg text-white rounded p-1 text-[10px] border border-prizm-border focus:outline-none focus:border-prizm-primary cursor-pointer text-center"
+                  className="w-full bg-prizm-bg text-prizm-text rounded p-1 text-[10px] border border-prizm-border focus:outline-none focus:border-prizm-primary cursor-pointer text-center font-bold"
                 >
                   <option value={1}>1s Refresh</option>
                   <option value={3}>3s Standard</option>
@@ -1204,7 +1202,7 @@ export default function HvacSimulationDashboard() {
               <button
                 type="button"
                 onClick={() => setAdvancedOpen(!advancedOpen)}
-                className="w-full bg-black/25 text-cyan-400 text-center font-mono py-1 rounded border border-prizm-border/50 text-[9.5px] font-bold uppercase transition hover:text-white flex items-center justify-center gap-1"
+                className="w-full bg-cyan-600/10 hover:bg-cyan-600/20 text-cyan-600 font-mono py-1 rounded border border-cyan-500/20 text-[9.5px] font-bold uppercase transition flex items-center justify-center gap-1"
               >
                 <Sliders size={10} />
                 {advancedOpen ? "Hide Advanced Threshold Configurations" : "Show Advanced Validation Settings"}
@@ -1212,7 +1210,7 @@ export default function HvacSimulationDashboard() {
 
               {advancedOpen && (
                 <div className="mt-2 bg-prizm-bg p-2.5 rounded border border-prizm-border space-y-2 text-[9.5px] animate-fade-in font-mono duration-150">
-                  <span className="text-yellow-400 font-bold block uppercase text-[8px]">Precision Validation Parameters</span>
+                  <span className="text-yellow-600 font-bold block uppercase text-[8px]">Precision Validation Parameters</span>
                   
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -1223,9 +1221,9 @@ export default function HvacSimulationDashboard() {
                           step="0.1" 
                           value={fanCurrentMinA}
                           onChange={e => setFanCurrentMinA(parseFloat(e.target.value) || 0)}
-                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-white text-[10px]"
+                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-prizm-text font-bold text-[10px]"
                         />
-                        <span>A</span>
+                        <span className="text-prizm-text-muted">A</span>
                       </div>
                     </div>
 
@@ -1237,9 +1235,9 @@ export default function HvacSimulationDashboard() {
                           step="0.5" 
                           value={compressorCurrentMinA}
                           onChange={e => setCompressorCurrentMinA(parseFloat(e.target.value) || 0)}
-                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-white text-[10px]"
+                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-prizm-text font-bold text-[10px]"
                         />
-                        <span>A</span>
+                        <span className="text-prizm-text-muted">A</span>
                       </div>
                     </div>
 
@@ -1250,9 +1248,9 @@ export default function HvacSimulationDashboard() {
                           type="number"
                           value={responseGracePeriodSec}
                           onChange={e => setResponseGracePeriodSec(parseInt(e.target.value) || 0)}
-                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-white text-[10px]"
+                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-prizm-text font-bold text-[10px]"
                         />
-                        <span>s</span>
+                        <span className="text-prizm-text-muted">s</span>
                       </div>
                     </div>
 
@@ -1263,9 +1261,9 @@ export default function HvacSimulationDashboard() {
                           type="number"
                           value={staleReportMaxAgeSec}
                           onChange={e => setStaleReportMaxAgeSec(parseInt(e.target.value) || 0)}
-                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-white text-[10px]"
+                          className="w-full bg-prizm-surface text-center rounded p-1 border border-prizm-border text-prizm-text font-bold text-[10px]"
                         />
-                        <span>s</span>
+                        <span className="text-prizm-text-muted">s</span>
                       </div>
                     </div>
                   </div>
@@ -1282,38 +1280,38 @@ export default function HvacSimulationDashboard() {
           {/* STEP 4: DEPLOY / CLEAR COMMAND CARD & DEPLOYMENT REVIEW PANEL */}
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 shadow-md space-y-4 relative overflow-hidden">
             <div className="flex items-center gap-2 border-b border-prizm-border/40 pb-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-ping" />
-              <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-widest block">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-ping" />
+              <span className="text-xs font-mono font-bold text-yellow-600 uppercase tracking-widest block">
                 Step 4: Deployment Safety Review & Execute Commands
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
               <div className="md:col-span-8 space-y-2 font-mono">
-                <h3 className="text-base font-bold text-white uppercase tracking-tight">
-                  Configured Mode: <span className="text-prizm-primary">{currentModeConfig.label}</span>
+                <h3 className="text-base font-bold text-prizm-text uppercase tracking-tight">
+                  Configured Mode: <span className="text-prizm-primary-strong font-black">{currentModeConfig.label}</span>
                 </h3>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[10.5px] leading-relaxed text-prizm-text-muted">
-                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
-                    Targets Selected: <span className="text-white font-bold block text-xs mt-0.5">{selectedIps.length} units</span>
+                  <div className="bg-prizm-bg p-1.5 rounded border border-prizm-border/40">
+                    Targets Selected: <span className="text-prizm-text font-bold block text-xs mt-0.5">{selectedIps.length} units</span>
                   </div>
-                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
-                    Concurrency Blocks: <span className="text-yellow-400 font-bold block text-xs mt-0.5">{selectedIps.length > 0 ? Math.ceil(selectedIps.length / concurrency) : 0} batches <span className="text-[9px] text-prizm-text-muted font-normal">(size {concurrency})</span></span>
+                  <div className="bg-prizm-bg p-1.5 rounded border border-prizm-border/40">
+                    Concurrency Blocks: <span className="text-yellow-600 font-bold block text-xs mt-0.5">{selectedIps.length > 0 ? Math.ceil(selectedIps.length / concurrency) : 0} batches <span className="text-[9px] text-prizm-text-muted font-normal">(size {concurrency})</span></span>
                   </div>
-                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
-                    Runtime Duration: <span className="text-white font-bold block text-xs mt-0.5">{timeoutMinutes} mins</span>
+                  <div className="bg-prizm-bg p-1.5 rounded border border-prizm-border/40">
+                    Runtime Duration: <span className="text-prizm-text font-bold block text-xs mt-0.5">{timeoutMinutes} mins</span>
                   </div>
-                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20">
-                    Live Probe Verify: <span className="text-green-400 font-bold block text-xs mt-0.5">{verifyAfterApply ? "ACTIVE (ENABLED)" : "BYPASSED"}</span>
+                  <div className="bg-prizm-bg p-1.5 rounded border border-prizm-border/40">
+                    Live Probe Verify: <span className="text-green-600 font-bold block text-xs mt-0.5">{verifyAfterApply ? "ACTIVE (ENABLED)" : "BYPASSED"}</span>
                   </div>
-                  <div className="bg-black/25 p-1.5 rounded border border-prizm-border/20 col-span-2">
-                    Min Load Thresholds: <span className="text-cyan-400 font-bold block text-xs mt-0.5">Compressor: {compressorCurrentMinA}A | Fan: {fanCurrentMinA}A</span>
+                  <div className="bg-prizm-bg p-1.5 rounded border border-prizm-border/40 col-span-2">
+                    Min Load Thresholds: <span className="text-cyan-600 font-bold block text-xs mt-0.5">Compressor: {compressorCurrentMinA}A | Fan: {fanCurrentMinA}A</span>
                   </div>
                 </div>
 
                 <div className="text-[10px] text-prizm-text-muted pt-1">
-                  Expected Response: <span className="text-white bg-black/30 px-1.5 py-0.5 rounded border border-prizm-border/20 inline-block font-mono mt-1 max-w-full truncate">{currentModeConfig.expected}</span>
+                  Expected Response: <span className="text-prizm-text bg-prizm-bg px-1.5 py-0.5 rounded border border-prizm-border/50 inline-block font-mono mt-1 max-w-full truncate">{currentModeConfig.expected}</span>
                 </div>
               </div>
 
@@ -1345,7 +1343,7 @@ export default function HvacSimulationDashboard() {
                       setSuccessMsg("Safely cancelled and cleared active selection.");
                     }}
                     disabled={selectedIps.length === 0}
-                    className="py-1.5 px-2 bg-prizm-bg border border-prizm-border hover:bg-white/5 text-white font-mono text-[9.5px] uppercase rounded tracking-wider transition disabled:opacity-45"
+                    className="py-1.5 px-2 bg-prizm-bg border border-prizm-border hover:bg-prizm-surface hover:text-prizm-text text-prizm-text-muted font-mono text-[9.5px] font-bold uppercase rounded tracking-wider transition disabled:opacity-45"
                   >
                     Cancel Select
                   </button>
@@ -1365,7 +1363,7 @@ export default function HvacSimulationDashboard() {
                     type="button"
                     onClick={() => executeVerifyFetch()} 
                     disabled={selectedIps.length === 0}
-                    className="flex-1 py-1 bg-[#1F2937] hover:bg-black/30 border border-prizm-border rounded text-center uppercase tracking-tighter"
+                    className="flex-1 py-1 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded text-prizm-text font-bold text-center uppercase tracking-tighter"
                   >
                     Recall Report
                   </button>
@@ -1383,7 +1381,7 @@ export default function HvacSimulationDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-prizm-border pb-2.5 font-mono">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
-                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">
                   Step 5: Live Verification Logs & Monitors
                 </span>
               </div>
@@ -1426,7 +1424,7 @@ export default function HvacSimulationDashboard() {
                   warningFilter === "all" ? "bg-prizm-border border-gray-400" : "bg-prizm-bg border-prizm-border/40 hover:bg-prizm-surface-strong/40"
                 }`}
               >
-                <span className="block text-[18px] font-black text-white leading-tight">{latestResults.length}</span>
+                <span className="block text-[18px] font-black text-prizm-text leading-tight">{latestResults.length}</span>
                 <span className="block text-[8.5px] text-prizm-text-muted uppercase">MONITORED</span>
               </div>
 
@@ -1436,8 +1434,8 @@ export default function HvacSimulationDashboard() {
                   warningFilter === "pass" ? "bg-green-500/15 border-green-400" : "bg-prizm-bg border-prizm-border/40 hover:bg-prizm-surface-strong/40"
                 }`}
               >
-                <span className="block text-[18px] font-black text-green-400 leading-tight">{cPass}</span>
-                <span className="block text-[8.5px] text-green-500 block uppercase">PASSING</span>
+                <span className="block text-[18px] font-black text-green-600 leading-tight">{cPass}</span>
+                <span className="block text-[8.5px] text-green-600 block uppercase">PASSING</span>
               </div>
 
               <div 
@@ -1446,14 +1444,14 @@ export default function HvacSimulationDashboard() {
                   warningFilter === "warn-fail" ? "bg-yellow-500/15 border-yellow-400" : "bg-prizm-bg border-prizm-border/40 hover:bg-prizm-surface-strong/40"
                 }`}
               >
-                <span className="block text-[18px] font-black text-yellow-400 leading-tight">{cWarn + cFail}</span>
-                <span className="block text-[8.5px] text-yellow-500 block uppercase">WARNINGS</span>
+                <span className="block text-[18px] font-black text-yellow-600 leading-tight">{cWarn + cFail}</span>
+                <span className="block text-[8.5px] text-yellow-600 block uppercase">WARNINGS</span>
               </div>
 
               <div 
                 className="p-2 border rounded-md bg-prizm-bg border-prizm-border/40 text-prizm-text-muted cursor-default"
               >
-                <span className="block text-[18px] font-black text-cyan-400 leading-tight">{cExpired}</span>
+                <span className="block text-[18px] font-black text-cyan-600 leading-tight">{cExpired}</span>
                 <span className="block text-[8.5px] text-prizm-text-muted block uppercase">EXPIRED</span>
               </div>
 
@@ -1475,8 +1473,8 @@ export default function HvacSimulationDashboard() {
                 <div className="flex items-center justify-between pb-1.5 border-b border-prizm-border/40 font-mono text-[10.5px]">
                   <div className="flex items-center gap-1.5">
                     <TrendingUp size={13} className="text-prizm-primary animate-pulse" />
-                    <span className="text-white uppercase font-bold">Live Trends:</span>
-                    <span className="text-yellow-400 font-bold bg-[#1F2937] px-2 py-0.5 rounded">
+                    <span className="text-prizm-text uppercase font-bold">Live Trends:</span>
+                    <span className="text-yellow-600 font-bold bg-yellow-400/10 px-2 py-0.5 rounded">
                       {graphingIp === "aggregate" ? "ALL (Selected Aggregate)" : graphingIp}
                     </span>
                   </div>
@@ -1486,7 +1484,7 @@ export default function HvacSimulationDashboard() {
                     <select
                       value={graphingIp}
                       onChange={e => setGraphingIp(e.target.value)}
-                      className="bg-prizm-surface border border-prizm-border text-white text-[10px] font-mono rounded px-1.5 cursor-pointer font-sans"
+                      className="bg-prizm-surface border border-prizm-border text-prizm-text text-[10px] font-mono rounded px-1.5 cursor-pointer font-sans"
                     >
                       <option value="aggregate">★ ALL SELECTED (AGGREGATE)</option>
                       {selectedIps.map(ip => <option key={ip} value={ip}>{ip}</option>)}
@@ -1550,7 +1548,7 @@ export default function HvacSimulationDashboard() {
               <div className="bg-prizm-bg p-5 border border-dashed border-prizm-border/60 rounded-lg text-center space-y-3 font-mono">
                 <div className="max-w-md mx-auto space-y-2">
                   <TrendingUp className="text-prizm-text-muted mx-auto opacity-40 animate-pulse" size={32} />
-                  <h4 className="text-white text-xs uppercase font-bold tracking-wider">No Target Units Selected for Tracing</h4>
+                  <h4 className="text-prizm-text text-xs uppercase font-bold tracking-wider">No Target Units Selected for Tracing</h4>
                   <p className="text-[10px] text-prizm-text-muted leading-relaxed">
                     Select equipment units or initiate a live passive scanning process to trace telemetry trends.
                   </p>
@@ -1577,23 +1575,23 @@ export default function HvacSimulationDashboard() {
             {/* VALIDATION RESULTS TABLE */}
             <div className="space-y-2">
               <div className="flex items-center justify-between font-mono text-[10px] pb-1 border-b border-prizm-border/40">
-                <span className="text-white font-bold uppercase tracking-wider flex items-center gap-1">
+                <span className="text-prizm-text font-bold uppercase tracking-wider flex items-center gap-1">
                   <Database size={11} className="text-prizm-primary" />
                   Live Field Verification reports ({latestResults.length} active)
                 </span>
 
-                <div className="flex bg-black p-0.5 rounded border border-prizm-border text-[8.5px]">
-                  <button onClick={triggerCsvExport} disabled={latestResults.length === 0} className="px-1.5 hover:text-white text-prizm-text-muted uppercase border-r border-prizm-border/30 disabled:opacity-40">
+                <div className="flex bg-prizm-bg p-0.5 rounded border border-prizm-border text-[8.5px]">
+                  <button onClick={triggerCsvExport} disabled={latestResults.length === 0} className="px-1.5 hover:text-prizm-primary text-prizm-text-muted font-bold uppercase border-r border-prizm-border/30 disabled:opacity-40">
                     EX CSV
                   </button>
-                  <button onClick={triggerJsonExport} disabled={latestResults.length === 0} className="px-1.5 hover:text-white text-prizm-text-muted uppercase disabled:opacity-40">
+                  <button onClick={triggerJsonExport} disabled={latestResults.length === 0} className="px-1.5 hover:text-prizm-primary text-prizm-text-muted font-bold uppercase disabled:opacity-40">
                     EX JSON
                   </button>
                 </div>
               </div>
 
               {latestResults.length === 0 ? (
-                <div className="p-8 text-center border border-dashed border-prizm-border/30 rounded bg-black/10 font-mono text-[9.5px] text-prizm-text-muted flex flex-col items-center justify-center">
+                <div className="p-8 text-center border border-dashed border-prizm-border/30 rounded bg-prizm-bg font-mono text-[9.5px] text-prizm-text-muted flex flex-col items-center justify-center">
                   <Database className="opacity-30 mb-2" size={24} />
                   <span>NO REAL-WORLD REPORTS COMPILED</span>
                   <span>Connect target units above and deploy simulated override parameters.</span>
@@ -1601,7 +1599,7 @@ export default function HvacSimulationDashboard() {
               ) : (
                 <div className="overflow-x-auto border border-prizm-border rounded bg-prizm-bg max-h-[220px]">
                   <table className="w-full text-left font-mono text-[10px] whitespace-nowrap table-auto">
-                    <thead className="bg-[#111827] text-white/90 sticky top-0 font-bold border-b border-prizm-border text-[9px] uppercase">
+                    <thead className="bg-prizm-surface-strong text-prizm-text sticky top-0 font-bold border-b border-prizm-border text-[9px] uppercase">
                       <tr>
                         <th className="p-2 border-r border-prizm-border/20">Target IP</th>
                         <th className="p-2 border-r border-prizm-border/20 text-center">Status</th>
@@ -1617,9 +1615,9 @@ export default function HvacSimulationDashboard() {
                     <tbody className="divide-y divide-prizm-border/25">
                       {latestResults.map(r => {
                         const sClass = r.status === "PASS"
-                          ? "bg-green-500/10 text-green-400 border-green-500/20"
+                          ? "bg-green-500/10 text-green-700 border-green-500/20"
                           : r.status === "WARNING"
-                          ? "bg-yellow-500/15 text-yellow-500 border-yellow-500/20"
+                          ? "bg-yellow-500/15 text-yellow-700 border-yellow-500/20"
                           : r.status === "NOT_RESPONDING"
                           ? "bg-red-500/15 text-prizm-danger border-prizm-danger/20"
                           : "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20";
@@ -1631,9 +1629,9 @@ export default function HvacSimulationDashboard() {
                           <tr 
                             key={r.ip} 
                             onClick={() => setSelectedResultDetail(r)}
-                            className="hover:bg-prizm-surface-strong/60 transition-all cursor-pointer border-b border-prizm-border/10"
+                            className="hover:bg-prizm-surface-strong/60 transition-all cursor-pointer border-b border-prizm-border/10 text-prizm-text"
                           >
-                            <td className="p-2 font-bold text-white border-r border-prizm-border/20 flex items-center gap-1.5">
+                            <td className="p-2 font-bold text-prizm-text border-r border-prizm-border/20 flex items-center gap-1.5">
                               <Eye size={10} className="text-prizm-primary" />
                               {r.ip}
                             </td>
@@ -1644,18 +1642,18 @@ export default function HvacSimulationDashboard() {
                               </span>
                             </td>
 
-                            <td className="p-1.5 text-center font-light border-r border-prizm-border/20">
+                            <td className="p-1.5 text-center font-light border-r border-prizm-border/20 text-prizm-text-muted">
                               {r.mode.toUpperCase()}
                             </td>
 
-                            <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-white">
+                            <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-prizm-text">
                               {r.hvac1.currentA !== null ? `${r.hvac1.currentA.toFixed(1)}A` : "-"}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 space-x-1.5 font-bold">
                               {/* Fan badge */}
                               {r.hvac1.fanHighOn !== null ? (
-                                <span className={`px-1 rounded text-[8px] ${r.hvac1.fanHighOn ? "bg-green-500/10 text-green-400" : "bg-prizm-bg text-prizm-text-muted"}`}>
+                                <span className={`px-1 rounded text-[8px] ${r.hvac1.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
                                   {r.hvac1.fanHighOn ? "FAN_HI" : "FAN_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
@@ -1664,22 +1662,22 @@ export default function HvacSimulationDashboard() {
                               {r.hvac1.compressorOn !== null ? (
                                 <span className={`px-1 rounded text-[8px] border ${
                                   r.hvac1.compressorOn 
-                                    ? "bg-green-500/10 text-green-400 border-green-500/20" 
-                                    : (r.hvac1.expected && !h1Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-transparent")
+                                    ? "bg-green-500/10 text-green-700 border-green-500/20" 
+                                    : (r.hvac1.expected && !h1Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
                                 }`}>
                                   {r.hvac1.compressorOn ? "COMP_ON" : "COMP_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
                             </td>
 
-                            <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-white">
+                            <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-prizm-text">
                               {r.hvac2.currentA !== null ? `${r.hvac2.currentA.toFixed(1)}A` : "-"}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 space-x-1.5 font-bold">
                               {/* Fan badge */}
                               {r.hvac2.fanHighOn !== null ? (
-                                <span className={`px-1 rounded text-[8px] ${r.hvac2.fanHighOn ? "bg-green-500/10 text-green-400" : "bg-prizm-bg text-prizm-text-muted"}`}>
+                                <span className={`px-1 rounded text-[8px] ${r.hvac2.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
                                   {r.hvac2.fanHighOn ? "FAN_HI" : "FAN_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
@@ -1688,8 +1686,8 @@ export default function HvacSimulationDashboard() {
                               {r.hvac2.compressorOn !== null ? (
                                 <span className={`px-1 rounded text-[8px] border ${
                                   r.hvac2.compressorOn 
-                                    ? "bg-green-500/10 text-green-400 border-green-500/20" 
-                                    : (r.hvac2.expected && !h2Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-transparent")
+                                    ? "bg-green-500/10 text-green-700 border-green-500/20" 
+                                    : (r.hvac2.expected && !h2Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
                                 }`}>
                                   {r.hvac2.compressorOn ? "COMP_ON" : "COMP_OFF"}
                                 </span>
@@ -1697,12 +1695,12 @@ export default function HvacSimulationDashboard() {
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20">
-                              <span className={r.simulationRemainingMinutes && r.simulationRemainingMinutes > 0 ? "text-green-400 font-bold" : "text-prizm-text-muted"}>
+                              <span className={r.simulationRemainingMinutes && r.simulationRemainingMinutes > 0 ? "text-green-700 font-bold" : "text-prizm-text-muted"}>
                                 {r.simulationRemainingMinutes && r.simulationRemainingMinutes > 0 ? "YES" : "NO"}
                               </span>
                             </td>
 
-                            <td className="p-1.5 text-right font-bold text-white">
+                            <td className="p-1.5 text-right font-bold text-prizm-text">
                               {r.simulationRemainingMinutes !== null ? `${r.simulationRemainingMinutes} min` : "-"}
                             </td>
 
@@ -1721,13 +1719,13 @@ export default function HvacSimulationDashboard() {
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-4 shadow-md">
             
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-prizm-border pb-2">
-              <h2 className="text-xs font-bold font-mono uppercase text-white flex items-center gap-1.5">
-                <AlertTriangle size={13} className="text-yellow-400 animate-pulse" />
+              <h2 className="text-xs font-bold font-mono uppercase text-prizm-text flex items-center gap-1.5">
+                <AlertTriangle size={13} className="text-yellow-600 animate-pulse" />
                 Step 6: Actionable Warning & Discrepancy Details
               </h2>
 
               {/* Warnings local filters list */}
-              <div className="flex bg-black/45 p-0.5 rounded border border-prizm-border/60 text-[8.5px] font-mono">
+              <div className="flex bg-prizm-bg p-0.5 rounded border border-prizm-border text-[8.5px] font-mono">
                 {[
                   { id: "all", label: "Show All" },
                   { id: "warn-fail", label: "Failed/Warnings" },
@@ -1738,7 +1736,7 @@ export default function HvacSimulationDashboard() {
                     key={opt.id}
                     onClick={() => setWarningFilter(opt.id as any)}
                     className={`px-1.5 py-0.5 rounded font-bold uppercase transition ${
-                      warningFilter === opt.id ? "bg-prizm-primary text-black" : "text-prizm-text-muted hover:text-white"
+                      warningFilter === opt.id ? "bg-prizm-primary text-black font-extrabold" : "text-prizm-text-muted hover:text-prizm-primary"
                     }`}
                   >
                     {opt.label}
@@ -1748,13 +1746,13 @@ export default function HvacSimulationDashboard() {
             </div>
 
             {displayDiagnostics.length === 0 ? (
-              <div className="p-4 text-center text-prizm-text-muted text-[10.5px] font-mono uppercase bg-black/5 rounded">
+              <div className="p-4 text-center text-prizm-text-muted text-[10.5px] font-mono uppercase bg-prizm-bg rounded">
                 No active diagnostic warnings logged for this scope
               </div>
             ) : (
               <div className="space-y-2 max-h-[220px] overflow-y-auto no-scrollbar font-mono text-[10.5px]">
                 {displayDiagnostics.map(row => {
-                  let borderCol = "border-l-4 border-green-400 bg-green-500/5";
+                  let borderCol = "border-l-4 border-green-500 bg-green-500/5";
                   let severity = "LOW";
                   let issueText = "Autonomous Operations Nominal";
                   let measured = `H1: ${row.hvac1.currentA ?? 0}A, H2: ${row.hvac2.currentA ?? 0}A`;
@@ -1774,9 +1772,9 @@ export default function HvacSimulationDashboard() {
                     issueText = row.flags.includes("COMPRESSOR_NOT_CALLED") ? "COMPRESSOR THERMOSTAT CALL FAILURE" : "ELECTRICAL STAGE DISCREPANCY DETECTED";
                     measured = `measured H1 current = ${row.hvac1.currentA ?? 0}A, current H2 = ${row.hvac2.currentA ?? 0}A`;
                     expected = `Expected compressor current load >= ${compressorCurrentMinA}A under cooling command sequence.`;
-                    recommendation = "Verify command stages from Feather, check local HVAC electrical panels, inspect compressor contactor hardware drifts.";
+                    recommendation = "Verify stage signals, check local HVAC electrical panels, inspect compressor contactor hardware drifts.";
                   } else if (row.status === "WARNING" || row.status === "STALE") {
-                    borderCol = "border-l-4 border-yellow-400 bg-yellow-400/5";
+                    borderCol = "border-l-4 border-yellow-500 bg-yellow-500/5";
                     severity = "WARNING";
                     issueText = row.status === "STALE" ? "TELEMETRY LATENCY STALE WARNING" : "REDUNDANCY OVERRIDE ENGED DRIFT";
                     measured = `Measured timestamp age = ${row.reportTimestamp ? "Aging report profile" : "Expired interval"}`;
@@ -1790,7 +1788,7 @@ export default function HvacSimulationDashboard() {
                       recommendation = "Inspect thermal cycle pressures, check freon leak stages, contact field HVAC technician to inspect electrical compressor drawing logs.";
                     }
                   } else if (row.status === "SIMULATION_EXPIRED") {
-                    borderCol = "border-l-4 border-gray-500 bg-white/5";
+                    borderCol = "border-l-4 border-gray-400 bg-gray-400/5";
                     severity = "EXPIRED";
                     issueText = "SIMULATION CONTROL WINDOW TIMER EXPIRED";
                     measured = "Simulated duration remaining = 0 minutes.";
@@ -1799,17 +1797,17 @@ export default function HvacSimulationDashboard() {
                   }
 
                   return (
-                    <div key={row.ip} className={`p-3 rounded border border-prizm-border hover:bg-black/10 transition-colors flex flex-col sm:flex-row justify-between gap-3 ${borderCol}`}>
+                    <div key={row.ip} className={`p-3 rounded border border-prizm-border hover:bg-prizm-surface-strong/35 transition-colors flex flex-col sm:flex-row justify-between gap-3 ${borderCol}`}>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <strong className="text-white font-bold">{row.ip}</strong>
+                          <strong className="text-prizm-text font-black">{row.ip}</strong>
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${
-                            severity.includes("CRITICAL") ? "bg-red-500/10 text-red-400 border-red-500/30" : "bg-yellow-500/10 text-yellow-500 border-yellow-500/30"
+                            severity.includes("CRITICAL") ? "bg-red-500/10 text-red-600 border-red-500/30 font-bold" : "bg-yellow-500/10 text-yellow-600 border-yellow-500/30 font-bold"
                           }`}>
                             {severity}
                           </span>
                         </div>
-                        <div className="text-white/90 font-bold uppercase text-[9.5px] leading-tight">
+                        <div className="text-prizm-text uppercase text-[9.5px] font-black leading-tight">
                           {issueText}
                         </div>
                         <div className="text-[10px] text-prizm-text-muted space-y-0.5 font-light">
@@ -1818,8 +1816,8 @@ export default function HvacSimulationDashboard() {
                         </div>
                       </div>
 
-                      <div className="sm:max-w-[220px] text-[10px] sm:text-right font-sans p-2 bg-black/20 rounded border border-prizm-border/40 flex flex-col justify-center">
-                        <span className="text-[8px] font-mono text-prizm-primary font-bold uppercase block mb-1">Recommended Action</span>
+                      <div className="sm:max-w-[220px] text-[10px] sm:text-right font-sans p-2 bg-prizm-bg rounded border border-prizm-border/60 flex flex-col justify-center">
+                        <span className="text-[8px] font-mono text-prizm-primary-strong font-black uppercase block mb-1">Recommended Action</span>
                         <p className="text-prizm-text leading-tight text-[9.5px]">{recommendation}</p>
                       </div>
                     </div>
@@ -1833,13 +1831,13 @@ export default function HvacSimulationDashboard() {
           <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 shadow-md space-y-3">
             <button
               onClick={() => setHistoryCollapsed(!historyCollapsed)}
-              className="w-full flex items-center justify-between border-b border-prizm-border pb-1.5 text-xs text-white font-mono uppercase font-bold"
+              className="w-full flex items-center justify-between border-b border-prizm-border pb-1.5 text-xs text-prizm-text font-mono uppercase font-bold"
             >
               <div className="flex items-center gap-1.5">
                 <Clock size={12} className="text-prizm-primary" />
                 <span>Step 7: Run History logs & audit ledger ({auditLogs.length})</span>
               </div>
-              <span className="text-[9.5px] text-cyan-400 underline font-normal">
+              <span className="text-[9.5px] text-cyan-600 underline font-semibold">
                 {historyCollapsed ? "Expand Lists" : "Collapse"}
               </span>
             </button>
@@ -1847,7 +1845,7 @@ export default function HvacSimulationDashboard() {
             {!historyCollapsed && (
               <div className="space-y-1.5 max-h-[140px] overflow-y-auto no-scrollbar font-mono text-[9.5px]">
                 {auditLogs.length === 0 ? (
-                  <div className="p-3 text-center text-prizm-text-muted uppercase">No audit trails parsed.</div>
+                  <div className="p-3 text-center text-prizm-text-muted uppercase font-bold">No audit trails parsed.</div>
                 ) : (
                   auditLogs.map((log, index) => {
                     const ok = log.validationStatus === "PASS";
@@ -1855,8 +1853,8 @@ export default function HvacSimulationDashboard() {
                       <div key={index} className="p-2 border border-prizm-border/60 rounded bg-prizm-bg flex items-center justify-between gap-3 text-prizm-text leading-tight">
                         <div className="truncate">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-cyan-400 font-bold uppercase">{log.mode}</span>
-                            <span className="text-white">Applied to {log.targetIps?.length || 0} nodes</span>
+                            <span className="text-cyan-600 font-bold uppercase">{log.mode}</span>
+                            <span className="text-prizm-text font-semibold">Applied to {log.targetIps?.length || 0} nodes</span>
                           </div>
                           <span className="text-[8.5px] text-prizm-text-muted block mt-0.5">
                             TIMED: {formatTimestampWithUtc(log.timestamp)}  |  Profile: {log.profileName || "EMS_DEFAULT"}
@@ -1864,7 +1862,7 @@ export default function HvacSimulationDashboard() {
                         </div>
 
                         <span className={`px-2 py-0.5 rounded font-black border text-[8.5px] ${
-                          ok ? "bg-green-500/10 border-green-500/25 text-green-400" : "bg-yellow-500/15 border-yellow-500/30 text-yellow-400"
+                          ok ? "bg-green-500/10 border-green-500/25 text-green-700 font-bold" : "bg-yellow-500/15 border-yellow-500/30 text-yellow-700 font-bold"
                         }`}>
                           {log.validationStatus || "PASS"}
                         </span>
@@ -1882,18 +1880,18 @@ export default function HvacSimulationDashboard() {
       {/* SINGLE COLUMN DETAILED SLIDE OUT DRAWER/PANEL */}
       {selectedResultDetail && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-prizm-surface-strong border-l border-prizm-border w-full max-w-lg shadow-2xl p-5 overflow-y-auto flex flex-col gap-4 font-mono text-xs">
+          <div className="bg-prizm-surface border-l border-prizm-border w-full max-w-lg shadow-2xl p-5 overflow-y-auto flex flex-col gap-4 font-mono text-xs text-prizm-text">
             
             <div className="flex items-center justify-between border-b border-prizm-border pb-3">
               <div className="flex items-center gap-2">
                 <Server size={16} className="text-prizm-primary animate-pulse" />
-                <h3 className="text-white text-sm font-bold uppercase font-mono">
+                <h3 className="text-prizm-text text-sm font-bold uppercase font-mono">
                   Device Details: {selectedResultDetail.ip}
                 </h3>
               </div>
               <button 
                 onClick={() => setSelectedResultDetail(null)}
-                className="p-1 rounded bg-prizm-bg border border-prizm-border text-prizm-text-muted hover:text-white hover:border-white transition"
+                className="p-1 rounded bg-prizm-bg border border-prizm-border text-prizm-text-muted hover:text-prizm-primary hover:border-prizm-primary transition text-prizm-text"
               >
                 <X size={15} />
               </button>
@@ -1905,56 +1903,56 @@ export default function HvacSimulationDashboard() {
               <div className="space-y-1.5 bg-prizm-bg p-3 border border-prizm-border rounded">
                 <div className="flex justify-between border-b border-prizm-border/10 pb-1">
                   <span className="text-prizm-text-muted font-bold">VAL TIMESTAMP:</span>
-                  <span className="text-white">{formatTimestampWithUtc(selectedResultDetail.reportTimestamp || "")}</span>
+                  <span className="text-prizm-text font-semibold">{formatTimestampWithUtc(selectedResultDetail.reportTimestamp || "")}</span>
                 </div>
                 <div className="flex justify-between border-b border-prizm-border/10 pb-1">
                   <span className="text-prizm-text-muted font-bold">SIM ACTIVE STATE:</span>
-                  <span className="text-green-400 font-bold uppercase">{selectedResultDetail.simulationRemainingMinutes ? "ACTIVE" : "INACTIVE"}</span>
+                  <span className="text-green-600 font-bold uppercase">{selectedResultDetail.simulationRemainingMinutes ? "ACTIVE" : "INACTIVE"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-prizm-text-muted font-bold">TIMER REMAINING:</span>
-                  <span className="text-white font-bold">{selectedResultDetail.simulationRemainingMinutes ?? 0} mins</span>
+                  <span className="text-prizm-text font-bold">{selectedResultDetail.simulationRemainingMinutes ?? 0} mins</span>
                 </div>
               </div>
 
               {/* Status details HVAC 1 */}
               <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-prizm-primary font-bold block uppercase border-b border-prizm-border/20 pb-1">HVAC 1 Telemetry diagnostics</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>Current draw: <strong className="text-white">{selectedResultDetail.hvac1.currentA !== null ? `${selectedResultDetail.hvac1.currentA}A` : "-"}</strong></div>
-                  <div>Compressor call: <strong className="text-white">{selectedResultDetail.hvac1.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
-                  <div>Condenser fan: <strong className="text-white">{selectedResultDetail.hvac1.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
-                  <div>Reversing Valve: <strong className="text-white">{selectedResultDetail.hvac1.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
+                <span className="text-prizm-primary-strong font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 1 Telemetry diagnostics</span>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                  <div>Current draw: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.currentA !== null ? `${selectedResultDetail.hvac1.currentA}A` : "-"}</strong></div>
+                  <div>Compressor call: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
+                  <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
+                  <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
                 </div>
               </div>
 
               {/* Status details HVAC 2 */}
               <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-cyan-400 font-bold block uppercase border-b border-prizm-border/20 pb-1">HVAC 2 Telemetry diagnostics</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>Current draw: <strong className="text-white">{selectedResultDetail.hvac2.currentA !== null ? `${selectedResultDetail.hvac2.currentA}A` : "-"}</strong></div>
-                  <div>Compressor call: <strong className="text-white">{selectedResultDetail.hvac2.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
-                  <div>Condenser fan: <strong className="text-white">{selectedResultDetail.hvac2.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
-                  <div>Reversing Valve: <strong className="text-white">{selectedResultDetail.hvac2.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
+                <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 2 Telemetry diagnostics</span>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                  <div>Current draw: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.currentA !== null ? `${selectedResultDetail.hvac2.currentA}A` : "-"}</strong></div>
+                  <div>Compressor call: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
+                  <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
+                  <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
                 </div>
               </div>
 
               {/* Climate readings */}
               <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-[#38BDF8] font-bold block uppercase border-b border-prizm-border/20 pb-1">Climate sensor package readings</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>Space Climate Temp: <strong className="text-white">{selectedResultDetail.metrics.spaceTempC}°C</strong></div>
-                  <div>Discharge Climate Temp: <strong className="text-white">{selectedResultDetail.metrics.supplyAirTempC}°C</strong></div>
-                  <div>Cell Thermal Average: <strong className="text-white">{selectedResultDetail.metrics.avgCellTempC}°C</strong></div>
-                  <div>Discharging humidity: <strong className="text-white">{selectedResultDetail.metrics.spaceHumidityPct}% RH</strong></div>
+                <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">Climate sensor package readings</span>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                  <div>Space Climate Temp: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.spaceTempC}°C</strong></div>
+                  <div>Discharge Climate Temp: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.supplyAirTempC}°C</strong></div>
+                  <div>Cell Thermal Average: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.avgCellTempC}°C</strong></div>
+                  <div>Discharging humidity: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.spaceHumidityPct}% RH</strong></div>
                 </div>
               </div>
 
               {/* Warning flags */}
               <div className="p-3 border border-prizm-border rounded bg-prizm-bg">
-                <span className="text-yellow-500 font-bold block uppercase border-b border-prizm-border/20 pb-1">Triggered alert warning flags</span>
+                <span className="text-yellow-600 font-bold block uppercase border-b border-prizm-border/20 pb-1">Triggered alert warning flags</span>
                 {selectedResultDetail.flags.length === 0 ? (
-                  <span className="text-green-400 text-[10px] block mt-1">✓ No warning flags active on this controller.</span>
+                  <span className="text-green-700 text-[10px] font-bold block mt-1">✓ No warning flags active on this controller.</span>
                 ) : (
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {selectedResultDetail.flags.map(f => (
@@ -1971,7 +1969,7 @@ export default function HvacSimulationDashboard() {
             <div className="border-t border-prizm-border/60 pt-3 text-right">
               <button 
                 onClick={() => setSelectedResultDetail(null)}
-                className="px-4 py-2 bg-prizm-bg hover:bg-prizm-border/30 border border-prizm-border rounded text-[11px] font-black uppercase text-white"
+                className="px-4 py-2 bg-prizm-bg hover:bg-prizm-surface-strong border border-prizm-border rounded text-[11px] font-bold uppercase text-prizm-text transition"
               >
                 Close detail view
               </button>
@@ -1986,38 +1984,38 @@ export default function HvacSimulationDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-mono">
           <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-2xl p-5 max-w-md w-full space-y-4">
             
-            <div className="flex items-center gap-2 border-b border-prizm-border/50 pb-3 text-yellow-400">
+            <div className="flex items-center gap-2 border-b border-prizm-border/50 pb-3 text-yellow-600">
               <AlertTriangle size={18} className="animate-pulse" />
-              <h3 className="text-white text-sm font-bold uppercase">Confirm Simulated Override Apply</h3>
+              <h3 className="text-prizm-text text-sm font-bold uppercase">Confirm Simulated Override Apply</h3>
             </div>
 
             <p className="text-[11.5px] leading-relaxed text-prizm-text">
-              You are applying a simulated load override to the selected <strong className="text-yellow-400">{selectedIps.length} units</strong>. This overrides real hardware registers inside physical controllers.
+              You are applying a simulated load override to the selected <strong className="text-yellow-600 font-black">{selectedIps.length} units</strong>. This overrides real hardware registers inside physical controllers.
             </p>
 
             <div className="bg-prizm-bg/80 p-3 rounded border border-prizm-border/40 text-[10px] space-y-1.5">
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Selected Mode:</span>
-                <span className="text-prizm-primary font-bold uppercase">{selectedMode}</span>
+                <span className="text-prizm-primary-strong font-extrabold uppercase">{selectedMode}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Duration:</span>
-                <span className="text-white font-bold">{timeoutMinutes} Minutes</span>
+                <span className="text-prizm-text font-bold">{timeoutMinutes} Minutes</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Normalize first:</span>
-                <span className="text-white font-bold">{normalizeBeforeApply ? "Active" : "Bypass"}</span>
+                <span className="text-prizm-text font-bold">{normalizeBeforeApply ? "Active" : "Bypass"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Min expected load:</span>
-                <span className="text-white font-bold">{compressorCurrentMinA}A on compressors</span>
+                <span className="text-prizm-text font-bold">{compressorCurrentMinA}A on compressors</span>
               </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 text-[10px]">
               <button 
                 onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-1.5 border border-prizm-border rounded uppercase font-bold text-prizm-text hover:bg-white/5"
+                className="px-4 py-1.5 border border-prizm-border rounded uppercase font-bold text-prizm-text hover:bg-prizm-surface-strong/60 transition-colors"
               >
                 Cancel
               </button>
