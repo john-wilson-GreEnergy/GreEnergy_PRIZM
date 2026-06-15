@@ -107,6 +107,11 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
   const [changePolicyLoading, setChangePolicyLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Storage and policy states
+  const [storageStatus, setStorageStatus] = useState<any>(null);
+  const [storagePolicyState, setStoragePolicyState] = useState<any>(null);
+  const [storageLoading, setStorageLoading] = useState<boolean>(false);
+
   const loadCacheStates = () => {
      fetch('/api/local/cache/status')
         .then(r => r.json())
@@ -119,8 +124,24 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
         .catch(console.error);
   };
 
+  const loadStorageDetails = async () => {
+    try {
+      const statusRes = await fetch('/api/local/storage/status');
+      if (statusRes.ok) {
+        setStorageStatus(await statusRes.json());
+      }
+      const policyRes = await fetch('/api/local/storage/policy');
+      if (policyRes.ok) {
+        setStoragePolicyState(await policyRes.json());
+      }
+    } catch (e) {
+      console.error("Failed to load storage status or policy", e);
+    }
+  };
+
   useEffect(() => {
      loadCacheStates();
+     loadStorageDetails();
         
      fetch('/api/local/cache/policy')
         .then(r => r.json())
@@ -199,6 +220,90 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
              loadCacheStates();
          } catch(e) {}
       }
+  };
+
+  const handleUpdateStoragePolicy = async (updates: any) => {
+    if (!storagePolicyState) return;
+    setStorageLoading(true);
+    try {
+      const updatedPolicy = {
+        ...storagePolicyState,
+        ...updates,
+        history: {
+          ...storagePolicyState.history,
+          ...updates.history
+        },
+        runtimeCache: {
+          ...storagePolicyState.runtimeCache,
+          ...updates.runtimeCache
+        }
+      };
+      
+      const res = await fetch('/api/local/storage/policy', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedPolicy)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.policy) {
+          setStoragePolicyState(data.policy);
+        }
+      }
+      // Reload stats
+      const statusRes = await fetch('/api/local/storage/status');
+      if (statusRes.ok) {
+        setStorageStatus(await statusRes.json());
+      }
+    } catch (e) {
+      console.error("Failed to update storage policy", e);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  const handleTriggerCleanup = async () => {
+    setStorageLoading(true);
+    try {
+      const res = await fetch('/api/local/storage/cleanup', { method: 'POST' });
+      if (res.ok) {
+        await loadStorageDetails();
+      }
+    } catch (e) {
+      console.error("Failed to trigger cleanup", e);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!window.confirm("Are you sure you want to clear all local historical telemetry snapshots? This cannot be undone.")) return;
+    setStorageLoading(true);
+    try {
+      const res = await fetch('/api/local/storage/history/clear', { method: 'POST' });
+      if (res.ok) {
+        await loadStorageDetails();
+      }
+    } catch (e) {
+      console.error("Failed to clear history", e);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  const handleClearCache = async () => {
+    if (!window.confirm("Are you sure you want to clear the local runtime cache? The application will automatically rebuild the state on next refresh.")) return;
+    setStorageLoading(true);
+    try {
+      const res = await fetch('/api/local/storage/cache/clear', { method: 'POST' });
+      if (res.ok) {
+        await loadStorageDetails();
+      }
+    } catch (e) {
+      console.error("Failed to clear runtime cache", e);
+    } finally {
+      setStorageLoading(false);
+    }
   };
 
   // File Upload Ref
@@ -1344,114 +1449,265 @@ export default function ConnectionSettings({ onProfileChanged }: ConnectionSetti
         </div>
       )}
 
-      {historyStatus && (
-        <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6 space-y-4">
-            <div className="flex justify-between items-center">
+      {(() => {
+        const formatBytesUI = (bytes: number | null | undefined): string => {
+          if (bytes === null || bytes === undefined || bytes < 0) return "0 MB";
+          const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+          const i = Math.floor(Math.log(bytes) / Math.log(1024));
+          if (i <= 0) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+          const val = bytes / Math.pow(1024, i);
+          return `${val.toFixed(1)} ${sizes[i]}`;
+        };
+
+        return storageStatus && storagePolicyState && (
+          <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6 space-y-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-prizm-border pb-3 gap-2">
               <h3 className="text-xs font-bold text-prizm-text uppercase tracking-wider flex items-center gap-2">
-                 <Database size={14} className="text-cyan-500" />
-                 History & Storage
+                <Database size={14} className="text-cyan-400" />
+                Settings • Storage & Retention Management
               </h3>
-              <div className="flex gap-2">
-                <button onClick={handleClearCurrentActiveCacheOnly} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 transition-colors">
-                   Clear Current Snapshot Cache
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleTriggerCleanup}
+                  disabled={storageLoading}
+                  className="px-3 py-1.5 text-[10px] uppercase font-bold border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Run Maintenance
                 </button>
-                <button onClick={handleClearHistoricalCache} className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/50 text-red-500 bg-red-500/5 rounded hover:bg-red-500/20 transition-colors">
-                   Clear Historical Snapshot Cache
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  disabled={storageLoading}
+                  className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Clear History
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearCache}
+                  disabled={storageLoading}
+                  className="px-3 py-1.5 text-[10px] uppercase font-bold border border-red-500/50 text-red-500 bg-red-500/5 rounded hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Clear Cache
                 </button>
               </div>
             </div>
 
+            {/* Low Disk Warning */}
+            {storageStatus.lowDisk && (
+              <div className="p-3 bg-red-950/20 border border-red-500/30 text-red-300 rounded text-xs flex items-start gap-2.5 animate-pulse">
+                <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold underline uppercase tracking-wider block text-red-400 text-[10px] mb-1">
+                    Low Disk Space Warning
+                  </span>
+                  Low disk space detected. Historical writes are disabled until storage is recovered.
+                </div>
+              </div>
+            )}
+
+            {/* Warning notice */}
+            <div className="text-[11px] text-prizm-text-muted bg-white/[0.01] border border-white/5 p-2.5 rounded">
+              <span className="text-orange-400 font-bold block sm:inline">⚠️ COLD DEVICE STORAGE NOTICE:</span> Historical telemetry can consume significant local storage. On field devices, keep this disabled unless actively troubleshooting.
+            </div>
+
+            {/* Disk Meter */}
+            <div className="bg-black/20 p-3 rounded border border-white/5 space-y-2">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-prizm-text-muted">Root Filesystem Status:</span>
+                <span className="text-prizm-text font-bold">
+                  {formatBytesUI(storageStatus.freeBytes)} Free of {formatBytesUI(storageStatus.totalBytes)}
+                </span>
+              </div>
+              {/* Custom Progress Bar */}
+              <div className="h-2 w-full bg-prizm-border rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ${
+                    storageStatus.lowDisk ? "bg-red-500 animate-pulse" : "bg-cyan-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        5,
+                        ((storageStatus.totalBytes - storageStatus.freeBytes) /
+                          (storageStatus.totalBytes || 1)) *
+                          100
+                      )
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Directory Sizes Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { label: ".prizm-history", bytes: storageStatus.folders.prizmHistory },
+                { label: ".prizm-cache", bytes: storageStatus.folders.prizmCache },
+                { label: "node_modules", bytes: storageStatus.folders.nodeModules },
+                { label: "data/", bytes: storageStatus.folders.data },
+                { label: "dist/", bytes: storageStatus.folders.dist },
+              ].map((dir, i) => (
+                <div key={i} className="bg-black/10 p-2.5 rounded border border-white/[0.03] flex flex-col justify-between">
+                  <span className="text-[10px] text-prizm-text-muted truncate block">{dir.label}</span>
+                  <span className="text-xs font-bold text-prizm-primary mt-1">{formatBytesUI(dir.bytes)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Policies Config Panel */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-3">
-                 <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1">Current Snapshot Cache</div>
-                 <div className="text-xs text-prizm-text">
-                    <span className="text-prizm-primary font-bold">Enabled</span> (Required for live dashboards)
-                 </div>
-                 <div className="text-[10px] text-prizm-text-muted italic">
-                    Stores the latest known state. Overwritten automatically.
-                 </div>
-                 <div className="text-[10px] space-y-1">
-                    <div className="flex justify-between"><span className="text-prizm-text-muted">Status:</span><span className="text-emerald-400">Active</span></div>
-                    <div className="flex justify-between"><span className="text-prizm-text-muted">Folder Path:</span><span className="text-prizm-text truncate ml-2 max-w-[200px]">{cacheStatus?.cacheRoot}</span></div>
-                 </div>
-              </div>
+              
+              {/* Telemetry Policy Card */}
+              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-4">
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-[10px] text-prizm-text uppercase tracking-wider font-extrabold flex items-center gap-1.5">
+                    <Database size={11} className={storagePolicyState.history.enabled ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                    Historical Telemetry Configuration
+                  </span>
+                  
+                  {/* Toggle switch for enabled state */}
+                  <button
+                    type="button"
+                    disabled={storageLoading}
+                    onClick={() =>
+                      handleUpdateStoragePolicy({
+                        history: { enabled: !storagePolicyState.history.enabled },
+                      })
+                    }
+                    className={`w-9 h-5 rounded-full relative transition-colors ${
+                      storagePolicyState.history.enabled ? "bg-cyan-500" : "bg-prizm-border"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-all ${
+                        storagePolicyState.history.enabled ? "translate-x-4" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
 
-              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-3">
-                 <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1">Historical Snapshot Logging</div>
-                 
-                 <div className="flex items-center justify-between">
-                     <span className="text-xs text-prizm-text">Logging Enabled</span>
-                     <button 
-                        disabled={historyLoading}
-                        onClick={() => handleUpdateHistoryConfig('enabled', !historyStatus.enabled)}
-                        className={`w-10 h-5 rounded-full relative transition-colors ${historyStatus.enabled ? "bg-cyan-500" : "bg-prizm-border"}`}
-                     >
-                        <div className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-all ${historyStatus.enabled ? "translate-x-5" : ""}`} />
-                     </button>
-                 </div>
-
-                 {!historyStatus.enabled && (
-                    <div className="text-[10px] text-orange-400 italic">
-                        History logging is currently OFF.
-                    </div>
-                 )}
-
-                 <div className="flex justify-between items-center">
-                     <span className="text-[10px] text-prizm-text-muted uppercase">Retention</span>
-                     <select 
-                        value={historyStatus.retentionPolicy}
-                        onChange={(e) => handleUpdateHistoryConfig('retentionPolicy', e.target.value)}
-                        disabled={historyLoading}
+                {storagePolicyState.history.enabled ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-prizm-text-muted">Maximum Age:</span>
+                      <select
+                        value={storagePolicyState.history.maxHistoryAgeDays}
+                        disabled={storageLoading}
+                        onChange={(e) =>
+                          handleUpdateStoragePolicy({
+                            history: { maxHistoryAgeDays: Number(e.target.value) },
+                          })
+                        }
                         className="bg-prizm-surface border border-prizm-border rounded p-1 text-xs text-prizm-primary outline-none"
-                     >
-                        <option value="1h">1 Hour</option>
-                        <option value="6h">6 Hours</option>
-                        <option value="24h">24 Hours</option>
-                        <option value="7d">7 Days</option>
-                        <option value="manual">Manual/No Prune</option>
-                     </select>
-                 </div>
+                      >
+                        <option value="1">1 Day</option>
+                        <option value="3">3 Days</option>
+                        <option value="7">7 Days</option>
+                        <option value="14">14 Days</option>
+                        <option value="30">30 Days</option>
+                      </select>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-prizm-text-muted">Maximum Folder Size:</span>
+                      <select
+                        value={storagePolicyState.history.maxHistoryBytes}
+                        disabled={storageLoading}
+                        onChange={(e) =>
+                          handleUpdateStoragePolicy({
+                            history: { maxHistoryBytes: Number(e.target.value) },
+                          })
+                        }
+                        className="bg-prizm-surface border border-prizm-border rounded p-1 text-xs text-prizm-primary"
+                      >
+                        <option value={100 * 1024 * 1024}>100 MB</option>
+                        <option value={250 * 1024 * 1024}>250 MB</option>
+                        <option value={500 * 1024 * 1024}>500 MB</option>
+                        <option value={1024 * 1024 * 1024}>1 GB</option>
+                        <option value={5 * 1024 * 1024 * 1024}>5 GB</option>
+                        <option value={10 * 1024 * 1024 * 1024}>10 GB</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-2 text-center text-xs text-prizm-text-muted">
+                    Historical telemetry disabled. No snapshots are written.
+                  </div>
+                )}
               </div>
+
+              {/* Runtime Cache Policy Card */}
+              <div className="bg-black/20 p-3 rounded border border-white/5 space-y-4">
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-[10px] text-prizm-text uppercase tracking-wider font-extrabold flex items-center gap-1.5">
+                    <Database size={11} className="text-zinc-400" />
+                    Runtime Cache Configuration
+                  </span>
+                  <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold">
+                    ACTIVE
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-prizm-text-muted">Maximum Age:</span>
+                    <select
+                      value={storagePolicyState.runtimeCache.maxCacheAgeDays}
+                      disabled={storageLoading}
+                      onChange={(e) =>
+                        handleUpdateStoragePolicy({
+                          runtimeCache: { maxCacheAgeDays: Number(e.target.value) },
+                        })
+                      }
+                      className="bg-prizm-surface border border-prizm-border rounded p-1 text-xs text-prizm-primary outline-none"
+                    >
+                      <option value="1">1 Day</option>
+                      <option value="2">2 Days</option>
+                      <option value="3">3 Days</option>
+                      <option value="5">5 Days</option>
+                      <option value="7">7 Days</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-prizm-text-muted">Maximum Folder Size:</span>
+                    <select
+                      value={storagePolicyState.runtimeCache.maxCacheBytes}
+                      disabled={storageLoading}
+                      onChange={(e) =>
+                        handleUpdateStoragePolicy({
+                          runtimeCache: { maxCacheBytes: Number(e.target.value) },
+                        })
+                      }
+                      className="bg-prizm-surface border border-prizm-border rounded p-1 text-xs text-prizm-primary"
+                    >
+                      <option value={100 * 1024 * 1024}>100 MB</option>
+                      <option value={250 * 1024 * 1024}>250 MB</option>
+                      <option value={500 * 1024 * 1024}>500 MB</option>
+                      <option value={750 * 1024 * 1024}>750 MB</option>
+                      <option value={1024 * 1024 * 1024}>1 GB</option>
+                      <option value={2048 * 1024 * 1024}>2 GB</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
-            <div className="bg-black/20 p-3 rounded border border-white/5">
-               <div className="text-[10px] text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border pb-1 mb-2">Local Historical Cache Viewer</div>
-               {historyStatus.historyExists ? (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[10px]">
-                      <div>
-                         <span className="text-prizm-text-muted block">Saved Locally</span>
-                         <span className="text-prizm-text font-bold">Yes</span>
-                      </div>
-                      <div>
-                         <span className="text-prizm-text-muted block">Folder Size</span>
-                         <span className="text-prizm-text font-bold">{historyStatus.totalSizeDisplay}</span>
-                      </div>
-                      <div>
-                         <span className="text-prizm-text-muted block">Files</span>
-                         <span className="text-prizm-primary font-bold">{historyStatus.snapshotCount}</span>
-                      </div>
-                      <div className="col-span-full">
-                         <span className="text-prizm-text-muted block">Categories Present</span>
-                         <div className="mt-1 flex flex-wrap gap-2">
-                            {historyStatus.categories?.map((c: any) => (
-                                <span key={c.name} className="px-1.5 py-0.5 bg-prizm-surface border border-prizm-border rounded text-prizm-text text-[9px]">{c.name} ({(c.bytes/1024).toFixed(1)} KB)</span>
-                            ))}
-                         </div>
-                         {!historyStatus.enabled && historyStatus.historyExists && (
-                             <div className="mt-2 text-orange-400 italic">
-                                Historical snapshot logging is off, but previously saved historical data exists locally.
-                             </div>
-                         )}
-                      </div>
-                  </div>
-               ) : (
-                  <div className="text-xs text-prizm-text-muted py-2">
-                     No historical snapshots are currently saved on this device.
-                  </div>
-               )}
+            {/* Footer Metadata */}
+            <div className="flex justify-between items-center text-[10px] text-prizm-text-muted">
+              <span>
+                Last Cleanup: {storageStatus.lastCleanupTime ? new Date(storageStatus.lastCleanupTime).toLocaleString() : "Running periodically"}
+              </span>
+              <span>Policy synced to `prizm_storage_policy.json`</span>
             </div>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* Audit Connection Results Diagnostic Modal */}
       {showTestResultModal && testResult && (

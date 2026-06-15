@@ -11,6 +11,8 @@ import { rotationRouter } from "./src/server/rotationRoutes";
 import { balancingRouter } from "./src/server/balancingRoutes";
 import emsAppRoutes from "./src/server/ems/emsAppRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
+import storageRouter from "./src/server/storage/storageRoutes";
+import { initLocalStorageMaintenance } from "./src/server/storage/storageMaintenance";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
@@ -70,6 +72,7 @@ app.use("/api/local", rotationRouter);
 app.use("/api/local/balancing", balancingRouter);
 app.use("/api/local/ems-apps", emsAppRoutes);
 app.use("/api/local/hvac-simulation", hvacSimulationRouter);
+app.use("/api/local/storage", storageRouter);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 
@@ -2592,6 +2595,11 @@ if (process.env.PRIZM_FORCE_DEV === "true") {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+  try {
+    initLocalStorageMaintenance();
+  } catch (err) {
+    console.error("[Storage] Failed to initialize storage maintenance:", err);
+  }
   initializePrizmBootFlow().catch(console.error);
 });
 

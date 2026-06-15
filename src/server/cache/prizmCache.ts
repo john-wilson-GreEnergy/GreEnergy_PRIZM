@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { getEmsConnectionStatus } from "../emsTurtleClient";
+import { isHistoricalSnapshotAllowed, runStorageCleanup } from "../storage/storageMaintenance";
 
 export const CACHE_ROOT = process.env.PRIZM_CACHE_DIR || path.resolve(process.cwd(), ".prizm-cache");
 export const HISTORY_ROOT = process.env.PRIZM_HISTORY_DIR || path.resolve(process.cwd(), ".prizm-history");
@@ -600,6 +601,9 @@ export function pruneHistoricalCache(policy: string) {
 }
 
 export function writeHistory(sourceKey: string, data: any) {
+    if (!isHistoricalSnapshotAllowed()) {
+        return;
+    }
     const siteKey = getSiteCacheKey();
     const activeMeta = getActiveSiteMetadata();
     const p = path.join(HISTORY_ROOT, "sites", siteKey);
@@ -615,10 +619,14 @@ export function writeHistory(sourceKey: string, data: any) {
     };
     try {
         fs.appendFileSync(path.join(p, `${sourceKey}.jsonl`), JSON.stringify(record) + "\n");
+        // Limit history size to maxHistoryBytes +/- one batch
+        runStorageCleanup();
     } catch(e) {}
 }
 
 export function writeTelemetryHistoryIfEnabled(sourceKey: string, data: any) {
+   if (!isHistoricalSnapshotAllowed()) return;
+   
    const settings = getHistoricalCacheSettings();
    if (!settings.historicalSnapshotLoggingEnabled) return;
    
