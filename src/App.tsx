@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import SafetyFaultClearView from "./components/SafetyFaultClearView";
 import { 
   Activity, 
   Cpu, 
@@ -30,18 +29,13 @@ import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
 import StringDashboard from "./components/StringDashboard";
 import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
 import PcsDashboard from "./components/PcsDashboard";
-import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
-import ToolDashboards from "./components/ToolDashboards";
 import FeatherDashboard from "./components/FeatherDashboard";
-import EmsHealthDashboard from "./components/EmsHealthDashboard";
-import ConnectionSettings from "./components/ConnectionSettings";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import LineupLightbarControl from "./components/LineupLightbarControl";
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 import SiteConfigurationDashboard from "./components/SiteConfigurationDashboard";
 import SafetyAdvancedDashboard from "./components/SafetyAdvancedDashboard";
-import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
@@ -150,7 +144,7 @@ export default function App() {
   const [emsMetadata, setEmsMetadata] = useState<any>(null);
 
   // Dynamic system clock matching timezone metadata
-  const [currentTime, setCurrentTime] = useState(new Date("2026-05-29T14:19:25Z"));
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
     const handleNavigate = (e: any) => {
@@ -173,7 +167,7 @@ export default function App() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(prev => new Date(prev.getTime() + 1000));
+      setCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -335,24 +329,49 @@ export default function App() {
                     </button>
                   );
                 })}
-
-              <button
-                onClick={() => setIsConfigOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest text-[#B2C6FF] border border-dashed border-[#B2C6FF]/20 rounded-md hover:bg-[#B2C6FF]/10 transition-all cursor-pointer select-none hover:border-[#B2C6FF]/50"
-                title="Configure navbar tabs layout"
-              >
-                <LayoutGrid size={12} className="text-prizm-primary animate-pulse" />
-                Configure
-              </button>
             </div>
 
             {/* Quick inline online node counts indicator */}
             <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-prizm-text-muted">
               <span>SYNC HEARTBEAT:</span>
-              <span className="text-prizm-primary font-bold flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 bg-prizm-primary rounded-full animate-ping"></span>
-                POLLING ACTIVE
-              </span>
+              {(() => {
+                const isOffline = !connectionStatus || connectionStatus?.status === 'OFFLINE' || connectionStatus?.status === 'MISCONFIGURED';
+                let heartbeatText = "Live Refresh Active";
+                let heartbeatColorClass = "text-emerald-400";
+                let dotColorClass = "bg-emerald-400";
+                let dotAnimate = "animate-ping";
+
+                if (isOffline) {
+                  heartbeatText = "Offline";
+                  heartbeatColorClass = "text-prizm-danger";
+                  dotColorClass = "bg-prizm-danger";
+                  dotAnimate = "";
+                } else if (diagnosticSession && diagnosticSession.active) {
+                  if (diagnosticSession.paused) {
+                    heartbeatText = "Session Paused";
+                    heartbeatColorClass = "text-amber-500";
+                    dotColorClass = "bg-amber-500";
+                    dotAnimate = "";
+                  } else {
+                    heartbeatText = "Session Recording";
+                    heartbeatColorClass = "text-rose-500";
+                    dotColorClass = "bg-rose-500";
+                    dotAnimate = "animate-pulse";
+                  }
+                } else {
+                  heartbeatText = "Live Refresh Active | Session Capture Off";
+                  heartbeatColorClass = "text-emerald-400";
+                  dotColorClass = "bg-emerald-400";
+                  dotAnimate = "animate-ping";
+                }
+
+                return (
+                  <span className={`${heartbeatColorClass} font-bold flex items-center gap-1.5`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${dotColorClass} ${dotAnimate}`}></span>
+                    {heartbeatText}
+                  </span>
+                );
+              })()}
             </div>
 
           </div>
@@ -387,7 +406,12 @@ export default function App() {
             )}
 
             {activeTab === "site-configuration" && (
-              <SiteConfigurationDashboard />
+              <SiteConfigurationDashboard 
+                tabsOrder={tabsOrder} 
+                toggleTabVisibility={toggleTabVisibility} 
+                moveTab={moveTab} 
+                resetTabs={resetTabs} 
+              />
             )}
 
             {activeTab === "feather-hvac" && (
@@ -459,112 +483,6 @@ export default function App() {
           <span>{emsMetadata?.isDemoFallback ? 'VER: 4.3.0-DEMO' : 'VER: 4.3.0-PROD'}</span>
         </div>
       </footer>
-
-      {isConfigOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in font-mono">
-          <div className="bg-prizm-surface border border-prizm-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col">
-            <div className="bg-prizm-surface-strong p-4 border-b border-prizm-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="text-prizm-primary animate-pulse" size={18} />
-                <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">Configure Workspace Tabs</span>
-              </div>
-              <button 
-                onClick={() => setIsConfigOpen(false)}
-                className="text-prizm-text-muted hover:text-white transition-colors cursor-pointer"
-                title="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-4 flex-1 space-y-3 overflow-y-auto max-h-[350px]">
-              <p className="text-[11px] text-prizm-text-muted font-sans leading-relaxed">
-                Reorder or toggle the visibility of active workspace tabs. Changes are saved persistently in local storage.
-              </p>
-
-              <div className="space-y-1.5 mt-2">
-                {tabsOrder.map((tab, index) => {
-                  const master = MASTER_TABS_MAP[tab.id];
-                  if (!master) return null;
-                  const Icon = master.icon;
-
-                  return (
-                    <div 
-                      key={tab.id} 
-                      className={`flex items-center justify-between p-2.5 rounded-lg border text-xs font-bold transition-all ${
-                        tab.visible 
-                          ? "bg-prizm-surface-strong/45 border-prizm-border" 
-                          : "bg-black/15 border-dashed border-prizm-border/40 opacity-55"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <Icon size={14} className={tab.visible ? "text-prizm-primary" : "text-prizm-text-muted"} />
-                        <span className="truncate text-prizm-text font-mono text-[11px] uppercase tracking-wider">
-                          {master.label}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        {/* Visibility toggle button */}
-                        <button
-                          onClick={() => toggleTabVisibility(tab.id)}
-                          className={`p-1.5 rounded transition-all cursor-pointer ${
-                            tab.visible 
-                              ? "text-prizm-primary hover:bg-prizm-primary/10" 
-                              : "text-prizm-text-muted hover:bg-white/5"
-                          }`}
-                          title={tab.visible ? "Hide from Navigation bar" : "Show in Navigation bar"}
-                        >
-                          {tab.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-                        </button>
-
-                        {/* Reorder Up button */}
-                        <button
-                          onClick={() => moveTab(index, "up")}
-                          disabled={index === 0}
-                          className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
-                          title="Move Up"
-                        >
-                          <ArrowUp size={12} />
-                        </button>
-
-                        {/* Reorder Down button */}
-                        <button
-                          onClick={() => moveTab(index, "down")}
-                          disabled={index === tabsOrder.length - 1}
-                          className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
-                          title="Move Down"
-                        >
-                          <ArrowDown size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-4 bg-prizm-surface-strong border-t border-prizm-border flex items-center justify-between">
-              <button
-                onClick={resetTabs}
-                className="px-3 py-1.5 bg-black/30 hover:bg-black/50 text-prizm-text-muted rounded-md border border-prizm-border flex items-center gap-1 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
-              >
-                <RotateCcw size={11} />
-                Reset Defaults
-              </button>
-
-              <button
-                onClick={() => setIsConfigOpen(false)}
-                className="px-4 py-1.5 bg-prizm-primary hover:bg-prizm-primary/95 text-black font-extrabold rounded-md flex items-center gap-1 text-[10px] uppercase transition-all shadow-md cursor-pointer font-bold"
-              >
-                <Check size={11} />
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       </>
       )}
 

@@ -348,6 +348,7 @@ export default function ConnectionTopologyWorkflow() {
 
   // Run discovery orchestration scans
   const runDiscoveryScan = async (type: "all" | "ems" | "scan") => {
+    if (!window.confirm(`CONFIRM TOPOLOGY DISCOVERY: Are you sure you want to trigger a ${type === 'all' ? 'unified full' : type === 'ems' ? 'EMS map scrape' : 'allowed range sweep'} scan? This will intensely query network interfaces and might cause temporary structural overhead or network congestion.`)) return;
     setIsScanning(true);
     setActiveScanType(type);
     setDiscoveryLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Triggering discovery scan: sequence=${type}`]);

@@ -20,23 +20,55 @@ import {
   Clock,
   LogOut,
   Layers,
-  Search
+  Search,
+  Eye,
+  EyeOff,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  Check,
+  Shield
 } from "lucide-react";
 import ConnectionSettings from "./ConnectionSettings";
 import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
 import ToolDashboards from "./ToolDashboards";
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
 
-type SubTabId = "connection-profile" | "ems-health" | "topology-layout" | "cache-storage" | "diagnostics" | "boot-status";
+type SubTabId = "connection" | "topology" | "data-sources" | "cache" | "diagnostics" | "advanced" | "ui-preferences";
 
-export default function SiteConfigurationDashboard() {
-  const [activeSubTab, setActiveSubTab] = useState<SubTabId>("connection-profile");
+interface SiteConfigurationDashboardProps {
+  tabsOrder?: any[];
+  toggleTabVisibility?: (id: string) => void;
+  moveTab?: (index: number, direction: "up" | "down") => void;
+  resetTabs?: () => void;
+}
+
+const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
+  "overview": { label: "Block Summary", icon: Activity },
+  "arrays-strings": { label: "String List", icon: Cpu },
+  "site-health": { label: "Site Health", icon: Shield },
+  "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
+  "site-configuration": { label: "Site Configuration", icon: Settings },
+  "feather-hvac": { label: "Feather / HVAC", icon: Network },
+  "lightbar-control": { label: "Lineup Lightbar", icon: Sliders },
+  "reports": { label: "Reports / Exports", icon: FileText },
+  "advanced": { label: "Safety / Advanced", icon: ShieldAlert }
+};
+
+export default function SiteConfigurationDashboard({
+  tabsOrder = [],
+  toggleTabVisibility,
+  moveTab,
+  resetTabs
+}: SiteConfigurationDashboardProps) {
+  const [activeSubTab, setActiveSubTab] = useState<SubTabId>("connection");
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [connectionStatus, setConnectionStatus] = useState<any>(null);
   const [cachePolicy, setCachePolicy] = useState<string>("live-first");
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState("");
+  const [reinitializedMsg, setReinitializedMsg] = useState("");
 
   const fetchConfigData = async () => {
     try {
@@ -80,6 +112,7 @@ export default function SiteConfigurationDashboard() {
   };
 
   const triggerSeedCache = async () => {
+    if (!window.confirm("CONFIRM SEED ACTION: Are you sure you want to seed raw cache indexes? This will bootstrap schemas and overwrite current local data buffers.")) return;
     setActionLoading("seed");
     setStatusMsg("Bootstrapping cache namespaces & seeding historical offsets...");
     try {
@@ -93,6 +126,23 @@ export default function SiteConfigurationDashboard() {
     } finally {
       setActionLoading(null);
       setTimeout(() => setStatusMsg(""), 3000);
+    }
+  };
+
+  const triggerReinitialize = async () => {
+    if (!window.confirm("CONFIRM REINITIALIZATION: Are you sure you want to hot-reload all configuration profiles, reset primary bootstrap phases, and re-query network topologies?")) return;
+    setActionLoading("reinitialize");
+    try {
+      const res = await fetch("/api/local/system/reinitialize", { method: "POST" });
+      if (res.ok) {
+        setReinitializedMsg("System configuration reinitialized successfully.");
+        fetchConfigData();
+        setTimeout(() => setReinitializedMsg(""), 4000);
+      }
+    } catch (e) {
+      alert("Reinitialization error: " + String(e));
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -154,12 +204,13 @@ export default function SiteConfigurationDashboard() {
         {/* SUB NAVIGATION FOR SITE CONFIGURATION */}
         <div className="mt-4 pt-3 border-t border-prizm-border flex items-center justify-start overflow-x-auto no-scrollbar scroll-smooth gap-1">
           {([
-            { id: "connection-profile", label: "Connection Profile", icon: Settings },
-            { id: "ems-health", label: "EMS Health", icon: Activity },
-            { id: "topology-layout", label: "Topology / Layout", icon: Network },
-            { id: "cache-storage", label: "Cache / Storage", icon: Database },
+            { id: "connection", label: "Connection", icon: Settings },
+            { id: "topology", label: "Topology", icon: Network },
+            { id: "data-sources", label: "Data Sources", icon: Wifi },
+            { id: "cache", label: "Cache", icon: Database },
             { id: "diagnostics", label: "Diagnostics", icon: Sliders },
-            { id: "boot-status", label: "Startup / Boot Status", icon: Clock }
+            { id: "advanced", label: "Advanced", icon: Clock },
+            { id: "ui-preferences", label: "UI Preferences", icon: Layers }
           ] as const).map(tab => {
             const Icon = tab.icon;
             const isActive = activeSubTab === tab.id;
@@ -183,11 +234,17 @@ export default function SiteConfigurationDashboard() {
 
       {/* DASHBOARD CONTENT AREA */}
       <section className="animate-fade-in">
-        {activeSubTab === "connection-profile" && (
-          <ConnectionSettings mode="profile" />
+        {activeSubTab === "connection" && (
+          <ConnectionSettings mode="profile" onProfileChanged={fetchConfigData} />
         )}
 
-        {activeSubTab === "ems-health" && (
+        {activeSubTab === "topology" && (
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+            <ConnectionTopologyWorkflow />
+          </div>
+        )}
+
+        {activeSubTab === "data-sources" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 flex flex-col justify-between space-y-4">
               <div className="space-y-4">
@@ -309,13 +366,7 @@ export default function SiteConfigurationDashboard() {
           </div>
         )}
 
-        {activeSubTab === "topology-layout" && (
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
-            <ConnectionTopologyWorkflow />
-          </div>
-        )}
-
-        {activeSubTab === "cache-storage" && (
+        {activeSubTab === "cache" && (
           <ConnectionSettings mode="cache" />
         )}
 
@@ -381,80 +432,190 @@ export default function SiteConfigurationDashboard() {
           </div>
         )}
 
-        {activeSubTab === "boot-status" && (
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-6">
-            <div className="flex justify-between items-center border-b border-prizm-border pb-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="text-emerald-400 animate-pulse" size={16} />
-                <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">PRIZM Startup Boot Details</span>
+        {activeSubTab === "advanced" && (
+          <div className="space-y-6">
+            <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-6 animate-fade-in text-xs font-mono">
+              <div className="flex justify-between items-center border-b border-prizm-border pb-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="text-emerald-400 animate-pulse" size={16} />
+                  <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">PRIZM Startup Boot Details (Advanced)</span>
+                </div>
+                <span className="text-[10px] text-prizm-text-muted bg-black/20 p-1 px-2.5 rounded font-bold">
+                  BOOT STATE: {bootStatus?.phase?.toUpperCase() || "READY"}
+                </span>
               </div>
-              <span className="text-[10px] text-prizm-text-muted bg-black/20 p-1 px-2.5 rounded font-bold">
-                BOOT STATE: {bootStatus?.phase?.toUpperCase() || "READY"}
-              </span>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-prizm-text-muted">
+                
+                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
+                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Core Modules</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Site Operations Preload:</span>
+                      <span className={bootStatus?.preloadStatus?.siteOperations ? "text-emerald-400" : "text-amber-400"}>
+                        {bootStatus?.preloadStatus?.siteOperations ? "LOADED" : "PENDING_HOLD"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>IP Topology Configuration:</span>
+                      <span className={bootStatus?.preloadStatus?.topology ? "text-emerald-400" : "text-amber-400"}>
+                        {bootStatus?.preloadStatus?.topology ? "LOADED" : "PENDING_HOLD"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Telemetry String Grid:</span>
+                      <span className={bootStatus?.preloadStatus?.stringsDashboard ? "text-emerald-400" : "text-amber-400"}>
+                        {bootStatus?.preloadStatus?.stringsDashboard ? "LOADED" : "PENDING_HOLD"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
+                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Coordinator Orchestrator</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Active Profile Loaded:</span>
+                      <span className="text-prizm-primary font-bold">{bootStatus?.activeProfileLoaded || "Default-Active"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Expected string count:</span>
+                      <span className="text-prizm-text font-bold">168 elements</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Modbus Client Scheduler:</span>
+                      <span className="text-emerald-400 font-bold uppercase">✔ ACTIVE_NOMINAL</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
+                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Bootstrap Diagnostics</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Exceptions Log File:</span>
+                      <span className="text-prizm-text font-semibold">/var/log/prizm_boot.err</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Last Bootstrap Errors:</span>
+                      <span className="text-emerald-400 font-bold uppercase">0 ERRORS</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Port Listener:</span>
+                      <span className="text-prizm-primary">PORT:3000 (INGRESS)</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* REINITIALIZE CONTAINER */}
+              <div className="pt-4 border-t border-prizm-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <span className="text-xs font-bold text-slate-200 uppercase block tracking-wider">System Control Sequence Override</span>
+                  <p className="text-[10px] text-prizm-text-muted mt-1 uppercase">
+                    Forces hot reboot of internally managed SCADA/Modbus drivers and pulls fresh device trees.
+                  </p>
+                </div>
+                <div>
+                  {reinitializedMsg && (
+                    <span className="text-emerald-400 text-[11px] font-bold block mr-4 animate-fade-in mb-2 md:mb-0 uppercase">
+                      ✔ {reinitializedMsg}
+                    </span>
+                  )}
+                  <button
+                    onClick={triggerReinitialize}
+                    disabled={actionLoading === "reinitialize"}
+                    className="px-5 py-2.5 bg-red-600 hover:bg-red-500 font-extrabold text-[#0D0E12] rounded uppercase text-[10px] tracking-wider cursor-pointer font-black transition-all shadow-md active:scale-95 disabled:opacity-40"
+                  >
+                    {actionLoading === "reinitialize" ? "Reinitializing..." : "Reinitialize System"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === "ui-preferences" && (
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4 max-w-2xl animate-fade-in font-mono">
+            <div className="flex items-center gap-2 border-b border-prizm-border pb-3">
+              <Layers className="text-prizm-primary animate-pulse" size={16} />
+              <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">UI Preferences & Workspace Config</span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-xs text-prizm-text-muted">
-              
-              <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3 font-mono">
-                <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Core Modules</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>Site Operations Preload:</span>
-                    <span className={bootStatus?.preloadStatus?.siteOperations ? "text-emerald-400" : "text-amber-400"}>
-                      {bootStatus?.preloadStatus?.siteOperations ? "LOADED" : "PENDING_HOLD"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>IP Topology Configuration:</span>
-                    <span className={bootStatus?.preloadStatus?.topology ? "text-emerald-400" : "text-amber-400"}>
-                      {bootStatus?.preloadStatus?.topology ? "LOADED" : "PENDING_HOLD"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Telemetry String Grid:</span>
-                    <span className={bootStatus?.preloadStatus?.stringsDashboard ? "text-emerald-400" : "text-amber-400"}>
-                      {bootStatus?.preloadStatus?.stringsDashboard ? "LOADED" : "PENDING_HOLD"}
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <p className="text-[11px] text-prizm-text-muted leading-relaxed">
+              Customize active workspace tabs. Reorder layout or toggle visibility filters. Changes write persistently to client-local storage.
+            </p>
 
-              <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3 font-mono">
-                <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Coordinator Orchestrator</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>Active Profile Loaded:</span>
-                    <span className="text-prizm-primary font-bold">{bootStatus?.activeProfileLoaded || "Default-Active"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Expected string count:</span>
-                    <span className="text-prizm-text font-bold">168 elements</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Modbus Client Scheduler:</span>
-                    <span className="text-emerald-400 font-bold uppercase">✔ ACTIVE_NOMINAL</span>
-                  </div>
-                </div>
-              </div>
+            <div className="space-y-1.5 mt-2 max-w-md">
+              {tabsOrder.map((tab, index) => {
+                const master = MASTER_TABS_MAP[tab.id];
+                if (!master) return null;
+                const Icon = master.icon;
 
-              <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3 font-mono">
-                <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Bootstrap Diagnostics</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>Exceptions Log File:</span>
-                    <span className="text-prizm-text font-semibold">/var/log/prizm_boot.err</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Last Bootstrap Errors:</span>
-                    <span className="text-emerald-400 font-bold uppercase">0 ERRORS</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Port Listener:</span>
-                    <span className="text-prizm-primary">PORT:3000 (INGRESS)</span>
-                  </div>
-                </div>
-              </div>
+                return (
+                  <div 
+                    key={tab.id} 
+                    className={`flex items-center justify-between p-2.5 rounded-lg border text-xs font-bold transition-all ${
+                      tab.visible 
+                        ? "bg-prizm-surface-strong/45 border-prizm-border" 
+                        : "bg-black/15 border-dashed border-prizm-border/40 opacity-55"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon size={14} className={tab.visible ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                      <span className="truncate text-prizm-text font-mono text-[11px] uppercase tracking-wider">
+                        {master.label}
+                      </span>
+                    </div>
 
+                    <div className="flex items-center gap-1.5">
+                      {/* Visibility toggle button */}
+                      <button
+                        onClick={() => toggleTabVisibility?.(tab.id)}
+                        className={`p-1.5 rounded transition-all cursor-pointer ${
+                          tab.visible 
+                            ? "text-prizm-primary hover:bg-prizm-primary/10" 
+                            : "text-prizm-text-muted hover:bg-white/5"
+                        }`}
+                        title={tab.visible ? "Hide from Navigation bar" : "Show in Navigation bar"}
+                      >
+                        {tab.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>
+
+                      {/* Reorder Up button */}
+                      <button
+                        onClick={() => moveTab?.(index, "up")}
+                        disabled={index === 0}
+                        className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                        title="Move Up"
+                      >
+                        <ArrowUp size={12} />
+                      </button>
+
+                      {/* Reorder Down button */}
+                      <button
+                        onClick={() => moveTab?.(index, "down")}
+                        disabled={index === tabsOrder.length - 1}
+                        className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                        title="Move Down"
+                      >
+                        <ArrowDown size={12} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-4 border-t border-prizm-border flex items-center justify-between max-w-md">
+              <button
+                onClick={resetTabs}
+                className="px-3 py-1.5 bg-black/30 hover:bg-black/50 text-prizm-text-muted rounded-md border border-prizm-border flex items-center gap-1 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+              >
+                <RotateCcw size={11} />
+                Reset Defaults
+              </button>
             </div>
           </div>
         )}

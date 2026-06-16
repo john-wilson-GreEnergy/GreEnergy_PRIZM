@@ -339,6 +339,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   }, []);
 
   const handleActivate = async (id: string) => {
+    if (!window.confirm("CONFIRM PROFILE ACTIVATION: Are you sure you want to activate this connection profile? This will update the primary EMS base URL, Modbus Target coordinates, and reset current BESS caches.")) return;
     try {
       const res = await fetch(`/api/settings/profiles/${id}/activate`, {
         method: "POST",

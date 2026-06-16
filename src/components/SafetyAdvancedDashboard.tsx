@@ -124,7 +124,7 @@ export default function SafetyAdvancedDashboard() {
       }
 
       // 4. Fetch topology
-      const resTopology = await fetch("/api/local/topology");
+      const resTopology = await fetch("/api/local/snapshot/topology");
       if (resTopology.ok) {
         setTopology(await resTopology.json());
       }
@@ -156,7 +156,7 @@ export default function SafetyAdvancedDashboard() {
       if (resFeather.ok) setFeatherCache(await resFeather.json());
 
       // Topology artifact
-      const resTopo = await fetch("/api/local/topology");
+      const resTopo = await fetch("/api/local/snapshot/topology");
       if (resTopo.ok) setRawTopology(await resTopo.json());
     } catch (e) {
       console.error("Error reading raw debug payloads:", e);
