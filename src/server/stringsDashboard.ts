@@ -747,13 +747,34 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
                 const v = obj[key];
                 const fullPath = currentPath ? `${currentPath}.${key}` : key;
                 
-                const isBalanceRelated = ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k));
+                const inBalancingMap = fullPath.toLowerCase().includes("balancingmap");
+                let isBalanceRelated = inBalancingMap || ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k));
+                
+                // Exclude ordinary cellGroupIndex/cellgroup unless inside balancingMap
+                if (isBalanceRelated && !inBalancingMap) {
+                    const pathLower = fullPath.toLowerCase();
+                    if (pathLower.includes("voltagemap") || pathLower.includes("temperaturemap")) {
+                        if (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cellgroupindex")) {
+                            isBalanceRelated = false;
+                        }
+                    }
+                }
+                
                 const isNotificationRelated = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => lower.includes(k));
                 
                 const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 150) : String(v);
                 
                 const valLower = typeof v === 'string' ? v.toLowerCase() : '';
-                const valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => valLower.includes(k));
+                let valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => valLower.includes(k));
+                if (valIsBalanceRelated && !inBalancingMap) {
+                    const pathLower = fullPath.toLowerCase();
+                    if (pathLower.includes("voltagemap") || pathLower.includes("temperaturemap")) {
+                        if (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cellgroupindex")) {
+                            valIsBalanceRelated = false;
+                        }
+                    }
+                }
+
                 const valIsNotificationRelated = typeof v === 'string' && ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => valLower.includes(k));
                 const valIsSpecificCode = typeof v === 'number' && (v === 2534 || v === 2561);
 
@@ -781,6 +802,12 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
             error,
             topLevelKeys,
             modelKeys,
+            hasBalancingMap: data?.stringViewerDataModel?.hasBalancingMap ?? false,
+            balancingMapType: data?.stringViewerDataModel?.balancingMap ? typeof data.stringViewerDataModel.balancingMap : "undefined",
+            balancingMapKeys: data?.stringViewerDataModel?.balancingMap
+              ? Object.keys(data.stringViewerDataModel.balancingMap)
+              : [],
+            balancingMapPreview: data?.stringViewerDataModel?.balancingMap ?? null,
             balanceRelatedPaths,
             notificationRelatedPaths,
             rawBalanceCandidates,
@@ -976,6 +1003,72 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             ].filter(Boolean);
 
             const bpcSeen = new Set<number>();
+
+            // --- Confirm Primary Turtle balancingMap Parser ---
+            if (sv && sv.hasBalancingMap === true && sv.balancingMap && sv.balancingMap.batteryPacks) {
+                const bPacks = sv.balancingMap.batteryPacks;
+                Object.keys(bPacks).forEach(key => {
+                    const bpcN = Number(key);
+                    if (isNaN(bpcN)) return;
+                    
+                    const batteryPackObject = bPacks[key];
+                    if (!batteryPackObject) return;
+                    
+                    const batteryPack = batteryPackObject.batteryPack;
+                    if (!batteryPack) return;
+                    
+                    const packVal = batteryPack.value;
+                    const packColor = batteryPack.color;
+                    
+                    // Ignore entries where batteryPack.value is empty or "---" or batteryPack.color is "#FFFFFF"
+                    if (!packVal || packVal === "" || packVal === "---") return;
+                    if (packColor === "#FFFFFF") return;
+                    
+                    const match = String(packVal).match(/CG\s*(\d+)\s*->\s*(\d+(?:\.\d+)?)/i);
+                    if (!match) return;
+                    
+                    const balancingCellGroupIndex = Number(match[1]);
+                    const targetVoltage = Number(match[2]);
+                    
+                    // Check matching cell group: batteryPacks.<BPC>.cellGroups.<CG>
+                    const cellGroups = batteryPackObject.cellGroups || {};
+                    const cellGroup = cellGroups[String(balancingCellGroupIndex)] || cellGroups[match[1]];
+                    if (cellGroup && cellGroup.value === "---") {
+                        return; // Ignore if matching cellGroup.value is "---"
+                    }
+                    
+                    let color = packColor;
+                    if (cellGroup && cellGroup.color) {
+                        color = cellGroup.color;
+                    }
+                    
+                    let state: "Charging" | "Discharging" | "Active" = "Active";
+                    if (color === "#AED6F1") {
+                        state = "Charging";
+                    } else if (color === "#F9E79F") {
+                        state = "Discharging";
+                    } else if (color === "#FFFFFF") {
+                        return; // Ignore inactive
+                    }
+                    
+                    balancingDetails.push({
+                        arrayNumber,
+                        stringNumber,
+                        bpcNumber: bpcN,
+                        mode: "Provided",
+                        displayMode: `Provided (${targetVoltage})`,
+                        state,
+                        balancingActive: true,
+                        balancingCellGroupIndex,
+                        targetCellGroup: balancingCellGroupIndex,
+                        targetVoltage,
+                        sourcePath: `stringViewerDataModel.balancingMap.batteryPacks.${bpcN}`,
+                        raw: batteryPackObject
+                    });
+                    
+                    bpcSeen.add(bpcN);
+                });
+            }
             for (const source of bmSources) {
                 if (Array.isArray(source)) {
                     source.forEach((item: any, i: number) => {
@@ -1280,6 +1373,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             notifications,
             eventLogs,
             sourceViewerUsed: !!stringViewerData,
+            hasBalancingMap: !!(stringViewerData?.stringViewerDataModel?.hasBalancingMap),
             balancingDebugKeys,
             notificationDebugKeys
         };

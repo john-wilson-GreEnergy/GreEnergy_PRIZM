@@ -79,6 +79,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTabId>("overview");
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation">("feather");
   const [loading, setLoading] = useState(true);
+  const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
 
   // Configured navbar tabs list setting
   const [tabsOrder, setTabsOrder] = useState<TabItem[]>(() => {
@@ -212,6 +213,12 @@ export default function App() {
            }
         }
       }
+
+      const diagRes = await fetch('/api/local/diagnostic-session/status').catch(err => null);
+      if (diagRes && diagRes.ok) {
+        const diag = await diagRes.json().catch(() => null);
+        setDiagnosticSession(diag);
+      }
     } catch (err) {
       console.log('[App Telemetry Info] Telemetry gateway offline standby:', err);
     } finally {
@@ -262,6 +269,13 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
+          {diagnosticSession && diagnosticSession.active && (
+            <div className={`flex items-center gap-2 border ${diagnosticSession.paused ? 'border-amber-500/20 bg-amber-500/5 text-amber-500' : 'border-rose-500/20 bg-rose-500/5 text-rose-500'} px-2.5 py-1 rounded font-mono text-[10px] font-black uppercase tracking-wider`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${diagnosticSession.paused ? 'bg-amber-500' : 'bg-rose-500 animate-pulse'} shrink-0`}></span>
+              <span>ds: {diagnosticSession.paused ? 'paused' : 'recording'}</span>
+              <span className="text-emerald-400 font-bold hidden sm:inline px-1 border-l border-white/5 ml-1">● sync</span>
+            </div>
+          )}
           <div className="text-right">
             <div className="text-[11px] text-prizm-text-muted font-mono tracking-widest">
               {formatPrizmUtcTimestamp(currentTime)}
@@ -414,6 +428,8 @@ export default function App() {
                 reports={[]}
                 onAddReport={async () => {}}
                 onDeleteReport={async () => {}}
+                diagnosticSession={diagnosticSession}
+                onRefreshDiagnostic={() => fetchAllData(true)}
               />
             )}
 

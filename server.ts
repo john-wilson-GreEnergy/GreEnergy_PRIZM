@@ -56,6 +56,7 @@ import { executeDataDiscovery } from "./src/server/telemetry/discovery";
 import hvacSimulationRouter from "./src/server/hvacSimulation/hvacSimulationRoutes";
 import siteDistributionRouter from "./src/server/siteDistribution/siteDistributionRoutes";
 import siteSensorsRouter from "./src/server/siteSensors/siteSensorsRoutes";
+import diagnosticSessionRouter from "./src/server/diagnosticSession/diagnosticSessionRoutes";
 import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
 
 
@@ -84,6 +85,7 @@ app.use("/api/local/hvac-simulation", hvacSimulationRouter);
 app.use("/api/local/storage", storageRouter);
 app.use("/api/local/site-distribution", siteDistributionRouter);
 app.use("/api/local/site-sensors", siteSensorsRouter);
+app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 

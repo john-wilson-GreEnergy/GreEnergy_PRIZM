@@ -66,7 +66,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     ...(data?.summary || {})
   };
 
-  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {} } = data || {};
+  const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {}, hasBalancingMap = false } = data || {};
 
   const stringViewerHealth = sourceHealth?.stringviewer;
 
@@ -386,34 +386,56 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                  <th className="p-2 border-b border-prizm-border font-bold">STATE</th>
                                  <th className="p-2 border-b border-prizm-border font-bold">BAL CG</th>
                                  <th className="p-2 border-b border-prizm-border font-bold">TARGET V</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">SOURCE</th>
                               </tr>
                            </thead>
                            <tbody className="divide-y divide-prizm-border/20">
                                {balancingDetails.map((b: any, i: number) => {
                                    let stateStr = "Off";
-                                   if (b.state === true || b.state === "true" || b.balancingActive) stateStr = "Active";
-                                   else if (b.state === false || b.state === "false") stateStr = "Off";
-                                   else if (b.state) stateStr = String(b.state);
+                                   if (b.state === true || b.state === "true" || b.balancingActive) {
+                                       stateStr = typeof b.state === 'string' ? b.state : "Active";
+                                    } else if (b.state === false || b.state === "false") {
+                                       stateStr = "Off";
+                                   } else if (b.state) {
+                                       stateStr = String(b.state);
+                                   }
 
-                                   const isBalancing = stateStr.toUpperCase() === "BALANCING" || stateStr.toUpperCase() === "ACTIVE";
+                                   let stateColorClass = "text-prizm-text-muted";
+                                   if (stateStr === "Charging") {
+                                       stateColorClass = "text-cyan-400 font-bold animate-pulse";
+                                   } else if (stateStr === "Discharging") {
+                                       stateColorClass = "text-amber-400 font-semibold animate-pulse";
+                                   } else if (stateStr === "Active") {
+                                       stateColorClass = "text-emerald-400 font-bold animate-pulse";
+                                   } else if (stateStr !== "Off") {
+                                       stateColorClass = "text-emerald-400";
+                                   }
 
                                    return (
                                    <tr key={i} className="hover:bg-black/10 transition-colors">
                                        <td className="p-2 font-bold text-prizm-text-muted">BPC{b.bpcNumber ?? b.index ?? (i+1)}</td>
                                        <td className="p-2">{b.displayMode !== undefined && b.displayMode !== null ? b.displayMode : (b.mode !== undefined && b.mode !== null ? b.mode : "--")}</td>
                                        <td className="p-2">
-                                           {isBalancing ? <span className="text-emerald-400 font-bold animate-pulse uppercase">{stateStr}</span> : <span className="text-prizm-text-muted">{stateStr}</span>}
+                                           <span className={stateColorClass}>{stateStr}</span>
                                        </td>
                                        <td className="p-2 font-mono text-prizm-warning">{b.balancingCellGroupIndex !== null && b.balancingCellGroupIndex !== undefined ? b.balancingCellGroupIndex : (b.targetCellGroup !== undefined ? b.targetCellGroup : "--")}</td>
                                        <td className="p-2 text-prizm-info font-bold font-mono">{b.targetVoltage !== undefined && b.targetVoltage !== null ? b.targetVoltage : "--"}</td>
-                                   </tr>
+                                       <td className="p-2 font-mono text-[9px] text-[#B2C6FF]/80 select-all truncate max-w-[200px]" title={b.sourcePath}>{b.sourcePath || "--"}</td>
+                                    </tr>
                                )})}
                            </tbody>
                         </table>
                      </div>
                  ) : (
-                     <div className="flex-1 flex items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12">
-                          No balancing data available from current local EMS source.
+                     <div className="flex-1 flex flex-col items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12 px-4 text-center">
+                           {hasBalancingMap ? (
+                              <>
+                                <span className="text-prizm-warning font-bold uppercase tracking-wider mb-1 animate-pulse">Balancing map detected</span>
+                                <span className="text-[11px] text-prizm-text-muted">but no rows were normalized.</span>
+                              </>
+                           ) : (
+                              "No balancing data available from current local EMS source."
+                           )}
                      </div>
                  )}
              </div>

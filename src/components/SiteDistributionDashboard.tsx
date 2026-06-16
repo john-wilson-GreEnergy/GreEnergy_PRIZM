@@ -17,7 +17,7 @@ import {
   Check,
   Shield
 } from "lucide-react";
-import SensorsView from "./kobold/SensorsView";
+import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -389,7 +389,7 @@ export default function SiteDistributionDashboard() {
 
       {currentView === "sensors" ? (
         <div className="animate-fade-in" id="prizm-merged-sensors-view">
-          <SensorsView />
+          <SiteSensorsDashboard />
         </div>
       ) : (
         <>
@@ -502,6 +502,38 @@ export default function SiteDistributionDashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* INTERACTIVE CONTROLS / FILTERS SLIDER SIDEBAR (1 Col on Desktop) */}
         <div className="xl:col-span-1 bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-5">
+          {/* API & Source Health Card */}
+          <div className="bg-prizm-surface-strong/60 p-3 rounded-lg border border-prizm-border/80 space-y-2" id="prizm-api-source-health-card">
+            <div className="flex items-center gap-1.5 border-b border-prizm-border pb-1.5">
+              <Shield className="text-prizm-primary animate-pulse" size={14} />
+              <span className="font-extrabold text-[10px] text-prizm-text uppercase tracking-wider">API / Source Health</span>
+            </div>
+            <div className="text-[10px] space-y-1 text-prizm-text-muted leading-relaxed">
+              <div className="flex justify-between">
+                <span>Source:</span>
+                <span className="text-prizm-info uppercase font-extrabold">{data?.source || "hybrid"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Rows:</span>
+                <span className="font-bold text-prizm-text">{data?.rows?.length ?? 0}</span>
+              </div>
+              <div className="flex flex-col pt-0.5 border-t border-prizm-border/40 gap-0.5">
+                <span className="text-[8.5px] text-prizm-text-muted">VOLTAGE METRIC:</span>
+                <span className="font-bold text-prizm-text pl-1">{data?.voltageMetric || "Stack Voltage Vdc"}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[8.5px] text-prizm-text-muted">TEMPERATURE METRIC:</span>
+                <span className="font-semibold text-orange-400 pl-1">{data?.temperatureMetric || "Max Cell Temperature C"}</span>
+              </div>
+              <div className="flex flex-col pt-1 border-t border-prizm-border/40 gap-0.5">
+                <span className="text-[8.5px] text-prizm-text-muted">LAST UPDATED:</span>
+                <span className="font-mono text-[9px] text-prizm-text truncate pl-1">
+                  {data?.timestamp ? new Date(data.timestamp).toLocaleTimeString() : "--:--:--"}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-1.5 border-b border-prizm-border pb-2">
             <Sliders className="text-prizm-info" size={15} />
             <span className="font-bold text-xs text-prizm-text uppercase">Distribution Settings</span>
