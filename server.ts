@@ -925,6 +925,474 @@ app.get("/api/local/first-responder", (req, res) => {
   res.json(getEmsCachedFirstResponder());
 });
 
+// Memory storage for site sensors simulation overrides
+let siteSensorOverrides: Record<string, Record<string, any>> = {};
+
+// POST endpoint to inject/override site sensor values
+app.post("/api/local/site-sensors/override", express.json(), (req, res) => {
+  const { id, category, value } = req.body || {};
+  if (!id || !category) {
+    return res.status(400).json({ success: false, error: "Missing id or category" });
+  }
+  if (!siteSensorOverrides[id]) {
+    siteSensorOverrides[id] = {};
+  }
+  siteSensorOverrides[id][category] = value;
+  res.json({ success: true, overrides: siteSensorOverrides });
+});
+
+// POST endpoint to reset all overrides to defaults
+app.post("/api/local/site-sensors/reset", (req, res) => {
+  siteSensorOverrides = {};
+  res.json({ success: true });
+});
+
+// GET /api/local/site-sensors/summary: Compile & normalize safety sensors
+app.get("/api/local/site-sensors/summary", (req, res) => {
+  const blockWrapper: any = getEmsCachedBlock() || {};
+  const blockData = blockWrapper.data || {};
+  
+  if (req.query.refresh === "true") {
+    // If refresh requested, we could trigger ems polling or reset overrides optionally, let's keep overrides but poll if needed
+  }
+
+  // Define Category Rollup definitions
+  const categoriesList = [
+    { id: "fire", label: "FIRE", healthyLabel: "Untripped", unhealthyLabel: "Tripped" },
+    { id: "fireTrouble", label: "FIRE TROUBLE", healthyLabel: "Untripped", unhealthyLabel: "Tripped" },
+    { id: "smoke", label: "SMOKE", healthyLabel: "Untripped", unhealthyLabel: "Tripped" },
+    { id: "heat", label: "HEAT", healthyLabel: "Normal", unhealthyLabel: "Alarm" },
+    { id: "hydrogen", label: "HYDROGEN", healthyLabel: "Normal", unhealthyLabel: "Alarm" },
+    { id: "hydrogenFault", label: "HYDROGEN FAULT", healthyLabel: "Untripped", unhealthyLabel: "Faulted" },
+    { id: "dataCommunications", label: "DATA COMMUNICATIONS", healthyLabel: "Communicating", unhealthyLabel: "Faulted" },
+    { id: "ioCommunications", label: "IO COMMUNICATIONS", healthyLabel: "Communicating", unhealthyLabel: "Faulted" },
+    { id: "acDoors", label: "AC DOORS", healthyLabel: "Closed", unhealthyLabel: "Open" },
+    { id: "dcDoors", label: "DC DOORS", healthyLabel: "Closed", unhealthyLabel: "Open" },
+    { id: "topCapDoor", label: "TOP CAP DOOR", healthyLabel: "Closed", unhealthyLabel: "Open" },
+    { id: "batteryDoors", label: "BATTERY DOORS", healthyLabel: "Closed", unhealthyLabel: "Open" },
+    { id: "manualVentilation", label: "MANUAL VENTILATION", healthyLabel: "Normal", unhealthyLabel: "Active" },
+    { id: "envCtrl", label: "ENV CTRL", healthyLabel: "Normal", unhealthyLabel: "Alarm" },
+    { id: "upsAlarm", label: "UPS ALARM", healthyLabel: "Normal", unhealthyLabel: "Alarm" },
+    { id: "moisture", label: "MOISTURE", healthyLabel: "Dry", unhealthyLabel: "Tripped" },
+    { id: "modbusEStop", label: "STATION-WIDE", healthyLabel: "Normal", unhealthyLabel: "Tripped" }
+  ];
+
+  // Map of category fields for direct buildStatus
+  const categoriesMap: Record<string, string> = {
+    fire: "fire",
+    fireTrouble: "fireTrouble",
+    smoke: "smoke",
+    heat: "heat",
+    hydrogen: "hydrogen",
+    hydrogenFault: "hydrogenFault",
+    dataCommunications: "dataCommunications",
+    ioCommunications: "ioCommunications",
+    acDoors: "acDoors",
+    dcDoors: "dcDoors",
+    topCapDoor: "topCapDoor",
+    batteryDoors: "batteryDoors",
+    manualVentilation: "manualVentilation",
+    envCtrl: "envCtrl",
+    upsAlarm: "upsAlarm",
+    moisture: "moisture",
+    modbusEStop: "modbusEStop"
+  };
+
+  // Build rows
+  // Level 1: Site-Wide Rows
+  const siteRows = [
+    {
+      id: "SITE-SW-01",
+      displayLabel: "Site Fire Safety Node Desk (FC-200)",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      deviceIp: "10.0.1.25",
+      sourcePath: "blockviewer/sensors/site-node-1",
+      rawSensors: {
+        fire: "OK",
+        fireTrouble: "OK",
+        smoke: "OK",
+        heat: "NORMAL",
+        hydrogen: "na",
+        hydrogenFault: "na",
+        dataCommunications: "OK",
+        ioCommunications: "OK",
+        acDoors: "Closed",
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Inactive",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    },
+    {
+      id: "SITE-SW-02",
+      displayLabel: "Site Main Power Quality Gateway RTU (RTU-S01)",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      deviceIp: "10.0.1.26",
+      sourcePath: "blockviewer/sensors/site-node-2",
+      rawSensors: {
+        fire: "na",
+        fireTrouble: "na",
+        smoke: "na",
+        heat: "NORMAL",
+        hydrogen: "na",
+        hydrogenFault: "na",
+        dataCommunications: "OK",
+        ioCommunications: "OK",
+        acDoors: "Closed",
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Inactive",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    }
+  ];
+
+  // Level 2: Lineup Collector Segment Rows
+  const lineupRows = [
+    {
+      id: "CS-LINEUP-1",
+      displayLabel: "Collection Segment 1 Lineup Node",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      lineupIndex: 1,
+      deviceIp: "10.1.1.10",
+      sourcePath: "blockviewer/sensors/lineup-1",
+      rawSensors: {
+        fire: "OK",
+        fireTrouble: "OK",
+        smoke: "OK",
+        heat: "NORMAL",
+        hydrogen: "OK",
+        hydrogenFault: "OK",
+        dataCommunications: "OK",
+        ioCommunications: "OK",
+        acDoors: "Closed",
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Inactive",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    },
+    {
+      id: "CS-LINEUP-2",
+      displayLabel: "Collection Segment 2 Lineup Node (CS-2 Hub)",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      lineupIndex: 2,
+      deviceIp: "10.2.1.10",
+      sourcePath: "blockviewer/sensors/lineup-2",
+      rawSensors: {
+        fire: "OK",
+        fireTrouble: "TROUBLE",
+        smoke: "OK",
+        heat: "NORMAL",
+        hydrogen: "OK",
+        hydrogenFault: "OK",
+        dataCommunications: "WARNING",
+        ioCommunications: "OK",
+        acDoors: "Open", // Warning
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Active",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    },
+    {
+      id: "CS-LINEUP-3",
+      displayLabel: "Collection Segment 3 Lineup Node",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      lineupIndex: 3,
+      deviceIp: "10.3.1.10",
+      sourcePath: "blockviewer/sensors/lineup-3",
+      rawSensors: {
+        fire: "OK",
+        fireTrouble: "OK",
+        smoke: "OK",
+        heat: "NORMAL",
+        hydrogen: "OK",
+        hydrogenFault: "OK",
+        dataCommunications: "OK",
+        ioCommunications: "OK",
+        acDoors: "Closed",
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Inactive",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    },
+    {
+      id: "CS-LINEUP-4",
+      displayLabel: "Collection Segment 4 Lineup Node (CS-4 Hub)",
+      stationCode: blockWrapper.stationCode || "BHE0020",
+      blockIndex: blockWrapper.blockIndex || 1,
+      lineupIndex: 4,
+      deviceIp: "10.4.1.10",
+      sourcePath: "blockviewer/sensors/lineup-4",
+      rawSensors: {
+        fire: "OK",
+        fireTrouble: "OK",
+        smoke: "OK",
+        heat: "NORMAL",
+        hydrogen: "OK",
+        hydrogenFault: "OK",
+        dataCommunications: "OK",
+        ioCommunications: "ERROR", // Fault
+        acDoors: "Closed",
+        dcDoors: "Closed",
+        topCapDoor: "Closed",
+        batteryDoors: "Closed",
+        manualVentilation: "Inactive",
+        envCtrl: "Normal",
+        upsAlarm: "Normal",
+        moisture: "OK",
+        modbusEStop: "OK"
+      }
+    }
+  ];
+
+  // Level 3: String/Segment rows
+  const segmentRowsRaw = [
+    { segment: 12, lineup: 1, pos: "P1", array: 1, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 38, lineup: 1, pos: "P2", array: 1, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 41, lineup: 2, pos: "P1", array: 2, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 44, lineup: 2, pos: "P2", array: 2, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Open", topCapDoor: "Closed", batteryDoors: "Open", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 85, lineup: 3, pos: "P1", array: 3, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 92, lineup: 3, pos: "P2", array: 3, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 110, lineup: 4, pos: "P1", array: 4, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "NORMAL", hydrogen: "OK", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } },
+    { segment: 147, lineup: 4, pos: "P2", array: 4, rawSensors: { moisture: "Untripped", ioCommunications: "Online", acDoors: "Closed", dcDoors: "Closed", topCapDoor: "Closed", batteryDoors: "Closed", modbusEStop: "Untripped", fire: "OK", fireTrouble: "OK", smoke: "OK", heat: "WARNING", hydrogen: "WARNING", hydrogenFault: "OK", dataCommunications: "OK", manualVentilation: "Inactive", envCtrl: "Normal", upsAlarm: "Normal" } }
+  ];
+
+  const stringRows = segmentRowsRaw.map(seg => ({
+    id: `STR-SEG-${seg.segment}`,
+    displayLabel: `Segment ${seg.segment} active array card`,
+    stationCode: blockWrapper.stationCode || "BHE0020",
+    blockIndex: blockWrapper.blockIndex || 1,
+    arrayIndex: seg.array,
+    lineupIndex: seg.lineup,
+    segmentIndex: seg.segment,
+    segmentPosition: seg.pos,
+    deviceIp: `10.${seg.lineup}.${seg.segment}.15`,
+    sourcePath: `blockviewer/sensors/segment-${seg.segment}`,
+    rawSensors: seg.rawSensors
+  }));
+
+  const combinedRows = [...siteRows, ...lineupRows, ...stringRows];
+
+  // Helper buildStatus function
+  function buildStatus(stateVal: any, category: string, rSourcePath: string) {
+    if (stateVal === undefined || stateVal === null || stateVal === "" || stateVal === "N/A" || stateVal === "na") {
+      return {
+        state: "na" as const,
+        healthy: true,
+        label: "N/A",
+        value: "na",
+        sourcePath: rSourcePath
+      };
+    }
+
+    const valStr = String(stateVal).trim();
+    const lVal = valStr.toLowerCase();
+
+    if (lVal === "unknown" || lVal === "stale") {
+      return {
+        state: "unknown" as const,
+        healthy: null,
+        label: "Unknown",
+        value: valStr,
+        sourcePath: rSourcePath
+      };
+    }
+
+    // Default defaults
+    let state: "normal" | "tripped" | "fault" | "open" | "closed" | "communicating" | "notCommunicating" | "unknown" | "na" = "normal";
+    let healthy: boolean | null = true;
+    let label = "Normal";
+
+    if (["fire", "smoke", "fireTrouble", "moisture", "hydrogenFault", "modbusEStop"].includes(category)) {
+      const isTripped = (lVal === "true" || lVal === "tripped" || lVal === "active" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "trouble" || lVal === "detected" || lVal === "leak" || lVal === "failed" || lVal === "open");
+      state = isTripped ? "tripped" : "normal";
+      healthy = !isTripped;
+      label = isTripped ? (category === "moisture" ? "Wet" : "Tripped") : (category === "moisture" ? "Dry" : "Untripped");
+    } else if (["heat", "hydrogen"].includes(category)) {
+      if (lVal === "critical" || lVal === "alarm" || lVal === "error") {
+        state = "fault";
+        healthy = false;
+        label = "Alarm";
+      } else if (lVal === "warning" || lVal === "warn" || lVal === "high") {
+        state = "tripped";
+        healthy = false;
+        label = "Warning";
+      } else {
+        state = "normal";
+        healthy = true;
+        label = "Normal";
+      }
+    } else if (["acDoors", "dcDoors", "topCapDoor", "batteryDoors"].includes(category)) {
+      const isClosed = (lVal === "true" || lVal === "closed" || lVal === "all closed");
+      state = isClosed ? "closed" : "open";
+      healthy = isClosed;
+      label = isClosed ? "Closed" : "Open";
+    } else if (["dataCommunications", "ioCommunications"].includes(category)) {
+      const isCommunicating = (lVal === "true" || lVal === "communicating" || lVal === "online" || lVal === "stable" || lVal === "ok");
+      state = isCommunicating ? "communicating" : "notCommunicating";
+      healthy = isCommunicating;
+      label = isCommunicating ? "Communicating" : "Faulted";
+    } else if (["manualVentilation"].includes(category)) {
+      const isActive = (lVal === "true" || lVal === "active" || lVal === "running");
+      state = isActive ? "tripped" : "normal";
+      healthy = true; // Ventilation active status isn't system failure
+      label = isActive ? "Active" : "Inactive";
+    } else if (["envCtrl", "upsAlarm"].includes(category)) {
+      const isAlarm = (lVal === "true" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "failed" || lVal === "onbattery");
+      state = isAlarm ? "fault" : "normal";
+      healthy = !isAlarm;
+      label = isAlarm ? "Alarm" : "Normal";
+    }
+
+    return {
+      state,
+      healthy,
+      label,
+      value: valStr,
+      sourcePath: rSourcePath
+    };
+  }
+
+  // Map into finished SiteSensorRow objects, incorporating active overrides
+  const rows = combinedRows.map((row: any) => {
+    const rawMap = { ...row.rawSensors };
+    
+    // Apply server-persistedOverrides if available for this row ID
+    if (siteSensorOverrides[row.id]) {
+      Object.assign(rawMap, siteSensorOverrides[row.id]);
+    }
+
+    const sensorsObj: any = {};
+    let overallHealth: "healthy" | "warning" | "fault" | "unknown" | "na" = "healthy";
+    let hasFault = false;
+    let hasWarning = false;
+    let hasUnknown = false;
+    let hasNa = true;
+
+    categoriesList.forEach(cat => {
+      const rawVal = rawMap[cat.id];
+      const sensorStatus = buildStatus(rawVal, cat.id, `${row.sourcePath}/${cat.id}`);
+      sensorsObj[cat.id] = sensorStatus;
+
+      if (sensorStatus.state !== "na") {
+        hasNa = false;
+        if (sensorStatus.healthy === false) {
+          // Determine if warning or fault
+          const isWarningOnly = (
+            cat.id === "acDoors" || 
+            cat.id === "topCapDoor" || 
+            cat.id === "manualVentilation" ||
+            sensorStatus.label === "Warning" ||
+            cat.id === "fireTrouble"
+          );
+          if (isWarningOnly) {
+            hasWarning = true;
+          } else {
+            hasFault = true;
+          }
+        } else if (sensorStatus.state === "unknown") {
+          hasUnknown = true;
+        }
+      }
+    });
+
+    if (hasFault) overallHealth = "fault";
+    else if (hasWarning) overallHealth = "warning";
+    else if (hasUnknown) overallHealth = "unknown";
+    else if (hasNa) overallHealth = "na";
+
+    return {
+      id: row.id,
+      stationCode: row.stationCode,
+      blockIndex: row.blockIndex,
+      arrayIndex: row.arrayIndex,
+      lineupIndex: row.lineupIndex,
+      segmentIndex: row.segmentIndex,
+      segmentPosition: row.segmentPosition,
+      deviceIp: row.deviceIp,
+      displayLabel: row.displayLabel,
+      health: overallHealth,
+      sensors: sensorsObj,
+      sourcePath: row.sourcePath,
+      lastUpdated: blockWrapper.lastUpdated || new Date().toISOString(),
+      raw: rawMap
+    };
+  });
+
+  // Calculate Rollups per Category dynamically
+  const categoriesRollupList = categoriesList.map(cat => {
+    let healthyCount = 0;
+    let unhealthyCount = 0;
+    let unknownCount = 0;
+    let totalCount = 0;
+
+    rows.forEach(row => {
+      const sens = (row.sensors as any)[cat.id];
+      if (sens && sens.state !== "na") {
+        totalCount++;
+        if (sens.state === "unknown") {
+          unknownCount++;
+        } else if (sens.healthy === false) {
+          unhealthyCount++;
+        } else {
+          healthyCount++;
+        }
+      }
+    });
+
+    return {
+      id: cat.id,
+      label: cat.label,
+      healthyCount,
+      unhealthyCount,
+      unknownCount,
+      totalCount,
+      healthyLabel: cat.healthyLabel,
+      unhealthyLabel: cat.unhealthyLabel
+    };
+  });
+
+  res.json({
+    success: true,
+    timestamp: new Date().toISOString(),
+    source: "ems",
+    categories: categoriesRollupList,
+    rows: rows,
+    sourceHealth: [
+      { endpoint: "/tools/monitor/ems/blockviewer/data", status: "ONLINE", latencyMs: 42 }
+    ]
+  });
+});
+
+
 // 9. GET /api/local/status-codes: Use /tools/report/ems/bessStatusCodes.json
 
 // Optional Helper for safely parsing numbers

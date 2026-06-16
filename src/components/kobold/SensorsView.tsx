@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Flame, 
   ShieldAlert, 
@@ -10,682 +10,476 @@ import {
   DoorOpen, 
   DoorClosed, 
   RotateCw, 
-  Search,
-  Activity,
-  AlertTriangle,
-  Play,
-  RotateCcw,
-  CheckCircle,
-  HelpCircle
+  Zap, 
+  Droplet, 
+  Shield, 
+  Search, 
+  Activity, 
+  CheckCircle, 
+  AlertTriangle, 
+  HelpCircle, 
+  RefreshCw, 
+  Download, 
+  Maximize2, 
+  ChevronRight,
+  Heart,
+  FileSpreadsheet,
+  Settings
 } from "lucide-react";
 
-// --- Category definitions with icons, descriptions, and keys ---
-interface CategoryInfo {
-  id: keyof SensorStatuses;
-  name: string;
-  shortLabel: string;
-  icon: React.ComponentType<any>;
+// Types corresponding to server API contract
+interface SensorStatus {
+  state: "normal" | "tripped" | "fault" | "open" | "closed" | "communicating" | "notCommunicating" | "unknown" | "na";
+  healthy: boolean | null;
+  label: string;
+  value?: any;
+  sourcePath?: string;
 }
 
-const CATEGORIES: CategoryInfo[] = [
-  { id: "fire", name: "FIRE", shortLabel: "FIRE", icon: Flame },
-  { id: "fireTrouble", name: "FIRE TROUBLE", shortLabel: "F-TRB", icon: ShieldAlert },
-  { id: "smoke", name: "SMOKE", shortLabel: "SMK", icon: Wind },
-  { id: "heat", name: "HEAT", shortLabel: "HEAT", icon: Thermometer },
-  { id: "hydrogen", name: "HYDROGEN", shortLabel: "H2", icon: Layers },
-  { id: "hydrogenFault", name: "HYDROGEN FAULT", shortLabel: "H2-FLT", icon: AlertTriangle },
-  { id: "dataComms", name: "DATA COMMUNICATIONS", shortLabel: "D-COM", icon: Wifi },
-  { id: "ioComms", name: "IO COMMUNICATIONS", shortLabel: "I-COM", icon: Cpu },
-  { id: "acDoors", name: "AC DOORS", shortLabel: "AC-DR", icon: DoorOpen },
-  { id: "dcDoors", name: "DC DOORS", shortLabel: "DC-DR", icon: DoorOpen },
-  { id: "topCapDoor", name: "TOP CAP DOOR", shortLabel: "TC-DR", icon: Layers },
-  { id: "batteryDoors", name: "BATTERY DOORS", shortLabel: "BT-DR", icon: DoorClosed },
-  { id: "manualVentilation", name: "MANUAL VENTILATION", shortLabel: "M-VNT", icon: RotateCw }
-];
-
-export interface SensorStatuses {
-  fire: "OK" | "ALARM";
-  fireTrouble: "OK" | "TROUBLE";
-  smoke: "OK" | "ALARM";
-  heat: "NORMAL" | "WARNING" | "CRITICAL";
-  hydrogen: "OK" | "WARNING" | "CRITICAL";
-  hydrogenFault: "OK" | "FAULT";
-  dataComms: "OK" | "WARNING" | "ERROR";
-  ioComms: "OK" | "WARNING" | "ERROR";
-  acDoors: "Closed" | "Open";
-  dcDoors: "Closed" | "Open";
-  topCapDoor: "Closed" | "Open";
-  batteryDoors: "Closed" | "Open";
-  manualVentilation: "Inactive" | "Active";
-}
-
-export interface SegmentInfo {
+interface SiteSensorRow {
   id: string;
-  name: string;
-  topologySegment: "Site-wide" | "CS / collection segment" | "String/segment rows";
-  segmentNum?: number;
-  lineupId?: string;
-  cabinetPos?: string;
+  stationCode?: string;
+  blockIndex?: number;
   arrayIndex?: number;
-  metadata?: any;
-  statuses: SensorStatuses;
+  lineupIndex?: number;
+  segmentIndex?: number;
+  segmentPosition?: string;
+  stringIndex?: number;
+  deviceIp?: string;
+  displayLabel: string;
+  health: "healthy" | "warning" | "fault" | "unknown" | "na";
+  sensors: {
+    moisture?: SensorStatus;
+    ioCommunications?: SensorStatus;
+    dataCommunications?: SensorStatus;
+    acDoors?: SensorStatus;
+    dcDoors?: SensorStatus;
+    topCapDoor?: SensorStatus;
+    batteryDoors?: SensorStatus;
+    hydrogen?: SensorStatus;
+    hydrogenFault?: SensorStatus;
+    smoke?: SensorStatus;
+    heat?: SensorStatus;
+    fire?: SensorStatus;
+    fireTrouble?: SensorStatus;
+    manualVentilation?: SensorStatus;
+    envCtrl?: SensorStatus;
+    upsAlarm?: SensorStatus;
+    modbusEStop?: SensorStatus;
+  };
+  sourcePath: string;
+  lastUpdated?: string;
+  raw?: any;
 }
 
-// Initial default SCADA telemetry rows structured exactly by topology segment
-const INITIAL_SEGMENTS: SegmentInfo[] = [
-  // Site-wide Segment Rows
-  {
-    id: "SITE-SW-01",
-    name: "Site Fire Safety Node Desk (FC-200)",
-    topologySegment: "Site-wide",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "SITE-SW-02",
-    name: "Site Main Power Quality Gateway RTU (RTU-S01)",
-    topologySegment: "Site-wide",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
+interface SensorCategoryRollup {
+  id: string;
+  label: string;
+  healthyCount: number;
+  unhealthyCount: number;
+  unknownCount: number;
+  totalCount: number;
+  healthyLabel: string; // e.g. "Untripped", "Communicating", etc.
+  unhealthyLabel: string; // e.g. "Tripped", "Faulted"
+}
 
-  // CS / Collection Segment Rows
-  {
-    id: "CS-LINEUP-1",
-    name: "Collection Segment 1 Lineup Node",
-    topologySegment: "CS / collection segment",
-    lineupId: "Lineup 1",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "CS-LINEUP-2",
-    name: "Collection Segment 2 Lineup Node (CS-2 Hub)",
-    topologySegment: "CS / collection segment",
-    lineupId: "Lineup 2",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "TROUBLE", // Warning
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "WARNING", // Warning
-      ioComms: "OK",
-      acDoors: "Open", // Warning
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Active" // Highlighted
-    }
-  },
-  {
-    id: "CS-LINEUP-3",
-    name: "Collection Segment 3 Lineup Node",
-    topologySegment: "CS / collection segment",
-    lineupId: "Lineup 3",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "CS-LINEUP-4",
-    name: "Collection Segment 4 Lineup Node (CS-4 Hub)",
-    topologySegment: "CS / collection segment",
-    lineupId: "Lineup 4",
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "ERROR", // Alarm/Critical
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
+// Category design mapping
+const CATEGORY_ICONS: Record<string, React.ComponentType<any>> = {
+  fire: Flame,
+  fireTrouble: ShieldAlert,
+  smoke: Wind,
+  heat: Thermometer,
+  hydrogen: Layers,
+  hydrogenFault: AlertTriangle,
+  dataCommunications: Wifi,
+  ioCommunications: Cpu,
+  acDoors: DoorOpen,
+  dcDoors: DoorOpen,
+  topCapDoor: Layers,
+  batteryDoors: DoorClosed,
+  manualVentilation: RotateCw,
+  envCtrl: Shield,
+  upsAlarm: Zap,
+  moisture: Droplet,
+  modbusEStop: ShieldAlert
+};
 
-  // String / Segment Rows
-  {
-    id: "STR-SEG-12",
-    name: "String Segment 12 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 12,
-    lineupId: "Lineup 1",
-    cabinetPos: "P1",
-    arrayIndex: 1,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-38",
-    name: "String Segment 38 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 38,
-    lineupId: "Lineup 1",
-    cabinetPos: "P2",
-    arrayIndex: 1,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-41",
-    name: "String Segment 41 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 41,
-    lineupId: "Lineup 2",
-    cabinetPos: "P1",
-    arrayIndex: 2,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-44",
-    name: "String Segment 44 Unit (Fault Block)",
-    topologySegment: "String/segment rows",
-    segmentNum: 44,
-    lineupId: "Lineup 2",
-    cabinetPos: "P2",
-    arrayIndex: 2,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Open", // Alarm / Open State
-      topCapDoor: "Closed",
-      batteryDoors: "Open", // Alarm / Open State
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-85",
-    name: "String Segment 85 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 85,
-    lineupId: "Lineup 3",
-    cabinetPos: "P1",
-    arrayIndex: 3,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-92",
-    name: "String Segment 92 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 92,
-    lineupId: "Lineup 3",
-    cabinetPos: "P2",
-    arrayIndex: 3,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-110",
-    name: "String Segment 110 Unit",
-    topologySegment: "String/segment rows",
-    segmentNum: 110,
-    lineupId: "Lineup 4",
-    cabinetPos: "P1",
-    arrayIndex: 4,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "NORMAL",
-      hydrogen: "OK",
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  },
-  {
-    id: "STR-SEG-147",
-    name: "String Segment 147 Unit (Overheat Warning)",
-    topologySegment: "String/segment rows",
-    segmentNum: 147,
-    lineupId: "Lineup 4",
-    cabinetPos: "P2",
-    arrayIndex: 4,
-    statuses: {
-      fire: "OK",
-      fireTrouble: "OK",
-      smoke: "OK",
-      heat: "WARNING", // Warning
-      hydrogen: "WARNING", // Warning
-      hydrogenFault: "OK",
-      dataComms: "OK",
-      ioComms: "OK",
-      acDoors: "Closed",
-      dcDoors: "Closed",
-      topCapDoor: "Closed",
-      batteryDoors: "Closed",
-      manualVentilation: "Inactive"
-    }
-  }
-];
+export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?: any }) {
+  const [rows, setRows] = useState<SiteSensorRow[]>([]);
+  const [categories, setCategories] = useState<SensorCategoryRollup[]>([]);
+  const [sourceHealth, setSourceHealth] = useState<any[]>([]);
+  const [timestamp, setTimestamp] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-export default function SensorsView() {
-  const [dataRows, setDataRows] = useState<SegmentInfo[]>(INITIAL_SEGMENTS);
+  // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<keyof SensorStatuses | null>(null);
-  const [activeOutliersOnly, setActiveOutliersOnly] = useState(false);
+  const [selectedArray, setSelectedArray] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [hideHealthy, setHideHealthy] = useState(false);
 
-  // Simulation state controls
+  // Developer Simulation tools
   const [simTargetNode, setSimTargetNode] = useState<string>("STR-SEG-44");
-  const [simTargetCategory, setSimTargetCategory] = useState<keyof SensorStatuses>("fire");
+  const [simTargetCategory, setSimTargetCategory] = useState<string>("fire");
   const [simValue, setSimValue] = useState<string>("ALARM");
+  const [injecting, setInjecting] = useState(false);
 
-  // Helper function to check if a status is considered an Alarm, Warning, or Normal
-  const evaluateStatusState = (catId: keyof SensorStatuses, value: string): "alarm" | "warning" | "ok" => {
-    switch (catId) {
-      case "fire":
-        return value === "ALARM" ? "alarm" : "ok";
-      case "fireTrouble":
-        return value === "TROUBLE" ? "warning" : "ok";
-      case "smoke":
-        return value === "ALARM" ? "alarm" : "ok";
-      case "heat":
-        if (value === "CRITICAL") return "alarm";
-        if (value === "WARNING") return "warning";
-        return "ok";
-      case "hydrogen":
-        if (value === "CRITICAL") return "alarm";
-        if (value === "WARNING") return "warning";
-        return "ok";
-      case "hydrogenFault":
-        return value === "FAULT" ? "alarm" : "ok";
-      case "dataComms":
-        if (value === "ERROR") return "alarm";
-        if (value === "WARNING") return "warning";
-        return "ok";
-      case "ioComms":
-        if (value === "ERROR") return "alarm";
-        if (value === "WARNING") return "warning";
-        return "ok";
-      case "acDoors":
-        return value === "Open" ? "warning" : "ok";
-      case "dcDoors":
-        return value === "Open" ? "alarm" : "ok";
-      case "topCapDoor":
-        return value === "Open" ? "warning" : "ok";
-      case "batteryDoors":
-        return value === "Open" ? "alarm" : "ok";
-      case "manualVentilation":
-        return value === "Active" ? "warning" : "ok";
-      default:
-        return "ok";
-    }
-  };
-
-  // Get options for simulated value depend on Category ID
-  const getSimValueOptions = (catId: keyof SensorStatuses) => {
-    switch (catId) {
-      case "fire":
-      case "smoke":
-        return ["OK", "ALARM"];
-      case "fireTrouble":
-        return ["OK", "TROUBLE"];
-      case "heat":
-      case "hydrogen":
-        return ["NORMAL", "WARNING", "CRITICAL"];
-      case "hydrogenFault":
-        return ["OK", "FAULT"];
-      case "dataComms":
-      case "ioComms":
-        return ["OK", "WARNING", "ERROR"];
-      case "acDoors":
-      case "dcDoors":
-      case "topCapDoor":
-      case "batteryDoors":
-        return ["Closed", "Open"];
-      case "manualVentilation":
-        return ["Inactive", "Active"];
-      default:
-        return ["OK"];
-    }
-  };
-
-  // Trigger telemetry change simulation inject
-  const handleSimulationInject = () => {
-    setDataRows(prev => prev.map(row => {
-      if (row.id === simTargetNode) {
-        return {
-          ...row,
-          statuses: {
-            ...row.statuses,
-            [simTargetCategory]: simValue as any
-          }
-        };
+  // Load health data from server API
+  const loadData = async (isRefreshed = false) => {
+    if (isRefreshed) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const url = `/api/local/site-sensors/summary${isRefreshed ? "?refresh=true" : ""}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        setRows(data.rows || []);
+        setCategories(data.categories || []);
+        setSourceHealth(data.sourceHealth || []);
+        setTimestamp(data.timestamp || "");
+      } else {
+        setError(data.error || "Failed to load site sensors data");
       }
-      return row;
-    }));
+    } catch (err: any) {
+      setError(err?.message || "Error reaching telemetry server endpoint");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  // Reset to original SCADA values
-  const handleResetSimulation = () => {
-    setDataRows(INITIAL_SEGMENTS);
-    setSelectedCategory(null);
-    setSearchQuery("");
-    setActiveOutliersOnly(false);
-  };
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  // Rollups computation is run dynamically over active dataRows
-  const rollups = useMemo(() => {
-    const counts: Record<keyof SensorStatuses, { ok: number; warning: number; alarm: number }> = {} as any;
-    
-    // Initialize record fields
-    CATEGORIES.forEach(cat => {
-      counts[cat.id] = { ok: 0, warning: 0, alarm: 0 };
-    });
-
-    dataRows.forEach(row => {
-      CATEGORIES.forEach(cat => {
-        const val = row.statuses[cat.id];
-        const state = evaluateStatusState(cat.id, val);
-        counts[cat.id][state]++;
-      });
-    });
-
-    return counts;
-  }, [dataRows]);
-
-  // Overall totals across the entire platform
-  const overallAlarms = useMemo(() => {
-    let total = 0;
-    dataRows.forEach(row => {
-      CATEGORIES.forEach(cat => {
-        if (evaluateStatusState(cat.id, row.statuses[cat.id]) === "alarm") {
-          total++;
-        }
-      });
-    });
-    return total;
-  }, [dataRows]);
-
-  const overallWarnings = useMemo(() => {
-    let total = 0;
-    dataRows.forEach(row => {
-      CATEGORIES.forEach(cat => {
-        if (evaluateStatusState(cat.id, row.statuses[cat.id]) === "warning") {
-          total++;
-        }
-      });
-    });
-    return total;
-  }, [dataRows]);
-
-  // Filters application with live states
+  // Filter rows based on filters & search query
   const filteredRows = useMemo(() => {
-    return dataRows.filter(row => {
-      // Search Box filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchName = row.name.toLowerCase().includes(query);
-        const matchLineup = row.lineupId?.toLowerCase().includes(query) || false;
-        const matchSeg = row.segmentNum?.toString().includes(query) || false;
-        const matchId = row.id.toLowerCase().includes(query);
-        if (!matchName && !matchLineup && !matchSeg && !matchId) return false;
+    return rows.filter(row => {
+      // 1. Array filter
+      if (selectedArray !== "All") {
+        if (row.arrayIndex !== Number(selectedArray)) {
+          return false;
+        }
       }
 
-      // Outliers focus filter (Only show rows with any active Alarms or Warnings)
-      if (activeOutliersOnly) {
-        const hasOutlier = CATEGORIES.some(cat => 
-          evaluateStatusState(cat.id, row.statuses[cat.id]) !== "ok"
-        );
-        if (!hasOutlier) return false;
+      // 2. Hide healthy filter
+      if (hideHealthy) {
+        if (row.health === "healthy" || row.health === "na") {
+          return false;
+        }
       }
 
-      // Active category selection filter highlights and focuses
+      // 3. Category click filter
       if (selectedCategory) {
-        // If sidebar category is selected, let's show rows that are NOT 'ok' in that category
-        const targetState = evaluateStatusState(selectedCategory, row.statuses[selectedCategory]);
-        if (targetState === "ok" && (activeOutliersOnly || searchQuery)) {
-          // Keep it if they wanted search results, otherwise filter
+        const sens = (row.sensors as any)[selectedCategory];
+        if (!sens || sens.state === "na" || sens.healthy === true) {
+          return false;
+        }
+      }
+
+      // 4. Search query word matching (segment, string, IP, label)
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase().trim();
+        const matchLabel = row.displayLabel.toLowerCase().includes(query);
+        const matchIp = row.deviceIp?.toLowerCase().includes(query) || false;
+        const matchSegment = row.segmentIndex?.toString().includes(query) || false;
+        const matchString = row.stringIndex?.toString().includes(query) || false;
+        const matchId = row.id.toLowerCase().includes(query);
+
+        if (!matchLabel && !matchIp && !matchSegment && !matchString && !matchId) {
+          return false;
         }
       }
 
       return true;
     });
-  }, [dataRows, searchQuery, selectedCategory, activeOutliersOnly]);
+  }, [rows, selectedArray, hideHealthy, selectedCategory, searchQuery]);
 
-  // Segment groups computed over final layout
-  const groupedRows = useMemo(() => {
-    const siteWide = filteredRows.filter(row => row.topologySegment === "Site-wide");
-    const csSegment = filteredRows.filter(row => row.topologySegment === "CS / collection segment");
-    const stringSegment = filteredRows.filter(row => row.topologySegment === "String/segment rows");
+  // Handle Injecting overrides back to server
+  const handleInject = async () => {
+    setInjecting(true);
+    try {
+      const res = await fetch("/api/local/site-sensors/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: simTargetNode,
+          category: simTargetCategory,
+          value: simValue
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Reload summary dynamically from server
+        await loadData(false);
+      } else {
+        alert("Failed to inject signal override onto server");
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setInjecting(false);
+    }
+  };
 
-    return {
-      siteWide,
-      csSegment,
-      stringSegment
+  const handleResetDefaults = async () => {
+    setInjecting(true);
+    try {
+      const res = await fetch("/api/local/site-sensors/reset", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedCategory(null);
+        setSelectedArray("All");
+        setSearchQuery("");
+        setHideHealthy(false);
+        await loadData(false);
+      }
+    } catch (err: any) {
+      alert("Error resetting defaults: " + err.message);
+    } finally {
+      setInjecting(false);
+    }
+  };
+
+  // Get available target state values based on simulated categoric selection
+  const getSimValueOptions = (catId: string) => {
+    if (["fire", "smoke", "fireTrouble", "moisture", "modbusEStop"].includes(catId)) {
+      return ["OK", "ALARM", "tripped"];
+    }
+    if (["heat", "hydrogen"].includes(catId)) {
+      return ["NORMAL", "WARNING", "CRITICAL"];
+    }
+    if (["acDoors", "dcDoors", "topCapDoor", "batteryDoors"].includes(catId)) {
+      return ["Closed", "Open"];
+    }
+    if (["dataCommunications", "ioCommunications"].includes(catId)) {
+      return ["OK", "stable", "WARNING", "error", "lostComms"];
+    }
+    return ["NORMAL", "ALARM", "FAULT"];
+  };
+
+  // Export CSV download function mapping all 17 categories
+  const handleExportCSV = () => {
+    const headers = [
+      "stationCode", "blockIndex", "arrayIndex", "lineupIndex", "segmentIndex", "stringIndex", "deviceIp", "displayLabel", "overallHealth",
+      "moisture", "ioComms", "dataComms", "acDoors", "dcDoors", "topCapDoors", "batteryDoors", "hydrogen", "hydrogenFault", "smoke", "heat", "fire", "fireTrouble", "manualVentilation", "emergencyVentilation", "modbusEStop",
+      "sourcePath", "lastUpdated"
+    ];
+
+    const escapeCSV = (val: any) => {
+      if (val === undefined || val === null) return "";
+      const s = String(val);
+      if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
     };
-  }, [filteredRows]);
 
-  // Render cellular badges for compact column statuses
-  const renderCellStatus = (catId: keyof SensorStatuses, value: string) => {
-    const type = evaluateStatusState(catId, value);
-    if (type === "alarm") {
+    const csvContent = [
+      headers.join(","),
+      ...filteredRows.map(row => {
+        return [
+          row.stationCode || "",
+          row.blockIndex ?? "",
+          row.arrayIndex ?? "",
+          row.lineupIndex ?? "",
+          row.segmentIndex ?? "",
+          row.stringIndex ?? "",
+          row.deviceIp || "",
+          row.displayLabel || "",
+          row.health || "",
+          row.sensors?.moisture?.label || "N/A",
+          row.sensors?.ioCommunications?.label || "N/A",
+          row.sensors?.dataCommunications?.label || "N/A",
+          row.sensors?.acDoors?.label || "N/A",
+          row.sensors?.dcDoors?.label || "N/A",
+          row.sensors?.topCapDoor?.label || "N/A",
+          row.sensors?.batteryDoors?.label || "N/A",
+          row.sensors?.hydrogen?.label || "N/A",
+          row.sensors?.hydrogenFault?.label || "N/A",
+          row.sensors?.smoke?.label || "N/A",
+          row.sensors?.heat?.label || "N/A",
+          row.sensors?.fire?.label || "N/A",
+          row.sensors?.fireTrouble?.label || "N/A",
+          row.sensors?.manualVentilation?.label || "N/A",
+          "N/A", // emergencyVentilation
+          row.sensors?.modbusEStop?.label || "N/A",
+          row.sourcePath || "",
+          row.lastUpdated || ""
+        ].map(escapeCSV).join(",");
+      })
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `prizm_site_sensors_summary_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Export JSON download function
+  const handleExportJSON = () => {
+    const exportObj = {
+      timestamp: new Date().toISOString(),
+      categories: categories,
+      rows: filteredRows,
+      sourceHealth: sourceHealth
+    };
+    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `prizm_site_sensors_summary_${new Date().toISOString().split("T")[0]}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Draw Cell Icon and color with full tooltips details
+  const renderCellIcon = (sensor: SensorStatus | undefined, categoryLabel: string) => {
+    if (!sensor || sensor.state === "na") {
       return (
-        <span 
-          className="inline-flex items-center justify-center w-12 py-1 tracking-wider font-extrabold uppercase text-[9px] bg-red-950/40 text-red-400 border border-red-500/30 rounded animate-pulse shadow-sm shadow-red-900/10 cursor-help"
-          title={`${catId.toUpperCase()}: ${value} (Active Critical Fault)`}
+        <div 
+          className="flex justify-center items-center h-8 w-11 text-slate-700 font-mono text-[10px] cursor-help"
+          title={`${categoryLabel}\nState: Not Applicable\nValue: N/A`}
         >
-          {value.substring(0, 3)}
-        </span>
+          —
+        </div>
       );
     }
-    if (type === "warning") {
+
+    const { state, healthy, label, value, sourcePath } = sensor;
+    const tooltipText = `${categoryLabel}\nState: ${label}\nRaw Value: "${value ?? ''}"\nPath: ${sourcePath ?? ''}\nUpdated: ${new Date(timestamp).toLocaleTimeString()}`;
+
+    if (state === "unknown") {
       return (
-        <span 
-          className="inline-flex items-center justify-center w-12 py-1 tracking-wider font-bold uppercase text-[9px] bg-amber-950/30 text-amber-500 border border-amber-600/20 rounded cursor-help"
-          title={`${catId.toUpperCase()}: ${value} (Operational Warning)`}
+        <div 
+          className="flex justify-center items-center h-8 w-11 text-slate-500 cursor-help"
+          title={tooltipText}
         >
-          {value.substring(0, 3)}
-        </span>
+          <HelpCircle size={13} className="text-slate-500 stroke-[2.5]" />
+        </div>
       );
     }
+
+    if (healthy === false) {
+      // Unhealthy state
+      const isWarningOnly = (
+        categoryLabel === "AC DOORS" || 
+        categoryLabel === "TOP CAP DOOR" || 
+        categoryLabel === "MANUAL VENTILATION" ||
+        label === "Warning" ||
+        categoryLabel === "FIRE TROUBLE"
+      );
+      if (isWarningOnly) {
+        return (
+          <div 
+            className="flex justify-center items-center h-8 w-11 bg-amber-500/10 border border-amber-500/20 rounded cursor-help"
+            title={tooltipText}
+          >
+            <AlertTriangle size={13} className="text-amber-500 stroke-[2.5] animate-pulse" />
+          </div>
+        );
+      } else {
+        return (
+          <div 
+            className="flex justify-center items-center h-8 w-11 bg-red-500/15 border border-red-500/30 rounded cursor-help animate-pulse shadow-md shadow-red-950/20"
+            title={tooltipText}
+          >
+            <AlertTriangle size={13} className="text-red-500 stroke-[2.5]" />
+          </div>
+        );
+      }
+    }
+
+    // Healthy/Normal
     return (
-      <span 
-        className="inline-flex items-center justify-center w-12 py-1 tracking-wider text-[9px] bg-neutral-900/60 text-emerald-400/90 border border-emerald-500/10 rounded cursor-help"
-        title={`${catId.toUpperCase()}: ${value} (Active System Safe)`}
+      <div 
+        className="flex justify-center items-center h-8 w-11 bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/15 rounded cursor-help transition-all"
+        title={tooltipText}
       >
-        {value.substring(0, 3)}
-      </span>
+        <CheckCircle size={13} className="text-emerald-400 stroke-[2.5]" />
+      </div>
     );
   };
 
+  // Draw Row Health Icon Badge
+  const renderRowHealth = (health: string) => {
+    switch (health) {
+      case "fault":
+        return <Heart size={14} className="text-red-500 fill-red-500 animate-pulse shrink-0" title="Critical Active Faults" />;
+      case "warning":
+        return <AlertTriangle size={14} className="text-amber-500 shrink-0" title="Active Warning Signals" />;
+      case "unknown":
+        return <HelpCircle size={14} className="text-slate-500 shrink-0" title="Stale / Unknown Signals" />;
+      default:
+        return <Heart size={14} className="text-emerald-500 fill-emerald-500 shrink-0" title="All Systems Normal" />;
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-4 bg-[#08090C] text-slate-300 font-mono p-1">
+    <div className="space-y-4 text-prizm-text select-none">
       
-      {/* SCADA INTERACTIVE SIMULATION OVERLAY BOX */}
-      <div className="bg-[#0E1017] border border-cyan-500/15 p-3 rounded-lg flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      {/* DEVELOPER SIMULATION INJECTOR CONTROL BLOCK */}
+      <div className="bg-prizm-surface border border-prizm-border/60 p-4 rounded-lg flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <Activity size={14} className="text-cyan-400 animate-pulse" />
-            <span className="font-extrabold text-xs text-white uppercase tracking-wider">Prizm SCADA Sensor Signal Injector</span>
-            <span className="bg-cyan-500/5 border border-cyan-500/25 text-[8.5px] px-1.5 py-0.5 rounded text-cyan-400 font-bold">DEVELOPER TOOLS</span>
+            <Settings size={15} className="text-cyan-400 animate-spin" style={{ animationDuration: "12s" }} />
+            <span className="font-extrabold text-sm text-white uppercase tracking-wider">Prizm RTU Sensor Signal Overrides</span>
+            <span className="bg-prizm-primary/10 border border-prizm-primary/30 text-[8.5px] px-1.5 py-0.5 rounded text-cyan-400 font-bold uppercase">EMS Simulator Layer</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-sans">
-            Manually trigger and simulated safety state transitions. Live rollups are updated instantly.
+          <p className="text-[11px] text-prizm-text-muted font-sans">
+            Inject emergency, fault, and communication status overrides directly to the platform server memory. Rollups and tooltips adjust live.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Target Nodes */}
           <div className="flex flex-col gap-1">
-            <label className="text-[8.5px] text-slate-400 font-bold uppercase">Target Hardware Node</label>
+            <label className="text-[9px] text-[#059669] font-bold uppercase tracking-wider font-mono">Hardware Node Address</label>
             <select
               value={simTargetNode}
               onChange={(e) => setSimTargetNode(e.target.value)}
-              className="bg-black text-slate-100 text-[10.5px] border border-white/10 rounded px-2 py-1 font-mono focus:outline-none focus:border-cyan-500 min-w-[150px]"
+              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[200px]"
             >
-              {dataRows.map(row => (
+              {rows.map(row => (
                 <option key={row.id} value={row.id}>
-                  [{row.topologySegment.substring(0, 4)}] {row.name.split(" Node")[0].replace(" Segment", " Seg")}
+                  {row.displayLabel.length > 32 ? row.displayLabel.substring(0, 32) + "..." : row.displayLabel} [{row.id}]
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Sensor Column Category Selector */}
+          {/* Sensor Column Selector */}
           <div className="flex flex-col gap-1">
-            <label className="text-[8.5px] text-slate-400 font-bold uppercase">Sensor Category</label>
+            <label className="text-[9px] text-[#059669] font-bold uppercase tracking-wider font-mono">Mapped Sensor Category</label>
             <select
               value={simTargetCategory}
               onChange={(e) => {
-                const newCat = e.target.value as keyof SensorStatuses;
-                setSimTargetCategory(newCat);
-                // Also reset default values
-                const opts = getSimValueOptions(newCat);
-                setSimValue(opts[opts.length - 1]); // Set warning/alarm state usually last
+                setSimTargetCategory(e.target.value);
+                const opts = getSimValueOptions(e.target.value);
+                setSimValue(opts[opts.length - 1]); // Default to fault state typically
               }}
-              className="bg-black text-slate-100 text-[10.5px] border border-white/10 rounded px-2 py-1 font-mono focus:outline-none focus:border-cyan-500 min-w-[140px]"
+              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[170px]"
             >
-              {CATEGORIES.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              {categories.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.label}</option>
               ))}
             </select>
           </div>
 
-          {/* New target state value */}
+          {/* Inject State Options */}
           <div className="flex flex-col gap-1">
-            <label className="text-[8.5px] text-slate-400 font-bold uppercase">New Signal State</label>
+            <label className="text-[9px] text-[#059669] font-bold uppercase tracking-wider font-mono">Injected Overriding Value</label>
             <select
               value={simValue}
               onChange={(e) => setSimValue(e.target.value)}
-              className="bg-black text-slate-100 text-[10.5px] border border-white/10 rounded px-2 py-1 font-mono focus:outline-none focus:border-cyan-500"
+              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[120px]"
             >
               {getSimValueOptions(simTargetCategory).map(opt => (
                 <option key={opt} value={opt}>{opt}</option>
@@ -693,109 +487,106 @@ export default function SensorsView() {
             </select>
           </div>
 
-          {/* Simulation action block */}
-          <div className="flex items-end self-end gap-1.5 pt-2 xl:pt-0">
+          <div className="flex items-end self-end gap-2 pt-2 xl:pt-0">
             <button
-              onClick={handleSimulationInject}
-              className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[10.5px] px-3.5 py-1.5 rounded flex items-center gap-1 cursor-pointer transition uppercase"
+              onClick={handleInject}
+              disabled={injecting}
+              className="bg-prizm-primary/20 hover:bg-prizm-primary/35 text-cyan-300 font-bold text-xs px-4 py-1.5 h-[34px] rounded border border-prizm-primary/40 flex items-center gap-1 cursor-pointer transition uppercase"
             >
-              <Play size={10} />
-              Inject Signal
+              {injecting ? "..." : "Inject Signal"}
             </button>
             <button
-              onClick={handleResetSimulation}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/5 font-bold text-[10.5px] px-3.5 py-1.5 rounded flex items-center gap-1 cursor-pointer transition uppercase"
-              title="Reset configuration to original defaults"
+              onClick={handleResetDefaults}
+              disabled={injecting}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-4 py-1.5 h-[34px] rounded border border-prizm-border flex items-center gap-1 cursor-pointer transition uppercase"
+              title="Clear all overrides back to EMS defaults"
             >
-              <RotateCcw size={10} />
-              Reset defaults
+              Reset Defaults
             </button>
           </div>
         </div>
       </div>
 
-      {/* THREE ZONE CONTENT GRID */}
-      <div className="flex flex-col lg:flex-row gap-4 min-h-[580px]">
+      {/* THREE ZONE VIEW LAYOUT GRID */}
+      <div className="flex flex-col lg:flex-row gap-4 min-h-[550px]">
         
-        {/* SIDEBAR SENSORS INDEX & ROLLUPS (Requirement 1) */}
-        <div className="w-full lg:w-64 shrink-0 bg-[#0E1017] border border-white/5 rounded-lg p-3 text-[11px] space-y-4 shadow-md">
-          <div className="border-b border-white/10 pb-2 flex justify-between items-center px-1">
-            <span className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider">Sensor Categories</span>
-            <div className="flex items-center gap-1.5 text-[9px]">
-              {overallAlarms > 0 && (
-                <span className="bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded font-extrabold border border-red-500/20 max-w-fit flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red-400 inline-block animate-pulse" />
-                  {overallAlarms}
-                </span>
-              )}
-              {overallWarnings > 0 && (
-                <span className="bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-bold border border-amber-500/20 max-w-fit">
-                  {overallWarnings} W
-                </span>
-              )}
-              {overallAlarms === 0 && overallWarnings === 0 && (
-                <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold border border-emerald-500/20">
-                  HEALTHY
-                </span>
+        {/* LEFT SIDE: SENSOR CATEGORIES ROLLUP */}
+        <div className="w-full lg:w-64 shrink-0 bg-prizm-surface border border-prizm-border rounded-lg p-3 space-y-3 shadow-md">
+          <div className="border-b border-prizm-border pb-2 flex justify-between items-center px-1 font-mono">
+            <span className="text-[10px] uppercase font-extrabold text-white/50 tracking-wider">Rollup Index</span>
+            <div className="flex gap-2 text-[9px]">
+              {refreshing ? (
+                <span className="text-cyan-400 animate-pulse">POLLING...</span>
+              ) : (
+                <span className="text-prizm-text-muted">ACTIVE ({rows.length} rows)</span>
               )}
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <button
               onClick={() => setSelectedCategory(null)}
-              className={`w-full flex items-center justify-between p-2 rounded text-[10px] font-bold uppercase transition ${
+              className={`w-full flex items-center justify-between p-2 rounded text-[10px] font-bold uppercase transition font-mono ${
                 selectedCategory === null 
-                  ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-sm"
-                  : "bg-black/20 text-slate-400 border border-transparent hover:bg-white/[0.02]"
+                  ? "bg-prizm-primary/10 text-cyan-300 border-l-2 border-prizm-primary font-extrabold"
+                  : "text-prizm-text-muted hover:text-white hover:bg-white/[0.02]"
               }`}
             >
-              <span>Show All Columns</span>
-              <CheckCircle size={10} />
+              <span>Show All Categories</span>
+              <Maximize2 size={10} className="text-cyan-400" />
             </button>
-            <div className="h-px bg-white/5 my-2" />
+            
+            <div className="h-px bg-prizm-border my-2" />
 
-            <div className="space-y-1.5 max-h-[540px] overflow-y-auto pr-0.5 scrollbar-thin">
-              {CATEGORIES.map((cat) => {
-                const stats = rollups[cat.id] || { ok: 0, warning: 0, alarm: 0 };
+            <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-0.5 scrollbar-thin font-mono text-[10.5px]">
+              {categories.map((cat) => {
                 const isSelected = selectedCategory === cat.id;
+                const Icon = CATEGORY_ICONS[cat.id] || HelpCircle;
 
-                let categoryStatusColor = "text-emerald-400 bg-emerald-500/[0.03]";
-                let categoryLabel = "OK";
-                if (stats.alarm > 0) {
-                  categoryStatusColor = "text-red-400 bg-red-500/[0.04] border-red-500/20 animate-pulse";
-                  categoryLabel = `${stats.alarm} Alarm${stats.alarm > 1 ? "s" : ""}`;
-                } else if (stats.warning > 0) {
-                  categoryStatusColor = "text-amber-500 bg-amber-500/[0.03] border-amber-500/15";
-                  categoryLabel = `${stats.warning} Warn`;
+                // Formulate count formatting following BHE / Solar Star rules
+                let countString = "";
+                let indicatorColor = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                
+                if (cat.unhealthyCount > 0) {
+                  indicatorColor = "bg-red-500/15 text-red-400 border-red-500/30 animate-pulse";
                 }
 
-                const CategoryIcon = cat.icon;
+                if (["fire", "fireTrouble", "smoke", "heat", "hydrogen", "hydrogenFault"].includes(cat.id)) {
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Untripped`;
+                } else if (["dataCommunications", "ioCommunications"].includes(cat.id)) {
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Comms`;
+                } else if (["acDoors", "dcDoors", "topCapDoor", "batteryDoors"].includes(cat.id)) {
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Closed`;
+                } else if (cat.id === "moisture") {
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Dry`;
+                } else {
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Normal`;
+                }
 
                 return (
                   <button
                     key={cat.id}
                     onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
-                    className={`w-full text-left p-2 rounded transition-all border text-[10px] uppercase flex flex-col gap-1 cursor-pointer ${
+                    className={`w-full text-left p-2 rounded transition-all border flex flex-col gap-1 cursor-pointer ${
                       isSelected
-                        ? "bg-cyan-950/40 border-cyan-500 text-white"
-                        : "bg-black/35 border-white/[0.03] hover:border-white/10 hover:bg-black/50"
+                        ? "bg-prizm-primary/10 border-prizm-primary/60 text-white font-semibold shadow-sm"
+                        : "bg-black/25 border-transparent hover:border-prizm-border/40 hover:bg-black/40 text-prizm-text-muted"
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className="font-bold flex items-center gap-1.5 tracking-tight text-white/95">
-                        <CategoryIcon size={12} className={isSelected ? "text-cyan-400" : "text-slate-400"} />
-                        {cat.name}
+                      <span className="font-bold flex items-center gap-1.5 text-white/90 truncate tracking-tight">
+                        <Icon size={12} className={isSelected ? "text-cyan-400" : "text-prizm-text-muted"} />
+                        {cat.label}
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-extrabold border leading-none ${categoryStatusColor}`}>
-                        {categoryLabel}
-                      </span>
+                      {cat.unhealthyCount > 0 && (
+                        <span className="text-[8.5px] px-1 py-0.5 rounded leading-none bg-red-500/10 text-red-500 border border-red-500/20 font-extrabold animate-pulse">
+                          {cat.unhealthyCount} FAULT
+                        </span>
+                      )}
                     </div>
-
-                    <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1">
-                      <span>Safe/All Count:</span>
-                      <span className="font-bold font-mono text-slate-400">
-                        {stats.ok} / {dataRows.length}
+                    <div className="flex justify-between items-center text-[9px] text-prizm-text-muted mt-0.5">
+                      <span className={`px-1 rounded-sm border text-[8.5px] ${indicatorColor}`}>
+                        {countString}
                       </span>
                     </div>
                   </button>
@@ -805,247 +596,312 @@ export default function SensorsView() {
           </div>
         </div>
 
-        {/* MAIN PANEL AREA: TOPOLOGY SEGMENT TABLES (Requirement 2) */}
+        {/* RIGHT AREA: THE MASTER DETAIL TABLE */}
         <div className="flex-1 space-y-4">
           
-          {/* HEADER AND TOOL PANEL CONTROLS */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#11131A] p-3 rounded-lg border border-white/5 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
-              <span className="font-extrabold text-white text-[11px] uppercase tracking-wider">
-                Platform Safety Topology Matrix (1,840 Active Transducers)
+          {/* CONTROL PANEL HEADER */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-prizm-surface p-3 rounded-lg border border-prizm-border text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="font-bold text-white uppercase tracking-wider font-mono">
+                Site Safety Health Matrix
               </span>
+              {timestamp && (
+                <span className="font-mono text-prizm-text-muted text-[10px]/none whitespace-nowrap">
+                  (Updated: {new Date(timestamp).toLocaleTimeString()})
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Outliers switcher check */}
-              <label className="flex items-center gap-1.5 text-[10px] text-slate-300 font-bold uppercase cursor-pointer select-none">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Array Select */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[10px] text-prizm-text-muted font-bold uppercase">Array:</span>
+                <select
+                  value={selectedArray}
+                  onChange={(e) => setSelectedArray(e.target.value)}
+                  className="bg-black text-[10px] text-slate-200 border border-prizm-border rounded px-2 py-1 font-mono outline-none cursor-pointer"
+                >
+                  <option value="All">All Arrays</option>
+                  <option value="1">Array 1</option>
+                  <option value="2">Array 2</option>
+                  <option value="3">Array 3</option>
+                  <option value="4">Array 4</option>
+                </select>
+              </div>
+
+              {/* Hide Healthy toggle */}
+              <label className="flex items-center gap-1.5 text-[10px] text-prizm-text-muted font-bold font-mono uppercase cursor-pointer select-none whitespace-nowrap">
                 <input
                   type="checkbox"
-                  checked={activeOutliersOnly}
-                  onChange={(e) => setActiveOutliersOnly(e.target.checked)}
-                  className="rounded border-white/15 bg-black text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0 h-3.5 w-3.5 cursor-pointer"
+                  checked={hideHealthy}
+                  onChange={(e) => setHideHealthy(e.target.checked)}
+                  className="rounded border-[#1E293B] bg-black text-[#06B6D4] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5 cursor-pointer"
                 />
-                Outliers Only
+                Hide Healthy
               </label>
 
-              {/* Search text box input */}
+              {/* Search textbox */}
               <div className="relative">
-                <Search size={11} className="absolute left-2.5 top-2.5 text-white/30" />
+                <Search size={11} className="absolute left-2.5 top-2.5 text-prizm-text-muted" />
                 <input 
                   type="text" 
-                  placeholder="Filter node or lineup..." 
+                  placeholder="ID, IP, or Segment..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-black border border-white/10 rounded pl-7 pr-2 py-1.5 text-[10px] font-mono text-white placeholder-white/20 focus:outline-none focus:border-cyan-500 w-44"
+                  className="bg-black border border-prizm-border rounded pl-7 pr-2 py-1.5 text-[10px] font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 w-36"
                 />
+              </div>
+
+              {/* Refresh & export action buttons */}
+              <div className="flex items-center gap-1 border-l border-prizm-border pl-2">
+                <button
+                  onClick={() => loadData(true)}
+                  disabled={refreshing}
+                  className="p-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 cursor-pointer transition-colors"
+                  title="Force telemetry refresh"
+                >
+                  <RefreshCw size={13} className={refreshing ? "animate-spin text-cyan-400" : ""} />
+                </button>
+                <button
+                  onClick={handleExportCSV}
+                  className="p-1.5 rounded text-prizm-text-muted hover:text-[#059669] hover:bg-white/5 cursor-pointer transition-colors"
+                  title="Export grid as CSV"
+                >
+                  <FileSpreadsheet size={13} />
+                </button>
+                <button
+                  onClick={handleExportJSON}
+                  className="p-1.5 rounded text-prizm-text-muted hover:text-cyan-400 hover:bg-white/5 cursor-pointer transition-colors"
+                  title="Export raw JSON packet payload"
+                >
+                  <Download size={13} />
+                </button>
               </div>
             </div>
           </div>
 
-          {/* SUMMARY INFORMATIVE CARD */}
+          {/* ACTIVE FILTER NOTIFIER */}
           {selectedCategory && (
-            <div className="bg-cyan-950/20 border border-cyan-500/20 p-2.5 rounded-lg text-[10.5px] flex items-center justify-between text-slate-300 animate-fade-in font-sans">
-              <div className="flex items-center gap-2 font-mono">
-                <span className="p-1 rounded bg-cyan-500/10 text-cyan-400">
-                  {React.createElement(CATEGORIES.find(c => c.id === selectedCategory)?.icon || HelpCircle, { size: 13 })}
-                </span>
-                <span>
-                  Currently highlighting <strong>{CATEGORIES.find(c => c.id === selectedCategory)?.name}</strong> column spread. Click any category sidebar block to clear or swap columns.
-                </span>
-              </div>
+            <div className="bg-prizm-primary/5 border border-prizm-primary/25 px-3 py-2 rounded flex items-center justify-between text-xs text-slate-300 font-sans">
+              <span className="flex items-center gap-1.5 uppercase font-mono text-[10.5px]">
+                <Settings size={12} className="text-prizm-primary animate-pulse" />
+                Highlight Filter: Showing only units with active issues in <strong className="text-cyan-300">{(categories.find(c => c.id === selectedCategory))?.label}</strong>.
+              </span>
               <button 
                 onClick={() => setSelectedCategory(null)}
-                className="text-[9.5px] uppercase font-bold text-cyan-400 hover:underline cursor-pointer font-mono"
+                className="text-[9.5px]/none uppercase font-mono font-bold text-prizm-primary hover:underline cursor-pointer"
               >
-                Clear Column Focus
+                Clear Count Filter
               </button>
             </div>
           )}
 
-          {/* TOPOLOGY COLLAPSIBLE ZONE SEGMENTS DATA STREAM */}
-          <div className="border border-white/5 rounded-lg overflow-x-auto bg-[#090B10] shadow-xl">
-            <table className="w-full text-left text-[11px] leading-normal border-collapse min-w-[1250px]">
+          {/* MASTER DETAIL TABLE VIEWPORT */}
+          <div className="border border-prizm-border rounded-lg overflow-x-auto bg-[#07090C] shadow-lg max-h-[700px] relative scrollbar-thin">
+            <table className="w-full text-left text-[11px] leading-normal border-collapse min-w-[1300px]">
               
-              {/* PRIMARY TABLE HEADER */}
-              <thead>
-                <tr className="bg-black/55 border-b border-white/[0.04] text-slate-500 text-[9px] uppercase font-extrabold select-none">
-                  <th className="p-2.5 pl-3 border-r border-white/5 w-16">Segment</th>
-                  <th className="p-2.5 border-r border-white/5 w-[190px]">Topology Node Address</th>
-                  <th className="p-2.5 border-r border-white/5 w-14 text-center">Array No.</th>
-                  <th className="p-2.5 border-r border-white/5 w-14 text-center">Cabinet</th>
-                  <th colSpan={13} className="p-2 border-b border-white/5 text-center text-slate-400 bg-white/[0.01]">
-                    Sensor Statuses by Individual Categories (13 Channels)
+              {/* STICKY HEADER */}
+              <thead className="sticky top-0 bg-[#0F111A] z-10 select-none shadow border-b border-prizm-border">
+                {/* 1st row: Column groups */}
+                <tr className="text-[#64748B] text-[8.5px] uppercase font-bold text-center border-b border-prizm-border/30">
+                  <th colSpan={5} className="p-2 border-r border-prizm-border/40 bg-black/20 text-left pl-3 text-slate-400 font-mono text-[9px] uppercase tracking-wider">
+                    Site Topology Address
+                  </th>
+                  <th colSpan={1} className="p-2 border-r border-[#1E293B] bg-emerald-900/10 text-emerald-400 font-bold uppercase text-[9px] tracking-wider">
+                    Emergency
+                  </th>
+                  <th colSpan={2} className="p-2 border-r border-[#1E293B] bg-blue-950/10 text-blue-400 font-bold uppercase text-[9px] tracking-wider">
+                    Com Status
+                  </th>
+                  <th colSpan={4} className="p-2 border-r border-[#1E293B] bg-purple-950/10 text-purple-400 font-bold uppercase text-[9px] tracking-wider">
+                    Door Sensors
+                  </th>
+                  <th colSpan={9} className="p-2 bg-slate-900/20 text-slate-300 font-bold uppercase text-[9px] tracking-wider">
+                    Environmental / Safety / System Controls
                   </th>
                 </tr>
 
-                <tr className="bg-[#11131E] text-slate-400 uppercase text-[9.5px] border-b border-white/10 select-none">
-                  <th className="p-2 pl-3">ZONE</th>
-                  <th className="p-2 truncate">Controller Location Unit</th>
-                  <th className="p-2 text-center">AY</th>
-                  <th className="p-2 text-center">POS</th>
-                  
-                  {/* Category Status Columns */}
-                  {CATEGORIES.map((cat) => {
-                    const isFocussed = selectedCategory === cat.id;
-                    return (
-                      <th 
-                        key={cat.id} 
-                        className={`p-2 w-14 text-center transition-all ${
-                          isFocussed ? "bg-cyan-500/10 text-cyan-300 font-extrabold" : "text-slate-400"
-                        }`}
-                      >
-                        <span className="block text-[8px] tracking-tight truncate" title={cat.name}>
-                          {cat.shortLabel}
-                        </span>
-                      </th>
-                    );
-                  })}
+                {/* 2nd row: Column elements headers */}
+                <tr className="text-slate-400 uppercase text-[9px] font-semibold border-b border-prizm-border">
+                  {/* Topology group */}
+                  <th className="p-2.5 pl-3 w-10 text-center">HLTH</th>
+                  <th className="p-2.5 w-[210px] text-left">Location Label / ID</th>
+                  <th className="p-2.5 text-center w-14">Seg Idx</th>
+                  <th className="p-2.5 text-center w-14">Lineup</th>
+                  <th className="p-2.5 text-center w-14 border-r border-prizm-border/50">Segment</th>
+
+                  {/* Emergency */}
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50 bg-[#059669]/5" title="Moisture Detection Sensor">Moist</th>
+
+                  {/* Com Status */}
+                  <th className="p-2 text-center w-14" title="IO communications controller online">IO Com</th>
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50" title="Data/Aux Communications Link">Data</th>
+
+                  {/* Doors Group */}
+                  <th className="p-2 text-center w-14" title="AC electrical cabinets enclosure door">AC Door</th>
+                  <th className="p-2 text-center w-14" title="DC inverter bus cabinet containment doors">DC Door</th>
+                  <th className="p-2 text-center w-14" title="Top Cap containment louver hatch open status">TopCap</th>
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50" title="Container compartment auxiliary battery door status">Battery</th>
+
+                  {/* Env/Safety */}
+                  <th className="p-2 text-center w-14" title="Fire detection panel warning state">Fire</th>
+                  <th className="p-2 text-center w-14" title="Fire panel secondary trouble monitoring status">F-Trb</th>
+                  <th className="p-2 text-center w-14" title="Smoke aerosol density warning">Smoke</th>
+                  <th className="p-2 text-center w-14" title="Internal containment cabinet thermistors sensor">Heat</th>
+                  <th className="p-2 text-center w-14" title="Hydrogen gas target PPM warning">H2</th>
+                  <th className="p-2 text-center w-14" title="Hydrogen sensor diagnostic loop integrity fault">H2-Flt</th>
+                  <th className="p-2 text-center w-14" title="Manual fan override active status">ManVent</th>
+                  <th className="p-2 text-center w-14" title="Environmental control thermostat alarm status">EnvCtrl</th>
+                  <th className="p-2 text-center w-14 bg-slate-900/10" title="Uninterruptible power supply telemetry warning">UPS</th>
                 </tr>
               </thead>
 
-              {/* TABLE BODY SEGMENTS */}
-              <tbody className="divide-y divide-white/5">
-
-                {/* ZONE 1: SITE-WIDE */}
-                <tr className="bg-slate-900/40 border-y border-white/[0.04] select-none">
-                  <td colSpan={17} className="py-2 px-3 text-[9.5px] font-extrabold text-[#7DD3FC] tracking-widest uppercase">
-                    Topology Level 1: Site-Wide Segment Nodes ({groupedRows.siteWide.length} systems)
-                  </td>
-                </tr>
-
-                {groupedRows.siteWide.length === 0 ? (
+              {/* TABLE BODY DECORATION: ALTERNATING STRIPED ROWS */}
+              <tbody className="divide-y divide-prizm-border/50 font-mono text-[10.5px]">
+                {loading && rows.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="p-3 text-center text-slate-500 text-[10px] italic">No matching Site-wide segment registers found.</td>
+                    <td colSpan={17} className="p-8 text-center text-prizm-text-muted">
+                      Loading real-time site safety telemetry matrix...
+                    </td>
+                  </tr>
+                ) : filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={17} className="p-8 text-center text-prizm-text-muted italic">
+                      No matching hardware sensor records discovered with current filters.
+                    </td>
                   </tr>
                 ) : (
-                  groupedRows.siteWide.map((row) => (
-                    <tr key={row.id} className="hover:bg-cyan-500/[0.01] transition-colors leading-tight">
-                      <td className="p-2 pl-3 text-slate-500 text-[9.5px] font-bold">SITE-W</td>
-                      <td className="p-2 font-semibold text-slate-200">{row.name}</td>
-                      <td className="p-2 text-center text-slate-500">All</td>
-                      <td className="p-2 text-center text-slate-500">MSTR</td>
-
-                      {/* Render status cells */}
-                      {CATEGORIES.map((cat) => {
-                        const cellVal = row.statuses[cat.id];
-                        return (
-                          <td 
-                            key={cat.id} 
-                            className={`p-1.5 text-center transition-all ${
-                              selectedCategory === cat.id ? "bg-cyan-500/[0.02]" : ""
-                            }`}
-                          >
-                            {renderCellStatus(cat.id, cellVal)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
-                )}
-
-                {/* ZONE 2: CS / COLLECTION SEGMENTS */}
-                <tr className="bg-slate-900/40 border-y border-white/[0.04] select-none mt-4">
-                  <td colSpan={17} className="py-2 px-3 text-[9.5px] font-extrabold text-[#F0ABFC] tracking-widest uppercase">
-                    Topology Level 2: Lineup Collector Segment Nodes ({groupedRows.csSegment.length} structures)
-                  </td>
-                </tr>
-
-                {groupedRows.csSegment.length === 0 ? (
-                  <tr>
-                    <td colSpan={17} className="p-3 text-center text-slate-500 text-[10px] italic">No matching CS/Collection segment registers found.</td>
-                  </tr>
-                ) : (
-                  groupedRows.csSegment.map((row) => (
-                    <tr key={row.id} className="hover:bg-cyan-500/[0.01] transition-colors leading-tight">
-                      <td className="p-2 pl-3 text-magenta-300 text-[9.5px] font-bold">CS-SEG</td>
-                      <td className="p-2 font-semibold text-slate-200">{row.name}</td>
-                      <td className="p-2 text-center text-slate-500">--</td>
-                      <td className="p-2 text-center text-purple-400 font-bold">{row.lineupId?.replace("Lineup ", "L")}</td>
-
-                      {/* Render status cells */}
-                      {CATEGORIES.map((cat) => {
-                        const cellVal = row.statuses[cat.id];
-                        return (
-                          <td 
-                            key={cat.id} 
-                            className={`p-1.5 text-center transition-all ${
-                              selectedCategory === cat.id ? "bg-cyan-500/[0.02]" : ""
-                            }`}
-                          >
-                            {renderCellStatus(cat.id, cellVal)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
-                )}
-
-                {/* ZONE 3: STRING/SEGMENT ROWS */}
-                <tr className="bg-slate-900/40 border-y border-white/[0.04] select-none mt-4">
-                  <td colSpan={17} className="py-2 px-3 text-[9.5px] font-extrabold text-[#34D399] tracking-widest uppercase">
-                    Topology Level 3: Individual String / Segment Active Transducers ({groupedRows.stringSegment.length} Strings)
-                  </td>
-                </tr>
-
-                {groupedRows.stringSegment.length === 0 ? (
-                  <tr>
-                    <td colSpan={17} className="p-3 text-center text-slate-500 text-[10px] italic">No matching individual string/segment registers found.</td>
-                  </tr>
-                ) : (
-                  groupedRows.stringSegment.map((row) => {
-                    const rowHasAlarm = CATEGORIES.some(cat => evaluateStatusState(cat.id, row.statuses[cat.id]) === "alarm");
+                  filteredRows.map((row, index) => {
+                    const isEven = index % 2 === 0;
                     return (
                       <tr 
                         key={row.id} 
-                        className={`hover:bg-cyan-500/[0.01] transition-colors leading-tight ${
-                          rowHasAlarm ? "bg-red-500/[0.02] text-red-100 font-bold" : ""
+                        className={`hover:bg-cyan-500/[0.02]/none hover:bg-prizm-primary/[0.02] transition-colors leading-tight ${
+                          isEven ? "bg-black/15" : "bg-transparent"
                         }`}
                       >
-                        <td className="p-2 pl-3 text-emerald-400 font-bold">SEG-{row.segmentNum}</td>
-                        <td className="p-2 text-slate-300 font-medium">Segment {row.segmentNum} active array card</td>
-                        <td className="p-2 text-center text-cyan-400 font-bold">{row.arrayIndex ?? "--"}</td>
-                        <td className="p-2 text-center text-amber-500 font-semibold">{row.cabinetPos ?? "--"}</td>
+                        {/* Overall health badge */}
+                        <td className="p-2 pl-3 text-center">
+                          <div className="flex justify-center">{renderRowHealth(row.health)}</div>
+                        </td>
 
-                        {/* Render status cells */}
-                        {CATEGORIES.map((cat) => {
-                          const cellVal = row.statuses[cat.id];
-                          return (
-                            <td 
-                              key={cat.id} 
-                              className={`p-1.5 text-center transition-all ${
-                                selectedCategory === cat.id ? "bg-cyan-500/[0.02]" : ""
-                              }`}
-                            >
-                              {renderCellStatus(cat.id, cellVal)}
-                            </td>
-                          );
-                        })}
+                        {/* Location address information */}
+                        <td className="p-2 font-medium py-2.5 max-w-[210px] truncate leading-tight" title={`${row.displayLabel}\nIP Address: ${row.deviceIp ?? 'N/A'}`}>
+                          <span className="text-slate-100 font-semibold block truncate">{row.displayLabel}</span>
+                          <span className="text-[9px] text-[#059669] block leading-none mt-0.5">{row.deviceIp ?? "10.0.0.x / Unassigned"}</span>
+                        </td>
+
+                        {/* segment index */}
+                        <td className="p-2 text-center text-slate-400 font-mono font-semibold">
+                          {row.segmentIndex ?? "—"}
+                        </td>
+
+                        {/* lineup index */}
+                        <td className="p-2 text-center text-[#A78BFA] font-bold">
+                          {row.lineupIndex ? `L${row.lineupIndex}` : "—"}
+                        </td>
+
+                        {/* segment position */}
+                        <td className="p-2 text-center text-amber-500 border-r border-[#1E293B] font-bold">
+                          {row.segmentPosition || "MSTR"}
+                        </td>
+
+                        {/* Emergency: Moisture */}
+                        <td className="p-1 bg-[#059669]/5 border-r border-prizm-border/50">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.moisture, "MOISTURE")}</div>
+                        </td>
+
+                        {/* Com status Group */}
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.ioCommunications, "IO COMMUNICATIONS")}</div>
+                        </td>
+                        <td className="p-1 border-r border-prizm-border/50">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.dataCommunications, "DATA COMMUNICATIONS")}</div>
+                        </td>
+
+                        {/* Doors Group */}
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.acDoors, "AC DOORS")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.dcDoors, "DC DOORS")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.topCapDoor, "TOP CAP DOOR")}</div>
+                        </td>
+                        <td className="p-1 border-r border-prizm-border/50">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.batteryDoors, "BATTERY DOORS")}</div>
+                        </td>
+
+                        {/* Environmental / Safety Group */}
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.fire, "FIRE")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.fireTrouble, "FIRE TROUBLE")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.smoke, "SMOKE")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.heat, "HEAT")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.hydrogen, "HYDROGEN")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.hydrogenFault, "HYDROGEN FAULT")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.manualVentilation, "MANUAL VENTILATION")}</div>
+                        </td>
+                        <td className="p-1">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.envCtrl, "ENV CTRL")}</div>
+                        </td>
+                        <td className="p-1 bg-slate-900/10">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.upsAlarm, "UPS ALARM")}</div>
+                        </td>
                       </tr>
                     );
                   })
                 )}
-
               </tbody>
             </table>
           </div>
 
-          {/* TELEMETRY EMPTY STATE ACTION RECOGNITION */}
-          {filteredRows.length === 0 && (
-            <div className="bg-[#0E1017] border border-dashed border-white/10 rounded-lg p-8 text-center space-y-2">
+          {/* TELEMETRY EMPTY STATE INFO BANNER */}
+          {filteredRows.length === 0 && !loading && (
+            <div className="bg-prizm-surface border border-dashed border-prizm-border/80 rounded-lg p-8 text-center space-y-2 font-mono">
               <AlertTriangle className="mx-auto text-amber-500 animate-bounce" size={24} />
-              <p className="text-slate-200 text-xs font-bold font-mono">NO ACTIVE DISCRETE TRANSDUCERS FOUND</p>
-              <p className="text-slate-500 text-[10px] max-w-sm mx-auto font-sans">
-                The current telemetry list is empty based on the active search keyword (<span className="text-cyan-400 font-mono">"{searchQuery}"</span>) and Outlier filters.
+              <p className="text-white text-xs font-bold uppercase tracking-wider">No Active Sensors Found</p>
+              <p className="text-prizm-text-muted text-[11px] max-w-sm mx-auto font-sans leading-relaxed">
+                No telemetry sensor lines are currently active matching your criteria. Try reseting the filters or clear active search queries.
               </p>
               <button
-                onClick={handleResetSimulation}
-                className="bg-cyan-950/40 border border-cyan-500/30 text-cyan-400 font-bold text-[10px] px-3.5 py-1.5 rounded uppercase hover:bg-cyan-500/10 cursor-pointer transition mt-2 font-mono"
+                onClick={handleResetDefaults}
+                className="bg-prizm-primary/10 border border-prizm-primary/40 text-cyan-300 font-bold text-[10px] px-3.5 py-1.5 rounded uppercase hover:bg-prizm-primary/20 cursor-pointer transition mt-2 font-mono"
               >
                 Reset Search Filters
               </button>
             </div>
           )}
+
+          {/* SENSOR HEALTH EXTRAS GUIDE */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="p-2.5 rounded bg-prizm-surface border border-prizm-border text-[10.5px] text-prizm-text-muted font-sans space-y-0.5">
+              <span className="font-bold text-white uppercase block font-mono text-[9px] text-cyan-400">site fire panel gateway</span>
+              <p>Site-wide master gateway maps dry contact points from the Siemens FC-200 central station module directly. Real-time updates occur via Modbus TCP on slave address ID "FC200".</p>
+            </div>
+            <div className="p-2.5 rounded bg-prizm-surface border border-prizm-border text-[10.5px] text-prizm-text-muted font-sans space-y-0.5">
+              <span className="font-bold text-white uppercase block font-mono text-[9px] text-[#F472B6]">collection segment nodes</span>
+              <p>Lineup collectors acts as localized Modbus masters polling cluster strings and compiling HVAC, door interlocks and UPS alarms. Monitored on network segments 10.1.X.X - 10.4.X.X.</p>
+            </div>
+            <div className="p-2.5 rounded bg-prizm-surface border border-prizm-border text-[10.5px] text-prizm-text-muted font-sans space-y-0.5">
+              <span className="font-bold text-white uppercase block font-mono text-[9px] text-[#10B981]">string card transducers</span>
+              <p>Physical inverters report containment hydrogen PPM concentration and cabinet door contact switch states continuously. Fault blocks highlight structural containment problems.</p>
+            </div>
+          </div>
 
         </div>
 
