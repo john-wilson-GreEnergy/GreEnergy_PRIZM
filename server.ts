@@ -54,6 +54,8 @@ import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTo
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
 import { executeDataDiscovery } from "./src/server/telemetry/discovery";
 import hvacSimulationRouter from "./src/server/hvacSimulation/hvacSimulationRoutes";
+import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
+
 
 
 const app = express();
@@ -585,6 +587,183 @@ function pN(val: any, def: number | null = null): number | null {
   const n = Number(val);
   return isNaN(n) ? def : n;
 }
+
+// Site Distribution Endpoint
+app.get("/api/local/site-distribution/strings", (req, res) => {
+  const rawStringsWrapper = getEmsCachedRawStrings();
+  const blockWrapper = getEmsCachedBlock();
+  const ipMapWrapper = getEmsStringIpMap();
+  const conn: any = getEmsConnectionStatus() || {};
+
+  let rawData = [];
+  let metaWrapper = rawStringsWrapper;
+  let sourceLabel: "site-operations-summary" | "strings.csv" | "native-blockviewer" | "hybrid" = "hybrid";
+
+  if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
+    rawData = rawStringsWrapper.data;
+    const src = String(rawStringsWrapper.source || "").toLowerCase();
+    if (src.includes("csv") || src.includes("string")) {
+      sourceLabel = "strings.csv";
+    } else if (src.includes("summary") || src.includes("operation")) {
+      sourceLabel = "site-operations-summary";
+    } else {
+      sourceLabel = "hybrid";
+    }
+  } else if (blockWrapper.data && blockWrapper.data.strings && blockWrapper.data.strings.length > 0) {
+    rawData = blockWrapper.data.strings;
+    metaWrapper = blockWrapper;
+    sourceLabel = "native-blockviewer";
+  } else {
+    const blockData = blockWrapper.data || {};
+    rawData = blockData.strings || blockData.stringSummary?.tableRows || [];
+    metaWrapper = blockWrapper;
+    sourceLabel = "native-blockviewer";
+  }
+
+  let ipMap: any[] = [];
+  if (ipMapWrapper && Array.isArray(ipMapWrapper.data)) {
+    ipMap = ipMapWrapper.data;
+  }
+
+  function parseSafeNum(v: any): number | undefined {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return undefined;
+    return n;
+  }
+
+  function cleanTemp(val: any): number | undefined {
+    let numVal = parseSafeNum(val);
+    if (numVal === undefined) return undefined;
+    if (Math.abs(numVal) > 100) {
+      numVal = numVal / 10;
+    }
+    return numVal;
+  }
+
+  const rows = rawData.map((row: any) => {
+    const arrayIndex = parseSafeNum(row.arrayIndex ?? row.arrayNumber ?? row.array ?? row.ArrayIndex ?? row.ArrayNumber) ?? 1;
+    const stringIndex = parseSafeNum(row.stringIndex ?? row.stringNumber ?? row.string ?? row.StringIndex ?? row.StringNumber) ?? 1;
+    
+    const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
+    const ipAddress = row.ipAddress || row.ip || ipInfo?.ip || "Unknown";
+
+    const label = row.displayLabel || row.label || row.location || `A${arrayIndex}-S${stringIndex}`;
+
+    // Voltage normalization
+    const rawVolt = row.stackVoltage ?? row.stackVoltageVdc ?? row.stackVoltageVDC ?? row.dcVoltage ?? row.dcVoltageVdc ?? row.vStack ?? row.stringVoltage ?? row.voltageCalculated ?? row.voltageCalc ?? row.voltageMeasured ?? row.voltageMeas ?? row.calculatedVoltage ?? row.measuredVoltage ?? row.dcBusVoltage ?? row.voltage;
+    const cleanVoltage = parseSafeNum(rawVolt);
+
+    // Temperature normalization
+    const rawMaxTemp = row.maxCellTempC ?? row.maxCellTemperatureC ?? row.maxCellTemp ?? row.cellMaxTemp ?? row.maximumCellTemperature ?? row.cellGroupTempMax ?? row.cellTempMax ?? row.maxCellGroupTemp;
+    const rawAvgTemp = row.avgCellTempC ?? row.averageCellTemperature ?? row.cellGroupTempAvg ?? row.avgCellTemp ?? row.averageCellTemp ?? row.cellGroupTempMavg;
+    const rawMinTemp = row.minCellTempC ?? row.minCellTemperatureC ?? row.minCellTemp ?? row.cellMinTemp ?? row.minimumCellTemperature ?? row.cellGroupTempMin ?? row.cellTempMin ?? row.minCellGroupTemp;
+    const rawStackTemp = row.stackTemperatureC ?? row.stackTempC ?? row.stackTemperature ?? row.tempC ?? row.temperatureC;
+
+    const maxCellTempC = cleanTemp(rawMaxTemp);
+    const avgCellTempC = cleanTemp(rawAvgTemp);
+    const minCellTempC = cleanTemp(rawMinTemp);
+    const stackTemperatureC = cleanTemp(rawStackTemp);
+
+    const socPct = parseSafeNum(row.soc ?? row.Soc ?? row.powerSoc);
+
+    const communicating = getCommunicating(row);
+    const outRotation = getOutRotation(row);
+    const inRotation = !outRotation;
+    const contactorsClosed = getContactorsClosed(row);
+
+    const explicitDisconnected = (
+      row.connected === false || 
+      row.connected === "false" ||
+      String(row.connectionState || row.StringConnectionState || '').toLowerCase().includes('offline') ||
+      String(row.connectionState || row.StringConnectionState || '').toLowerCase().includes('disconnected')
+    );
+
+    let statusColor: "green" | "red" | "yellow" | "gray" = "gray";
+    let statusLabel = "Not Communicating";
+
+    if (!communicating) {
+      statusColor = "gray";
+      statusLabel = "Not Communicating";
+    } else if (inRotation && explicitDisconnected) {
+      statusColor = "red";
+      statusLabel = "Disconnected and In Rotation";
+    } else if (!inRotation || outRotation) {
+      statusColor = "yellow";
+      statusLabel = "Out of Rotation";
+    } else if (communicating && inRotation) {
+      statusColor = "green";
+      statusLabel = "Connected and In Rotation";
+    } else if (!communicating && inRotation) {
+      statusColor = "red";
+      statusLabel = "Disconnected and In Rotation";
+    }
+
+    return {
+      stationCode: conn.discoveredStationCode || conn.stationCode || "BHE0021",
+      blockIndex: conn.blockIndex || 1,
+      arrayIndex,
+      stringIndex,
+      ip: ipAddress,
+      displayLabel: label,
+      stackVoltage: cleanVoltage,
+      stackVoltageVdc: cleanVoltage,
+      dcVoltage: cleanVoltage,
+      maxCellTempC,
+      minCellTempC,
+      avgCellTempC,
+      stackTemperatureC,
+      socPct,
+      communicating,
+      inRotation,
+      outRotation,
+      contactorsClosed,
+      statusColor,
+      statusLabel,
+      sourcePath: row.sourcePath || metaWrapper.source || "/tools/report/ems/strings.csv",
+      raw: row
+    };
+  });
+
+  const stringCount = rows.length;
+  const communicatingCount = rows.filter(r => r.communicating).length;
+  const outOfRotationCount = rows.filter(r => r.outRotation).length;
+  const notCommunicatingCount = rows.filter(r => !r.communicating).length;
+
+  const voltages = rows.map(r => r.stackVoltage).filter((v): v is number => v !== undefined && v !== null);
+  const voltageMin = voltages.length > 0 ? Math.min(...voltages) : undefined;
+  const voltageMax = voltages.length > 0 ? Math.max(...voltages) : undefined;
+  const voltageAvg = voltages.length > 0 ? Number((voltages.reduce((sum, v) => sum + v, 0) / voltages.length).toFixed(1)) : undefined;
+
+  const temperatures = rows.map(r => r.maxCellTempC ?? r.avgCellTempC ?? r.stackTemperatureC).filter((t): t is number => t !== undefined && t !== null);
+  const temperatureMin = temperatures.length > 0 ? Math.min(...temperatures) : undefined;
+  const temperatureMax = temperatures.length > 0 ? Math.max(...temperatures) : undefined;
+  const temperatureAvg = temperatures.length > 0 ? Number((temperatures.reduce((sum, v) => sum + v, 0) / temperatures.length).toFixed(1)) : undefined;
+
+  const hasMaxCellTemp = rows.some(r => r.maxCellTempC !== undefined && r.maxCellTempC !== null);
+  const temperatureMetric = hasMaxCellTemp ? "Max Cell Temperature C" : "Average Cell Temperature C";
+
+  res.json({
+    success: true,
+    timestamp: new Date().toISOString(),
+    source: sourceLabel,
+    voltageMetric: "Stack Voltage Vdc",
+    temperatureMetric,
+    rows,
+    rollups: {
+      stringCount,
+      communicatingCount,
+      outOfRotationCount,
+      notCommunicatingCount,
+      voltageMin,
+      voltageMax,
+      voltageAvg,
+      temperatureMin,
+      temperatureMax,
+      temperatureAvg
+    }
+  });
+});
 
 // 5. GET /api/local/strings: Derived from tools/report/ems/strings.csv or fallback to blockviewer
 app.get("/api/local/strings", (req, res) => {

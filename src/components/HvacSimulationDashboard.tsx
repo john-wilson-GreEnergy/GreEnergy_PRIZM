@@ -251,9 +251,9 @@ export default function HvacSimulationDashboard() {
         setTimeSeriesData(prev => {
           const next = { ...prev };
           resultsList.forEach((row: HvacValidationResult) => {
-            const h1 = row.hvac1 ?? {};
-            const h2 = row.hvac2 ?? {};
-            const metrics = row.metrics ?? {};
+            const h1: any = row.hvac1 ?? {};
+            const h2: any = row.hvac2 ?? {};
+            const metrics: any = row.metrics ?? {};
 
             const list = next[row.ip] || [];
             next[row.ip] = [

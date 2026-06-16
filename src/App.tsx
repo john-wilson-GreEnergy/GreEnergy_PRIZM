@@ -13,11 +13,13 @@ import {
   Terminal,
   Sliders,
   Settings,
-  Lock
+  Lock,
+  BarChart3
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
 import StringDashboard from "./components/StringDashboard";
+import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
 import PcsDashboard from "./components/PcsDashboard";
 import DevicesManager from "./components/DevicesManager";
 import Reporting from "./components/Reporting";
@@ -33,7 +35,7 @@ import SafetyAdvancedDashboard from "./components/SafetyAdvancedDashboard";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
-type AppTabId = "overview" | "arrays-strings" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+type AppTabId = "overview" | "arrays-strings" | "site-distribution" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTabId>("overview");
@@ -196,6 +198,7 @@ export default function App() {
               {( [
                 { id: "overview", label: "Block Summary", icon: Activity },
                 { id: "arrays-strings", label: "String List", icon: Cpu },
+                { id: "site-distribution", label: "Site Distribution", icon: BarChart3 },
                 { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
                 { id: "site-configuration", label: "Site Configuration", icon: Settings },
                 { id: "feather-hvac", label: "Feather / HVAC", icon: Network },
@@ -249,6 +252,10 @@ export default function App() {
 
             {activeTab === "arrays-strings" && (
               <StringDashboard />
+            )}
+
+            {activeTab === "site-distribution" && (
+              <SiteDistributionDashboard />
             )}
             {activeTab === "pcs-dashboard" && (
               <PcsDashboard />
