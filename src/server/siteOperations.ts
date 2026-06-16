@@ -976,7 +976,7 @@ export async function buildSiteOperationsSummaryFromCache() {
         stringSummary.rollups.fleetCapacity = fleetCapacity;
         stringSummary.rollups.classificationSource = "shared-string-operational-state-v1";
         stringSummary.rollups.capacitySource = {
-            installedCapacity: "string.wattHourCapacity",
+            installedCapacity: capacitySourceMeta,
             storedEnergy: "string.kWh or derived from SOC",
             chargeLimit: "array.availableACChargekW | null",
             dischargeLimit: "array.availableACDischargekW | null"
