@@ -133,6 +133,12 @@ export default function HvacSimulationDashboard() {
   const [latestResults, setLatestResults] = useState<HvacValidationResult[]>([]);
   const [lastPollTime, setLastPollTime] = useState<string | null>(null);
 
+  // Separate deployment state from validation state
+  const [deploymentResults, setDeploymentResults] = useState<any[]>([]);
+  const [lastDeployedTargets, setLastDeployedTargets] = useState<string[]>([]);
+  const [monitorTargetSource, setMonitorTargetSource] = useState<"lastDeploy" | "activeScan" | "manualSelection">("lastDeploy");
+  const [monitorTargets, setMonitorTargets] = useState<string[]>([]);
+
   // Selected row for detail slide drawer
   const [selectedResultDetail, setSelectedResultDetail] = useState<HvacValidationResult | null>(null);
 
@@ -187,10 +193,11 @@ export default function HvacSimulationDashboard() {
 
   // Update Graph defaults
   useEffect(() => {
-    if (selectedIps.length > 0 && graphingIp !== "aggregate" && !selectedIps.includes(graphingIp)) {
+    const targets = monitorTargets.length > 0 ? monitorTargets : selectedIps;
+    if (targets.length > 0 && graphingIp !== "aggregate" && !targets.includes(graphingIp)) {
       setGraphingIp("aggregate");
     }
-  }, [selectedIps, graphingIp]);
+  }, [selectedIps, monitorTargets, graphingIp]);
 
   // Polling thread trigger
   useEffect(() => {
@@ -207,7 +214,7 @@ export default function HvacSimulationDashboard() {
     return () => {
       if (pollerRef.current) clearInterval(pollerRef.current);
     };
-  }, [pollingActive, pollingIntervalSec, selectedIps, selectedMode, startedAt]);
+  }, [pollingActive, pollingIntervalSec, monitorTargets, selectedIps, selectedMode, startedAt]);
 
   const fetchAudits = async () => {
     try {
@@ -220,13 +227,14 @@ export default function HvacSimulationDashboard() {
   };
 
   const executeVerifyFetch = async () => {
-    if (selectedIps.length === 0) return;
+    const targetsToPoll = monitorTargets.length > 0 ? monitorTargets : selectedIps;
+    if (targetsToPoll.length === 0) return;
     try {
       const res = await fetch("/api/local/hvac-simulation/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          targetIps: selectedIps,
+          targetIps: targetsToPoll,
           mode: selectedMode,
           startedAt: startedAt || new Date().toISOString()
         })
@@ -243,18 +251,22 @@ export default function HvacSimulationDashboard() {
         setTimeSeriesData(prev => {
           const next = { ...prev };
           resultsList.forEach((row: HvacValidationResult) => {
+            const h1 = row.hvac1 ?? {};
+            const h2 = row.hvac2 ?? {};
+            const metrics = row.metrics ?? {};
+
             const list = next[row.ip] || [];
             next[row.ip] = [
               ...list,
               {
                 time: tick,
-                hvac1Current: row.hvac1.currentA ?? 0,
-                hvac2Current: row.hvac2.currentA ?? 0,
-                spaceTemp: row.metrics.spaceTempC ?? 0,
-                supplyTemp: row.metrics.supplyAirTempC ?? 0,
-                cellTemp: row.metrics.avgCellTempC ?? 0,
-                spaceHumidity: row.metrics.spaceHumidityPct ?? 0,
-                outsideHumidity: row.metrics.outsideHumidityPct ?? 0,
+                hvac1Current: h1.currentA ?? 0,
+                hvac2Current: h2.currentA ?? 0,
+                spaceTemp: metrics.spaceTempC ?? 0,
+                supplyTemp: metrics.supplyAirTempC ?? 0,
+                cellTemp: metrics.avgCellTempC ?? 0,
+                spaceHumidity: metrics.spaceHumidityPct ?? 0,
+                outsideHumidity: metrics.outsideHumidityPct ?? 0,
                 remainingMinutes: row.simulationRemainingMinutes ?? 0
               }
             ].slice(-20);
@@ -308,21 +320,15 @@ export default function HvacSimulationDashboard() {
 
       const body = await res.json();
       if (body.success) {
-        setSuccessMsg(`Simulated controls applied successfully to ${body.targetCount} nodes.`);
-        setLatestResults(body.results || []);
-        setPollingActive(true);
+        setDeploymentResults(body.results || []);
+        setLastDeployedTargets(selectedIps);
+        setMonitorTargets(selectedIps);
+        setMonitorTargetSource("lastDeploy");
+        setLatestResults([]);
+        setTimeSeriesData({});
+        setPollingActive(false);
         fetchAudits();
-        // Pre-populate timeseries data immediately on success
-        try {
-          fetch(`/api/local/hvac-simulation/timeseries?targets=${selectedIps.join(",")}`)
-            .then(r => r.json())
-            .then(tsData => {
-              if (tsData.success) {
-                setTimeSeriesData(tsData.data || {});
-              }
-            }).catch(() => {});
-        } catch (e) {}
-        setTimeout(() => executeVerifyFetch(), 1000);
+        setSuccessMsg(`Simulation deployed to ${body.targetCount} targets. Select Begin Polling to collect telemetry.`);
       } else {
         setErrorMsg("Failed deploying commands: " + (body.error || "Hardware reject."));
       }
@@ -381,10 +387,18 @@ export default function HvacSimulationDashboard() {
       });
       if (res.ok) {
         const body = await res.json();
-        setScannedActive(body.activeSimulations || []);
+        const activeList = body.activeSimulations || [];
+        setScannedActive(activeList);
         setScannedAtLeastOnce(true);
-        if (body.activeSimulations && body.activeSimulations.length > 0) {
-          setSuccessMsg(`Detected ${body.activeSimulations.length} active simulations.`);
+        setMonitorTargets(activeList.map((sa: any) => sa.ip));
+        setMonitorTargetSource("activeScan");
+        setLatestResults([]);
+        setTimeSeriesData({});
+        setPollingActive(false);
+        if (activeList.length > 0) {
+          setSuccessMsg(`Detected ${activeList.length} active simulations. Select Begin Polling to collect telemetry.`);
+        } else {
+          setSuccessMsg("Scanning completed. No active simulations found.");
         }
       } else {
         setErrorMsg("Failed scanning active simulations.");
@@ -443,13 +457,50 @@ export default function HvacSimulationDashboard() {
 
   // Export functions
   const triggerCsvExport = () => {
-    if (latestResults.length === 0) return;
+    const listToExport = latestResults.length > 0 ? latestResults : [];
+    if (listToExport.length === 0 && deploymentResults.length > 0) {
+      // Create readable summary rows if only deployment results are present
+      const cols = ["IP", "Status", "Error", "CommandType"];
+      const rows = deploymentResults.map(r => [
+        r.ip || "",
+        r.success ? "SUCCESS" : "FAILED",
+        r.error || "",
+        selectedMode
+      ]);
+      const dStr = "data:text/csv;charset=utf-8," + [cols.join(","), ...rows.map(r => r.map(v => `"${v}"`).join(","))].join("\n");
+      const a = document.createElement("a");
+      a.href = encodeURI(dStr);
+      a.download = `PRIZM_Deployment_List_${selectedMode}.csv`;
+      a.click();
+      return;
+    }
+
+    if (listToExport.length === 0) return;
+
     const cols = ["IP", "Mode", "Status", "Flags", "H1_Amps", "H1_Fan", "H1_Comp", "H2_Amps", "H2_Fan", "H2_Comp", "SpaceTemp_C", "Supply_C", "RemMin", "Timestamp"];
-    const rows = latestResults.map(r => [
-      r.ip, r.mode, r.status, r.flags.join("|"), r.hvac1.currentA ?? "", r.hvac1.fanHighOn ? "ON" : "OFF", r.hvac1.compressorOn ? "ON" : "OFF",
-      r.hvac2.currentA ?? "", r.hvac2.fanHighOn ? "ON" : "OFF", r.hvac2.compressorOn ? "ON" : "OFF", r.metrics.spaceTempC ?? "", r.metrics.supplyAirTempC ?? "",
-      r.simulationRemainingMinutes ?? "", r.reportTimestamp || ""
-    ]);
+    const rows = listToExport.map(r => {
+      const h1 = r.hvac1 ?? {};
+      const h2 = r.hvac2 ?? {};
+      const metrics = r.metrics ?? {};
+      const flags = Array.isArray(r.flags) ? r.flags : [];
+      return [
+        r.ip ?? "",
+        r.mode ?? "",
+        r.status ?? "",
+        flags.join("|"),
+        h1.currentA ?? "",
+        h1.fanHighOn ? "ON" : "OFF",
+        h1.compressorOn ? "ON" : "OFF",
+        h2.currentA ?? "",
+        h2.fanHighOn ? "ON" : "OFF",
+        h2.compressorOn ? "ON" : "OFF",
+        metrics.spaceTempC ?? "",
+        metrics.supplyAirTempC ?? "",
+        r.simulationRemainingMinutes ?? "",
+        r.reportTimestamp || ""
+      ];
+    });
+
     const dStr = "data:text/csv;charset=utf-8," + [cols.join(","), ...rows.map(r => r.map(v => `"${v}"`).join(","))].join("\n");
     const a = document.createElement("a");
     a.href = encodeURI(dStr);
@@ -458,14 +509,16 @@ export default function HvacSimulationDashboard() {
   };
 
   const triggerJsonExport = () => {
-    if (latestResults.length === 0) return;
     const payload = JSON.stringify({
-      mode: selectedMode,
-      durationMinutes: timeoutMinutes,
+      selectedMode,
+      startedAt,
+      timeoutMinutes,
       configs: { fanCurrentMinA, compressorCurrentMinA },
-      targets: selectedIps,
-      runs: latestResults,
-      timeSeries: timeSeriesData
+      monitorTargets,
+      deploymentResults,
+      latestResults,
+      timeSeriesData,
+      metadata: { source: "PRIZM HVAC Simulation Dashboard" }
     }, null, 2);
     const dStr = "data:text/json;charset=utf-8," + encodeURIComponent(payload);
     const a = document.createElement("a");
@@ -500,16 +553,18 @@ export default function HvacSimulationDashboard() {
   const currentModeConfig = SIM_MODES.find(m => m.id === selectedMode) || SIM_MODES[0];
 
   // Logic to process chart aggregate or single target
+  const graphableTargets = monitorTargets.length > 0 ? monitorTargets : selectedIps;
+
   const getChartData = () => {
     if (graphingIp === "aggregate") {
       const tsMap = new Set<string>();
-      selectedIps.forEach(ip => {
+      graphableTargets.forEach(ip => {
         (timeSeriesData[ip] || []).forEach(pt => tsMap.add(pt.time));
       });
       const tList = Array.from(tsMap).sort();
       return tList.map(tStr => {
         let h1Sum = 0, h2Sum = 0, stSum = 0, count = 0;
-        selectedIps.forEach(ip => {
+        graphableTargets.forEach(ip => {
           const list = timeSeriesData[ip] || [];
           const match = list.find(pt => pt.time === tStr);
           if (match) {
@@ -1385,32 +1440,174 @@ export default function HvacSimulationDashboard() {
                   Step 5: Live Verification Logs & Monitors
                 </span>
               </div>
+            </div>
 
-              {/* Poller Action Controls */}
-              <div className="flex items-center gap-2 text-xs">
-                <div className="flex bg-black/45 rounded p-0.5 border border-prizm-border text-[9.5px]">
-                  <button
-                    onClick={() => { setPollingActive(true); executeVerifyFetch(); }}
-                    disabled={pollingActive || selectedIps.length === 0}
-                    className="px-2 py-1 bg-green-500/10 text-green-400 border border-green-500/25 rounded disabled:opacity-40 hover:bg-green-500/15"
-                  >
-                    POLL START
-                  </button>
-                  <button
-                    onClick={() => setPollingActive(false)}
-                    disabled={!pollingActive}
-                    className="px-2 py-1 bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/25 rounded disabled:opacity-40 hover:bg-prizm-danger/15"
-                  >
-                    STOP
-                  </button>
+            {/* MONITORING WORKFLOW MANAGER */}
+            <div className="bg-prizm-bg border border-prizm-border/60 p-3.5 rounded-lg space-y-3 font-mono">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-prizm-border/30 pb-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <Sliders size={13} className="text-cyan-400" />
+                  <span className="font-bold text-prizm-text uppercase tracking-wider">SIMULATION MONITOR LIST SETTINGS</span>
                 </div>
+                <div className="text-[10px] bg-black/30 px-2 py-0.5 rounded border border-prizm-border/40 text-prizm-text-muted">
+                  SOURCE: <span className="text-cyan-400 font-bold uppercase">{
+                    monitorTargetSource === "lastDeploy" ? "Last Deploy" :
+                    monitorTargetSource === "activeScan" ? "Active Scan" : "Manual Selection"
+                  }</span>
+                </div>
+              </div>
+
+              {monitorTargets.length === 0 ? (
+                <div className="p-4 text-center border border-dashed border-prizm-border/30 rounded bg-prizm-surface/45 text-[10px] text-prizm-text-muted">
+                  ❌ No simulation monitor list selected.<br />
+                  Deploy a simulation or scan active simulations to populate this list.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] text-prizm-text-muted">
+                    <div className="bg-prizm-surface p-1.5 rounded border border-prizm-border/30">
+                      Active Mode: <span className="text-prizm-text font-bold block">{selectedMode.toUpperCase()}</span>
+                    </div>
+                    <div className="bg-prizm-surface p-1.5 rounded border border-prizm-border/30">
+                      Monitored Units: <span className="text-prizm-text font-bold block">{monitorTargets.length} IPs</span>
+                    </div>
+                    <div className="bg-prizm-surface p-1.5 rounded border border-prizm-border/30">
+                      Started: <span className="text-prizm-text font-bold block truncate">{startedAt ? formatTimestampWithUtc(startedAt) : "N/A"}</span>
+                    </div>
+                    <div className="bg-prizm-surface p-1.5 rounded border border-prizm-border/30">
+                      Telemetry Packets: <span className={`${pollingActive ? "text-green-500" : "text-yellow-600"} font-bold block`}>{pollingActive ? "ACTIVE STREAM" : "IDLE"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1 text-[9px] max-h-[80px] overflow-y-auto p-1.5 bg-black/25 rounded border border-prizm-border/20">
+                    {monitorTargets.map(ip => {
+                      const isSelected = selectedIps.includes(ip);
+                      return (
+                        <span key={ip} className={`px-1.5 py-0.5 rounded flex items-center gap-1.5 ${isSelected ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" : "bg-prizm-surface border border-prizm-border/50 text-prizm-text-muted"}`}>
+                          <span className={`w-1 h-1 rounded-full ${isSelected ? "bg-cyan-400" : "bg-gray-500"}`} />
+                          {ip}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Required buttons matrix */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 text-[9.5px]">
+                {/* Source Selectors */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMonitorTargets(lastDeployedTargets);
+                    setMonitorTargetSource("lastDeploy");
+                    setSuccessMsg("Switched monitor list to last successfully deployed target list.");
+                  }}
+                  disabled={lastDeployedTargets.length === 0}
+                  className="py-1.5 px-2 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded font-bold text-prizm-text uppercase transition disabled:opacity-40"
+                  title="Load target devices from the last simulation deployment"
+                >
+                  Use Last Deploy List
+                </button>
 
                 <button
-                  onClick={executeVerifyFetch}
+                  type="button"
+                  onClick={() => {
+                    setMonitorTargets(selectedIps);
+                    setMonitorTargetSource("manualSelection");
+                    setSuccessMsg("Switched monitor list to current manually selected targets.");
+                  }}
                   disabled={selectedIps.length === 0}
-                  className="p-1 px-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded text-[9.5px] uppercase font-bold tracking-wider"
+                  className="py-1.5 px-2 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded font-bold text-prizm-text uppercase transition disabled:opacity-40"
+                  title="Load manually checked target list into monitor scope"
                 >
-                  Scan Now
+                  Use Selected Targets
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleActiveScan}
+                  disabled={isScanningActive}
+                  className="py-1.5 px-2 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded font-bold uppercase transition disabled:opacity-40 text-cyan-400"
+                  title="Scan networks for any controllers with active simulation timers"
+                >
+                  {isScanningActive ? <RefreshCw className="animate-spin inline mr-1" size={10} /> : null}
+                  Scan Active Simulations
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (scannedActive.length === 0) {
+                      setErrorMsg("No active simulations loaded in scanned buffer. Execute scan first.");
+                      return;
+                    }
+                    const scannedIps = scannedActive.map(sa => sa.ip);
+                    setSelectedIps(scannedIps);
+                    setMonitorTargets(scannedIps);
+                    setMonitorTargetSource("activeScan");
+                    setSuccessMsg("Selected and monitored all scanned active simulations. Select Begin Polling to collect telemetry.");
+                  }}
+                  disabled={scannedActive.length === 0}
+                  className="py-1.5 px-2 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded font-bold text-prizm-text uppercase transition disabled:opacity-40"
+                  title="Select and track all found active simulation targets"
+                >
+                  Select All Active Simulations
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 text-[9.5px] border-t border-prizm-border/20 pt-2 font-black font-mono">
+                {/* Polling / Actions */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPollingActive(true);
+                    executeVerifyFetch();
+                    setSuccessMsg("Telemetry fetching thread started.");
+                  }}
+                  disabled={pollingActive || (monitorTargets.length === 0 && selectedIps.length === 0)}
+                  className="py-1.5 px-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 rounded uppercase transition disabled:opacity-40"
+                >
+                  Begin Polling
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPollingActive(false);
+                    setSuccessMsg("Telemetry fetching thread stopped.");
+                  }}
+                  disabled={!pollingActive}
+                  className="py-1.5 px-2 bg-prizm-danger/10 hover:bg-prizm-danger/20 text-prizm-danger border border-prizm-danger/30 rounded uppercase transition disabled:opacity-40"
+                >
+                  Stop Polling
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    executeVerifyFetch();
+                    setSuccessMsg("Single verification probe dispatched.");
+                  }}
+                  disabled={monitorTargets.length === 0 && selectedIps.length === 0}
+                  className="py-1.5 px-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded uppercase transition disabled:opacity-40"
+                >
+                  Poll Once
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMonitorTargets([]);
+                    setMonitorTargetSource("manualSelection");
+                    setLatestResults([]);
+                    setTimeSeriesData({});
+                    setSuccessMsg("Monitoring list and metrics logs cleared.");
+                  }}
+                  disabled={monitorTargets.length === 0}
+                  className="py-1.5 px-2 bg-prizm-surface hover:bg-prizm-surface-strong border border-prizm-border rounded uppercase transition disabled:opacity-40 text-prizm-text"
+                >
+                  Clear Monitoring List
                 </button>
               </div>
             </div>
@@ -1468,14 +1665,14 @@ export default function HvacSimulationDashboard() {
             </div>
 
             {/* REAL-TIME CHARTS PANEL */}
-            {selectedIps.length > 0 ? (
+            {graphableTargets.length > 0 ? (
               <div className="bg-prizm-bg p-3 border border-prizm-border/80 rounded-lg space-y-3">
                 <div className="flex items-center justify-between pb-1.5 border-b border-prizm-border/40 font-mono text-[10.5px]">
                   <div className="flex items-center gap-1.5">
                     <TrendingUp size={13} className="text-prizm-primary animate-pulse" />
                     <span className="text-prizm-text uppercase font-bold">Live Trends:</span>
                     <span className="text-yellow-600 font-bold bg-yellow-400/10 px-2 py-0.5 rounded">
-                      {graphingIp === "aggregate" ? "ALL (Selected Aggregate)" : graphingIp}
+                      {graphingIp === "aggregate" ? "ALL (Monitor Aggregate)" : graphingIp}
                     </span>
                   </div>
 
@@ -1486,17 +1683,16 @@ export default function HvacSimulationDashboard() {
                       onChange={e => setGraphingIp(e.target.value)}
                       className="bg-prizm-surface border border-prizm-border text-prizm-text text-[10px] font-mono rounded px-1.5 cursor-pointer font-sans"
                     >
-                      <option value="aggregate">★ ALL SELECTED (AGGREGATE)</option>
-                      {selectedIps.map(ip => <option key={ip} value={ip}>{ip}</option>)}
+                      <option value="aggregate">★ ALL MONITORED (AGGREGATE)</option>
+                      {graphableTargets.map(ip => <option key={ip} value={ip}>{ip}</option>)}
                     </select>
                   </div>
                 </div>
 
                 {activeChartData.length === 0 ? (
-                  <div className="h-[120px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-black/10 text-center font-mono text-[9.5px] p-5 text-prizm-text-muted">
+                  <div className="h-[120px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-black/10 text-center font-mono text-[10.5px] p-5 text-prizm-text-muted">
                     <Clock className="opacity-50 mb-1" size={20} />
-                    <span>TIMELINE COORDINATES CACHING...</span>
-                    <span>Start poller thread to stream electric load graphs.</span>
+                    <span>No telemetry samples collected yet. Click Begin Polling or Poll Once.</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1614,6 +1810,11 @@ export default function HvacSimulationDashboard() {
                     </thead>
                     <tbody className="divide-y divide-prizm-border/25">
                       {latestResults.map(r => {
+                        const h1 = r.hvac1 ?? {};
+                        const h2 = r.hvac2 ?? {};
+                        const metrics = r.metrics ?? {};
+                        const flags = Array.isArray(r.flags) ? r.flags : [];
+
                         const sClass = r.status === "PASS"
                           ? "bg-green-500/10 text-green-700 border-green-500/20"
                           : r.status === "WARNING"
@@ -1622,8 +1823,8 @@ export default function HvacSimulationDashboard() {
                           ? "bg-red-500/15 text-prizm-danger border-prizm-danger/20"
                           : "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20";
 
-                        const h1Passed = r.hvac1.passed;
-                        const h2Passed = r.hvac2.passed;
+                        const h1Passed = h1.passed;
+                        const h2Passed = h2.passed;
 
                         return (
                           <tr 
@@ -1643,53 +1844,53 @@ export default function HvacSimulationDashboard() {
                             </td>
 
                             <td className="p-1.5 text-center font-light border-r border-prizm-border/20 text-prizm-text-muted">
-                              {r.mode.toUpperCase()}
+                              {(r.mode || "").toUpperCase()}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-prizm-text">
-                              {r.hvac1.currentA !== null ? `${r.hvac1.currentA.toFixed(1)}A` : "-"}
+                              {h1.currentA !== undefined && h1.currentA !== null ? `${h1.currentA.toFixed(1)}A` : "-"}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 space-x-1.5 font-bold">
                               {/* Fan badge */}
-                              {r.hvac1.fanHighOn !== null ? (
-                                <span className={`px-1 rounded text-[8px] ${r.hvac1.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
-                                  {r.hvac1.fanHighOn ? "FAN_HI" : "FAN_OFF"}
+                              {h1.fanHighOn !== undefined && h1.fanHighOn !== null ? (
+                                <span className={`px-1 rounded text-[8px] ${h1.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
+                                  {h1.fanHighOn ? "FAN_HI" : "FAN_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
 
                               {/* Comp badge */}
-                              {r.hvac1.compressorOn !== null ? (
+                              {h1.compressorOn !== undefined && h1.compressorOn !== null ? (
                                 <span className={`px-1 rounded text-[8px] border ${
-                                  r.hvac1.compressorOn 
+                                  h1.compressorOn 
                                     ? "bg-green-500/10 text-green-700 border-green-500/20" 
-                                    : (r.hvac1.expected && !h1Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
-                                }`}>
-                                  {r.hvac1.compressorOn ? "COMP_ON" : "COMP_OFF"}
+                                    : (h1.expected && !h1Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
+                                  }`}>
+                                  {h1.compressorOn ? "COMP_ON" : "COMP_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 font-bold text-prizm-text">
-                              {r.hvac2.currentA !== null ? `${r.hvac2.currentA.toFixed(1)}A` : "-"}
+                              {h2.currentA !== undefined && h2.currentA !== null ? `${h2.currentA.toFixed(1)}A` : "-"}
                             </td>
 
                             <td className="p-1.5 text-center border-r border-prizm-border/20 space-x-1.5 font-bold">
                               {/* Fan badge */}
-                              {r.hvac2.fanHighOn !== null ? (
-                                <span className={`px-1 rounded text-[8px] ${r.hvac2.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
-                                  {r.hvac2.fanHighOn ? "FAN_HI" : "FAN_OFF"}
+                              {h2.fanHighOn !== undefined && h2.fanHighOn !== null ? (
+                                <span className={`px-1 rounded text-[8px] ${h2.fanHighOn ? "bg-green-500/10 text-green-700" : "bg-prizm-bg text-prizm-text-muted border border-prizm-border/30"}`}>
+                                  {h2.fanHighOn ? "FAN_HI" : "FAN_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
 
                               {/* Comp badge */}
-                              {r.hvac2.compressorOn !== null ? (
+                              {h2.compressorOn !== undefined && h2.compressorOn !== null ? (
                                 <span className={`px-1 rounded text-[8px] border ${
-                                  r.hvac2.compressorOn 
+                                  h2.compressorOn 
                                     ? "bg-green-500/10 text-green-700 border-green-500/20" 
-                                    : (r.hvac2.expected && !h2Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
-                                }`}>
-                                  {r.hvac2.compressorOn ? "COMP_ON" : "COMP_OFF"}
+                                    : (h2.expected && !h2Passed ? "bg-red-500/20 text-prizm-danger border-prizm-danger/30 animate-pulse" : "bg-prizm-bg text-prizm-text-muted border-prizm-border/30")
+                                  }`}>
+                                  {h2.compressorOn ? "COMP_ON" : "COMP_OFF"}
                                 </span>
                               ) : <span className="text-prizm-text-muted">-</span>}
                             </td>
@@ -1752,10 +1953,14 @@ export default function HvacSimulationDashboard() {
             ) : (
               <div className="space-y-2 max-h-[220px] overflow-y-auto no-scrollbar font-mono text-[10.5px]">
                 {displayDiagnostics.map(row => {
+                  const h1 = row.hvac1 ?? {};
+                  const h2 = row.hvac2 ?? {};
+                  const flags = Array.isArray(row.flags) ? row.flags : [];
+
                   let borderCol = "border-l-4 border-green-500 bg-green-500/5";
                   let severity = "LOW";
                   let issueText = "Autonomous Operations Nominal";
-                  let measured = `H1: ${row.hvac1.currentA ?? 0}A, H2: ${row.hvac2.currentA ?? 0}A`;
+                  let measured = `H1: ${h1.currentA ?? 0}A, H2: ${h2.currentA ?? 0}A`;
                   let expected = `Standard climate feedback controls reacting.`;
                   let recommendation = "Verify cooling metrics periodically under standard poller sequence.";
 
@@ -1769,8 +1974,8 @@ export default function HvacSimulationDashboard() {
                   } else if (row.status === "FAIL") {
                     borderCol = "border-l-4 border-prizm-danger bg-prizm-danger/5";
                     severity = "CRITICAL FAIL";
-                    issueText = row.flags.includes("COMPRESSOR_NOT_CALLED") ? "COMPRESSOR THERMOSTAT CALL FAILURE" : "ELECTRICAL STAGE DISCREPANCY DETECTED";
-                    measured = `measured H1 current = ${row.hvac1.currentA ?? 0}A, current H2 = ${row.hvac2.currentA ?? 0}A`;
+                    issueText = flags.includes("COMPRESSOR_NOT_CALLED") ? "COMPRESSOR THERMOSTAT CALL FAILURE" : "ELECTRICAL STAGE DISCREPANCY DETECTED";
+                    measured = `measured H1 current = ${h1.currentA ?? 0}A, current H2 = ${h2.currentA ?? 0}A`;
                     expected = `Expected compressor current load >= ${compressorCurrentMinA}A under cooling command sequence.`;
                     recommendation = "Verify stage signals, check local HVAC electrical panels, inspect compressor contactor hardware drifts.";
                   } else if (row.status === "WARNING" || row.status === "STALE") {
@@ -1781,9 +1986,9 @@ export default function HvacSimulationDashboard() {
                     expected = `Expected active report age < ${staleReportMaxAgeSec} seconds.`;
                     recommendation = "Uplink packet routing latency detected on this gateway string segment. Re-sync direct LAN switch interfaces.";
                     
-                    if (row.flags.includes("COMPRESSOR_CURRENT_LOW")) {
+                    if (flags.includes("COMPRESSOR_CURRENT_LOW")) {
                       issueText = "COMPRESSOR CURRENT UNDER LIMIT";
-                      measured = `HVAC current drew = ${row.hvac1.currentA ?? row.hvac2.currentA ?? 0}A`;
+                      measured = `HVAC current drew = ${h1.currentA ?? h2.currentA ?? 0}A`;
                       expected = `Expected minimum operating load >= ${compressorCurrentMinA}A threshold.`;
                       recommendation = "Inspect thermal cycle pressures, check freon leak stages, contact field HVAC technician to inspect electrical compressor drawing logs.";
                     }
@@ -1899,70 +2104,80 @@ export default function HvacSimulationDashboard() {
 
             <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar">
               
-              {/* Dynamic details */}
-              <div className="space-y-1.5 bg-prizm-bg p-3 border border-prizm-border rounded">
-                <div className="flex justify-between border-b border-prizm-border/10 pb-1">
-                  <span className="text-prizm-text-muted font-bold">VAL TIMESTAMP:</span>
-                  <span className="text-prizm-text font-semibold">{formatTimestampWithUtc(selectedResultDetail.reportTimestamp || "")}</span>
-                </div>
-                <div className="flex justify-between border-b border-prizm-border/10 pb-1">
-                  <span className="text-prizm-text-muted font-bold">SIM ACTIVE STATE:</span>
-                  <span className="text-green-600 font-bold uppercase">{selectedResultDetail.simulationRemainingMinutes ? "ACTIVE" : "INACTIVE"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-prizm-text-muted font-bold">TIMER REMAINING:</span>
-                  <span className="text-prizm-text font-bold">{selectedResultDetail.simulationRemainingMinutes ?? 0} mins</span>
-                </div>
-              </div>
+              {(() => {
+                const sH1 = selectedResultDetail.hvac1 ?? {};
+                const sH2 = selectedResultDetail.hvac2 ?? {};
+                const sMetrics = selectedResultDetail.metrics ?? {};
+                const sFlags = Array.isArray(selectedResultDetail.flags) ? selectedResultDetail.flags : [];
+                return (
+                  <>
+                    {/* Dynamic details */}
+                    <div className="space-y-1.5 bg-prizm-bg p-3 border border-prizm-border rounded">
+                      <div className="flex justify-between border-b border-prizm-border/10 pb-1">
+                        <span className="text-prizm-text-muted font-bold">VAL TIMESTAMP:</span>
+                        <span className="text-prizm-text font-semibold">{formatTimestampWithUtc(selectedResultDetail.reportTimestamp || "")}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-prizm-border/10 pb-1">
+                        <span className="text-prizm-text-muted font-bold">SIM ACTIVE STATE:</span>
+                        <span className="text-green-600 font-bold uppercase">{selectedResultDetail.simulationRemainingMinutes ? "ACTIVE" : "INACTIVE"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-prizm-text-muted font-bold">TIMER REMAINING:</span>
+                        <span className="text-prizm-text font-bold">{selectedResultDetail.simulationRemainingMinutes ?? 0} mins</span>
+                      </div>
+                    </div>
 
-              {/* Status details HVAC 1 */}
-              <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-prizm-primary-strong font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 1 Telemetry diagnostics</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
-                  <div>Current draw: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.currentA !== null ? `${selectedResultDetail.hvac1.currentA}A` : "-"}</strong></div>
-                  <div>Compressor call: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
-                  <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
-                  <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac1.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
-                </div>
-              </div>
+                    {/* Status details HVAC 1 */}
+                    <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
+                      <span className="text-prizm-primary-strong font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 1 Telemetry diagnostics</span>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                        <div>Current draw: <strong className="text-prizm-text-strong font-black">{sH1.currentA !== undefined && sH1.currentA !== null ? `${sH1.currentA}A` : "-"}</strong></div>
+                        <div>Compressor call: <strong className="text-prizm-text-strong font-black">{sH1.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
+                        <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{sH1.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
+                        <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{sH1.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
+                      </div>
+                    </div>
 
-              {/* Status details HVAC 2 */}
-              <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 2 Telemetry diagnostics</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
-                  <div>Current draw: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.currentA !== null ? `${selectedResultDetail.hvac2.currentA}A` : "-"}</strong></div>
-                  <div>Compressor call: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
-                  <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
-                  <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.hvac2.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
-                </div>
-              </div>
+                    {/* Status details HVAC 2 */}
+                    <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
+                      <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">HVAC 2 Telemetry diagnostics</span>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                        <div>Current draw: <strong className="text-prizm-text-strong font-black">{sH2.currentA !== undefined && sH2.currentA !== null ? `${sH2.currentA}A` : "-"}</strong></div>
+                        <div>Compressor call: <strong className="text-prizm-text-strong font-black">{sH2.compressorOn ? "ON (HIGH)" : "OFF"}</strong></div>
+                        <div>Condenser fan: <strong className="text-prizm-text-strong font-black">{sH2.fanHighOn ? "HIGH SPEED" : "LOW/OFF"}</strong></div>
+                        <div>Reversing Valve: <strong className="text-prizm-text-strong font-black">{sH2.reversingValveOn ? "HEATING" : "COOLING"}</strong></div>
+                      </div>
+                    </div>
 
-              {/* Climate readings */}
-              <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
-                <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">Climate sensor package readings</span>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
-                  <div>Space Climate Temp: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.spaceTempC}°C</strong></div>
-                  <div>Discharge Climate Temp: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.supplyAirTempC}°C</strong></div>
-                  <div>Cell Thermal Average: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.avgCellTempC}°C</strong></div>
-                  <div>Discharging humidity: <strong className="text-prizm-text-strong font-black">{selectedResultDetail.metrics.spaceHumidityPct}% RH</strong></div>
-                </div>
-              </div>
+                    {/* Climate readings */}
+                    <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
+                      <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">Climate sensor package readings</span>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
+                        <div>Space Climate Temp: <strong className="text-prizm-text-strong font-black">{sMetrics.spaceTempC ?? " - "}°C</strong></div>
+                        <div>Discharge Climate Temp: <strong className="text-prizm-text-strong font-black">{sMetrics.supplyAirTempC ?? " - "}°C</strong></div>
+                        <div>Cell Thermal Average: <strong className="text-prizm-text-strong font-black">{sMetrics.avgCellTempC ?? " - "}°C</strong></div>
+                        <div>Discharging humidity: <strong className="text-prizm-text-strong font-black">{sMetrics.spaceHumidityPct ?? " - "}% RH</strong></div>
+                      </div>
+                    </div>
 
-              {/* Warning flags */}
-              <div className="p-3 border border-prizm-border rounded bg-prizm-bg">
-                <span className="text-yellow-600 font-bold block uppercase border-b border-prizm-border/20 pb-1">Triggered alert warning flags</span>
-                {selectedResultDetail.flags.length === 0 ? (
-                  <span className="text-green-700 text-[10px] font-bold block mt-1">✓ No warning flags active on this controller.</span>
-                ) : (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {selectedResultDetail.flags.map(f => (
-                      <span key={f} className="bg-red-500/20 text-prizm-danger border border-prizm-danger/40 rounded px-1.5 py-0.5 text-[9px] font-bold">
-                        {f}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    {/* Warning flags */}
+                    <div className="p-3 border border-prizm-border rounded bg-prizm-bg">
+                      <span className="text-yellow-600 font-bold block uppercase border-b border-prizm-border/20 pb-1">Triggered alert warning flags</span>
+                      {sFlags.length === 0 ? (
+                        <span className="text-green-700 text-[10px] font-bold block mt-1">✓ No warning flags active on this controller.</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {sFlags.map(f => (
+                            <span key={f} className="bg-red-500/20 text-prizm-danger border border-prizm-danger/40 rounded px-1.5 py-0.5 text-[9px] font-bold">
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
 
             </div>
 
