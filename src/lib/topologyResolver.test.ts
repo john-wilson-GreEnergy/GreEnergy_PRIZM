@@ -43,7 +43,7 @@ function runTests() {
 
   // Test 3: Alternate base network (e.g. 10.255.x.x / 10.255.5.55)
   console.log("Test 3: Alternate base network parsing...");
-  const altProfile: SiteTopologyProfile = {
+  const altProfile: any = {
     ipLayout: {
       baseNetwork: "10.255.0.0/16"
     }
@@ -56,7 +56,7 @@ function runTests() {
 
   // Test 4: Explicit device map overrides formula
   console.log("Test 4: Explicit device map overrides...");
-  const explicitProfile: SiteTopologyProfile = {
+  const explicitProfile: any = {
     ipLayout: {
       explicitDeviceMap: {
         "172.20.14.8": "Array 2 CS",
