@@ -822,7 +822,14 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   let coreEndpointsSucceeded = 0;
 
   const criticalFetches = Promise.allSettled([
-    fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.status = { ...emsCache.status, ...d }; return d; }),
+    fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 
+      const statusText = String(text || '').trim();
+      if (!statusText || !statusText.toUpperCase().startsWith('OK')) {
+        throw new Error(`/status returned unexpected body: ${statusText.slice(0, 80)}`);
+      }
+      emsCache.status = { ...emsCache.status, turtleStatusOk: true, turtleStatusText: statusText };
+      return statusText;
+    }),
     fetchAndRecord('/tools/report/ems/status.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.status = { ...emsCache.status, ...d }; return d; }),
     fetchAndRecord('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.block = d; return d; }),
     fetchAndRecord('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.lastCall = d; return d; }),
@@ -946,9 +953,12 @@ export function getEmsConnectionStatus() {
       ? "Demo mode manual toggle is enabled. Hosting full-scale local telemetry datasets." 
       : (source === "live"
           ? "Active LAN ethernet connections detected." 
-          : (source === "cached"
-              ? "EMS hardware unreachable. Strict production mode active. Serving stale cached data."
-              : "EMS unreachable & no cached data available. Displaying offline protection status."
+          : (source === "partial"
+              ? "EMS reachable, but one or more expected endpoints failed."
+              : (source === "cached"
+                  ? "EMS currently unreachable. Using last known snapshot."
+                  : "EMS unreachable and no usable cached data is available."
+                )
             )
         )
   };

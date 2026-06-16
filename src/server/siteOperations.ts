@@ -825,6 +825,44 @@ export async function buildSiteOperationsSummaryFromCache() {
         }
 
         // Part H - Fleet Capacity rollups and dedicated fleetCapacity object
+        const capacityMap = new Map<string, number>();
+        let homogeneousCapacityValue: number | null = null;
+        let capacitySourceMeta = "inferred";
+        const allCapacities: number[] = [];
+
+        arraySummary.forEach((arr: any) => {
+            const arrIndex = arr.arrayIndex ?? arr.arrayNumber ?? arr.id ?? 1;
+            const nativeStrings = arr.raw?.strings ?? arr.raw?.arrayStrings ?? [];
+            if (Array.isArray(nativeStrings)) {
+                nativeStrings.forEach((ns: any) => {
+                    const strIndex = ns.stringIndex ?? ns.stringNumber ?? ns.id ?? 1;
+                    const c = numOrNull(ns.wattHourCapacity ?? ns.WattHourCapacity ?? ns.watt_hour_capacity ?? ns.capacityWh ?? ns.CapacityWh ?? null);
+                    if (c !== null) {
+                        capacityMap.set(`${arrIndex}:${strIndex}`, c);
+                        allCapacities.push(c);
+                        capacitySourceMeta = "arraySummary.raw.strings[].wattHourCapacity";
+                    } else {
+                        const ah = numOrNull(ns.ampHourCapacity ?? null);
+                        const nv = numOrNull(ns.nominalVoltage ?? 1326); // Default assuming standard string
+                        if (ah !== null) {
+                            const inferredWh = ah * nv;
+                            capacityMap.set(`${arrIndex}:${strIndex}`, inferredWh);
+                            allCapacities.push(inferredWh);
+                            capacitySourceMeta = "arraySummary.raw.strings[].ampHourCapacity * nominalVoltage";
+                        }
+                    }
+                });
+            }
+        });
+
+        if (allCapacities.length > 0) {
+            const first = allCapacities[0];
+            const allSame = allCapacities.every(c => c === first);
+            if (allSame && allCapacities.length > 20) {
+                homogeneousCapacityValue = first;
+            }
+        }
+
         let validInstalledCount = 0;
         let totalInstalledWh = 0;
         let onlineInstalledWh = 0;
@@ -839,7 +877,13 @@ export async function buildSiteOperationsSummaryFromCache() {
         let hasValidStored = false;
 
         stringSummary.tableRows.forEach((r: any) => {
-            const whCap = numOrNull(r.wattHourCapacity ?? r.raw?.wattHourCapacity ?? r.raw?.WattHourCapacity ?? r.raw?.watt_hour_capacity ?? r.raw?.CapacityWh ?? null);
+            const arrIndex = r.arrayIndex ?? r.raw?.arrayIndex ?? r.raw?.arrayNumber ?? 1;
+            const strIndex = r.stringIndex ?? r.raw?.stringIndex ?? r.raw?.stringNumber ?? r.index ?? 1;
+            let whCap = numOrNull(r.wattHourCapacity ?? r.raw?.wattHourCapacity ?? r.raw?.WattHourCapacity ?? r.raw?.watt_hour_capacity ?? r.raw?.CapacityWh ?? capacityMap.get(`${arrIndex}:${strIndex}`) ?? null);
+            if (whCap === null && homogeneousCapacityValue !== null) {
+                whCap = homogeneousCapacityValue;
+            }
+
             if (whCap !== null) {
                 validInstalledCount++;
                 totalInstalledWh += whCap;
@@ -920,7 +964,7 @@ export async function buildSiteOperationsSummaryFromCache() {
             availableChargeKW,
             availableDischargeKW,
             source: {
-                installedCapacity: "string.wattHourCapacity",
+                installedCapacity: capacitySourceMeta,
                 storedEnergy: "string.kWh or derived from SOC",
                 chargeLimit: "array.availableACChargekW | null",
                 dischargeLimit: "array.availableACDischargekW | null"
@@ -1295,37 +1339,41 @@ export async function buildSiteOperationsSummaryFromCache() {
 
          // Add source health errors
          if (sourceHealth) {
+            const hasUsableData = stringSummary.tableRows.length > 0;
+
             sourceHealth.forEach((s: any) => {
                 if (!s.ok && s.error && s.error !== "NONE") {
-                    const affectedLabel = getEntityOrHostFromEndpoint(s.endpoint || s.name);
                     const host = s.endpoint || s.name;
-                    const resolvedTarget = normalizeIpToEquipmentCallout(host, activeProfile, liveDevices);
-                    const calloutLabel = resolvedTarget.mapped ? resolvedTarget.label : affectedLabel;
+                    const isCritical = ['/status', '/tools/report/ems/status.json', '/tools/monitor/ems/blockviewer/data', '/tools/report/ems/lastCall.json', '/tools/report/ems/strings.csv'].includes(host);
+
+                    if (hasUsableData) {
+                        return; // If we have usable parsed data, suppress polling failures from polluting corrective actions
+                    }
 
                     const target: any = {
                         raw: host,
-                        label: calloutLabel,
-                        displayLabel: resolvedTarget.mapped ? `${calloutLabel} — ${host}` : `${calloutLabel} — ${host}`,
-                        mapped: resolvedTarget.mapped,
-                        type: resolvedTarget.type || "unknown",
+                        label: host,
+                        displayLabel: host,
+                        mapped: false,
+                        type: "endpoint",
                         ip: host,
                         source: s.type
                     };
 
                     correctiveActions.push({
                         id: `source_health_${s.type}_${host}`,
-                        level: "ALARM",
-                        source: s.type,
+                        level: isCritical ? "WARNING" : "INFO",
+                        source: `${s.type} Source: ${host}`,
                         fault: "Source Polling Failed",
                         faultName: "Source Polling Failed",
                         faultId: "SOURCE_POLL_FAIL",
-                        object: calloutLabel,
-                        details: "Error: " + s.error + " (Endpoint: " + host + ")",
+                        object: "Data Source",
+                        details: "Endpoint unreachable or failed: " + s.error,
                         firstSeen: new Date().toISOString(),
                         count: 1,
                         affectedCount: 1,
-                        affectedSummary: calloutLabel,
-                        suggestedAction: "Check remote endpoint connectivity for " + calloutLabel,
+                        affectedSummary: host,
+                        suggestedAction: "Verify local connection and API endpoint availability for " + host,
                         affected: [target],
                         affectedTargets: [target]
                     });
@@ -1353,7 +1401,7 @@ export async function buildSiteOperationsSummaryFromCache() {
             fleetCapacity,
             classificationSource: "shared-string-operational-state-v1",
             capacitySource: {
-                installedCapacity: "string.wattHourCapacity",
+                installedCapacity: capacitySourceMeta,
                 storedEnergy: "string.kWh or derived from SOC",
                 chargeLimit: "array.availableACChargekW | null",
                 dischargeLimit: "array.availableACDischargekW | null"

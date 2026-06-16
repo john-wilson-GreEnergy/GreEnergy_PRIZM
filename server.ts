@@ -89,7 +89,7 @@ app.get("/api/local/snapshot", (req, res) => {
   res.json(snapshot);
 });
 
-app.get("/api/local/site-operations/summary", (req, res) => {
+app.get("/api/local/snapshot/site-operations-summary", (req, res) => {
   const snapshot = prizmDataCoordinator.getLatestSnapshot();
   if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
   res.json({

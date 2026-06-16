@@ -35,16 +35,46 @@ export default function PcsDashboard() {
         setLoading(true);
         try {
             // Priority: load from known block/pcs sources
-            let blockData: any = null;
+            let pcsRows: any[] = [];
+            
             try {
-                blockData = await fetchJsonWithTimeout("/api/local/block", { timeoutMs: 3000 });
+                const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 3000 });
+                if (Array.isArray(dashboardData) && dashboardData.length > 0) {
+                    pcsRows = dashboardData;
+                }
             } catch(e) {}
 
-            if (blockData && blockData.data && blockData.data.arrayPcsList && blockData.data.arrayPcsList.length > 0) {
-                // Ensure unique IDs
-                const pcsWithId = blockData.data.arrayPcsList.map((p: any) => ({
+            if (pcsRows.length === 0) {
+                try {
+                    const summaryData = await fetchJsonWithTimeout("/api/local/site-operations/summary?refresh=true", { timeoutMs: 3000 });
+                    if (summaryData?.pcsSummary && Array.isArray(summaryData.pcsSummary) && summaryData.pcsSummary.length > 0) {
+                        pcsRows = summaryData.pcsSummary;
+                    }
+                } catch(e) {}
+            }
+
+            if (pcsRows.length === 0) {
+                try {
+                    const blockData = await fetchJsonWithTimeout("/api/local/block", { timeoutMs: 3000 });
+                    if (blockData?.data?.arrayPcsList && Array.isArray(blockData.data.arrayPcsList) && blockData.data.arrayPcsList.length > 0) {
+                        pcsRows = blockData.data.arrayPcsList;
+                    }
+                } catch(e) {}
+            }
+
+            if (pcsRows.length > 0) {
+                // Ensure unique IDs and normalize fields
+                const pcsWithId = pcsRows.map((p: any) => ({
                     ...p,
-                    id: p.id || `${p.arrayIndex}-${p.pcsIndex}`
+                    id: p.id || `${p.arrayIndex ?? p.arrayNum}-${p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex}`,
+                    arrayIndex: p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex,
+                    pcsIndex: p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex,
+                    rotation: p.rotation ?? (p.outRotation ? "Out" : "In"),
+                    state: p.state ?? p.status ?? p.raw?.state ?? "Unknown",
+                    vDc: p.vDc ?? p.dcVoltage ?? p.dcVoltageVolt ?? p.raw?.dcVoltageVolt,
+                    realPwr: p.realPwr ?? p.acRealPowerKw ?? p.acRealPowerKW ?? p.raw?.acRealPowerKW,
+                    acVoltageDisplay: p.acVoltageDisplay,
+                    frequencyHz: p.frequencyHz ?? p.raw?.acFrequencyHz
                 }));
                 setPcsList(pcsWithId);
                 setFallbackMode(false);
