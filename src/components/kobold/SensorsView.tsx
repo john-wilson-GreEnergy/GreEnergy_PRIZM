@@ -554,7 +554,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                 if (["fire", "fireTrouble", "smoke", "heat", "hydrogen", "hydrogenFault"].includes(cat.id)) {
                   countString = `${cat.healthyCount} / ${cat.totalCount} Untripped`;
                 } else if (["dataCommunications", "ioCommunications"].includes(cat.id)) {
-                  countString = `${cat.healthyCount} / ${cat.totalCount} Comms`;
+                  countString = `${cat.healthyCount} / ${cat.totalCount} Communicating`;
                 } else if (["acDoors", "dcDoors", "topCapDoor", "batteryDoors"].includes(cat.id)) {
                   countString = `${cat.healthyCount} / ${cat.totalCount} Closed`;
                 } else if (cat.id === "moisture") {
@@ -564,32 +564,41 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                 }
 
                 return (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
-                    className={`w-full text-left p-2 rounded transition-all border flex flex-col gap-1 cursor-pointer ${
-                      isSelected
-                        ? "bg-prizm-primary/10 border-prizm-primary/60 text-white font-semibold shadow-sm"
-                        : "bg-black/25 border-transparent hover:border-prizm-border/40 hover:bg-black/40 text-prizm-text-muted"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="font-bold flex items-center gap-1.5 text-white/90 truncate tracking-tight">
-                        <Icon size={12} className={isSelected ? "text-cyan-400" : "text-prizm-text-muted"} />
-                        {cat.label}
-                      </span>
-                      {cat.unhealthyCount > 0 && (
-                        <span className="text-[8.5px] px-1 py-0.5 rounded leading-none bg-red-500/10 text-red-500 border border-red-500/20 font-extrabold animate-pulse">
-                          {cat.unhealthyCount} FAULT
+                  <div key={cat.id} className="space-y-1">
+                    <button
+                      onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
+                      className={`w-full text-left p-2 rounded transition-all border flex flex-col gap-1 cursor-pointer ${
+                        isSelected
+                          ? "bg-prizm-primary/10 border-prizm-primary/60 text-white font-semibold shadow-sm"
+                          : "bg-black/25 border-transparent hover:border-prizm-border/40 hover:bg-black/40 text-prizm-text-muted"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold flex items-center gap-1.5 text-white/90 truncate tracking-tight">
+                          <Icon size={12} className={isSelected ? "text-cyan-400" : "text-prizm-text-muted"} />
+                          {cat.label}
                         </span>
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center text-[9px] text-prizm-text-muted mt-0.5">
-                      <span className={`px-1 rounded-sm border text-[8.5px] ${indicatorColor}`}>
-                        {countString}
-                      </span>
-                    </div>
-                  </button>
+                        {cat.unhealthyCount > 0 && (
+                          <span className="text-[8.5px] px-1 py-0.5 rounded leading-none bg-red-500/10 text-red-500 border border-red-500/20 font-extrabold animate-pulse">
+                            {cat.unhealthyCount} FAULT
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center text-[9px] text-prizm-text-muted mt-0.5">
+                        <span className={`px-1 rounded-sm border text-[8.5px] ${indicatorColor}`}>
+                          {countString}
+                        </span>
+                      </div>
+                    </button>
+                    {cat.id === "modbusEStop" && (
+                      <div className="pl-4 py-0.5 border-l border-cyan-500/30 text-[9px] text-prizm-text-muted text-left font-mono space-y-0.5 select-none">
+                        <div className="flex items-center gap-1">
+                          <span className="h-1 w-1 bg-cyan-400 rounded-full inline-block" />
+                          <span>↳ Modbus E-Stop</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -699,17 +708,17 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
 
           {/* MASTER DETAIL TABLE VIEWPORT */}
           <div className="border border-prizm-border rounded-lg overflow-x-auto bg-[#07090C] shadow-lg max-h-[700px] relative scrollbar-thin">
-            <table className="w-full text-left text-[11px] leading-normal border-collapse min-w-[1300px]">
+            <table className="w-full text-left text-[11px] leading-normal border-collapse min-w-[1450px]">
               
               {/* STICKY HEADER */}
               <thead className="sticky top-0 bg-[#0F111A] z-10 select-none shadow border-b border-prizm-border">
                 {/* 1st row: Column groups */}
                 <tr className="text-[#64748B] text-[8.5px] uppercase font-bold text-center border-b border-prizm-border/30">
-                  <th colSpan={5} className="p-2 border-r border-prizm-border/40 bg-black/20 text-left pl-3 text-slate-400 font-mono text-[9px] uppercase tracking-wider">
+                  <th colSpan={6} className="p-2 border-r border-prizm-border/40 bg-black/20 text-left pl-3 text-slate-400 font-mono text-[9px] uppercase tracking-wider">
                     Site Topology Address
                   </th>
                   <th colSpan={1} className="p-2 border-r border-[#1E293B] bg-emerald-900/10 text-emerald-400 font-bold uppercase text-[9px] tracking-wider">
-                    Emergency
+                    Emergency Sensors
                   </th>
                   <th colSpan={2} className="p-2 border-r border-[#1E293B] bg-blue-950/10 text-blue-400 font-bold uppercase text-[9px] tracking-wider">
                     Com Status
@@ -717,8 +726,11 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                   <th colSpan={4} className="p-2 border-r border-[#1E293B] bg-purple-950/10 text-purple-400 font-bold uppercase text-[9px] tracking-wider">
                     Door Sensors
                   </th>
-                  <th colSpan={9} className="p-2 bg-slate-900/20 text-slate-300 font-bold uppercase text-[9px] tracking-wider">
-                    Environmental / Safety / System Controls
+                  <th colSpan={9} className="p-2 border-r border-[#1E293B] bg-slate-900/20 text-slate-300 font-bold uppercase text-[9px] tracking-wider">
+                    Environmental / Safety
+                  </th>
+                  <th colSpan={1} className="p-2 bg-slate-900/30 text-[#A78BFA] font-bold uppercase text-[9px] tracking-wider">
+                    Other Sensors
                   </th>
                 </tr>
 
@@ -729,31 +741,35 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                   <th className="p-2.5 w-[210px] text-left">Location Label / ID</th>
                   <th className="p-2.5 text-center w-14">Seg Idx</th>
                   <th className="p-2.5 text-center w-14">Lineup</th>
-                  <th className="p-2.5 text-center w-14 border-r border-prizm-border/50">Segment</th>
+                  <th className="p-2.5 text-center w-14">Position</th>
+                  <th className="p-2.5 text-center w-14 border-r border-prizm-border/50">Arrays</th>
 
                   {/* Emergency */}
-                  <th className="p-2 text-center w-14 border-r border-prizm-border/50 bg-[#059669]/5" title="Moisture Detection Sensor">Moist</th>
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50 bg-[#059669]/5" title="Moisture Detection Sensor">Moisture</th>
 
                   {/* Com Status */}
-                  <th className="p-2 text-center w-14" title="IO communications controller online">IO Com</th>
-                  <th className="p-2 text-center w-14 border-r border-prizm-border/50" title="Data/Aux Communications Link">Data</th>
+                  <th className="p-2 text-center w-14" title="IO communications controller online">IO</th>
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50" title="Data/Aux Communications Link">Data Comms</th>
 
                   {/* Doors Group */}
-                  <th className="p-2 text-center w-14" title="AC electrical cabinets enclosure door">AC Door</th>
-                  <th className="p-2 text-center w-14" title="DC inverter bus cabinet containment doors">DC Door</th>
-                  <th className="p-2 text-center w-14" title="Top Cap containment louver hatch open status">TopCap</th>
+                  <th className="p-2 text-center w-14" title="AC electrical cabinets enclosure door">AC Doors</th>
+                  <th className="p-2 text-center w-14" title="DC inverter bus cabinet containment doors">DC Doors</th>
+                  <th className="p-2 text-center w-14" title="Top Cap containment louver hatch open status">Top Cap</th>
                   <th className="p-2 text-center w-14 border-r border-prizm-border/50" title="Container compartment auxiliary battery door status">Battery</th>
 
                   {/* Env/Safety */}
                   <th className="p-2 text-center w-14" title="Fire detection panel warning state">Fire</th>
-                  <th className="p-2 text-center w-14" title="Fire panel secondary trouble monitoring status">F-Trb</th>
+                  <th className="p-2 text-center w-14" title="Fire panel secondary trouble monitoring status">Fire Trb</th>
                   <th className="p-2 text-center w-14" title="Smoke aerosol density warning">Smoke</th>
                   <th className="p-2 text-center w-14" title="Internal containment cabinet thermistors sensor">Heat</th>
-                  <th className="p-2 text-center w-14" title="Hydrogen gas target PPM warning">H2</th>
-                  <th className="p-2 text-center w-14" title="Hydrogen sensor diagnostic loop integrity fault">H2-Flt</th>
-                  <th className="p-2 text-center w-14" title="Manual fan override active status">ManVent</th>
-                  <th className="p-2 text-center w-14" title="Environmental control thermostat alarm status">EnvCtrl</th>
-                  <th className="p-2 text-center w-14 bg-slate-900/10" title="Uninterruptible power supply telemetry warning">UPS</th>
+                  <th className="p-2 text-center w-14" title="Hydrogen gas target PPM warning">Hydrogen</th>
+                  <th className="p-2 text-center w-14" title="Hydrogen sensor diagnostic loop integrity fault">H2 Fault</th>
+                  <th className="p-2 text-center w-14" title="Manual fan override active status">Man Vent</th>
+                  <th className="p-2 text-center w-14" title="Environmental control thermostat alarm status">Env Ctrl</th>
+                  <th className="p-2 text-center w-14 border-r border-prizm-border/50 bg-[#1e1b4b]/10" title="Uninterruptible power supply telemetry warning">UPS Alarm</th>
+
+                  {/* Other Sensors */}
+                  <th className="p-2 text-center w-14 bg-[#1e1b4b]/20" title="Modbus master E-Stop emergency loop">Modbus E-Stop</th>
                 </tr>
               </thead>
 
@@ -761,13 +777,13 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
               <tbody className="divide-y divide-prizm-border/50 font-mono text-[10.5px]">
                 {loading && rows.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="p-8 text-center text-prizm-text-muted">
+                    <td colSpan={23} className="p-8 text-center text-prizm-text-muted">
                       Loading real-time site safety telemetry matrix...
                     </td>
                   </tr>
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="p-8 text-center text-prizm-text-muted italic">
+                    <td colSpan={23} className="p-8 text-center text-prizm-text-muted italic">
                       No matching hardware sensor records discovered with current filters.
                     </td>
                   </tr>
@@ -777,7 +793,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                     return (
                       <tr 
                         key={row.id} 
-                        className={`hover:bg-cyan-500/[0.02]/none hover:bg-prizm-primary/[0.02] transition-colors leading-tight ${
+                        className={`hover:bg-prizm-primary/[0.02] transition-colors leading-tight ${
                           isEven ? "bg-black/15" : "bg-transparent"
                         }`}
                       >
@@ -803,8 +819,13 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                         </td>
 
                         {/* segment position */}
-                        <td className="p-2 text-center text-amber-500 border-r border-[#1E293B] font-bold">
-                          {row.segmentPosition || "MSTR"}
+                        <td className="p-2 text-center text-amber-500 font-bold">
+                          {row.segmentPosition || "—"}
+                        </td>
+
+                        {/* segment position or arrayIndex */}
+                        <td className="p-2 text-center text-cyan-400 border-r border-[#1E293B] font-bold">
+                          {row.arrayIndex ? `A${row.arrayIndex}` : "—"}
                         </td>
 
                         {/* Emergency: Moisture */}
@@ -859,8 +880,13 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                         <td className="p-1">
                           <div className="flex justify-center">{renderCellIcon(row.sensors?.envCtrl, "ENV CTRL")}</div>
                         </td>
-                        <td className="p-1 bg-slate-900/10">
+                        <td className="p-1 border-r border-prizm-border/50 bg-[#1e1b4b]/5">
                           <div className="flex justify-center">{renderCellIcon(row.sensors?.upsAlarm, "UPS ALARM")}</div>
+                        </td>
+
+                        {/* Other Sensors Group */}
+                        <td className="p-1 bg-[#1e1b4b]/10">
+                          <div className="flex justify-center">{renderCellIcon(row.sensors?.modbusEStop, "STATION-WIDE / MODBUS E-STOP")}</div>
                         </td>
                       </tr>
                     );

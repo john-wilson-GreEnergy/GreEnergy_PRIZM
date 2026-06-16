@@ -1231,45 +1231,63 @@ app.get("/api/local/site-sensors/summary", (req, res) => {
     let healthy: boolean | null = true;
     let label = "Normal";
 
-    if (["fire", "smoke", "fireTrouble", "moisture", "hydrogenFault", "modbusEStop"].includes(category)) {
-      const isTripped = (lVal === "true" || lVal === "tripped" || lVal === "active" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "trouble" || lVal === "detected" || lVal === "leak" || lVal === "failed" || lVal === "open");
-      state = isTripped ? "tripped" : "normal";
-      healthy = !isTripped;
-      label = isTripped ? (category === "moisture" ? "Wet" : "Tripped") : (category === "moisture" ? "Dry" : "Untripped");
-    } else if (["heat", "hydrogen"].includes(category)) {
-      if (lVal === "critical" || lVal === "alarm" || lVal === "error") {
-        state = "fault";
+    if (["fire", "fireTrouble", "smoke", "heat", "hydrogen", "hydrogenFault", "moisture", "modbusEStop"].includes(category)) {
+      // Alarm/trip categories (includes fire, fireTrouble, smoke, heat, hydrogen, hydrogenFault, moisture, modbusEStop):
+      const isHealthy = (lVal === "false" || lVal === "clear" || lVal === "normal" || lVal === "untripped" || lVal === "ok" || lVal === "0" || lVal === "dry");
+      const isFault = (lVal === "true" || lVal === "active" || lVal === "tripped" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "trouble" || lVal === "detected" || lVal === "1" || lVal === "warning" || lVal === "critical" || lVal === "wet");
+      
+      healthy = isHealthy;
+      if (!isHealthy && isFault) {
         healthy = false;
-        label = "Alarm";
-      } else if (lVal === "warning" || lVal === "warn" || lVal === "high") {
-        state = "tripped";
+      } else if (!isHealthy && !isFault) {
         healthy = false;
-        label = "Warning";
+      }
+      
+      state = healthy ? "normal" : "tripped";
+      if (category === "moisture") {
+        label = healthy ? "Dry" : "Wet";
+      } else if (category === "heat" || category === "hydrogen") {
+        label = healthy ? "Normal" : (lVal === "warning" || lVal === "warn" ? "Warning" : "Alarm");
       } else {
-        state = "normal";
-        healthy = true;
-        label = "Normal";
+        label = healthy ? "Untripped" : "Tripped";
       }
     } else if (["acDoors", "dcDoors", "topCapDoor", "batteryDoors"].includes(category)) {
-      const isClosed = (lVal === "true" || lVal === "closed" || lVal === "all closed");
-      state = isClosed ? "closed" : "open";
+      // For door categories:
+      // closed === true = healthy, closed === false = fault/open
+      const isClosed = (lVal === "true" || lVal === "closed" || lVal === "all closed" || lVal === "1");
+      const isOpen = (lVal === "false" || lVal === "open" || lVal === "0");
+      
       healthy = isClosed;
+      state = isClosed ? "closed" : "open";
       label = isClosed ? "Closed" : "Open";
     } else if (["dataCommunications", "ioCommunications"].includes(category)) {
-      const isCommunicating = (lVal === "true" || lVal === "communicating" || lVal === "online" || lVal === "stable" || lVal === "ok");
-      state = isCommunicating ? "communicating" : "notCommunicating";
+      // For communications:
+      // communicating === true = healthy, communicating === false = fault/not communicating
+      const isCommunicating = (lVal === "true" || lVal === "communicating" || lVal === "online" || lVal === "stable" || lVal === "ok" || lVal === "1");
       healthy = isCommunicating;
+      state = isCommunicating ? "communicating" : "notCommunicating";
       label = isCommunicating ? "Communicating" : "Faulted";
     } else if (["manualVentilation"].includes(category)) {
-      const isActive = (lVal === "true" || lVal === "active" || lVal === "running");
+      const isActive = (lVal === "true" || lVal === "active" || lVal === "running" || lVal === "1" || lVal === "active");
       state = isActive ? "tripped" : "normal";
       healthy = true; // Ventilation active status isn't system failure
       label = isActive ? "Active" : "Inactive";
     } else if (["envCtrl", "upsAlarm"].includes(category)) {
-      const isAlarm = (lVal === "true" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "failed" || lVal === "onbattery");
-      state = isAlarm ? "fault" : "normal";
-      healthy = !isAlarm;
-      label = isAlarm ? "Alarm" : "Normal";
+      // For UPS / ENV CTRL:
+      // explicit normal/healthy state = healthy
+      // alarm/fault/onBattery depending on source meaning = warning or fault
+      const isHealthy = (lVal === "normal" || lVal === "healthy" || lVal === "ok" || lVal === "false" || lVal === "clear" || lVal === "0");
+      const isAlarm = (lVal === "true" || lVal === "alarm" || lVal === "fault" || lVal === "error" || lVal === "failed" || lVal === "onbattery" || lVal === "on battery" || lVal === "active" || lVal === "1");
+      
+      healthy = isHealthy;
+      if (!isHealthy && isAlarm) {
+        healthy = false;
+      } else if (!isHealthy && !isAlarm) {
+        healthy = false;
+      }
+      
+      state = healthy ? "normal" : "fault";
+      label = healthy ? "Normal" : "Alarm";
     }
 
     return {
@@ -1290,6 +1308,26 @@ app.get("/api/local/site-sensors/summary", (req, res) => {
       Object.assign(rawMap, siteSensorOverrides[row.id]);
     }
 
+    const CANDIDATE_FIELDS: Record<string, string[]> = {
+      fire: ["fire", "fireAlarm", "fireTripped", "fireActive"],
+      fireTrouble: ["fireTrouble", "fireFault", "fireTroubleAlarm"],
+      smoke: ["smoke", "smokeAlarm", "smokeDetected"],
+      heat: ["heat", "heatAlarm", "heatDetected"],
+      hydrogen: ["hydrogen", "hydrogenAlarm", "hydrogenDetected", "h2Alarm", "hydrogen1PPM", "hydrogen2PPM"],
+      hydrogenFault: ["hydrogenFault", "h2Fault", "hydrogenSensorFault"],
+      dataCommunications: ["dataCommunications", "dataComms", "deviceWithLostComms", "lostComms", "communicating"],
+      ioCommunications: ["ioCommunications", "ioComms", "ioStatus", "ioOnline"],
+      acDoors: ["acDoors", "acDoorsClosed", "AcDoorsClosed", "acDoorClosed"],
+      dcDoors: ["dcDoors", "dcDoorsClosed", "DcDoorsClosed", "dcDoorClosed"],
+      topCapDoor: ["topCapDoor", "topCapDoorClosed", "lowerTopcapClosed", "LowerTopcapClosed", "topCapClosed"],
+      batteryDoors: ["batteryDoors", "batteryDoorsClosed", "BatteryDoorsClosed", "batteryDoorClosed"],
+      manualVentilation: ["manualVentilation", "manualVentilationActive", "manualVent"],
+      envCtrl: ["envCtrl", "environmentalControl", "environmentalControlStatus", "envControlAlarm"],
+      upsAlarm: ["upsAlarm", "upsFault", "upsOnBattery", "upsStatus"],
+      moisture: ["moisture", "moistureDetected", "waterDetected", "leakAlarm", "waterAlarm"],
+      modbusEStop: ["modbusEStop", "modbusEstop", "eStop", "emergencyStop", "stationWideEStop"]
+    };
+
     const sensorsObj: any = {};
     let overallHealth: "healthy" | "warning" | "fault" | "unknown" | "na" = "healthy";
     let hasFault = false;
@@ -1298,7 +1336,16 @@ app.get("/api/local/site-sensors/summary", (req, res) => {
     let hasNa = true;
 
     categoriesList.forEach(cat => {
-      const rawVal = rawMap[cat.id];
+      // Find current raw value matching any candidate field
+      let rawVal: any = undefined;
+      const candidates = CANDIDATE_FIELDS[cat.id] || [cat.id];
+      for (const field of candidates) {
+        if (rawMap[field] !== undefined) {
+          rawVal = rawMap[field];
+          break;
+        }
+      }
+
       const sensorStatus = buildStatus(rawVal, cat.id, `${row.sourcePath}/${cat.id}`);
       sensorsObj[cat.id] = sensorStatus;
 
