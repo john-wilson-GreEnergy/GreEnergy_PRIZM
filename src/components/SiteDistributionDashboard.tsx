@@ -14,8 +14,10 @@ import {
   Thermometer,
   Zap,
   Sliders,
-  Check
+  Check,
+  Shield
 } from "lucide-react";
+import SensorsView from "./kobold/SensorsView";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -80,6 +82,9 @@ export default function SiteDistributionDashboard() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Sub-tab selection state
+  const [currentView, setCurrentView] = useState<"distribution" | "sensors">("distribution");
 
   // Filters & Settings state
   const [activeTab, setActiveTab] = useState<"voltage" | "temperature">("voltage");
@@ -356,21 +361,53 @@ export default function SiteDistributionDashboard() {
 
   return (
     <div className="space-y-4" id="prizm-site-distribution-panel">
-      {/* Messages */}
-      {errorMsg && (
-        <div className="bg-red-50 border-l-4 border-prizm-danger text-red-700 p-3 rounded font-mono text-xs flex justify-between items-center">
-          <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)} className="font-sans text-xs hover:underline">Dismiss</button>
-        </div>
-      )}
+      {/* Primary Sub-Tab Switcher for Site Health */}
+      <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-lg space-x-1 shadow-sm">
+        <button
+          onClick={() => setCurrentView("distribution")}
+          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+            currentView === "distribution"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+              : "border-transparent text-prizm-text-muted hover:text-white"
+          }`}
+        >
+          <BarChart3 size={12} />
+          Voltage & Temp Spreads
+        </button>
+        <button
+          onClick={() => setCurrentView("sensors")}
+          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+            currentView === "sensors"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+              : "border-transparent text-prizm-text-muted hover:text-white"
+          }`}
+        >
+          <Shield size={12} />
+          Sensors & Safety Health
+        </button>
+      </div>
 
-      {successMsg && (
-        <div className="bg-emerald-50 border-l-4 border-prizm-primary text-emerald-800 p-3 rounded font-mono text-xs flex justify-between items-center animate-fade-in">
-          <span className="flex items-center gap-2"><Check size={14} className="text-prizm-primary" /> {successMsg}</span>
+      {currentView === "sensors" ? (
+        <div className="animate-fade-in" id="prizm-merged-sensors-view">
+          <SensorsView />
         </div>
-      )}
+      ) : (
+        <>
+          {/* Messages */}
+          {errorMsg && (
+            <div className="bg-red-50 border-l-4 border-prizm-danger text-red-700 p-3 rounded font-mono text-xs flex justify-between items-center">
+              <span>{errorMsg}</span>
+              <button onClick={() => setErrorMsg(null)} className="font-sans text-xs hover:underline">Dismiss</button>
+            </div>
+          )}
 
-      {/* DASHBOARD HEADER & STAT CARDS */}
+          {successMsg && (
+            <div className="bg-emerald-50 border-l-4 border-prizm-primary text-emerald-800 p-3 rounded font-mono text-xs flex justify-between items-center animate-fade-in">
+              <span className="flex items-center gap-2"><Check size={14} className="text-prizm-primary" /> {successMsg}</span>
+            </div>
+          )}
+
+          {/* DASHBOARD HEADER & STAT CARDS */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-prizm-border pb-3">
           <div>
@@ -953,6 +990,8 @@ export default function SiteDistributionDashboard() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

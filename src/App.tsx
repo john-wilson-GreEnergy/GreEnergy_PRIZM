@@ -14,7 +14,16 @@ import {
   Sliders,
   Settings,
   Lock,
-  BarChart3
+  BarChart3,
+  Shield,
+  LayoutGrid,
+  Eye,
+  EyeOff,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  X,
+  Check
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
@@ -35,12 +44,106 @@ import SafetyAdvancedDashboard from "./components/SafetyAdvancedDashboard";
 import { BessDevice, BessLog, ReportConfig } from "./types";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
-type AppTabId = "overview" | "arrays-strings" | "site-distribution" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+
+interface TabItem {
+  id: string;
+  visible: boolean;
+}
+
+const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
+  "overview": { label: "Block Summary", icon: Activity },
+  "arrays-strings": { label: "String List", icon: Cpu },
+  "site-health": { label: "Site Health", icon: Shield },
+  "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
+  "site-configuration": { label: "Site Configuration", icon: Settings },
+  "feather-hvac": { label: "Feather / HVAC", icon: Network },
+  "lightbar-control": { label: "Lineup Lightbar", icon: Sliders },
+  "reports": { label: "Reports / Exports", icon: FileText },
+  "advanced": { label: "Safety / Advanced", icon: ShieldAlert }
+};
+
+const DEFAULT_TABS_ORDER: string[] = [
+  "overview",
+  "arrays-strings",
+  "site-health",
+  "pcs-dashboard",
+  "site-configuration",
+  "feather-hvac",
+  "lightbar-control",
+  "reports",
+  "advanced"
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTabId>("overview");
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation">("feather");
   const [loading, setLoading] = useState(true);
+
+  // Configured navbar tabs list setting
+  const [tabsOrder, setTabsOrder] = useState<TabItem[]>(() => {
+    const saved = localStorage.getItem("prizm_tabs_config_v2");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const keys = parsed.map(t => t.id);
+          const merged = [...parsed];
+          DEFAULT_TABS_ORDER.forEach(id => {
+            if (!keys.includes(id)) {
+              merged.push({ id, visible: true });
+            }
+          });
+          return merged.filter(t => DEFAULT_TABS_ORDER.includes(t.id));
+        }
+      } catch (e) {
+        console.error("Failed to parse navigation settings key:", e);
+      }
+    }
+    return DEFAULT_TABS_ORDER.map(id => ({ id, visible: true }));
+  });
+
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  // Save configurations layout changes to secure local client storage
+  useEffect(() => {
+    localStorage.setItem("prizm_tabs_config_v2", JSON.stringify(tabsOrder));
+  }, [tabsOrder]);
+
+  // If the focus tab gets disabled or hidden, auto-select the next visible tab to preserve render viewport
+  useEffect(() => {
+    const currentTabItem = tabsOrder.find(t => t.id === activeTab);
+    if (currentTabItem && !currentTabItem.visible) {
+      const firstVisible = tabsOrder.find(t => t.visible);
+      if (firstVisible) {
+        setActiveTab(firstVisible.id as AppTabId);
+      }
+    }
+  }, [tabsOrder, activeTab]);
+
+  const moveTab = (index: number, direction: "up" | "down") => {
+    const newIdx = direction === "up" ? index - 1 : index + 1;
+    if (newIdx < 0 || newIdx >= tabsOrder.length) return;
+    const updated = [...tabsOrder];
+    const temp = updated[index];
+    updated[index] = updated[newIdx];
+    updated[newIdx] = temp;
+    setTabsOrder(updated);
+  };
+
+  const toggleTabVisibility = (id: string) => {
+    const visibleCount = tabsOrder.filter(t => t.visible).length;
+    const tabToToggle = tabsOrder.find(t => t.id === id);
+    if (visibleCount <= 1 && tabToToggle?.visible) {
+      return; // Safeguard navbar to have at least one active screen
+    }
+    setTabsOrder(prev => prev.map(t => t.id === id ? { ...t, visible: !t.visible } : t));
+  };
+
+  const resetTabs = () => {
+    setTabsOrder(DEFAULT_TABS_ORDER.map(id => ({ id, visible: true })));
+    setActiveTab("overview");
+  };
 
   // Monitor EMS metadata
   const [emsMetadata, setEmsMetadata] = useState<any>(null);
@@ -56,6 +159,8 @@ export default function App() {
             setActiveTab("site-configuration");
           } else if (tab === "safety-fault" || tab === "advanced" || tab === "safety-advanced") {
             setActiveTab("advanced");
+          } else if (tab === "site-distribution" || tab === "site-sensors" || tab === "site-health") {
+            setActiveTab("site-health");
           } else {
             setActiveTab(tab);
           }
@@ -194,31 +299,37 @@ export default function App() {
           <div className="flex items-center justify-between overflow-x-auto no-scrollbar scroll-smooth">
             
             {/* Tabs control styled beautifully */}
-            <div className="flex space-x-1 py-1">
-              {( [
-                { id: "overview", label: "Block Summary", icon: Activity },
-                { id: "arrays-strings", label: "String List", icon: Cpu },
-                { id: "site-distribution", label: "Site Distribution", icon: BarChart3 },
-                { id: "pcs-dashboard", label: "PCS Dashboard", icon: Zap },
-                { id: "site-configuration", label: "Site Configuration", icon: Settings },
-                { id: "feather-hvac", label: "Feather / HVAC", icon: Network },
-                { id: "lightbar-control", label: "Lineup Lightbar", icon: Sliders },
-                { id: "reports", label: "Reports / Exports", icon: FileText },
-                { id: "advanced", label: "Safety / Advanced", icon: ShieldAlert }
-              ] as const ).map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all ${
-                    activeTab === tab.id
-                      ? "bg-prizm-info/10 border-b-2 border-prizm-primary text-prizm-primary font-bold"
-                      : "text-prizm-text-muted hover:text-prizm-text hover:bg-black/5"
-                  }`}
-                >
-                  <tab.icon size={12} className={activeTab === tab.id ? "text-prizm-primary" : "text-prizm-text-muted"} />
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex items-center space-x-1 py-1 min-w-0 flex-shrink flex-wrap">
+              {tabsOrder
+                .filter(tab => tab.visible)
+                .map(tab => {
+                  const master = MASTER_TABS_MAP[tab.id];
+                  if (!master) return null;
+                  const Icon = master.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id as AppTabId)}
+                      className={`flex items-center gap-2 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all cursor-pointer ${
+                        activeTab === tab.id
+                          ? "bg-prizm-info/10 border-b-2 border-prizm-primary text-prizm-primary font-bold"
+                          : "text-prizm-text-muted hover:text-prizm-text hover:bg-black/5"
+                      }`}
+                    >
+                      <Icon size={12} className={activeTab === tab.id ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                      {master.label}
+                    </button>
+                  );
+                })}
+
+              <button
+                onClick={() => setIsConfigOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest text-[#B2C6FF] border border-dashed border-[#B2C6FF]/20 rounded-md hover:bg-[#B2C6FF]/10 transition-all cursor-pointer select-none hover:border-[#B2C6FF]/50"
+                title="Configure navbar tabs layout"
+              >
+                <LayoutGrid size={12} className="text-prizm-primary animate-pulse" />
+                Configure
+              </button>
             </div>
 
             {/* Quick inline online node counts indicator */}
@@ -254,7 +365,7 @@ export default function App() {
               <StringDashboard />
             )}
 
-            {activeTab === "site-distribution" && (
+            {activeTab === "site-health" && (
               <SiteDistributionDashboard />
             )}
             {activeTab === "pcs-dashboard" && (
@@ -332,6 +443,111 @@ export default function App() {
           <span>{emsMetadata?.isDemoFallback ? 'VER: 4.3.0-DEMO' : 'VER: 4.3.0-PROD'}</span>
         </div>
       </footer>
+
+      {isConfigOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in font-mono">
+          <div className="bg-prizm-surface border border-prizm-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col">
+            <div className="bg-prizm-surface-strong p-4 border-b border-prizm-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="text-prizm-primary animate-pulse" size={18} />
+                <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">Configure Workspace Tabs</span>
+              </div>
+              <button 
+                onClick={() => setIsConfigOpen(false)}
+                className="text-prizm-text-muted hover:text-white transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-4 flex-1 space-y-3 overflow-y-auto max-h-[350px]">
+              <p className="text-[11px] text-prizm-text-muted font-sans leading-relaxed">
+                Reorder or toggle the visibility of active workspace tabs. Changes are saved persistently in local storage.
+              </p>
+
+              <div className="space-y-1.5 mt-2">
+                {tabsOrder.map((tab, index) => {
+                  const master = MASTER_TABS_MAP[tab.id];
+                  if (!master) return null;
+                  const Icon = master.icon;
+
+                  return (
+                    <div 
+                      key={tab.id} 
+                      className={`flex items-center justify-between p-2.5 rounded-lg border text-xs font-bold transition-all ${
+                        tab.visible 
+                          ? "bg-prizm-surface-strong/45 border-prizm-border" 
+                          : "bg-black/15 border-dashed border-prizm-border/40 opacity-55"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Icon size={14} className={tab.visible ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                        <span className="truncate text-prizm-text font-mono text-[11px] uppercase tracking-wider">
+                          {master.label}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {/* Visibility toggle button */}
+                        <button
+                          onClick={() => toggleTabVisibility(tab.id)}
+                          className={`p-1.5 rounded transition-all cursor-pointer ${
+                            tab.visible 
+                              ? "text-prizm-primary hover:bg-prizm-primary/10" 
+                              : "text-prizm-text-muted hover:bg-white/5"
+                          }`}
+                          title={tab.visible ? "Hide from Navigation bar" : "Show in Navigation bar"}
+                        >
+                          {tab.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                        </button>
+
+                        {/* Reorder Up button */}
+                        <button
+                          onClick={() => moveTab(index, "up")}
+                          disabled={index === 0}
+                          className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                          title="Move Up"
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+
+                        {/* Reorder Down button */}
+                        <button
+                          onClick={() => moveTab(index, "down")}
+                          disabled={index === tabsOrder.length - 1}
+                          className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                          title="Move Down"
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-4 bg-prizm-surface-strong border-t border-prizm-border flex items-center justify-between">
+              <button
+                onClick={resetTabs}
+                className="px-3 py-1.5 bg-black/30 hover:bg-black/50 text-prizm-text-muted rounded-md border border-prizm-border flex items-center gap-1 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+              >
+                <RotateCcw size={11} />
+                Reset Defaults
+              </button>
+
+              <button
+                onClick={() => setIsConfigOpen(false)}
+                className="px-4 py-1.5 bg-prizm-primary hover:bg-prizm-primary/95 text-black font-extrabold rounded-md flex items-center gap-1 text-[10px] uppercase transition-all shadow-md cursor-pointer font-bold"
+              >
+                <Check size={11} />
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       </>
       )}
