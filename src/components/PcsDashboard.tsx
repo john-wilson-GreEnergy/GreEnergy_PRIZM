@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Zap, Activity, CheckCircle2, XOctagon } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
 
+const hasVal = (v: any) => v !== undefined && v !== null && v !== "" && v !== "--";
+
 export async function fetchJsonWithTimeout(url: string, options: RequestInit & { timeoutMs?: number } = {}) {
     const { timeoutMs = 5000, ...fetchOptions } = options;
     const controller = new AbortController();
@@ -23,6 +25,7 @@ export default function PcsDashboard() {
     
     // Default structure fallback
     const [fallbackMode, setFallbackMode] = useState(false);
+    const [pcsSource, setPcsSource] = useState("Synthetic fallback");
 
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
@@ -34,21 +37,24 @@ export default function PcsDashboard() {
     const refreshData = async () => {
         setLoading(true);
         try {
-            // Priority: load from known block/pcs sources
+            // Priority: load from Site Operations summary, then dedicated endpoint, then the block endpoint.
             let pcsRows: any[] = [];
+            let sourceMeta = "Synthetic fallback";
             
             try {
-                const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 3000 });
-                if (Array.isArray(dashboardData) && dashboardData.length > 0) {
-                    pcsRows = dashboardData;
+                const summaryData = await fetchJsonWithTimeout("/api/local/site-operations/summary?refresh=true", { timeoutMs: 3000 });
+                if (summaryData?.pcsSummary && Array.isArray(summaryData.pcsSummary) && summaryData.pcsSummary.length > 0) {
+                    pcsRows = summaryData.pcsSummary;
+                    sourceMeta = "Site Operations PCS Summary";
                 }
             } catch(e) {}
 
             if (pcsRows.length === 0) {
                 try {
-                    const summaryData = await fetchJsonWithTimeout("/api/local/site-operations/summary?refresh=true", { timeoutMs: 3000 });
-                    if (summaryData?.pcsSummary && Array.isArray(summaryData.pcsSummary) && summaryData.pcsSummary.length > 0) {
-                        pcsRows = summaryData.pcsSummary;
+                    const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 3000 });
+                    if (Array.isArray(dashboardData) && dashboardData.length > 0) {
+                        pcsRows = dashboardData;
+                        sourceMeta = "Dedicated PCS Dashboard API";
                     }
                 } catch(e) {}
             }
@@ -58,25 +64,53 @@ export default function PcsDashboard() {
                     const blockData = await fetchJsonWithTimeout("/api/local/block", { timeoutMs: 3000 });
                     if (blockData?.data?.arrayPcsList && Array.isArray(blockData.data.arrayPcsList) && blockData.data.arrayPcsList.length > 0) {
                         pcsRows = blockData.data.arrayPcsList;
+                        sourceMeta = "Block API arrayPcsList";
                     }
                 } catch(e) {}
             }
 
             if (pcsRows.length > 0) {
                 // Ensure unique IDs and normalize fields
-                const pcsWithId = pcsRows.map((p: any) => ({
-                    ...p,
-                    id: p.id || `${p.arrayIndex ?? p.arrayNum}-${p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex}`,
-                    arrayIndex: p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex,
-                    pcsIndex: p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex,
-                    rotation: p.rotation ?? (p.outRotation ? "Out" : "In"),
-                    state: p.state ?? p.status ?? p.raw?.state ?? "Unknown",
-                    vDc: p.vDc ?? p.dcVoltage ?? p.dcVoltageVolt ?? p.raw?.dcVoltageVolt,
-                    realPwr: p.realPwr ?? p.acRealPowerKw ?? p.acRealPowerKW ?? p.raw?.acRealPowerKW,
-                    acVoltageDisplay: p.acVoltageDisplay,
-                    frequencyHz: p.frequencyHz ?? p.raw?.acFrequencyHz
-                }));
+                const pcsWithId = pcsRows.map((p: any, idx: number) => {
+                    const arrayIndex = p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex ?? 1;
+                    const pcsIndex = p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex ?? (idx + 1);
+                    const rotation = p.rotation ?? (p.outRotation ? "OUT" : "IN");
+                    const state = p.state ?? p.status ?? p.raw?.state ?? "Unknown";
+
+                    const dcVoltage = hasVal(p.dcVoltage) ? p.dcVoltage : (hasVal(p.vDc) ? p.vDc : (hasVal(p.dcVoltageVolt) ? p.dcVoltageVolt : (p.raw ? p.raw.dcVoltageVolt : null)));
+                    const dcCurrent = hasVal(p.dcCurrent) ? p.dcCurrent : (hasVal(p.iDc) ? p.iDc : (hasVal(p.dcCurrentAmp) ? p.dcCurrentAmp : (p.raw ? p.raw.dcCurrentAmp : null)));
+                    const acVoltageDisplay = p.acVoltageDisplay ?? "-- / -- / --";
+                    const acVoltage = hasVal(p.acVoltage) ? p.acVoltage : (hasVal(p.vAc) ? p.vAc : (hasVal(p.acVoltageVolt) ? p.acVoltageVolt : (p.raw ? p.raw.acVoltageVolt : null)));
+                    const acCurrent = hasVal(p.acCurrent) ? p.acCurrent : (hasVal(p.iAc) ? p.iAc : (hasVal(p.acCurrentAmp) ? p.acCurrentAmp : (p.raw ? p.raw.acCurrentAmp : null)));
+                    const acRealPowerKw = hasVal(p.acRealPowerKw) ? p.acRealPowerKw : (hasVal(p.realPwr) ? p.realPwr : (hasVal(p.acRealPowerKW) ? p.acRealPowerKW : (p.raw ? p.raw.acRealPowerKW : null)));
+                    const acReactivePowerKvar = hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (hasVal(p.reactivePwr) ? p.reactivePwr : (hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (p.raw ? p.raw.acReactivePowerKvar : null)));
+                    const frequencyHz = hasVal(p.frequencyHz) ? p.frequencyHz : (hasVal(p.freqHz) ? p.freqHz : (p.raw ? p.raw.acFrequencyHz : null));
+
+                    return {
+                        ...p,
+                        id: p.id || `${arrayIndex}-${pcsIndex}`,
+                        arrayIndex,
+                        pcsIndex,
+                        displayKey: p.displayKey ?? p.name ?? `ArrayPcs:${arrayIndex}:${pcsIndex}`,
+                        dcVoltage,
+                        dcCurrent,
+                        acVoltage,
+                        acVoltageAB: p.acVoltageAB,
+                        acVoltageBC: p.acVoltageBC,
+                        acVoltageCA: p.acVoltageCA,
+                        acVoltageDisplay,
+                        acCurrent,
+                        acRealPowerKw,
+                        acReactivePowerKvar,
+                        frequencyHz,
+                        rotation,
+                        state,
+                        sourcePath: p.sourcePath ?? "discovered",
+                        raw: p.raw ?? p
+                    };
+                });
                 setPcsList(pcsWithId);
+                setPcsSource(sourceMeta);
                 setFallbackMode(false);
             } else {
                 // If live readback isn't available, build a fallback layout based on site knowledge (e.g. BHE0021 = 8 PCS)
@@ -90,15 +124,23 @@ export default function PcsDashboard() {
                          rotation: "UNKNOWN", 
                          displayName: `Array ${a} / PCS 1`,
                          state: "NO_DATA",
-                         vDc: 0,
-                         realPwr: 0
+                         dcVoltage: 0,
+                         dcCurrent: 0,
+                         acVoltage: 0,
+                         acVoltageDisplay: "-- / -- / --",
+                         acCurrent: 0,
+                         acRealPowerKw: 0,
+                         acReactivePowerKvar: 0,
+                         frequencyHz: 0
                     });
                 }
                 setPcsList(manual);
+                setPcsSource("Synthetic fallback");
                 setFallbackMode(true);
             }
         } catch(e) {
             setFallbackMode(true);
+            setPcsSource("Synthetic fallback");
         } finally {
             setLoading(false);
         }
@@ -113,7 +155,7 @@ export default function PcsDashboard() {
         for (const id of selectedIds) {
             const p = pcsList.find(x => x.id === id);
             if (p) {
-                targets.push({ array: p.arrayIndex || p.arrayNum, pcs: p.pcsIndex || p.pcsNum });
+                targets.push({ array: p.arrayIndex, pcs: p.pcsIndex });
             }
         }
         return targets;
@@ -152,12 +194,17 @@ export default function PcsDashboard() {
                         </h1>
                     </div>
                     
-                    <button 
-                         onClick={refreshData} disabled={loading}
-                         className="flex items-center gap-1.5 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary font-bold text-[9px] disabled:opacity-50"
-                    >
-                        <Activity size={10} className={loading ? 'animate-pulse' : ''} /> REFRESH LIVE
-                    </button>
+                    <div className="flex items-center gap-2.5">
+                        <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded border uppercase ${fallbackMode ? "bg-prizm-warning/10 border-prizm-warning/30 text-prizm-warning" : "bg-prizm-primary/10 border-prizm-primary/30 text-prizm-primary"}`}>
+                            Source: {pcsSource}
+                        </span>
+                        <button 
+                             onClick={refreshData} disabled={loading}
+                             className="flex items-center gap-1.5 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary font-bold text-[9px] disabled:opacity-50"
+                        >
+                            <Activity size={10} className={loading ? 'animate-pulse' : ''} /> REFRESH LIVE
+                        </button>
+                    </div>
                 </div>
                 
                 {fallbackMode && (
@@ -202,16 +249,23 @@ export default function PcsDashboard() {
                     </div>
                 )}
 
-                <div className="bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12">
+                <div className="bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
                     <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>
-                                <th className="px-1 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-0 bg-prizm-surface-strong z-[80] w-[30px]" title="Select Array"></th>
-                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] whitespace-nowrap">ARR</th>
-                                <th className="px-1 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] w-[30px]" title="Select PCS"></th>
-                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[80] whitespace-nowrap">PCS</th>
-                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[50]">Rotation Status</th>
-                                <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] bg-prizm-surface-strong z-[50]">Telemetry (Power & V)</th>
+                                <th className="px-1 py-1 border-b border-prizm-border font-bold w-[30px]" title="Select Array"></th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold">ARR</th>
+                                <th className="px-1 py-1 border-b border-prizm-border font-bold w-[30px]" title="Select PCS"></th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold">PCS Identity</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">DC V</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">DC A</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">AC V</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">AC A</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">Real P (kW)</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">Reactive (kVAR)</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">Freq (Hz)</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-center">Rotation Status</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-prizm-border/20">
@@ -226,9 +280,9 @@ export default function PcsDashboard() {
 
                                 return (
                                 <tr key={pcs.id} className="group hover:bg-prizm-primary/5 transition-colors">
-                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/10 bg-transparent text-center">
+                                    <td className="px-1.5 py-1 border-r border-prizm-border/10 bg-transparent text-center">
                                        {isArrFirst ? (
-                                         <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+                                         <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer animate-none" 
                                            checked={isArrAllSelected}
                                            ref={el => { if(el) el.indeterminate = isArrIndeterminate; }}
                                            onChange={() => {}}
@@ -245,12 +299,12 @@ export default function PcsDashboard() {
                                          />
                                        ) : null}
                                     </td>
-                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/20 bg-transparent min-w-[54px]">
+                                    <td className="px-1.5 py-1 border-r border-prizm-border/20 bg-transparent text-center">
                                        {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{pcs.arrayIndex}</span> : null}
                                     </td>
                                     
-                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/10 bg-transparent text-center">
-                                       <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+                                    <td className="px-1.5 py-1 border-r border-prizm-border/10 bg-transparent text-center">
+                                       <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer animate-none" 
                                          checked={selectedIds.has(pcs.id)}
                                          onChange={() => {}}
                                          onClick={(e) => {
@@ -262,12 +316,37 @@ export default function PcsDashboard() {
                                          }} 
                                        />
                                     </td>
-                                    <td className="px-1.5 py-0.5 border-r border-prizm-border/20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
-                                        {pcs.pcsIndex}
+                                    <td className="px-1.5 py-1 border-r border-prizm-border/20 font-bold text-prizm-primary font-mono">
+                                        PCS {pcs.pcsIndex}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right">
+                                        {hasVal(pcs.dcVoltage) ? Number(pcs.dcVoltage).toFixed(1) : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right">
+                                        {hasVal(pcs.dcCurrent) ? Number(pcs.dcCurrent).toFixed(1) : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right text-prizm-text">
+                                        {pcs.acVoltageDisplay !== "-- / -- / --" && hasVal(pcs.acVoltageDisplay)
+                                          ? pcs.acVoltageDisplay
+                                          : hasVal(pcs.acVoltage)
+                                            ? Number(pcs.acVoltage).toFixed(1)
+                                            : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right">
+                                        {hasVal(pcs.acCurrent) ? Number(pcs.acCurrent).toFixed(1) : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right text-prizm-text font-bold">
+                                        {hasVal(pcs.acRealPowerKw) ? Number(pcs.acRealPowerKw).toFixed(1) : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right">
+                                        {hasVal(pcs.acReactivePowerKvar) ? Number(pcs.acReactivePowerKvar).toFixed(1) : "--"}
+                                    </td>
+                                    <td className="px-1.5 py-1 text-right text-prizm-text-muted">
+                                        {hasVal(pcs.frequencyHz) ? Number(pcs.frequencyHz).toFixed(2) : "--"}
                                     </td>
 
-                                    <td className="px-1.5 py-0.5">
-                                        <div className="flex items-center gap-2">
+                                    <td className="px-1.5 py-1 text-center">
+                                        <div className="flex justify-center items-center gap-1.5">
                                             {rot === "IN" ? (
                                                 <div className="flex items-center gap-1.5" title="IN ROTATION">
                                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
@@ -286,14 +365,36 @@ export default function PcsDashboard() {
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-1.5 py-0.5 text-prizm-text-muted">
-                                        State: <span className="text-prizm-text">{pcs.state || 'N/A'}</span> <br/>
-                                        Power: <span className="text-prizm-text">{pcs.realPwr ? `${pcs.realPwr} kW` : '---'}</span> | V: <span className="text-prizm-text">{pcs.vDc ? `${pcs.vDc} V` : '---'}</span>
+                                    <td className="px-1.5 py-1 text-center">
+                                        <div className="flex justify-center items-center gap-2">
+                                            <button
+                                              disabled={rot === "IN"}
+                                              onClick={() => {
+                                                setModalAction('in');
+                                                setModalTargets([{ array: pcs.arrayIndex, pcs: pcs.pcsIndex }]);
+                                                setModalOpen(true);
+                                              }}
+                                              className="px-2 py-0.5 border border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors text-[8px] font-bold uppercase"
+                                            >
+                                              In
+                                            </button>
+                                            <button
+                                              disabled={rot === "OUT"}
+                                              onClick={() => {
+                                                setModalAction('out');
+                                                setModalTargets([{ array: pcs.arrayIndex, pcs: pcs.pcsIndex }]);
+                                                setModalOpen(true);
+                                              }}
+                                              className="px-2 py-0.5 border border-slate-500/50 bg-slate-500/10 text-slate-300 hover:bg-slate-500/30 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors text-[8px] font-bold uppercase"
+                                            >
+                                              Out
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             )})}
                             {pcsList.length === 0 && !loading && (
-                                <tr><td colSpan={6} className="px-4 py-12 text-center text-prizm-text-muted font-bold tracking-widest text-xs">No PCS data available</td></tr>
+                                <tr><td colSpan={13} className="px-4 py-12 text-center text-prizm-text-muted font-bold tracking-widest text-xs">No PCS data available</td></tr>
                             )}
                         </tbody>
                     </table>
