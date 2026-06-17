@@ -104,11 +104,10 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
     const stringIndex = parseSafeNum(row.stringIndex ?? row.stringNumber ?? row.string ?? row.StringIndex ?? row.StringNumber) ?? 1;
     
     const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
-    const ipAddress = row.ipAddress || row.ip || ipInfo?.ip || "Unknown";
+    const dashRow = dashboardByKey.get(`${arrayIndex}:${stringIndex}`);
+    const ipAddress = row.ipAddress || row.ip || ipInfo?.ip || dashRow?.stringControllerIp || "Unknown";
 
     const label = row.displayLabel || row.label || row.location || `A${arrayIndex}-S${stringIndex}`;
-
-    const dashRow = dashboardByKey.get(`${arrayIndex}:${stringIndex}`);
 
     // Best-available voltage selection
     const stackVoltage = firstNumeric(
@@ -152,8 +151,8 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.cellGroupTempMax,
       row.cellTempMax,
       row.maxCellGroupTemp,
-      dashRow?.maxCellTemp,
       dashRow?.maxCellTemperature,
+      dashRow?.maxCellTemp,
       dashRow?.maxCellTempC,
       dashRow?.maxCellGroupTemp,
       dashRow?.maxCellTemperatureC
@@ -166,6 +165,7 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.averageCellTemp,
       row.cellGroupTempAvg,
       row.avgCellGroupTemp,
+      dashRow?.avgCellTemperature,
       dashRow?.avgCellTemp,
       dashRow?.averageCellTemperature,
       dashRow?.avgCellTempC,
@@ -181,6 +181,7 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.cellGroupTempMin,
       row.cellTempMin,
       row.minCellGroupTemp,
+      dashRow?.minCellTemperature,
       dashRow?.minCellTemp,
       dashRow?.minimumCellTemperature,
       dashRow?.minCellTempC,

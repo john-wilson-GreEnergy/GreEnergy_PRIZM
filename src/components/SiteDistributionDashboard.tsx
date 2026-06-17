@@ -891,7 +891,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                       />
                     )}
 
-                    <ZAxis type="number" range={[60, 60]} />
+                    <ZAxis type="number" dataKey="xIndex" range={[60, 60]} />
 
                     <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#cbd5e1' }} />
 
