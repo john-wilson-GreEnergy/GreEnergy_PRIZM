@@ -25,7 +25,7 @@ export default function PcsDashboard() {
     
     // Default structure fallback
     const [fallbackMode, setFallbackMode] = useState(false);
-    const [pcsSource, setPcsSource] = useState("Synthetic fallback");
+    const [pcsSource, setPcsSource] = useState("PCS source unavailable or unmapped.");
 
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
@@ -37,49 +37,16 @@ export default function PcsDashboard() {
     const refreshData = async () => {
         setLoading(true);
         try {
-            // Priority: load from Site Operations summary, then dedicated endpoint, then the block endpoint.
             let pcsRows: any[] = [];
-            let sourceMeta = "Synthetic fallback";
+            let sourceMeta = "PCS source unavailable or unmapped.";
             
             try {
-                // Try fast cached summary first, no blocking refresh
-                const summaryData = await fetchJsonWithTimeout("/api/local/site-operations/summary", { timeoutMs: 5000 });
-                if (summaryData?.pcsSummary && Array.isArray(summaryData.pcsSummary) && summaryData.pcsSummary.length > 0) {
-                    pcsRows = summaryData.pcsSummary;
-                    sourceMeta = "Site Operations PCS Summary";
+                const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 5000 });
+                if (Array.isArray(dashboardData) && dashboardData.length > 0) {
+                    pcsRows = dashboardData;
+                    sourceMeta = "Dedicated PCS Dashboard API";
                 }
             } catch(e) {}
-
-            if (pcsRows.length === 0) {
-                try {
-                    const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 5000 });
-                    if (Array.isArray(dashboardData) && dashboardData.length > 0) {
-                        pcsRows = dashboardData;
-                        sourceMeta = "Dedicated PCS Dashboard API";
-                    }
-                } catch(e) {}
-            }
-
-            if (pcsRows.length === 0) {
-                try {
-                    // Try with refresh parameter if fast cache returned empty
-                    const summaryDataWithRefresh = await fetchJsonWithTimeout("/api/local/site-operations/summary?refresh=true", { timeoutMs: 6000 });
-                    if (summaryDataWithRefresh?.pcsSummary && Array.isArray(summaryDataWithRefresh.pcsSummary) && summaryDataWithRefresh.pcsSummary.length > 0) {
-                        pcsRows = summaryDataWithRefresh.pcsSummary;
-                        sourceMeta = "Site Operations PCS Summary (Refreshed)";
-                    }
-                } catch(e) {}
-            }
-
-            if (pcsRows.length === 0) {
-                try {
-                    const blockData = await fetchJsonWithTimeout("/api/local/block", { timeoutMs: 5000 });
-                    if (blockData?.data?.arrayPcsList && Array.isArray(blockData.data.arrayPcsList) && blockData.data.arrayPcsList.length > 0) {
-                        pcsRows = blockData.data.arrayPcsList;
-                        sourceMeta = "Block API arrayPcsList";
-                    }
-                } catch(e) {}
-            }
 
             if (pcsRows.length > 0) {
                 // Ensure unique IDs and normalize fields
@@ -125,34 +92,13 @@ export default function PcsDashboard() {
                 setPcsSource(sourceMeta);
                 setFallbackMode(false);
             } else {
-                // If live readback isn't available, build a fallback layout based on site knowledge (e.g. BHE0021 = 8 PCS)
-                // Just scaffold 8 arrays * 1 PCS each for standard view if no API is responsive.
-                const manual = [];
-                for(let a=1; a<=8; a++) {
-                    manual.push({
-                         id: `${a}-1`,
-                         arrayIndex: a, 
-                         pcsIndex: 1, 
-                         rotation: "UNKNOWN", 
-                         displayName: `Array ${a} / PCS 1`,
-                         state: "NO_DATA",
-                         dcVoltage: 0,
-                         dcCurrent: 0,
-                         acVoltage: 0,
-                         acVoltageDisplay: "-- / -- / --",
-                         acCurrent: 0,
-                         acRealPowerKw: 0,
-                         acReactivePowerKvar: 0,
-                         frequencyHz: 0
-                    });
-                }
-                setPcsList(manual);
-                setPcsSource("Synthetic fallback");
+                setPcsList([]);
+                setPcsSource("PCS source unavailable or unmapped.");
                 setFallbackMode(true);
             }
         } catch(e) {
             setFallbackMode(true);
-            setPcsSource("Synthetic fallback");
+            setPcsSource("PCS source unavailable or unmapped.");
         } finally {
             setLoading(false);
         }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Sliders, Settings } from "lucide-react";
-import ToolDashboards from "../ToolDashboards";
+import ToolDashboards from "./ToolDashboards";
 
 export default function EmsHealthDashboard() {
   const [discoverySource, setDiscoverySource] = useState<"topology" | "manual" | "both">("both");

@@ -24,8 +24,8 @@ import {
   Line, 
   Legend 
 } from "recharts";
-import { BessDevice } from "../types";
-import KoboldMonitor from "./KoboldMonitor";
+import { BessDevice } from "../../types";
+import KoboldMonitor from "../demo/KoboldMonitor";
 
 interface DashboardProps {
   devices: BessDevice[];

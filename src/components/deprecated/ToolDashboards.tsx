@@ -29,11 +29,11 @@ import {
   ShieldCheck,
   AlertOctagon
 } from "lucide-react";
-import FeatherDashboard from "./FeatherDashboard";
-import DataDiscovery from "./DataDiscovery";
-import ModbusProfileManagerUI from "./ModbusProfileManagerUI";
-import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
-import LineupLightbarControl from "./LineupLightbarControl";
+import FeatherDashboard from "../FeatherDashboard";
+import DataDiscovery from "../DataDiscovery";
+import ModbusProfileManagerUI from "../ModbusProfileManagerUI";
+import ConnectionTopologyWorkflow from "../ConnectionTopologyWorkflow";
+import LineupLightbarControl from "../LineupLightbarControl";
 
 interface TelemetryMetadata {
   source: "live" | "cached" | "offline" | "demo";

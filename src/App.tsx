@@ -346,6 +346,11 @@ export default function App() {
                   heartbeatColorClass = "text-prizm-danger";
                   dotColorClass = "bg-prizm-danger";
                   dotAnimate = "";
+                } else if (connectionStatus?.status === 'PARTIAL') {
+                  heartbeatText = "Partial Connection";
+                  heartbeatColorClass = "text-prizm-warning";
+                  dotColorClass = "bg-prizm-warning";
+                  dotAnimate = "";
                 } else if (diagnosticSession && diagnosticSession.active) {
                   if (diagnosticSession.paused) {
                     heartbeatText = "Session Paused";
@@ -359,7 +364,7 @@ export default function App() {
                     dotAnimate = "animate-pulse";
                   }
                 } else {
-                  heartbeatText = "Live Refresh Active | Session Capture Off";
+                  heartbeatText = "Live Refresh Active";
                   heartbeatColorClass = "text-emerald-400";
                   dotColorClass = "bg-emerald-400";
                   dotAnimate = "animate-ping";
