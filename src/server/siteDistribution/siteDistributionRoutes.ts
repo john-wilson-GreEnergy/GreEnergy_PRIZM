@@ -57,6 +57,25 @@ function normalizeTemp(...values: any[]): number | undefined {
   return n;
 }
 
+function pN(val: any, def: number | null = null): number | null {
+  if (val === undefined || val === null || val === "") return def;
+  const n = Number(val);
+  return isNaN(n) ? def : n;
+}
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().replace(/[\s_\-\.]/g, "");
+}
+
+function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNames: string[]): any {
+  for (const n of possibleNames) {
+    if (row[n] !== undefined) return row[n];
+    const norm = normalizeHeader(n);
+    if (normalizedObject[norm] !== undefined) return normalizedObject[norm];
+  }
+  return undefined;
+}
+
 export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
@@ -100,12 +119,17 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
   }
 
   return rawData.map((row: any) => {
-    const arrayIndex = parseSafeNum(row.arrayIndex ?? row.arrayNumber ?? row.array ?? row.ArrayIndex ?? row.ArrayNumber) ?? 1;
-    const stringIndex = parseSafeNum(row.stringIndex ?? row.stringNumber ?? row.string ?? row.StringIndex ?? row.StringNumber) ?? 1;
+    const normalizedObject: Record<string, any> = {};
+    for (const [k, v] of Object.entries(row)) {
+      normalizedObject[normalizeHeader(k)] = v;
+    }
+
+    const arrayIndex = pN(tryGetField(row, normalizedObject, ["array", "arrayindex", "arr", "arraynumber"]), 1) ?? 1;
+    const stringIndex = pN(tryGetField(row, normalizedObject, ["string", "stringindex", "str", "stringnumber"]), 1) ?? 1;
     
-    const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
+    const ipInfo = ipMap.find((ip: any) => pN(ip.array) === arrayIndex && pN(ip.string) === stringIndex);
     const dashRow = dashboardByKey.get(`${arrayIndex}:${stringIndex}`);
-    const ipAddress = row.ipAddress || row.ip || ipInfo?.ip || dashRow?.stringControllerIp || "Unknown";
+    const ipAddress = tryGetField(row, normalizedObject, ["ip", "ipaddress", "stringcontrollerip", "controllerip"]) || ipInfo?.ip || dashRow?.stringControllerIp || "Unknown";
 
     const label = row.displayLabel || row.label || row.location || `A${arrayIndex}-S${stringIndex}`;
 
@@ -130,15 +154,17 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.voltageBus,
       row.dcBusVoltage,
       row.busVoltage,
-      dashRow?.stackVoltage,
-      dashRow?.stackVoltageVdc,
-      dashRow?.dcVoltage,
+      tryGetField(row, normalizedObject, [
+        "measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage",
+        "calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage",
+        "busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage",
+        "stackvoltage", "stackvoltagevdc", "dcvoltage"
+      ]),
       dashRow?.measuredVoltage,
       dashRow?.calculatedVoltage,
       dashRow?.busVoltage,
-      dashRow?.dcBusVoltage,
-      dashRow?.voltageMeasured,
-      dashRow?.voltageCalculated
+      dashRow?.stackVoltage,
+      dashRow?.dcVoltage
     );
 
     // Best-available temperature selection
@@ -151,6 +177,9 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.cellGroupTempMax,
       row.cellTempMax,
       row.maxCellGroupTemp,
+      tryGetField(row, normalizedObject, [
+        "maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp", "maxcelltempc"
+      ]),
       dashRow?.maxCellTemperature,
       dashRow?.maxCellTemp,
       dashRow?.maxCellTempC,
@@ -165,6 +194,9 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.averageCellTemp,
       row.cellGroupTempAvg,
       row.avgCellGroupTemp,
+      tryGetField(row, normalizedObject, [
+        "avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp", "averagecelltemp", "avgcelltempc"
+      ]),
       dashRow?.avgCellTemperature,
       dashRow?.avgCellTemp,
       dashRow?.averageCellTemperature,
@@ -181,6 +213,9 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.cellGroupTempMin,
       row.cellTempMin,
       row.minCellGroupTemp,
+      tryGetField(row, normalizedObject, [
+        "mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp", "mincelltempc"
+      ]),
       dashRow?.minCellTemperature,
       dashRow?.minCellTemp,
       dashRow?.minimumCellTemperature,
@@ -194,16 +229,32 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       row.stackTemperature,
       row.tempC,
       row.temperatureC,
+      tryGetField(row, normalizedObject, ["stacktemperaturec", "stacktemp", "stacktemperature", "tempc", "temperaturec"]),
       dashRow?.stackTemperatureC,
       dashRow?.temperatureC
     );
 
-    const socPct = parseSafeNum(row.soc ?? row.Soc ?? row.powerSoc ?? dashRow?.socPct);
+    const socPct = pN(row.soc ?? row.Soc ?? row.powerSoc ?? tryGetField(row, normalizedObject, ["soc", "powersoc", "socpct"]) ?? dashRow?.socPct);
 
-    const communicating = getCommunicating(row);
-    const outRotation = getOutRotation(row);
+    let communicating = getCommunicating(row);
+    if (communicating === undefined || communicating === null) {
+      if (dashRow?.operationalState !== undefined) {
+         communicating = dashRow.operationalState !== "OFFLINE";
+      } else {
+         communicating = true;
+      }
+    }
+
+    let outRotation = getOutRotation(row);
+    if (outRotation === undefined || outRotation === null) {
+      outRotation = dashRow?.outRotation ?? false;
+    }
     const inRotation = !outRotation;
-    const contactorsClosed = getContactorsClosed(row);
+
+    let contactorsClosed = getContactorsClosed(row);
+    if (contactorsClosed === undefined || contactorsClosed === null) {
+      contactorsClosed = dashRow?.contactorClosed ?? false;
+    }
 
     const explicitDisconnected = (
       row.connected === false || 

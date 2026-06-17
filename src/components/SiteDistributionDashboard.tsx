@@ -868,8 +868,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                         name="Temperature" 
                         unit="°C"
                         domain={[
-                          (dataMin: number) => Math.floor(Math.min(dataMin, lowTemp) - 5),
-                          (dataMax: number) => Math.ceil(Math.max(dataMax, alarmTemp) + 5)
+                          (dataMin: number) => {
+                            const minVal = typeof dataMin === 'number' && Number.isFinite(dataMin) ? dataMin : 20;
+                            return Math.floor(Math.min(minVal, lowTemp) - 5);
+                          },
+                          (dataMax: number) => {
+                            const maxVal = typeof dataMax === 'number' && Number.isFinite(dataMax) ? dataMax : 45;
+                            return Math.ceil(Math.max(maxVal, alarmTemp) + 5);
+                          }
                         ]}
                         stroke="#475569"
                         fontSize={10}
@@ -882,8 +888,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                         name="Stack Voltage" 
                         unit="V"
                         domain={[
-                          (dataMin: number) => Math.floor(Math.min(dataMin, lowVolt) - 50),
-                          (dataMax: number) => Math.ceil(Math.max(dataMax, alarmVolt) + 50)
+                          (dataMin: number) => {
+                            const minVal = typeof dataMin === 'number' && Number.isFinite(dataMin) ? dataMin : 950;
+                            return Math.floor(Math.min(minVal, lowVolt) - 50);
+                          },
+                          (dataMax: number) => {
+                            const maxVal = typeof dataMax === 'number' && Number.isFinite(dataMax) ? dataMax : 1350;
+                            return Math.ceil(Math.max(maxVal, alarmVolt) + 50);
+                          }
                         ]}
                         stroke="#475569"
                         fontSize={10}
