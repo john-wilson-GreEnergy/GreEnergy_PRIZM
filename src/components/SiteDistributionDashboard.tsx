@@ -820,10 +820,26 @@ export default function SiteDistributionDashboard() {
                 <span className="text-xs text-prizm-text-muted">Loading telemetry distribution coordinates...</span>
               </div>
             ) : chartDataPoints.length === 0 ? (
-              <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/45 rounded bg-prizm-surface-strong text-prizm-text-muted">
+              <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/45 rounded bg-prizm-surface-strong text-prizm-text-muted p-4 text-center">
                 <Info size={28} className="mb-2 text-prizm-border" />
-                <span>No available strings match the chosen search & filters matrix.</span>
-                <button onClick={() => { setArrayFilter("all"); setStatusFilter("all"); setSearchQuery(""); setOutliersOnly(false); }} className="mt-2 text-[10.5px] font-bold text-prizm-info hover:underline uppercase">reset query filter</button>
+                <span className="max-w-md block">
+                  {strings.length === 0 ? (
+                    "No string distribution rows are available from the EMS source."
+                  ) : filteredStrings.length === 0 ? (
+                    "No strings match the selected filters."
+                  ) : (
+                    `${strings.length} strings were found, but no usable ${
+                      activeTab === "voltage"
+                        ? "Stack Voltage Vdc"
+                        : tempMetric === "max"
+                        ? "Max Cell Temperature C"
+                        : "Average Cell Temperature C"
+                    } values were reported by the current EMS source.`
+                  )}
+                </span>
+                {(strings.length > 0 && filteredStrings.length === 0) && (
+                  <button onClick={() => { setArrayFilter("all"); setStatusFilter("all"); setSearchQuery(""); setOutliersOnly(false); }} className="mt-2 text-[10.5px] font-bold text-prizm-info hover:underline uppercase">reset query filter</button>
+                )}
               </div>
             ) : (
               <div className="h-[300px] sm:h-[350px] w-full bg-prizm-surface pr-1.5">

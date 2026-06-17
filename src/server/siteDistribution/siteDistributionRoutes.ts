@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getEmsCachedRawStrings, getEmsCachedBlock, getEmsStringIpMap, getEmsConnectionStatus } from "../emsTurtleClient";
 import { getCommunicating, getOutRotation, getContactorsClosed } from "../../lib/stringClassifier";
+import * as prizmCache from "../cache/prizmCache";
 
 const router = Router();
 
@@ -27,6 +28,10 @@ export interface SiteStringDistributionRow {
   statusLabel: string;
   sourcePath: string;
   raw?: any;
+  metricSource?: {
+    voltage: string;
+    temperature: string;
+  };
 }
 
 function parseSafeNum(v: any): number | undefined {
@@ -36,13 +41,20 @@ function parseSafeNum(v: any): number | undefined {
   return n;
 }
 
-function cleanTemp(val: any): number | undefined {
-  let numVal = parseSafeNum(val);
-  if (numVal === undefined) return undefined;
-  if (Math.abs(numVal) > 100) {
-    numVal = numVal / 10;
+function firstNumeric(...values: any[]): number | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "" || value === "--") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
   }
-  return numVal;
+  return undefined;
+}
+
+function normalizeTemp(...values: any[]): number | undefined {
+  const n = firstNumeric(...values);
+  if (n === undefined) return undefined;
+  if (Math.abs(n) > 100) return Number((n / 10).toFixed(1));
+  return n;
 }
 
 export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
@@ -70,6 +82,23 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
     ipMap = ipMapWrapper.data;
   }
 
+  // Fallback merge from PRIZM string dashboard cache
+  const dashboardCacheBase = prizmCache.get<any>("string_dashboard_base_ALL");
+  const dashboardCacheEnriched = prizmCache.get<any>("string_dashboard_enriched_ALL");
+  const dashboardRows =
+    dashboardCacheEnriched?.data?.strings ||
+    dashboardCacheBase?.data?.strings ||
+    [];
+
+  const dashboardByKey = new Map<string, any>();
+  for (const s of dashboardRows) {
+    const a = Number(s.arrayNumber ?? s.arrayIndex ?? s.array);
+    const st = Number(s.stringNumber ?? s.stringIndex ?? s.string);
+    if (Number.isFinite(a) && Number.isFinite(st)) {
+      dashboardByKey.set(`${a}:${st}`, s);
+    }
+  }
+
   return rawData.map((row: any) => {
     const arrayIndex = parseSafeNum(row.arrayIndex ?? row.arrayNumber ?? row.array ?? row.ArrayIndex ?? row.ArrayNumber) ?? 1;
     const stringIndex = parseSafeNum(row.stringIndex ?? row.stringNumber ?? row.string ?? row.StringIndex ?? row.StringNumber) ?? 1;
@@ -79,24 +108,96 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
 
     const label = row.displayLabel || row.label || row.location || `A${arrayIndex}-S${stringIndex}`;
 
-    // Voltage field mapping:
-    // Search and normalize from: stackVoltage, stackVoltageVdc, stackVoltageVDC, dcVoltage, dcVoltageVdc, vStack, stringVoltage
-    const rawVolt = row.stackVoltage ?? row.stackVoltageVdc ?? row.stackVoltageVDC ?? row.dcVoltage ?? row.dcVoltageVdc ?? row.vStack ?? row.stringVoltage ?? row.voltageCalculated ?? row.voltageCalc ?? row.voltageMeasured ?? row.voltageMeas ?? row.calculatedVoltage ?? row.measuredVoltage ?? row.dcBusVoltage ?? row.voltage;
-    const cleanVoltage = parseSafeNum(rawVolt);
+    const dashRow = dashboardByKey.get(`${arrayIndex}:${stringIndex}`);
 
-    // Temperature field mapping:
-    // Search and normalize from: maxCellTempC, maxCellTemperatureC, maxCellTemp, cellMaxTemp, maximumCellTemperature, avgCellTempC, averageCellTemperature, stackTemperatureC
-    const rawMaxTemp = row.maxCellTempC ?? row.maxCellTemperatureC ?? row.maxCellTemp ?? row.cellMaxTemp ?? row.maximumCellTemperature ?? row.cellGroupTempMax ?? row.cellTempMax ?? row.maxCellGroupTemp;
-    const rawAvgTemp = row.avgCellTempC ?? row.averageCellTemperature ?? row.cellGroupTempAvg ?? row.avgCellTemp ?? row.averageCellTemp ?? row.cellGroupTempMavg;
-    const rawMinTemp = row.minCellTempC ?? row.minCellTemperatureC ?? row.minCellTemp ?? row.cellMinTemp ?? row.minimumCellTemperature ?? row.cellGroupTempMin ?? row.cellTempMin ?? row.minCellGroupTemp;
-    const rawStackTemp = row.stackTemperatureC ?? row.stackTempC ?? row.stackTemperature ?? row.tempC ?? row.temperatureC;
+    // Best-available voltage selection
+    const stackVoltage = firstNumeric(
+      row.stackVoltage,
+      row.stackVoltageVdc,
+      row.stackVoltageVDC,
+      row.dcVoltage,
+      row.dcVoltageVdc,
+      row.vStack,
+      row.stringVoltage,
+      row.voltageCalculated,
+      row.voltageCalc,
+      row.calculatedVoltage,
+      row.calculatedStringVoltage,
+      row.voltageMeasured,
+      row.voltageMeas,
+      row.measuredVoltage,
+      row.measuredStringVoltage,
+      row.voltageDcBus,
+      row.voltageBus,
+      row.dcBusVoltage,
+      row.busVoltage,
+      dashRow?.stackVoltage,
+      dashRow?.stackVoltageVdc,
+      dashRow?.dcVoltage,
+      dashRow?.measuredVoltage,
+      dashRow?.calculatedVoltage,
+      dashRow?.busVoltage,
+      dashRow?.dcBusVoltage,
+      dashRow?.voltageMeasured,
+      dashRow?.voltageCalculated
+    );
 
-    const maxCellTempC = cleanTemp(rawMaxTemp);
-    const avgCellTempC = cleanTemp(rawAvgTemp);
-    const minCellTempC = cleanTemp(rawMinTemp);
-    const stackTemperatureC = cleanTemp(rawStackTemp);
+    // Best-available temperature selection
+    const maxCellTempC = normalizeTemp(
+      row.maxCellTempC,
+      row.maxCellTemperatureC,
+      row.maxCellTemp,
+      row.cellMaxTemp,
+      row.maximumCellTemperature,
+      row.cellGroupTempMax,
+      row.cellTempMax,
+      row.maxCellGroupTemp,
+      dashRow?.maxCellTemp,
+      dashRow?.maxCellTemperature,
+      dashRow?.maxCellTempC,
+      dashRow?.maxCellGroupTemp,
+      dashRow?.maxCellTemperatureC
+    );
 
-    const socPct = parseSafeNum(row.soc ?? row.Soc ?? row.powerSoc);
+    const avgCellTempC = normalizeTemp(
+      row.avgCellTempC,
+      row.averageCellTemperature,
+      row.avgCellTemp,
+      row.averageCellTemp,
+      row.cellGroupTempAvg,
+      row.avgCellGroupTemp,
+      dashRow?.avgCellTemp,
+      dashRow?.averageCellTemperature,
+      dashRow?.avgCellTempC,
+      dashRow?.avgCellGroupTemp
+    );
+
+    const minCellTempC = normalizeTemp(
+      row.minCellTempC,
+      row.minCellTemperatureC,
+      row.minCellTemp,
+      row.cellMinTemp,
+      row.minimumCellTemperature,
+      row.cellGroupTempMin,
+      row.cellTempMin,
+      row.minCellGroupTemp,
+      dashRow?.minCellTemp,
+      dashRow?.minimumCellTemperature,
+      dashRow?.minCellTempC,
+      dashRow?.minCellGroupTemp
+    );
+
+    const stackTemperatureC = normalizeTemp(
+      row.stackTemperatureC,
+      row.stackTempC,
+      row.stackTemperature,
+      row.tempC,
+      row.temperatureC,
+      dashRow?.stackTemperatureC,
+      dashRow?.temperatureC
+    );
+
+    const socPct = parseSafeNum(row.soc ?? row.Soc ?? row.powerSoc ?? dashRow?.socPct);
 
     const communicating = getCommunicating(row);
     const outRotation = getOutRotation(row);
@@ -137,9 +238,9 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       stringIndex,
       ip: ipAddress,
       displayLabel: label,
-      stackVoltage: cleanVoltage,
-      stackVoltageVdc: cleanVoltage,
-      dcVoltage: cleanVoltage,
+      stackVoltage,
+      stackVoltageVdc: stackVoltage,
+      dcVoltage: stackVoltage,
       maxCellTempC,
       minCellTempC,
       avgCellTempC,
@@ -151,7 +252,15 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       contactorsClosed,
       statusColor,
       statusLabel,
-      sourcePath: row.sourcePath || metaWrapper.source || "/tools/report/ems/strings.csv",
+      sourcePath: dashRow ? "strings-dashboard-cache + live" : (row.sourcePath || metaWrapper.source || "live"),
+      metricSource: {
+        voltage: stackVoltage !== undefined
+          ? (dashRow ? "strings-dashboard-cache" : "site-distribution-source")
+          : "unavailable",
+        temperature: (maxCellTempC !== undefined || avgCellTempC !== undefined || stackTemperatureC !== undefined)
+          ? (dashRow ? "strings-dashboard-cache" : "site-distribution-source")
+          : "unavailable"
+      }
     };
   });
 }
@@ -200,6 +309,18 @@ router.get("/strings", (req, res) => {
   const hasMaxCellTemp = rows.some(r => r.maxCellTempC !== undefined && r.maxCellTempC !== null);
   const temperatureMetric = hasMaxCellTemp ? "Max Cell Temperature C" : "Average Cell Temperature C";
 
+  const voltageRows = rows.filter(r =>
+    (r.stackVoltage !== undefined && r.stackVoltage !== null) ||
+    (r.stackVoltageVdc !== undefined && r.stackVoltageVdc !== null) ||
+    (r.dcVoltage !== undefined && r.dcVoltage !== null)
+  ).length;
+
+  const temperatureRows = rows.filter(r =>
+    (r.maxCellTempC !== undefined && r.maxCellTempC !== null) ||
+    (r.avgCellTempC !== undefined && r.avgCellTempC !== null) ||
+    (r.stackTemperatureC !== undefined && r.stackTemperatureC !== null)
+  ).length;
+
   const responsePayload: any = {
     success: true,
     timestamp: new Date().toISOString(),
@@ -209,6 +330,13 @@ router.get("/strings", (req, res) => {
         { name: 'ems-strings', hasData: Boolean(rawStringsWrapper.data && rawStringsWrapper.data.length > 0) },
         { name: 'ems-block', hasData: Boolean(blockWrapper.data && blockWrapper.data.strings && blockWrapper.data.strings.length > 0) }
       ]
+    },
+    metricAvailability: {
+      totalRows: rows.length,
+      voltageRows,
+      temperatureRows,
+      missingVoltageRows: rows.length - voltageRows,
+      missingTemperatureRows: rows.length - temperatureRows
     },
     rollups: {
       stringCount,
