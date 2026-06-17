@@ -141,9 +141,12 @@ app.post("/api/local/system/reinitialize", (req, res) => {
 });
 
 app.post("/api/local/system/refresh-live", async (req, res) => {
-  // trigger background action
-  startBackgroundPolling();
-  res.json({ success: true, message: "Triggered live refresh" });
+  try {
+    await prizmDataCoordinator.triggerImmediatePoll();
+    res.json({ success: true, message: "Live EMS refresh completed" });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Live EMS refresh failed" });
+  }
 });
 
 

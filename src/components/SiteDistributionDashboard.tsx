@@ -323,8 +323,8 @@ export default function SiteDistributionDashboard() {
     if (active && payload && payload.length) {
       const d: any = payload[0].payload;
       return (
-        <div className="bg-slate-900 border border-slate-700 p-3 rounded-md text-[11px] text-slate-100 font-mono shadow-2xl space-y-1 z-50">
-          <div className="text-cyan-400 font-bold border-b border-slate-700 pb-1 flex justify-between gap-4">
+        <div className="bg-prizm-surface border border-prizm-border p-3 rounded-md text-[11px] text-prizm-text font-mono shadow-2xl space-y-1 z-50">
+          <div className="text-cyan-400 font-bold border-b border-prizm-border pb-1 flex justify-between gap-4">
             <span>UNIT: {d.displayLabel}</span>
             <span>#{d.xIndex}</span>
           </div>
@@ -353,7 +353,7 @@ export default function SiteDistributionDashboard() {
             </div>
           </div>
 
-          <div className="pt-1.5 border-t border-slate-700 flex items-center gap-1.5 font-bold" style={{ color: getStatusColorHex(d.statusColor) }}>
+          <div className="pt-1.5 border-t border-prizm-border flex items-center gap-1.5 font-bold" style={{ color: getStatusColorHex(d.statusColor) }}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: getStatusColorHex(d.statusColor) }} />
             STATUS: {d.statusLabel}
           </div>
@@ -787,7 +787,7 @@ export default function SiteDistributionDashboard() {
               <span className="font-bold text-prizm-text uppercase tracking-widest block text-xs">
                 {activeTab === "voltage" ? "Stack Voltage Site Spread Map" : "Stack Temperature Site Spread Map"}
               </span>
-              <span className="text-[10px] bg-black/5 px-2 py-0.5 rounded border border-prizm-border text-prizm-text-muted">
+              <span className="text-[10px] bg-prizm-surface-strong px-2 py-0.5 rounded border border-prizm-border text-prizm-text-muted">
                 METRIC: <span className="font-extrabold text-prizm-primary">{activeTab === "voltage" ? "Stack Voltage Vdc" : (tempMetric === "max" ? "Max Cell Temperature C" : "Average Cell Temperature C")}</span>
               </span>
             </div>

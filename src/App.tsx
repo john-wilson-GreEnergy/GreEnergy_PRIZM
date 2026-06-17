@@ -80,6 +80,9 @@ export default function App() {
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation">("feather");
   const [loading, setLoading] = useState(true);
   const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
+  const [manualRepolling, setManualRepolling] = useState(false);
+  const [manualRepollMessage, setManualRepollMessage] = useState<string | null>(null);
+  const [manualRepollError, setManualRepollError] = useState<string | null>(null);
 
   // Configured navbar tabs list setting
   const [tabsOrder, setTabsOrder] = useState<TabItem[]>(() => {
@@ -183,6 +186,46 @@ export default function App() {
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
+  
+
+
+  const handleManualRepoll = async () => {
+    if (manualRepolling) return;
+    setManualRepolling(true);
+    setManualRepollError(null);
+    setManualRepollMessage(null);
+    try {
+      const refreshRes = await fetch("/api/local/system/refresh-live", { method: "POST" });
+      const refreshBody = await refreshRes.json().catch(() => null);
+      if (!refreshRes.ok) throw new Error(refreshBody?.error || "Refresh failed with HTTP " + refreshRes.status);
+      const connRes = await fetch("/api/local/ems/connection-status");
+      const connBody = await connRes.json().catch(() => null);
+      if (connRes.ok && connBody) { setConnectionStatus(connBody); setEmsMetadata(connBody); }
+      const bootRes = await fetch("/api/local/system/boot-status").catch(() => null);
+      if (bootRes && bootRes.ok) { const bootBody = await bootRes.json().catch(() => null); if (bootBody) setBootStatus(bootBody); }
+      const debugRes = await fetch("/api/local/debug/sources").catch(() => null);
+      let sourceMsg = "";
+      if (debugRes && debugRes.ok) {
+        const sources = await debugRes.json().catch(() => []);
+        const okCount = sources.filter((s) => s.success).length;
+        sourceMsg = " · Sources: " + okCount + " OK / " + (sources.length - okCount) + " Failed";
+      }
+      let connMsg = "";
+      if (connBody) {
+        if (connBody.status === "LIVE") connMsg = " · Connection Live";
+        else if (connBody.status === "PARTIAL") connMsg = " · Partial Connection";
+        else connMsg = " · " + (connBody.status || "Offline");
+      }
+      setManualRepollMessage("EMS Repoll Complete" + connMsg + sourceMsg);
+      setTimeout(() => setManualRepollMessage(null), 6000);
+    } catch (err) {
+      setManualRepollError(err?.message || "EMS repoll failed");
+      setTimeout(() => setManualRepollError(null), 6000);
+    } finally {
+      setManualRepolling(false);
+    }
+  };
+
   const fetchAllData = async (silent = false) => {
     const t0 = performance.now();
     if (!silent && !connectionStatus) setLoading(true);
@@ -283,6 +326,16 @@ export default function App() {
       )}
       <header className="h-14 border-b border-prizm-border flex items-center justify-between px-4 sm:px-6 bg-prizm-header sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
+            {manualRepollMessage && <span className="text-emerald-500 font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2">{manualRepollMessage}</span>}
+            {manualRepollError && <span className="text-prizm-danger font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2">{manualRepollError}</span>}
+            <button
+              onClick={handleManualRepoll}
+              disabled={manualRepolling}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-prizm-border bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-primary font-mono text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={manualRepolling ? "animate-spin" : ""} />
+              {manualRepolling ? "Repolling..." : "Repoll EMS"}
+            </button>
           <div className="flex items-center gap-2.5">
             <GreEnergyLogo className="w-6 h-6 text-prizm-primary" strokeWidth={10} />
             <span className="font-mono font-bold tracking-tighter text-prizm-text text-base sm:text-lg">
@@ -294,6 +347,7 @@ export default function App() {
             {connectionStatus?.status === 'LIVE' && <span className="text-emerald-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Connection Live</span>}
             {connectionStatus?.status === 'PARTIAL' && <span className="text-prizm-warning font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning"></span>Connection Partial</span>}
             {connectionStatus?.status === 'CACHED' && <span className="text-amber-500 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Using Last Snapshot</span>}
+            {(connectionStatus?.staleData || emsMetadata?.staleData) && <span className="text-amber-600 font-bold">STALE DATA</span>}
             {connectionStatus?.status === 'DEMO' && <span className="text-purple-400 font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse"></span>Demo Mode</span>}
             {(!connectionStatus || connectionStatus?.status === 'OFFLINE') && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline</span>}
             {connectionStatus?.status === 'MISCONFIGURED' && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline (Misconfigured)</span>}

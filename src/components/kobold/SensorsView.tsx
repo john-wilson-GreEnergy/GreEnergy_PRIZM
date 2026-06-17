@@ -348,7 +348,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
     if (!sensor || sensor.state === "na") {
       return (
         <div 
-          className="flex justify-center items-center h-8 w-11 text-slate-700 font-mono text-[10px] cursor-help"
+          className="flex justify-center items-center h-8 w-11 text-prizm-text-muted font-mono text-[10px] cursor-help"
           title={`${categoryLabel}\nState: Not Applicable\nValue: N/A`}
         >
           —
@@ -362,10 +362,10 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
     if (state === "unknown") {
       return (
         <div 
-          className="flex justify-center items-center h-8 w-11 text-slate-500 cursor-help"
+          className="flex justify-center items-center h-8 w-11 text-prizm-text-muted cursor-help"
           title={tooltipText}
         >
-          <HelpCircle size={13} className="text-slate-500 stroke-[2.5]" />
+          <HelpCircle size={13} className="text-prizm-text-muted stroke-[2.5]" />
         </div>
       );
     }
@@ -419,7 +419,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
       case "warning":
         return <AlertTriangle size={14} className="text-amber-500 shrink-0" title="Active Warning Signals" />;
       case "unknown":
-        return <HelpCircle size={14} className="text-slate-500 shrink-0" title="Stale / Unknown Signals" />;
+        return <HelpCircle size={14} className="text-prizm-text-muted shrink-0" title="Stale / Unknown Signals" />;
       default:
         return <Heart size={14} className="text-emerald-500 fill-emerald-500 shrink-0" title="All Systems Normal" />;
     }
@@ -448,7 +448,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
             <select
               value={simTargetNode}
               onChange={(e) => setSimTargetNode(e.target.value)}
-              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[200px]"
+              className="bg-prizm-surface text-prizm-text text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[200px]"
             >
               {rows.map(row => (
                 <option key={row.id} value={row.id}>
@@ -468,7 +468,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                 const opts = getSimValueOptions(e.target.value);
                 setSimValue(opts[opts.length - 1]); // Default to fault state typically
               }}
-              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[170px]"
+              className="bg-prizm-surface text-prizm-text text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[170px]"
             >
               {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.label}</option>
@@ -482,7 +482,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
             <select
               value={simValue}
               onChange={(e) => setSimValue(e.target.value)}
-              className="bg-black text-slate-100 text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[120px]"
+              className="bg-prizm-surface text-prizm-text text-xs border border-prizm-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:border-cyan-500 min-w-[120px]"
             >
               {getSimValueOptions(simTargetCategory).map(opt => (
                 <option key={opt} value={opt}>{opt}</option>
@@ -501,7 +501,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
             <button
               onClick={handleResetDefaults}
               disabled={injecting}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-4 py-1.5 h-[34px] rounded border border-prizm-border flex items-center gap-1 cursor-pointer transition uppercase"
+              className="bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text font-bold text-xs px-4 py-1.5 h-[34px] rounded border border-prizm-border flex items-center gap-1 cursor-pointer transition uppercase"
               title="Clear all overrides back to EMS defaults"
             >
               Reset Defaults
@@ -573,7 +573,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                       className={`w-full text-left p-2 rounded transition-all border flex flex-col gap-1 cursor-pointer ${
                         isSelected
                           ? "bg-prizm-primary/10 border-prizm-primary/60 text-white font-semibold shadow-sm"
-                          : "bg-black/25 border-transparent hover:border-prizm-border/40 hover:bg-black/40 text-prizm-text-muted"
+                          : "bg-prizm-surface/25 border-transparent hover:border-prizm-border/40 hover:bg-prizm-surface/40 text-prizm-text-muted"
                       }`}
                     >
                       <div className="flex items-center justify-between w-full">
@@ -632,7 +632,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                 <select
                   value={selectedArray}
                   onChange={(e) => setSelectedArray(e.target.value)}
-                  className="bg-black text-[10px] text-slate-200 border border-prizm-border rounded px-2 py-1 font-mono outline-none cursor-pointer"
+                  className="bg-prizm-surface text-[10px] text-prizm-text border border-prizm-border rounded px-2 py-1 font-mono outline-none cursor-pointer"
                 >
                   <option value="All">All Arrays</option>
                   <option value="1">Array 1</option>
@@ -648,7 +648,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                   type="checkbox"
                   checked={hideHealthy}
                   onChange={(e) => setHideHealthy(e.target.checked)}
-                  className="rounded border-[#1E293B] bg-black text-[#06B6D4] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5 cursor-pointer"
+                  className="rounded border-prizm-border bg-prizm-surface text-[#06B6D4] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5 cursor-pointer"
                 />
                 Hide Healthy
               </label>
@@ -661,7 +661,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                   placeholder="ID, IP, or Segment..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-black border border-prizm-border rounded pl-7 pr-2 py-1.5 text-[10px] font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 w-36"
+                  className="bg-prizm-surface border border-prizm-border rounded pl-7 pr-2 py-1.5 text-[10px] font-mono text-prizm-text placeholder-prizm-text-muted focus:outline-none focus:border-cyan-500 w-36"
                 />
               </div>
 
@@ -695,7 +695,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
 
           {/* ACTIVE FILTER NOTIFIER */}
           {selectedCategory && (
-            <div className="bg-prizm-primary/5 border border-prizm-primary/25 px-3 py-2 rounded flex items-center justify-between text-xs text-slate-300 font-sans">
+            <div className="bg-prizm-primary/5 border border-prizm-primary/25 px-3 py-2 rounded flex items-center justify-between text-xs text-prizm-text font-sans">
               <span className="flex items-center gap-1.5 uppercase font-mono text-[10.5px]">
                 <Settings size={12} className="text-prizm-primary animate-pulse" />
                 Highlight Filter: Showing only units with active issues in <strong className="text-cyan-300">{(categories.find(c => c.id === selectedCategory))?.label}</strong>.
@@ -717,28 +717,28 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
               <thead className="sticky top-0 bg-[#0F111A] z-10 select-none shadow border-b border-prizm-border">
                 {/* 1st row: Column groups */}
                 <tr className="text-[#64748B] text-[8.5px] uppercase font-bold text-center border-b border-prizm-border/30">
-                  <th colSpan={6} className="p-2 border-r border-prizm-border/40 bg-black/20 text-left pl-3 text-slate-400 font-mono text-[9px] uppercase tracking-wider">
+                  <th colSpan={6} className="p-2 border-r border-prizm-border/40 bg-prizm-surface/20 text-left pl-3 text-prizm-text-muted font-mono text-[9px] uppercase tracking-wider">
                     Site Topology Address
                   </th>
-                  <th colSpan={1} className="p-2 border-r border-[#1E293B] bg-emerald-900/10 text-emerald-400 font-bold uppercase text-[9px] tracking-wider">
+                  <th colSpan={1} className="p-2 border-r border-prizm-border bg-emerald-900/10 text-emerald-400 font-bold uppercase text-[9px] tracking-wider">
                     Emergency Sensors
                   </th>
-                  <th colSpan={2} className="p-2 border-r border-[#1E293B] bg-blue-950/10 text-blue-400 font-bold uppercase text-[9px] tracking-wider">
+                  <th colSpan={2} className="p-2 border-r border-prizm-border bg-blue-950/10 text-blue-400 font-bold uppercase text-[9px] tracking-wider">
                     Com Status
                   </th>
-                  <th colSpan={4} className="p-2 border-r border-[#1E293B] bg-purple-950/10 text-purple-400 font-bold uppercase text-[9px] tracking-wider">
+                  <th colSpan={4} className="p-2 border-r border-prizm-border bg-purple-950/10 text-purple-400 font-bold uppercase text-[9px] tracking-wider">
                     Door Sensors
                   </th>
-                  <th colSpan={9} className="p-2 border-r border-[#1E293B] bg-slate-900/20 text-slate-300 font-bold uppercase text-[9px] tracking-wider">
+                  <th colSpan={9} className="p-2 border-r border-prizm-border bg-prizm-bg text-prizm-text font-bold uppercase text-[9px] tracking-wider">
                     Environmental / Safety
                   </th>
-                  <th colSpan={1} className="p-2 bg-slate-900/30 text-[#A78BFA] font-bold uppercase text-[9px] tracking-wider">
+                  <th colSpan={1} className="p-2 bg-prizm-bg text-[#A78BFA] font-bold uppercase text-[9px] tracking-wider">
                     Other Sensors
                   </th>
                 </tr>
 
                 {/* 2nd row: Column elements headers */}
-                <tr className="text-slate-400 uppercase text-[9px] font-semibold border-b border-prizm-border">
+                <tr className="text-prizm-text-muted uppercase text-[9px] font-semibold border-b border-prizm-border">
                   {/* Topology group */}
                   <th className="p-2.5 pl-3 w-10 text-center">HLTH</th>
                   <th className="p-2.5 w-[210px] text-left">Location Label / ID</th>
@@ -797,7 +797,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                       <tr 
                         key={row.id} 
                         className={`hover:bg-prizm-primary/[0.02] transition-colors leading-tight ${
-                          isEven ? "bg-black/15" : "bg-transparent"
+                          isEven ? "bg-prizm-surface/15" : "bg-transparent"
                         }`}
                       >
                         {/* Overall health badge */}
@@ -807,12 +807,12 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
 
                         {/* Location address information */}
                         <td className="p-2 font-medium py-2.5 max-w-[210px] truncate leading-tight" title={`${row.displayLabel}\nIP Address: ${row.deviceIp ?? 'N/A'}`}>
-                          <span className="text-slate-100 font-semibold block truncate">{row.displayLabel}</span>
+                          <span className="text-prizm-text font-semibold block truncate">{row.displayLabel}</span>
                           <span className="text-[9px] text-[#059669] block leading-none mt-0.5">{row.deviceIp ?? "10.0.0.x / Unassigned"}</span>
                         </td>
 
                         {/* segment index */}
-                        <td className="p-2 text-center text-slate-400 font-mono font-semibold">
+                        <td className="p-2 text-center text-prizm-text-muted font-mono font-semibold">
                           {row.segmentIndex ?? "—"}
                         </td>
 
@@ -827,7 +827,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
                         </td>
 
                         {/* segment position or arrayIndex */}
-                        <td className="p-2 text-center text-cyan-400 border-r border-[#1E293B] font-bold">
+                        <td className="p-2 text-center text-cyan-400 border-r border-prizm-border font-bold">
                           {row.arrayIndex ? `A${row.arrayIndex}` : "—"}
                         </td>
 
