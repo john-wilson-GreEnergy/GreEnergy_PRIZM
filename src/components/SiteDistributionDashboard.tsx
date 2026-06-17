@@ -211,8 +211,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   }, [strings, arrayFilter, statusFilter, outliersOnly, searchQuery, activeTab, tempMetric, warningTemp, alarmTemp, lowTemp, warningVolt, alarmVolt, lowVolt]);
 
   // Outlier strings specifically for the outliers grid
-  const outlierTableRows = useMemo(() => {
-    return strings.filter(s => {
+  const flaggedCount = useMemo(() => {
+    return filteredStrings.filter(s => {
       const isNotGreen = s.statusColor !== "green";
       const v = getMetricValue(s, activeTab, tempMetric);
       
@@ -226,8 +226,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       }
 
       return isNotGreen || isThresholdOutlier;
-    });
-  }, [strings, activeTab, tempMetric, warningTemp, lowTemp, warningVolt, lowVolt]);
+    }).length;
+  }, [filteredStrings, activeTab, tempMetric, warningTemp, lowTemp, warningVolt, lowVolt]);
 
   // CSV Data Export functionality
   const handleExportCsv = () => {
@@ -843,7 +843,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               </div>
             ) : (
               <div className="h-[300px] sm:h-[350px] w-full bg-prizm-surface pr-1.5">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" key={`${active}-${activeTab}`}>
                   <ScatterChart
                     margin={{ top: 15, right: 15, bottom: 20, left: 15 }}
                   >
@@ -903,7 +903,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                       />
                     )}
 
-                    <ZAxis type="number" dataKey="xIndex" range={[60, 60]} />
+                    <ZAxis type="number" range={[60, 60]} />
 
                     <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#cbd5e1' }} />
 
@@ -973,8 +973,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-3">
             <div className="flex items-center justify-between border-b border-prizm-border pb-2">
               <span className="font-bold text-xs text-prizm-text uppercase flex items-center gap-1.5">
-                <AlertTriangle className="text-prizm-warning" size={14} />
-                Identified Site Outlier Devices ({outlierTableRows.length} flagged)
+                <AlertTriangle className={flaggedCount > 0 ? "text-prizm-warning animate-pulse" : "text-prizm-primary"} size={14} />
+                {outliersOnly ? "Identified Site Outliers" : "Telemetry Data Grid"} ({filteredStrings.length} listed, {flaggedCount} flagged)
               </span>
               <span className="text-[9px] text-prizm-text-muted">
                 DEFINED AS: NON-GREEN STATE OR THRESHOLD BREACHES
@@ -997,14 +997,16 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-prizm-border/50">
-                  {outlierTableRows.length === 0 ? (
+                  {filteredStrings.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
-                        🎉 ALL site controllers are normal. No active threshold breach or off-line rotations detected.
+                        {outliersOnly 
+                          ? "🎉 ALL site controllers are normal. No active threshold breach or off-line rotations detected."
+                          : "🔍 No controller strings match your current active filters."}
                       </td>
                     </tr>
                   ) : (
-                    outlierTableRows.map((s, idx) => {
+                    filteredStrings.map((s, idx) => {
                       const tempV = getMetricValue(s, "temperature", "max");
                       const voltV = getMetricValue(s, "voltage");
                       
@@ -1018,10 +1020,10 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           <td className="p-2 font-bold text-center text-prizm-text">{s.arrayIndex}</td>
                           <td className="p-2 font-bold text-center text-prizm-text">{s.stringIndex}</td>
                           <td className="p-2 font-bold text-prizm-text-muted">{s.displayLabel}</td>
-                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-600' : isLowVolt ? 'text-cyan-600' : 'text-slate-700'}`}>
+                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-500'}`}>
                             {s.stackVoltage !== undefined && s.stackVoltage !== null ? `${s.stackVoltage} V` : "--"}
                           </td>
-                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-600' : 'text-slate-700'}`}>
+                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-500'}`}>
                             {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? `${s.maxCellTempC} °C` : "--"}
                           </td>
                           <td className="p-2 text-right text-prizm-text-muted">
