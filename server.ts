@@ -109,8 +109,13 @@ app.get("/api/local/snapshot/site-operations-summary", (req, res) => {
 });
 
 app.get("/api/local/pcs/dashboard", (req, res) => {
+  const startedAt = Date.now();
+  const includePerf = req.query.includePerf === "true";
   const snapshot = prizmDataCoordinator.getLatestSnapshot();
   if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
+  if (includePerf) {
+    res.setHeader("X-PRIZM-Duration-Ms", String(Date.now() - startedAt));
+  }
   res.json(snapshot.normalized.pcs || []);
 });
 

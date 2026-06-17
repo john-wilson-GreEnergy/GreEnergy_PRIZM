@@ -833,6 +833,8 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
 });
 
 router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
+    const startedAt = Date.now();
+    const includePerf = req.query.includePerf === "true";
     try {
         const arrayNumber = Number(req.params.arrayNumber);
         const stringNumber = Number(req.params.stringNumber);
@@ -1413,7 +1415,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         const wasCacheUsed = !cacheEntry.wasFetched && (!cacheEntry.error || cacheEntry.data);
 
         // Hysteresis / History tracking
-        if (cacheEntry.data && cacheEntry.data.bpcs && !!req.query.captureHistory && cacheEntry.wasFetched) {
+        const captureHistoryRequested = req.query.captureHistory === "true";
+        if (cacheEntry.data && cacheEntry.data.bpcs && captureHistoryRequested && cacheEntry.wasFetched) {
              const hMetrics: any[] = [];
              const timestampUtc = new Date().toISOString();
              cacheEntry.data.bpcs.forEach((b:any, i:number) => {
@@ -1458,7 +1461,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
-        res.json({ 
+        const responsePayload: any = {
             ...outputData, 
             ...cacheMetadata,
             cache: {
@@ -1480,7 +1483,16 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             sourceOk: cacheEntry.sourceOk,
             isLive: cacheEntry.isLive,
             isStale: cacheEntry.isStale
-        });
+        };
+        if (includePerf) {
+            responsePayload.perf = {
+                durationMs: Date.now() - startedAt,
+                cacheHit: Boolean(wasCacheUsed),
+                liveAttempted: Boolean(liveAttempted),
+                source: (outputData as any)?.sourceUrl || "cache"
+            };
+        }
+        res.json(responsePayload);
     } catch(err) {
         res.status(500).json({ error: (err as any).message });
     }

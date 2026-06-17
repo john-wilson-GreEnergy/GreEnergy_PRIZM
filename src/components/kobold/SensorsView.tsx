@@ -1,3 +1,4 @@
+import { markPerf } from '../../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Flame, 
@@ -127,6 +128,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
 
   // Load health data from server API
   const loadData = async (isRefreshed = false) => {
+    const t0 = performance.now();
     if (isRefreshed) setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -147,6 +149,7 @@ export default function SensorsView(_props?: { lateralSensors?: any; sensorRows?
     } finally {
       setLoading(false);
       setRefreshing(false);
+      markPerf('SensorsView Refresh', t0);
     }
   };
 

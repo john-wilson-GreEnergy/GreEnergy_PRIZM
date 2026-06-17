@@ -1,3 +1,4 @@
+import { markPerf } from '../lib/perf';
 import React, { useState, useEffect } from "react";
 import { 
   FileSpreadsheet, 
@@ -120,6 +121,7 @@ export default function Reporting({
   }, [diagnosticSession?.id, diagnosticSession?.active]);
 
   const fetchSummary = async (sessionId: string) => {
+    const t0 = performance.now();
     setLoadingSummary(true);
     setSummaryMsg("");
     try {
@@ -135,6 +137,7 @@ export default function Reporting({
       setSummaryMsg("Could not fetch comparison summary: " + e.message);
     } finally {
       setLoadingSummary(false);
+      markPerf('Reporting fetchSummary', t0);
     }
   };
 
@@ -225,6 +228,7 @@ export default function Reporting({
   };
 
   const fetchCatalog = async () => {
+    const t0 = performance.now();
     try {
       const res = await fetch("/api/local/reports/catalog");
       if (res.ok) {
@@ -235,10 +239,12 @@ export default function Reporting({
       console.error("[Reporting] Error fetching report catalog:", e);
     } finally {
       setLoadingCatalog(false);
+      markPerf('Reporting fetchCatalog', t0);
     }
   };
 
   const fetchRecentReports = async () => {
+    const t0 = performance.now();
     setLoadingRecent(true);
     try {
       const res = await fetch("/api/local/reports/recent");
@@ -250,6 +256,7 @@ export default function Reporting({
       console.error("[Reporting] Error fetching recent reports:", e);
     } finally {
       setLoadingRecent(false);
+      markPerf('Reporting fetchRecentReports', t0);
     }
   };
 

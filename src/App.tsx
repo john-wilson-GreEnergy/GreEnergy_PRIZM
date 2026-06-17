@@ -1,3 +1,4 @@
+import { markPerf } from './lib/perf';
 import React, { useState, useEffect, Suspense, useTransition, useRef } from "react";
 import { 
   Activity, 
@@ -36,7 +37,7 @@ const LineupLightbarControl = React.lazy(() => import("./components/LineupLightb
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
 const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
-import DashboardLoadingSkeleton from "./components/DashboardLoadingSkeleton";
+import DashboardLoadingSkeleton from "./components/common/DashboardLoadingSkeleton";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
@@ -183,6 +184,7 @@ export default function App() {
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
   const fetchAllData = async (silent = false) => {
+    const t0 = performance.now();
     if (!silent && !connectionStatus) setLoading(true);
     try {
       const bootRes = await fetch('/api/local/system/boot-status').catch(err => null);
@@ -222,6 +224,7 @@ export default function App() {
       console.log('[App Telemetry Info] Telemetry gateway offline standby:', err);
     } finally {
       if (!silent) setLoading(false);
+      markPerf('App fetchAllData', t0);
     }
   };
 
@@ -271,6 +274,13 @@ export default function App() {
     <div className="min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col">
       
       {/* TOP NAVIGATION BAR (DAYLIGHT DESIGN THEME) */}
+      {isPending && (
+        <div className="bg-prizm-bg border-b border-prizm-border px-4 py-1 text-center">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-prizm-info animate-pulse">
+            Loading view...
+          </span>
+        </div>
+      )}
       <header className="h-14 border-b border-prizm-border flex items-center justify-between px-4 sm:px-6 bg-prizm-header sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">

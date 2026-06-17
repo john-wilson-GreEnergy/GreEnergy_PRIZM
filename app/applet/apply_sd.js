@@ -1,0 +1,10 @@
+const fs = require('fs');
+let sdStr = fs.readFileSync('src/components/SiteDistributionDashboard.tsx', 'utf8');
+if (!sdStr.includes('import { markPerf }')) sdStr = "import { markPerf } from '../lib/perf';\n" + sdStr;
+if (!sdStr.includes('const [refreshing, setRefreshing]')) {
+  sdStr = sdStr.replace('const [loading, setLoading] = useState(true);', 'const [loading, setLoading] = useState(true);\n  const [refreshing, setRefreshing] = useState(false);');
+  sdStr = sdStr.replace('const loadData = async (refresh = false) => {\n    setLoading(true);', 'const loadData = async (refresh = false) => {\n    const t0 = performance.now();\n    if (refresh) setRefreshing(true);\n    else setLoading(true);');
+  sdStr = sdStr.replace(/setErrorMsg\([\s\S]*?Failed to connect to Site Distribution telemetry service[\s\S]*?\);\n\s*\}\n\s*\};\n/, "setErrorMsg(`Failed to connect to Site Distribution telemetry service: ${err.message}`);\n    } finally {\n      setLoading(false);\n      setRefreshing(false);\n      markPerf('Site Distribution Refresh', t0);\n    }\n  };\n");
+  sdStr = sdStr.replace('{loading ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}', '{(refreshing || loading) ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}');
+}
+fs.writeFileSync('src/components/SiteDistributionDashboard.tsx', sdStr);

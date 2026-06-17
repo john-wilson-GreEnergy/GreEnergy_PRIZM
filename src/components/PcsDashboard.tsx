@@ -1,3 +1,4 @@
+import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { Zap, Activity, CheckCircle2, XOctagon } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
@@ -22,6 +23,7 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
 export default function PcsDashboard() {
     const [pcsList, setPcsList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     
     // Default structure fallback
     const [fallbackMode, setFallbackMode] = useState(false);
@@ -35,7 +37,9 @@ export default function PcsDashboard() {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const refreshData = async () => {
-        setLoading(true);
+        const t0 = performance.now();
+        if (pcsList.length > 0) setRefreshing(true);
+        else setLoading(true);
         try {
             let pcsRows: any[] = [];
             let sourceMeta = "PCS source unavailable or unmapped.";
@@ -160,14 +164,14 @@ export default function PcsDashboard() {
                              onClick={refreshData} disabled={loading}
                              className="flex items-center gap-1.5 px-3 py-1 bg-prizm-surface border border-prizm-border rounded hover:bg-prizm-surface-strong transition-colors text-prizm-primary font-bold text-[9px] disabled:opacity-50"
                         >
-                            <Activity size={10} className={loading ? 'animate-pulse' : ''} /> REFRESH LIVE
+                            <Activity size={10} className={(refreshing || loading) ? 'animate-pulse' : ''} /> {(refreshing || loading) ? 'REFRESHING...' : 'REFRESH LIVE'}
                         </button>
                     </div>
                 </div>
                 
                 {fallbackMode && (
                     <div className="bg-prizm-warning/10 border border-prizm-warning/50 text-prizm-warning p-3 rounded text-xs font-mono">
-                        Live EMS block data is currently unavailable. Rendering synthetic PCS rows to allow configuration.
+                        PCS source unavailable or unmapped. No live PCS rows are currently available from the EMS source.
                     </div>
                 )}
                 

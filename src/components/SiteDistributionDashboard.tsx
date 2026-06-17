@@ -1,3 +1,4 @@
+import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   BarChart3, 
@@ -80,6 +81,7 @@ export interface DistributionResponse {
 export default function SiteDistributionDashboard() {
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -105,7 +107,9 @@ export default function SiteDistributionDashboard() {
 
   // Load string distribution data
   const loadData = async (refresh = false) => {
-    setLoading(true);
+    const t0 = performance.now();
+    if (refresh) setRefreshing(true);
+    else setLoading(true);
     setErrorMsg(null);
     try {
       const url = refresh 
@@ -435,7 +439,7 @@ export default function SiteDistributionDashboard() {
               disabled={loading}
               className="px-3 py-1 bg-prizm-info text-white hover:bg-prizm-info/90 rounded border border-prizm-border flex items-center gap-1 font-bold font-mono text-[10px] uppercase cursor-pointer disabled:opacity-55"
             >
-              {loading ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+              {(refreshing || loading) ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}
               Refresh
             </button>
           </div>

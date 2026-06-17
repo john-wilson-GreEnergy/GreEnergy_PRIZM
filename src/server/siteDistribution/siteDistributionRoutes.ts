@@ -157,6 +157,8 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
 }
 
 router.get("/strings", (req, res) => {
+  const startedAt = Date.now();
+  const includePerf = req.query.includePerf === "true";
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
   
@@ -198,26 +200,40 @@ router.get("/strings", (req, res) => {
   const hasMaxCellTemp = rows.some(r => r.maxCellTempC !== undefined && r.maxCellTempC !== null);
   const temperatureMetric = hasMaxCellTemp ? "Max Cell Temperature C" : "Average Cell Temperature C";
 
-  res.json({
+  const responsePayload: any = {
     success: true,
     timestamp: new Date().toISOString(),
     source: sourceLabel,
-    voltageMetric: "Stack Voltage Vdc",
-    temperatureMetric,
-    rows,
+    cacheInfo: {
+      sourcesUsed: [
+        { name: 'ems-strings', hasData: Boolean(rawStringsWrapper.data && rawStringsWrapper.data.length > 0) },
+        { name: 'ems-block', hasData: Boolean(blockWrapper.data && blockWrapper.data.strings && blockWrapper.data.strings.length > 0) }
+      ]
+    },
     rollups: {
       stringCount,
       communicatingCount,
-      outOfRotationCount,
       notCommunicatingCount,
+      outOfRotationCount,
       voltageMin,
       voltageMax,
       voltageAvg,
       temperatureMin,
       temperatureMax,
-      temperatureAvg
-    }
-  });
+      temperatureAvg,
+      temperatureMetric
+    },
+    rows
+  };
+
+  if (includePerf) {
+    responsePayload.perf = {
+      durationMs: Date.now() - startedAt,
+      source: responsePayload.source || "unknown"
+    };
+  }
+
+  res.json(responsePayload);
 });
 
 export default router;

@@ -557,7 +557,15 @@ export function buildSiteSensorSummary(): SiteSensorSummaryResponse {
 
 // GET /api/local/site-sensors/summary
 router.get("/summary", (req, res) => {
-  const summary = buildSiteSensorSummary();
+  const startedAt = Date.now();
+  const includePerf = req.query.includePerf === "true";
+  const summary: any = buildSiteSensorSummary();
+  if (includePerf) {
+    summary.perf = {
+      durationMs: Date.now() - startedAt,
+      source: summary.source || "cache"
+    };
+  }
   res.json(summary);
 });
 

@@ -1,3 +1,4 @@
+import { markPerf } from '../lib/perf';
 import React, { useState, useEffect } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
@@ -11,6 +12,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   useEffect(() => {
     let unmounted = false;
     const fetchDetail = async () => {
+      const t0 = performance.now();
       try {
         const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail?captureHistory=true`);
         if (res.ok && !unmounted) {
@@ -21,6 +23,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
         console.error("Failed to fetch string detail", err);
       } finally {
         if (!unmounted) setLoading(false);
+        markPerf('StringDetail Refresh', t0);
       }
     };
     fetchDetail();
