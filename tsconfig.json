@@ -35,6 +35,8 @@
     "scripts/legacy-fixes",
     "fix*.ts",
     "fetch*.ts",
-    "add_detail_route.ts"
+    "add_detail_route.ts",
+    "src/components/deprecated",
+    "src/components/demo"
   ]
 }

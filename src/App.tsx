@@ -26,13 +26,14 @@ import {
   Check
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
-const SiteOperationsDashboard = React.lazy(() => import("./components/SiteOperationsDashboard"));
-const StringDashboard = React.lazy(() => import("./components/StringDashboard"));
-const SiteDistributionDashboard = React.lazy(() => import("./components/SiteDistributionDashboard"));
-const PcsDashboard = React.lazy(() => import("./components/PcsDashboard"));
+import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
+import StringDashboard from "./components/StringDashboard";
+import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
+import PcsDashboard from "./components/PcsDashboard";
+import FeatherDashboard from "./components/FeatherDashboard";
+import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
+
 const Reporting = React.lazy(() => import("./components/Reporting"));
-const FeatherDashboard = React.lazy(() => import("./components/FeatherDashboard"));
-const HvacSimulationDashboard = React.lazy(() => import("./components/HvacSimulationDashboard"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
@@ -186,11 +187,61 @@ export default function App() {
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
+  const [visitedTabs, setVisitedTabs] = useState<Set<AppTabId>>(() => new Set(["overview"]));
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
+  const [warmStartState, setWarmStartState] = useState<"idle" | "running" | "complete" | "failed">("idle");
+
+  const warmStartFieldData = async () => {
+    setWarmStartState("running");
+    try {
+      const tasks = [
+        fetch("/api/local/pcs/dashboard").catch(() => null),
+        fetch("/api/local/site-distribution/strings").catch(() => null),
+        fetch("/api/local/site-sensors/summary").catch(() => null),
+        fetch("/api/feather/devices?policy=live-first").catch(() => null),
+        fetch("/api/local/feather/devices?policy=live-first").catch(() => null),
+        fetch("/api/local/hvac-simulation/targets").catch(() => null),
+        fetch("/api/local/hvac-simulation/capabilities").catch(() => null),
+        fetch("/api/local/hvac-simulation/audit").catch(() => null)
+      ];
+      await Promise.allSettled(tasks);
+      setWarmStartState("complete");
+      setTimeout(() => {
+        setWarmStartState("idle");
+      }, 5000);
+    } catch (e) {
+      console.error("[Warmstart] failed", e);
+      setWarmStartState("failed");
+      setTimeout(() => {
+        setWarmStartState("idle");
+      }, 5000);
+    }
+  };
+
+  const warmStartRanRef = useRef(false);
+  useEffect(() => {
+    if (warmStartRanRef.current) return;
+    const ready =
+      connectionStatus?.status === "LIVE" ||
+      connectionStatus?.status === "PARTIAL";
+    if (!ready) return;
+    warmStartRanRef.current = true;
+    warmStartFieldData();
+  }, [connectionStatus?.status]);
+
   
 
 
   const handleManualRepoll = async () => {
-    if (manualRepolling) return;
+    if (pollInFlightRef.current || manualRepolling) return;
     setManualRepolling(true);
     setManualRepollError(null);
     setManualRepollMessage(null);
@@ -215,6 +266,10 @@ export default function App() {
         if (connBody.status === "LIVE") connMsg = " · Connection Live";
         else if (connBody.status === "PARTIAL") connMsg = " · Partial Connection";
         else connMsg = " · " + (connBody.status || "Offline");
+
+        if (connBody.status === "LIVE" || connBody.status === "PARTIAL") {
+          warmStartFieldData();
+        }
       }
       setManualRepollMessage("EMS Repoll Complete" + connMsg + sourceMsg);
       setTimeout(() => setManualRepollMessage(null), 6000);
@@ -274,43 +329,67 @@ export default function App() {
   
   const pollInFlightRef = useRef(false);
   const lastPollRef = useRef(0);
+  const connectionStatusRef = useRef<any>(null);
+  const diagnosticSessionRef = useRef<any>(null);
 
   useEffect(() => {
-    fetchAllData();
+    connectionStatusRef.current = connectionStatus;
+  }, [connectionStatus]);
+
+  useEffect(() => {
+    diagnosticSessionRef.current = diagnosticSession;
+  }, [diagnosticSession]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const runInitial = async () => {
+      if (!cancelled) {
+        await fetchAllData();
+        lastPollRef.current = Date.now();
+      }
+    };
+    runInitial();
     
     const checkPoll = async () => {
+      if (cancelled) return;
       if (pollInFlightRef.current) return;
       
       const now = Date.now();
       const isHidden = document.hidden;
-      const isLive = connectionStatus?.status === "LIVE" && connectionStatus?.reachable;
-      const isRecording = diagnosticSession?.active;
+      const currentConnection = connectionStatusRef.current;
+      const currentSession = diagnosticSessionRef.current;
+      
+      const isLive = currentConnection?.status === "LIVE" && currentConnection?.reachable;
+      const isRecording = currentSession?.active === true && currentSession?.paused !== true;
       
       let intervalMs = 3000;
       if (isHidden) {
           intervalMs = 15000;
-      } else if (isLive && !isRecording) {
-          intervalMs = 5000;
       } else if (isRecording) {
           intervalMs = 3000;
+      } else if (isLive) {
+          intervalMs = 5000;
       } else {
           intervalMs = 3000;
       }
       
-      if (now - lastPollRef.current >= intervalMs) {
-          pollInFlightRef.current = true;
-          try {
-             await fetchAllData(true);
-          } finally {
-             lastPollRef.current = Date.now();
-             pollInFlightRef.current = false;
-          }
+      if (now - lastPollRef.current < intervalMs) return;
+      
+      pollInFlightRef.current = true;
+      try {
+         await fetchAllData(true);
+      } finally {
+         lastPollRef.current = Date.now();
+         pollInFlightRef.current = false;
       }
     };
 
     const poll = setInterval(checkPoll, 1000);
-    return () => clearInterval(poll);
-  }, [connectionStatus?.status, connectionStatus?.reachable, diagnosticSession?.active]);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, []);
 
 
   return (
@@ -336,6 +415,21 @@ export default function App() {
               <RefreshCw size={12} className={manualRepolling ? "animate-spin" : ""} />
               {manualRepolling ? "Repolling..." : "Repoll EMS"}
             </button>
+            {warmStartState === "running" && (
+              <span className="text-amber-400 font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2 animate-pulse">
+                Warming data...
+              </span>
+            )}
+            {warmStartState === "complete" && (
+              <span className="text-emerald-400 font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2 animate-fade-in">
+                Data warm-up complete
+              </span>
+            )}
+            {warmStartState === "failed" && (
+              <span className="text-prizm-danger font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2">
+                Warm-up failed
+              </span>
+            )}
           <div className="flex items-center gap-2.5">
             <GreEnergyLogo className="w-6 h-6 text-prizm-primary" strokeWidth={10} />
             <span className="font-mono font-bold tracking-tighter text-prizm-text text-base sm:text-lg">
@@ -498,19 +592,28 @@ export default function App() {
         ) : (
           <div className="animate-fade-in duration-300 h-full">
             <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
-            {activeTab === "overview" && (
-              <SiteOperationsDashboard setActiveTab={setActiveTab} />
+            {visitedTabs.has("overview") && (
+              <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
+                <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active={activeTab === "overview"} />
+              </div>
             )}
 
-            {activeTab === "arrays-strings" && (
-              <StringDashboard />
+            {visitedTabs.has("arrays-strings") && (
+              <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
+                <StringDashboard active={activeTab === "arrays-strings"} />
+              </div>
             )}
 
-            {activeTab === "site-health" && (
-              <SiteDistributionDashboard />
+            {visitedTabs.has("site-health") && (
+              <div className={activeTab === "site-health" ? "block animate-fade-in font-sans" : "hidden"}>
+                <SiteDistributionDashboard active={activeTab === "site-health"} />
+              </div>
             )}
-            {activeTab === "pcs-dashboard" && (
-              <PcsDashboard />
+
+            {visitedTabs.has("pcs-dashboard") && (
+              <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
+                <PcsDashboard active={activeTab === "pcs-dashboard"} />
+              </div>
             )}
 
             {activeTab === "site-configuration" && (
@@ -522,8 +625,8 @@ export default function App() {
               />
             )}
 
-            {activeTab === "feather-hvac" && (
-              <div className="space-y-4 animate-fade-in">
+            {visitedTabs.has("feather-hvac") && (
+              <div className={activeTab === "feather-hvac" ? "block space-y-4 animate-fade-in" : "hidden"}>
                 <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
                   <button
                     onClick={() => setFeatherSub("feather")}
@@ -546,7 +649,12 @@ export default function App() {
                     HVAC Simulation & Validation
                   </button>
                 </div>
-                {featherSub === "feather" ? <FeatherDashboard /> : <HvacSimulationDashboard />}
+                <div className={featherSub === "feather" ? "block" : "hidden"}>
+                  <FeatherDashboard active={activeTab === "feather-hvac" && featherSub === "feather"} />
+                </div>
+                <div className={featherSub === "simulation" ? "block" : "hidden"}>
+                  <HvacSimulationDashboard active={activeTab === "feather-hvac" && featherSub === "simulation"} />
+                </div>
               </div>
             )}
 

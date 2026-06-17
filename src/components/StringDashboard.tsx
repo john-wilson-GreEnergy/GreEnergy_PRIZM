@@ -6,7 +6,7 @@ import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
 
-export default function StringDashboard() {
+export default function StringDashboard({ active = true }: { active?: boolean }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
@@ -53,14 +53,14 @@ export default function StringDashboard() {
     };
     fetchData();
     let interval: any;
-    if (refreshInterval > 0) {
+    if (active && refreshInterval > 0) {
        interval = setInterval(fetchData, refreshInterval);
     }
     return () => {
       unmounted = true;
       if (interval) clearInterval(interval);
     };
-  }, [refreshInterval, selectedString?.id]);
+  }, [refreshInterval, selectedString?.id, active]);
 
   const handleRotationConfirm = async (req: any) => {
     await fetch("/api/local/strings/rotation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });

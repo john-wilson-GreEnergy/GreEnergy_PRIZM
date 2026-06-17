@@ -103,8 +103,10 @@ export async function fetchJsonWithTimeout(
 
 export default function SiteOperationsDashboard({
   setActiveTab,
+  active = true,
 }: {
   setActiveTab?: (tab: string) => void;
+  active?: boolean;
 }) {
   const hasVal = (val: any) =>
     val !== null &&
@@ -323,11 +325,11 @@ export default function SiteOperationsDashboard({
 
     fetchData();
     const interval = setInterval(async () => {
-      if (unmounted) return;
+      if (unmounted || !active) return;
       const status = await fetchJsonWithTimeout("/api/local/cache/status", {
         timeoutMs: 1500,
       }).catch(() => {});
-      if (!unmounted && status) {
+      if (!unmounted && status && active) {
         setState((p) => ({ ...p, cacheStatus: status }));
         let url = "/api/local/site-operations/summary";
         if (status.policy === "live-only") {
@@ -337,7 +339,7 @@ export default function SiteOperationsDashboard({
           const summaryRes = await fetchJsonWithTimeout(url, {
             timeoutMs: 5000,
           });
-          if (!unmounted) {
+          if (!unmounted && active) {
             // Only clear error if we succeeded
             setState((prev) => ({ ...prev, siteSummary: summaryRes }));
           }
@@ -350,7 +352,7 @@ export default function SiteOperationsDashboard({
       unmounted = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [active]);
 
   const sum = state.siteSummary;
 

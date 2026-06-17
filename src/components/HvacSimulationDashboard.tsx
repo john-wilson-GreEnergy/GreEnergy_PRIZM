@@ -71,7 +71,7 @@ const SIM_MODES = [
   { id: "clearAll", label: "Reset / Clear", desc: "Restores standard direct autonomous control", threshold: "Ems autonomous command", expected: "Restores normal real-world telemetry parameters" }
 ];
 
-export default function HvacSimulationDashboard() {
+export default function HvacSimulationDashboard({ active = true }: { active?: boolean }) {
   const [profileName] = useState<string>("BESS Local EMS");
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -201,7 +201,7 @@ export default function HvacSimulationDashboard() {
 
   // Polling thread trigger
   useEffect(() => {
-    if (pollingActive) {
+    if (pollingActive && active) {
       pollerRef.current = setInterval(() => {
         executeVerifyFetch();
       }, pollingIntervalSec * 1000);
@@ -214,7 +214,7 @@ export default function HvacSimulationDashboard() {
     return () => {
       if (pollerRef.current) clearInterval(pollerRef.current);
     };
-  }, [pollingActive, pollingIntervalSec, monitorTargets, selectedIps, selectedMode, startedAt]);
+  }, [pollingActive, pollingIntervalSec, monitorTargets, selectedIps, selectedMode, startedAt, active]);
 
   const fetchAudits = async () => {
     try {

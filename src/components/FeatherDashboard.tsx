@@ -25,7 +25,7 @@ import { ManualScanConfig } from "../server/feather/featherTypes";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { sortByIPv4 } from "../lib/ipUtils";
 
-export default function FeatherDashboard() {
+export default function FeatherDashboard({ active = true }: { active?: boolean }) {
   // Navigation & Form Selection States
   const [discoverySource, setDiscoverySource] = useState<"topology" | "manual" | "both">("both");
   const [scanMode, setScanMode] = useState<"cidr" | "range" | "shorthand">("shorthand");
@@ -147,12 +147,13 @@ export default function FeatherDashboard() {
   }, []);
 
   useEffect(() => {
+    if (!active) return;
     if (refreshIntervalSec <= 0) return;
     const intervalId = setInterval(() => {
       loadCache(false, true);
     }, refreshIntervalSec * 1000);
     return () => clearInterval(intervalId);
-  }, [refreshIntervalSec]);
+  }, [refreshIntervalSec, active]);
 
   // Utility to calculate target count preview
   const getTargetCountPreview = (): { count: number; isValid: boolean; warningMsg: string | null } => {

@@ -20,7 +20,7 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
     }
 }
 
-export default function PcsDashboard() {
+export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const [pcsList, setPcsList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);

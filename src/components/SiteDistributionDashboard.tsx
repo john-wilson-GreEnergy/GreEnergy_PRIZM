@@ -78,7 +78,7 @@ export interface DistributionResponse {
   };
 }
 
-export default function SiteDistributionDashboard() {
+export default function SiteDistributionDashboard({ active = true }: { active?: boolean }) {
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
