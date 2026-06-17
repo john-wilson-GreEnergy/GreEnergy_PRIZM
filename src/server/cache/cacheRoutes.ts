@@ -39,6 +39,25 @@ router.post("/refresh", (req, res) => {
     });
 });
 
+router.get("/history/status", (req, res) => {
+    res.json({
+        enabled: false,
+        sizeBytes: 0,
+        retentionDays: 7
+    });
+});
+
+router.get("/history/settings", (req, res) => {
+    res.json({
+        retentionDays: 7,
+        maxSizeBytes: 104857600
+    });
+});
+
+router.post("/history/clear", (req, res) => {
+    res.json({ success: true, cleared: 0 });
+});
+
 router.post("/clear", (req, res) => {
     const key = req.body.key;
     prizmCache.clear(key);

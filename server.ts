@@ -23,11 +23,9 @@ import express from "express";
 import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
 import path from "path";
 import fs from "fs";
-import net from "net";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
-import { BessDevice, BessLog, ReportConfig, SmartDiagnosticResponse } from "./src/types";
-import { pollRealtimeDevice } from "./src/modbus-client";
+import { BessDevice, ReportConfig, SmartDiagnosticResponse } from "./src/types";
 import {
   pollEmsTurtle,
   getEmsConnectionStatus,
@@ -220,12 +218,8 @@ function recordCurl(device: BessDevice, endpoint: string, method: string, descri
 // --- MODULARIZED CLOUD TELEMETRY INTERCEPTOR ---
 import { 
   populateInitialHistory, 
-  setBlockFetcher, 
-  generateTelemetryPacket
+  setBlockFetcher
 } from "./src/server/demo/cloudTelemetryMock";
-
-populateInitialHistory();
-setBlockFetcher(getEmsCachedBlock);
 
 
 
@@ -290,6 +284,22 @@ app.get("/api/local/site-metrics/history", (req, res) => {
   res.json(getSiteTelemetryHistory());
 });
 
+// -----------------------------------------------------------------------------
+// Raw EMS/Turtle cache compatibility endpoints.
+// These endpoints expose direct cached EMS/Turtle payloads or lightly normalized
+// compatibility views for diagnostics and older components.
+//
+// Canonical production dashboard APIs are:
+// - /api/local/site-operations/summary
+// - /api/local/strings/dashboard
+// - /api/local/strings/dashboard/:arrayNumber/:stringNumber/detail
+// - /api/local/pcs/dashboard
+// - /api/local/site-distribution/strings
+// - /api/local/site-sensors/summary
+//
+// Do not build new dashboard UI against these raw compatibility endpoints unless
+// the feature explicitly requires raw source inspection.
+// -----------------------------------------------------------------------------
 app.get("/api/local/status", (req, res) => {
   res.json(getEmsCachedStatus());
 });
@@ -467,7 +477,13 @@ app.get("/api/local/snapshot/pcses", (req, res) => {
 
 // Backward compatibility redirect or alias
 app.get("/api/local/pcses", (req, res) => {
-  res.redirect(301, "/api/local/snapshot/pcses");
+  res.status(410).json({
+    success: false,
+    deprecated: true,
+    canonicalPath: "/api/local/pcs/dashboard",
+    snapshotPath: "/api/local/snapshot/pcses",
+    message: "Deprecated route. Use /api/local/pcs/dashboard for normalized PCS dashboard rows. Use /api/local/snapshot/pcses only for raw cached PCS snapshots."
+  });
 });
 
 // 7. GET /api/local/snapshot/topology: Derived from blockviewer topology
@@ -493,7 +509,13 @@ app.get("/api/local/snapshot/topology", (req, res) => {
 
 // Backward compatibility redirect or alias
 app.get("/api/local/topology", (req, res) => {
-  res.redirect(301, "/api/local/snapshot/topology");
+  res.status(410).json({
+    success: false,
+    deprecated: true,
+    canonicalPath: "/api/local/topology/...",
+    snapshotPath: "/api/local/snapshot/topology",
+    message: "Deprecated route. Use the topology router namespace for active topology workflows, or /api/local/snapshot/topology for raw cached topology snapshots."
+  });
 });
 
 // 8. GET /api/local/first-responder: Combine /firstresponder/data and /v2/firstresponder/data
@@ -1280,8 +1302,12 @@ app.get("/api/curllogs", (req, res) => {
   res.json(curlLogs);
 });
 
-if (process.env.ENABLE_DEMO_TOGGLE === "true" || process.env.DEMO_MODE === "true") {
-  // Use modularized cloud telemetry simulation router
+const demoTelemetryEnabled =
+  process.env.ENABLE_DEMO_TOGGLE === "true" ||
+  process.env.DEMO_MODE === "true";
+if (demoTelemetryEnabled) {
+  populateInitialHistory();
+  setBlockFetcher(getEmsCachedBlock);
   app.use("/api/cloud-telemetry", cloudTelemetryRouter);
 }
 
