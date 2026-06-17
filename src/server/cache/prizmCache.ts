@@ -143,6 +143,8 @@ export interface GetOrFetchOptions extends SetCacheOptions {
   policy?: CachePolicy;
 }
 
+const inFlightFetchers = new Map<string, Promise<any>>();
+
 export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, options?: GetOrFetchOptions): Promise<PrizmCacheEntry<T>> {
   const policy = options?.policy || getCachePolicy();
   const allowLive = shouldFetchLive(policy) || options?.forceRefresh;
@@ -166,7 +168,14 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
 
   if (allowLive) {
       try {
-        const data = await fetcher();
+        let fetchPromise = inFlightFetchers.get(key);
+        if (!fetchPromise) {
+            fetchPromise = fetcher().finally(() => {
+                inFlightFetchers.delete(key);
+            });
+            inFlightFetchers.set(key, fetchPromise);
+        }
+        const data = await fetchPromise;
         const entry = set<T>(key, data, options);
         entry.wasFetched = true;
         return entry;

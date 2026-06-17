@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import ConnectionSettings from "./ConnectionSettings";
 import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
-import ToolDashboards from "./deprecated/ToolDashboards";
+
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
 
 type SubTabId = "connection" | "topology" | "data-sources" | "cache" | "diagnostics" | "advanced" | "ui-preferences";
@@ -428,7 +428,7 @@ export default function SiteConfigurationDashboard({
               </div>
             </div>
 
-            <ToolDashboards initialTab="stats" />
+            
           </div>
         )}
 

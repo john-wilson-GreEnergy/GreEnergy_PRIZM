@@ -1,0 +1,11 @@
+import React from "react";
+import { Activity } from "lucide-react";
+
+export default function DashboardLoadingSkeleton({ label = "Loading dashboard..." }: { label?: string }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] text-prizm-text-muted animate-pulse">
+      <Activity className="w-8 h-8 mb-4 opacity-50" />
+      <span className="font-mono text-sm tracking-widest uppercase">{label}</span>
+    </div>
+  );
+}

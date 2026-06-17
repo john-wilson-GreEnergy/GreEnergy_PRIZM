@@ -152,7 +152,6 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       statusColor,
       statusLabel,
       sourcePath: row.sourcePath || metaWrapper.source || "/tools/report/ems/strings.csv",
-      raw: row
     };
   });
 }

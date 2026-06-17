@@ -91,7 +91,7 @@ export default function PcsDashboard() {
                 setPcsList(pcsWithId);
                 setPcsSource(sourceMeta);
                 setFallbackMode(false);
-            } else {
+            } else if (pcsList.length === 0) {
                 setPcsList([]);
                 setPcsSource("PCS source unavailable or unmapped.");
                 setFallbackMode(true);

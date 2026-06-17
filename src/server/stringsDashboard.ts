@@ -707,6 +707,7 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
         if (!profile) return res.status(400).json({ error: "No active profile" });
         const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
 
+        console.time(`String Detail Parse ${arrayNumber}-${stringNumber}`);
         const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
         
         let ok = false;
@@ -747,16 +748,23 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
                 const v = obj[key];
                 const fullPath = currentPath ? `${currentPath}.${key}` : key;
                 
-                const inBalancingMap = fullPath.toLowerCase().includes("balancingmap");
-                let isBalanceRelated = inBalancingMap || ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k));
+                const inBalancingMap = fullPath.toLowerCase().includes("balanc");
+                let isBalanceRelated = inBalancingMap || ['provided', 'target'].some(k => lower.includes(k));
                 
-                // Exclude ordinary cellGroupIndex/cellgroup unless inside balancingMap
+                // If it looks like cellGroup or mode related but is just inside batteryPacks, we include if it indicates balancing
+                if (!isBalanceRelated) {
+                    if (['cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k))) {
+                        isBalanceRelated = true;
+                    }
+                }
+                
+                // Exclude ordinary cellGroupIndex/cellgroup unless inside a balancing structure
                 if (isBalanceRelated && !inBalancingMap) {
                     const pathLower = fullPath.toLowerCase();
-                    if (pathLower.includes("voltagemap") || pathLower.includes("temperaturemap")) {
-                        if (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cellgroupindex")) {
-                            isBalanceRelated = false;
-                        }
+                    
+                    // Strictly exclude ordinary cell groups from voltage/temperature/bpc lists if they don't say balance
+                    if (!pathLower.includes("balanc") && (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cg"))) {
+                         isBalanceRelated = false;
                     }
                 }
                 
@@ -765,13 +773,15 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
                 const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 150) : String(v);
                 
                 const valLower = typeof v === 'string' ? v.toLowerCase() : '';
-                let valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => valLower.includes(k));
+                let valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'mode', 'state'].some(k => valLower.includes(k));
+                if (!valIsBalanceRelated && typeof v === 'string' && ['cellgroup', 'cgindex', 'cg'].some(k => valLower.includes(k))) {
+                     valIsBalanceRelated = true;
+                }
+                
                 if (valIsBalanceRelated && !inBalancingMap) {
                     const pathLower = fullPath.toLowerCase();
-                    if (pathLower.includes("voltagemap") || pathLower.includes("temperaturemap")) {
-                        if (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cellgroupindex")) {
-                            valIsBalanceRelated = false;
-                        }
+                    if (!pathLower.includes("balanc") && (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cg"))) {
+                        valIsBalanceRelated = false;
                     }
                 }
 
@@ -1014,42 +1024,50 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                     const batteryPackObject = bPacks[key];
                     if (!batteryPackObject) return;
                     
-                    const batteryPack = batteryPackObject.batteryPack;
-                    if (!batteryPack) return;
-                    
+                    const batteryPack = batteryPackObject.batteryPack || {};
                     const packVal = batteryPack.value;
                     const packColor = batteryPack.color;
-                    
-                    // Ignore entries where batteryPack.value is empty or "---" or batteryPack.color is "#FFFFFF"
-                    if (!packVal || packVal === "" || packVal === "---") return;
-                    if (packColor === "#FFFFFF") return;
-                    
-                    const match = String(packVal).match(/CG\s*(\d+)\s*->\s*(\d+(?:\.\d+)?)/i);
-                    if (!match) return;
-                    
-                    const balancingCellGroupIndex = Number(match[1]);
-                    const targetVoltage = Number(match[2]);
-                    
-                    // Check matching cell group: batteryPacks.<BPC>.cellGroups.<CG>
                     const cellGroups = batteryPackObject.cellGroups || {};
-                    const cellGroup = cellGroups[String(balancingCellGroupIndex)] || cellGroups[match[1]];
-                    if (cellGroup && cellGroup.value === "---") {
-                        return; // Ignore if matching cellGroup.value is "---"
-                    }
                     
+                    let balancingCellGroupIndex: number | null = null;
+                    let targetVoltage: number | null = null;
                     let color = packColor;
-                    if (cellGroup && cellGroup.color) {
-                        color = cellGroup.color;
+                    
+                    const match = packVal ? String(packVal).match(/CG\s*(\d+)\s*->\s*(\d+(?:\.\d+)?)/i) : null;
+                    if (match && packColor !== "#FFFFFF" && packVal !== "---") {
+                        balancingCellGroupIndex = Number(match[1]);
+                        targetVoltage = Number(match[2]);
+                        const cg = cellGroups[String(balancingCellGroupIndex)];
+                        if (cg && cg.color) {
+                            color = cg.color;
+                        }
+                    } else {
+                        // Fallback: check cell groups
+                        const cgKeys = Object.keys(cellGroups);
+                        for (const cgKey of cgKeys) {
+                            const cg = cellGroups[cgKey];
+                            if (cg && cg.value && cg.value !== "---" && cg.color && cg.color !== "#FFFFFF") {
+                                balancingCellGroupIndex = Number(cg.cellGroupIndex || cgKey);
+                                targetVoltage = Number(cg.value);
+                                color = cg.color;
+                                break;
+                            }
+                        }
                     }
                     
-                    let state: "Charging" | "Discharging" | "Active" = "Active";
-                    if (color === "#AED6F1") {
+                    if (balancingCellGroupIndex === null || targetVoltage === null) return;
+                    
+                    let state: "Charging" | "Discharging" | "Active" | "Inactive" = "Active";
+                    const c = String(color || "").toUpperCase();
+                    if (c === "#AED6F1") {
                         state = "Charging";
-                    } else if (color === "#F9E79F") {
+                    } else if (c === "#F9E79F") {
                         state = "Discharging";
-                    } else if (color === "#FFFFFF") {
-                        return; // Ignore inactive
+                    } else if (c === "#FFFFFF") {
+                        state = "Inactive";
                     }
+                    
+                    if (state === "Inactive") return;
                     
                     balancingDetails.push({
                         arrayNumber,
@@ -1356,6 +1374,7 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
             }
         }
 
+        console.timeEnd(`String Detail Parse ${arrayNumber}-${stringNumber}`);
         return {
             profileId: profile.id,
             emsBaseUrl: baseUrl,

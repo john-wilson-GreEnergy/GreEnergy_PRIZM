@@ -810,7 +810,7 @@ export default function SiteDistributionDashboard() {
             </div>
 
             {/* REAL RECHARTS PLOT FRAME */}
-            {loading ? (
+            {(!data && loading) ? (
               <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong">
                 <RefreshCw className="animate-spin text-prizm-info mb-2" size={24} />
                 <span className="text-xs text-prizm-text-muted">Loading telemetry distribution coordinates...</span>

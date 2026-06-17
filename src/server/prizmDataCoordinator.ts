@@ -92,8 +92,10 @@ async function doBackgroundPoll() {
   }
   
   try {
+      console.time("buildSiteOperationsSummaryFromCache");
       // 2. We use the existing siteOperations logic to build everything
       const parsed = await buildSiteOperationsSummaryFromCache();
+      console.timeEnd("buildSiteOperationsSummaryFromCache");
       
       const connStatus = getEmsConnectionStatus();
       

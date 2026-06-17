@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, useTransition, useRef } from "react";
 import { 
   Activity, 
   Cpu, 
@@ -25,17 +25,18 @@ import {
   Check
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
-import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
-import StringDashboard from "./components/StringDashboard";
-import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
-import PcsDashboard from "./components/PcsDashboard";
-import Reporting from "./components/Reporting";
-import FeatherDashboard from "./components/FeatherDashboard";
-import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
-import LineupLightbarControl from "./components/LineupLightbarControl";
+const SiteOperationsDashboard = React.lazy(() => import("./components/SiteOperationsDashboard"));
+const StringDashboard = React.lazy(() => import("./components/StringDashboard"));
+const SiteDistributionDashboard = React.lazy(() => import("./components/SiteDistributionDashboard"));
+const PcsDashboard = React.lazy(() => import("./components/PcsDashboard"));
+const Reporting = React.lazy(() => import("./components/Reporting"));
+const FeatherDashboard = React.lazy(() => import("./components/FeatherDashboard"));
+const HvacSimulationDashboard = React.lazy(() => import("./components/HvacSimulationDashboard"));
+const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
-import SiteConfigurationDashboard from "./components/SiteConfigurationDashboard";
-import SafetyAdvancedDashboard from "./components/SafetyAdvancedDashboard";
+const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
+const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
+import DashboardLoadingSkeleton from "./components/DashboardLoadingSkeleton";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 
 type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
@@ -71,6 +72,10 @@ const DEFAULT_TABS_ORDER: string[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTabId>("overview");
+  const [isPending, startTransition] = useTransition();
+  const handleSetActiveTab = (tab: AppTabId | string) => {
+    startTransition(() => setActiveTab(tab as AppTabId));
+  };
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation">("feather");
   const [loading, setLoading] = useState(true);
   const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
@@ -111,7 +116,7 @@ export default function App() {
     if (currentTabItem && !currentTabItem.visible) {
       const firstVisible = tabsOrder.find(t => t.visible);
       if (firstVisible) {
-        setActiveTab(firstVisible.id as AppTabId);
+        handleSetActiveTab(firstVisible.id as AppTabId);
       }
     }
   }, [tabsOrder, activeTab]);
@@ -137,7 +142,7 @@ export default function App() {
 
   const resetTabs = () => {
     setTabsOrder(DEFAULT_TABS_ORDER.map(id => ({ id, visible: true })));
-    setActiveTab("overview");
+    handleSetActiveTab("overview");
   };
 
   // Monitor EMS metadata
@@ -151,13 +156,13 @@ export default function App() {
         if (e.detail) {
           const tab = e.detail;
           if (tab === "settings" || tab === "ems-health" || tab === "tool-dashboards") {
-            setActiveTab("site-configuration");
+            handleSetActiveTab("site-configuration");
           } else if (tab === "safety-fault" || tab === "advanced" || tab === "safety-advanced") {
-            setActiveTab("advanced");
+            handleSetActiveTab("advanced");
           } else if (tab === "site-distribution" || tab === "site-sensors" || tab === "site-health") {
-            setActiveTab("site-health");
+            handleSetActiveTab("site-health");
           } else {
-            setActiveTab(tab);
+            handleSetActiveTab(tab);
           }
         }
     };
@@ -220,14 +225,47 @@ export default function App() {
     }
   };
 
-  // Immediate fetch + active 3-seconds interval polling to synchronize state
+  
+  const pollInFlightRef = useRef(false);
+  const lastPollRef = useRef(0);
+
   useEffect(() => {
     fetchAllData();
-    const poll = setInterval(() => {
-      fetchAllData(true);
-    }, 3000);
+    
+    const checkPoll = async () => {
+      if (pollInFlightRef.current) return;
+      
+      const now = Date.now();
+      const isHidden = document.hidden;
+      const isLive = connectionStatus?.status === "LIVE" && connectionStatus?.reachable;
+      const isRecording = diagnosticSession?.active;
+      
+      let intervalMs = 3000;
+      if (isHidden) {
+          intervalMs = 15000;
+      } else if (isLive && !isRecording) {
+          intervalMs = 5000;
+      } else if (isRecording) {
+          intervalMs = 3000;
+      } else {
+          intervalMs = 3000;
+      }
+      
+      if (now - lastPollRef.current >= intervalMs) {
+          pollInFlightRef.current = true;
+          try {
+             await fetchAllData(true);
+          } finally {
+             lastPollRef.current = Date.now();
+             pollInFlightRef.current = false;
+          }
+      }
+    };
+
+    const poll = setInterval(checkPoll, 1000);
     return () => clearInterval(poll);
-  }, []);
+  }, [connectionStatus?.status, connectionStatus?.reachable, diagnosticSession?.active]);
+
 
   return (
     <div className="min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col">
@@ -317,7 +355,7 @@ export default function App() {
                   return (
                     <button
                       key={tab.id}
-                      onClick={() => setActiveTab(tab.id as AppTabId)}
+                      onClick={() => handleSetActiveTab(tab.id as AppTabId)}
                       className={`flex items-center gap-2 px-3 py-2.5 font-mono text-[11px] font-bold uppercase tracking-widest transition-all cursor-pointer ${
                         activeTab === tab.id
                           ? "bg-prizm-info/10 border-b-2 border-prizm-primary text-prizm-primary font-bold"
@@ -395,6 +433,7 @@ export default function App() {
           </div>
         ) : (
           <div className="animate-fade-in duration-300 h-full">
+            <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
             {activeTab === "overview" && (
               <SiteOperationsDashboard setActiveTab={setActiveTab} />
             )}
@@ -465,6 +504,7 @@ export default function App() {
             {activeTab === "advanced" && (
               <SafetyAdvancedDashboard />
             )}
+          </Suspense>
           </div>
         )}
       </main>
