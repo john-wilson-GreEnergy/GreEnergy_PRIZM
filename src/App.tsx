@@ -187,16 +187,6 @@ export default function App() {
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
-  const [visitedTabs, setVisitedTabs] = useState<Set<AppTabId>>(() => new Set(["overview"]));
-  useEffect(() => {
-    setVisitedTabs(prev => {
-      if (prev.has(activeTab)) return prev;
-      const next = new Set(prev);
-      next.add(activeTab);
-      return next;
-    });
-  }, [activeTab]);
-
   const [warmStartState, setWarmStartState] = useState<"idle" | "running" | "complete" | "failed">("idle");
 
   const warmStartFieldData = async () => {
@@ -592,40 +582,31 @@ export default function App() {
         ) : (
           <div className="animate-fade-in duration-300 h-full">
             <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
-            {visitedTabs.has("overview") && (
               <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
                 <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active={activeTab === "overview"} />
               </div>
-            )}
 
-            {visitedTabs.has("arrays-strings") && (
               <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
                 <StringDashboard active={activeTab === "arrays-strings"} />
               </div>
-            )}
 
-            {visitedTabs.has("site-health") && (
               <div className={activeTab === "site-health" ? "block animate-fade-in font-sans" : "hidden"}>
                 <SiteDistributionDashboard active={activeTab === "site-health"} />
               </div>
-            )}
 
-            {visitedTabs.has("pcs-dashboard") && (
               <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
                 <PcsDashboard active={activeTab === "pcs-dashboard"} />
               </div>
-            )}
 
-            {activeTab === "site-configuration" && (
-              <SiteConfigurationDashboard 
-                tabsOrder={tabsOrder} 
-                toggleTabVisibility={toggleTabVisibility} 
-                moveTab={moveTab} 
-                resetTabs={resetTabs} 
-              />
-            )}
+              <div className={activeTab === "site-configuration" ? "block animate-fade-in" : "hidden"}>
+                <SiteConfigurationDashboard 
+                  tabsOrder={tabsOrder} 
+                  toggleTabVisibility={toggleTabVisibility} 
+                  moveTab={moveTab} 
+                  resetTabs={resetTabs} 
+                />
+              </div>
 
-            {visitedTabs.has("feather-hvac") && (
               <div className={activeTab === "feather-hvac" ? "block space-y-4 animate-fade-in" : "hidden"}>
                 <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
                   <button
@@ -656,27 +637,26 @@ export default function App() {
                   <HvacSimulationDashboard active={activeTab === "feather-hvac" && featherSub === "simulation"} />
                 </div>
               </div>
-            )}
 
-            {activeTab === "lightbar-control" && (
-              <LineupLightbarControl />
-            )}
+              <div className={activeTab === "lightbar-control" ? "block animate-fade-in" : "hidden"}>
+                <LineupLightbarControl />
+              </div>
 
-            {activeTab === "reports" && (
-              <Reporting 
-                devices={[]}
-                reports={[]}
-                onAddReport={async () => {}}
-                onDeleteReport={async () => {}}
-                diagnosticSession={diagnosticSession}
-                onRefreshDiagnostic={() => fetchAllData(true)}
-              />
-            )}
+              <div className={activeTab === "reports" ? "block animate-fade-in" : "hidden"}>
+                <Reporting 
+                  devices={[]}
+                  reports={[]}
+                  onAddReport={async () => {}}
+                  onDeleteReport={async () => {}}
+                  diagnosticSession={diagnosticSession}
+                  onRefreshDiagnostic={() => fetchAllData(true)}
+                />
+              </div>
 
-            {activeTab === "advanced" && (
-              <SafetyAdvancedDashboard />
-            )}
-          </Suspense>
+              <div className={activeTab === "advanced" ? "block animate-fade-in" : "hidden"}>
+                <SafetyAdvancedDashboard />
+              </div>
+            </Suspense>
           </div>
         )}
       </main>
