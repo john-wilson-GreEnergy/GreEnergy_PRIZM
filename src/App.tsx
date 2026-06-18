@@ -205,10 +205,7 @@ export default function App() {
     setWarmStartState("running");
     try {
       const endpoints = [
-        "/api/local/pcs/dashboard",
-        "/api/local/site-distribution/strings",
-        "/api/local/site-sensors/summary",
-        "/api/local/feather/devices?policy=live-first",
+        "/api/local/site-data/snapshot",
         "/api/local/hvac-simulation/targets",
         "/api/local/hvac-simulation/capabilities"
       ];

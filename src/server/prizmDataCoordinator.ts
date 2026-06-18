@@ -221,6 +221,93 @@ export function getLatestSnapshot(): PrizmSiteSnapshot | null {
     return centralSnapshot;
 }
 
+export function getSnapshotOrNull(): PrizmSiteSnapshot | null {
+    return centralSnapshot;
+}
+
+export function getSiteDataStatusView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        siteIdentity: snap.siteIdentity,
+        liveStatus: snap.liveStatus,
+        debug: snap.debug,
+        freshness: snap.liveStatus.lastUpdated ? {
+            lastUpdated: snap.liveStatus.lastUpdated,
+            ageMs: snap.liveStatus.ageMs,
+            stale: snap.liveStatus.stale
+        } : null
+    };
+}
+
+export function getBlockSummaryView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        siteIdentity: snap.siteIdentity,
+        liveStatus: snap.liveStatus,
+        stringSummary: snap.rollups.stringSummary,
+        arraySummary: snap.normalized.arrays,
+        pcsSummary: snap.normalized.pcs,
+        bessFleetSummary: snap.rollups.bessFleetSummary,
+        featherSummary: snap.rollups.featherSummary,
+        correctiveActions: snap.normalized.correctiveActions,
+        sourceHealth: snap.rollups.sourceHealth,
+        debug: snap.debug
+    };
+}
+
+export function getStringsView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        strings: snap.normalized.strings,
+        stringSummary: snap.rollups.stringSummary
+    };
+}
+
+export function getPcsView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        pcs: snap.normalized.pcs,
+        source: "Coordinator Site Data Engine"
+    };
+}
+
+export function getFeatherView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        feather: snap.normalized.feather,
+        featherSummary: snap.rollups.featherSummary
+    };
+}
+
+export function getArraysView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        arrays: snap.normalized.arrays,
+        arraySummary: snap.rollups.arraySummary
+    };
+}
+
+export function getCorrectiveActionsView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return snap.normalized.correctiveActions;
+}
+
+export function getSourceHealthView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    return {
+        sourceHealth: snap.rollups.sourceHealth,
+        debug: snap.debug
+    };
+}
+
 export function clearSnapshot() {
     centralSnapshot = null;
     prizmCache.set('prizm-site-snapshot', null, { ttlMs: 0 });

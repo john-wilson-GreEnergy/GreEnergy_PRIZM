@@ -16,6 +16,7 @@ import emsAppRoutes from "./src/server/ems/emsAppRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
 import storageRouter from "./src/server/storage/storageRoutes";
 import { initLocalStorageMaintenance } from "./src/server/storage/storageMaintenance";
+import { siteDataRouter } from "./src/server/siteDataRoutes";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
@@ -86,6 +87,7 @@ app.use("/api/local/site-distribution", siteDistributionRouter);
 app.use("/api/local/site-health", siteDistributionRouter);
 app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
+app.use("/api/local/site-data", siteDataRouter);
 
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 

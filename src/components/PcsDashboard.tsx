@@ -45,8 +45,11 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             let sourceMeta = "PCS source unavailable or unmapped.";
             
             try {
-                const dashboardData = await fetchJsonWithTimeout("/api/local/pcs/dashboard", { timeoutMs: 5000 });
-                if (Array.isArray(dashboardData) && dashboardData.length > 0) {
+                const dashboardData = await fetchJsonWithTimeout("/api/local/site-data/pcs", { timeoutMs: 5000 });
+                if (dashboardData && Array.isArray(dashboardData.pcs)) {
+                    pcsRows = dashboardData.pcs;
+                    sourceMeta = dashboardData.source || "Coordinator Site Data Engine";
+                } else if (Array.isArray(dashboardData) && dashboardData.length > 0) {
                     pcsRows = dashboardData;
                     sourceMeta = "Dedicated PCS Dashboard API";
                 }
