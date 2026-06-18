@@ -1111,3 +1111,47 @@ export function setMockLastCall(data: any) {
   emsCache.lastError = null;
 }
 
+// Dedicated functions to fetch live Turtle first-responder data
+export async function getLiveFirstResponderV1(): Promise<any> {
+  const data = await fetchAndRecord('/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json');
+  return data;
+}
+
+export async function getLiveFirstResponderV2(): Promise<any> {
+  const data = await fetchAndRecord('/v2/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json');
+  return data;
+}
+
+export function getFirstResponderEndpointDebugInfo() {
+  const v1Debug = endpointDebugMap["/firstresponder/data"];
+  const v2Debug = endpointDebugMap["/v2/firstresponder/data"];
+
+  // Estimate bytes from cached data if success
+  const v1Bytes = emsCache.firstResponder?.v1 ? JSON.stringify(emsCache.firstResponder.v1).length : 0;
+  const v2Bytes = emsCache.firstResponder?.v2 ? JSON.stringify(emsCache.firstResponder.v2).length : 0;
+
+  return {
+    v1: {
+      endpoint: "/turtle/firstresponder/data",
+      success: v1Debug?.success ?? false,
+      statusCode: v1Debug?.statusCode ?? 0,
+      durationMs: v1Debug?.durationMs ?? 0,
+      timestamp: v1Debug?.lastPollTime || new Date().toISOString(),
+      bytes: v1Bytes,
+      parseSuccess: v1Debug?.success ? true : false,
+      error: v1Debug?.lastError || null
+    },
+    v2: {
+      endpoint: "/turtle/v2/firstresponder/data",
+      success: v2Debug?.success ?? false,
+      statusCode: v2Debug?.statusCode ?? 0,
+      durationMs: v2Debug?.durationMs ?? 0,
+      timestamp: v2Debug?.lastPollTime || new Date().toISOString(),
+      bytes: v2Bytes,
+      parseSuccess: v2Debug?.success ? true : false,
+      error: v2Debug?.lastError || null
+    }
+  };
+}
+
+

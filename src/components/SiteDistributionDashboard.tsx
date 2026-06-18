@@ -78,12 +78,73 @@ export interface DistributionResponse {
   };
 }
 
+export interface SiteHealthGraphPoint {
+  id: string;
+  arrayIndex: number;
+  stringIndex: number;
+  displayLabel: string;
+  ip?: string;
+  voltage?: number;
+  temperature?: number;
+  socPct?: number;
+  communicating: boolean;
+  inRotation: boolean;
+  statusColor: "green" | "red" | "yellow" | "gray" | "amber";
+  statusLabel: string;
+  metricSource: {
+    voltage: string;
+    temperature: string;
+  };
+  sourcePath: string;
+}
+
+export interface SiteHealthGraphResponse {
+  success: boolean;
+  timestamp: string;
+  source: string;
+  mode: string;
+  points: SiteHealthGraphPoint[];
+  metricAvailability: {
+    totalRows: number;
+    voltageRows: number;
+    temperatureRows: number;
+    missingVoltageRows: number;
+    missingTemperatureRows: number;
+  };
+  rollups: {
+    voltageMin?: number;
+    voltageMax?: number;
+    voltageAvg?: number;
+    temperatureMin?: number;
+    temperatureMax?: number;
+    temperatureAvg?: number;
+  };
+  anomalies: {
+    voltageHigh: string[];
+    voltageLow: string[];
+    temperatureHigh: string[];
+    temperatureLow: string[];
+    offline: string[];
+    outOfRotation: string[];
+  };
+  perf?: {
+    durationMs: number;
+    cacheHit: boolean;
+    liveAttempted: boolean;
+  };
+}
+
 export default function SiteDistributionDashboard({ active = true }: { active?: boolean }) {
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Site Health Anomaly Graph States
+  const [graphData, setGraphData] = useState<SiteHealthGraphResponse | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
 
   // Sub-tab selection state
   const [currentView, setCurrentView] = useState<"distribution" | "sensors">("distribution");
@@ -104,6 +165,49 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [warningVolt, setWarningVolt] = useState<number>(1200);
   const [alarmVolt, setAlarmVolt] = useState<number>(1400);
   const [lowVolt, setLowVolt] = useState<number>(900);
+
+  // Load graph specific telemetry data
+  const loadGraphData = async (refresh = false, useSample = false) => {
+    setGraphLoading(true);
+    setGraphError(null);
+    try {
+      let url = "/api/local/site-health/graph";
+      const params = new URLSearchParams();
+      
+      params.append("lowVolt", String(lowVolt));
+      params.append("warningVolt", String(warningVolt));
+      params.append("alarmVolt", String(alarmVolt));
+      params.append("lowTemp", String(lowTemp));
+      params.append("warningTemp", String(warningTemp));
+      params.append("alarmTemp", String(alarmTemp));
+      
+      if (refresh) {
+        params.append("refresh", "true");
+      }
+      if (useSample) {
+        params.append("sample", "true");
+        params.append("sampleLimit", "40");
+      }
+      
+      url += "?" + params.toString();
+      
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP Error: ${res.status}`);
+      }
+      const json: SiteHealthGraphResponse = await res.json();
+      if (json.success) {
+        setGraphData(json);
+      } else {
+        throw new Error("Failed to load valid graph points");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setGraphError(`Failed to connect to Site Health anomaly graph service: ${err.message}`);
+    } finally {
+      setGraphLoading(false);
+    }
+  };
 
   // Load string distribution data
   const loadData = async (refresh = false) => {
@@ -135,6 +239,9 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     } finally {
       setLoading(false);
     }
+
+    // Trigger graph data load concurrently
+    loadGraphData(refresh);
   };
 
   useEffect(() => {
@@ -147,6 +254,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       case "green": return "#16A34A"; // Connected & In Rotation
       case "red": return "#EF4444"; // Disconnected & In Rotation
       case "yellow": return "#F59E0B"; // Out of rotation
+      case "amber": return "#D97706"; // Warning/anomaly
       case "gray":
       default:
         return "#94A3B8"; // Not Communicating
@@ -297,10 +405,50 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     document.body.removeChild(link);
   };
 
+  // Site Health Anomaly Graph points filtered according to selected UI controls
+  const graphPoints = graphData?.points || [];
+
+  const filteredGraphPoints = useMemo(() => {
+    return graphPoints.filter((s: any) => {
+      // 1. Array Index selection
+      if (arrayFilter !== "all" && String(s.arrayIndex) !== arrayFilter) return false;
+
+      // 2. Status match
+      if (statusFilter !== "all" && s.statusColor !== statusFilter) return false;
+
+      // 3. Outlier filter logic
+      if (outliersOnly) {
+        const val = activeTab === "voltage" ? s.voltage : s.temperature;
+        const hasIssue = s.statusColor !== "green";
+        let isValOutlier = false;
+        
+        if (val !== undefined && val !== null) {
+          if (activeTab === "temperature") {
+            isValOutlier = val >= warningTemp || val >= alarmTemp || val <= lowTemp;
+          } else {
+            isValOutlier = val >= warningVolt || val >= alarmVolt || val <= lowVolt;
+          }
+        }
+        if (!hasIssue && !isValOutlier) return false;
+      }
+
+      // 4. Search text box query
+      if (searchQuery.trim() !== "") {
+        const q = searchQuery.toLowerCase();
+        const matchesLabel = s.displayLabel.toLowerCase().includes(q);
+        const matchesIp = s.ip ? s.ip.toLowerCase().includes(q) : false;
+        const matchesStatus = s.statusLabel.toLowerCase().includes(q);
+        if (!matchesLabel && !matchesIp && !matchesStatus) return false;
+      }
+
+      return true;
+    });
+  }, [graphPoints, arrayFilter, statusFilter, outliersOnly, searchQuery, activeTab, warningTemp, alarmTemp, lowTemp, warningVolt, alarmVolt, lowVolt]);
+
   // Recharts scatter chart formatter: x coordinate, y coordinates, raw point values
   const chartDataPoints = useMemo(() => {
     // We sort geografically by arrayIndex then stringIndex
-    const sorted = [...filteredStrings].sort((a, b) => {
+    const sorted = [...filteredGraphPoints].sort((a, b) => {
       if (a.arrayIndex !== b.arrayIndex) {
         return a.arrayIndex - b.arrayIndex;
       }
@@ -308,15 +456,18 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     });
 
     return sorted.map((row, index) => {
-      const value = getMetricValue(row, activeTab, tempMetric);
+      const value = activeTab === "voltage" ? row.voltage : row.temperature;
       return {
         ...row,
+        stackVoltage: row.voltage, // mapped for tooltip
+        maxCellTempC: row.temperature, // mapped for tooltip
+        avgCellTempC: row.temperature, // mapped for tooltip
         xIndex: index + 1, // continuous ordered X sequence
         metricVal: value,
         name: row.displayLabel
       };
     }).filter(d => d.metricVal !== undefined && d.metricVal !== null);
-  }, [filteredStrings, activeTab, tempMetric]);
+  }, [filteredGraphPoints, activeTab]);
 
   // Beautiful Tooltip for Custom scatter plot points
   const CustomScatterTooltip = ({ active, payload }: any) => {
@@ -813,6 +964,50 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               </span>
             </div>
 
+            {/* SOURCE STATUS BAR */}
+            <div className="p-2.5 rounded border border-prizm-border/40 bg-prizm-surface-strong/80 flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 text-[10px] font-mono text-prizm-text-muted">
+              <div>
+                {graphLoading ? (
+                  <span className="flex items-center gap-1.5 font-bold">
+                    <RefreshCw className="animate-spin text-prizm-info" size={12} />
+                    Loading Site Health graph data...
+                  </span>
+                ) : graphError ? (
+                  <span className="text-red-400 font-bold">Error: {graphError}</span>
+                ) : graphData ? (
+                  <span className="text-prizm-text font-bold">
+                    {graphData.points.some((p: any) => p.metricSource.voltage.includes("sampled") || p.metricSource.temperature.includes("sampled")) ? (
+                      `Showing sampled live stringviewer metrics: ${graphData.points.filter((p: any) => p.voltage !== undefined || p.temperature !== undefined).length} / ${graphData.points.length} strings.`
+                    ) : (
+                      `Showing full-site graph metrics: ${graphData.points.filter((p: any) => p.voltage !== undefined || p.temperature !== undefined).length} / ${graphData.points.length} strings.`
+                    )}
+                  </span>
+                ) : (
+                  <span>No graph data load attempted yet.</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => loadGraphData(true, true)}
+                  disabled={graphLoading}
+                  className="px-2.5 py-1 bg-prizm-info/10 text-prizm-info hover:bg-prizm-info/20 border border-prizm-info/30 text-[9.5px] font-bold rounded uppercase flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                  title="Force a high precision bounded stringviewer telemetry sample map across arrays"
+                >
+                  <Cpu size={10} />
+                  Sample Live Stringviewer
+                </button>
+                <button
+                  onClick={() => loadGraphData(true, false)}
+                  disabled={graphLoading}
+                  className="px-2.5 py-1 bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-[9.5px] font-bold rounded uppercase flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                  title="Reload from latest dev cache"
+                >
+                  <RefreshCw size={10} className={graphLoading ? "animate-spin" : ""} />
+                  Reload Graph Cache
+                </button>
+              </div>
+            </div>
+
             {/* REAL RECHARTS PLOT FRAME */}
             {(!data && loading) ? (
               <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong">
@@ -825,21 +1020,28 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 <span className="max-w-md block">
                   {strings.length === 0 ? (
                     "No string distribution rows are available from the EMS source."
-                  ) : filteredStrings.length === 0 ? (
-                    "No strings match the selected filters."
+                  ) : filteredGraphPoints.length === 0 ? (
+                    "No strings in the graph match your current active query filters."
                   ) : (
-                    `${strings.length} strings were found, but no usable ${
-                      activeTab === "voltage"
-                        ? "Stack Voltage Vdc"
-                        : tempMetric === "max"
-                        ? "Max Cell Temperature C"
-                        : "Average Cell Temperature C"
-                    } values were reported by the current EMS source.`
+                    `${strings.length} strings are mapped, but no voltage/temperature graph metrics are available from the current cached EMS source.`
                   )}
                 </span>
-                {(strings.length > 0 && filteredStrings.length === 0) && (
+                {(strings.length > 0 && filteredGraphPoints.length === 0) ? (
                   <button onClick={() => { setArrayFilter("all"); setStatusFilter("all"); setSearchQuery(""); setOutliersOnly(false); }} className="mt-2 text-[10.5px] font-bold text-prizm-info hover:underline uppercase">reset query filter</button>
-                )}
+                ) : strings.length > 0 ? (
+                  <button
+                    onClick={() => loadGraphData(true, true)}
+                    disabled={graphLoading}
+                    className="mt-4 px-4 py-2 bg-prizm-info hover:bg-cyan-600 text-white text-[10px] font-bold rounded uppercase flex items-center gap-1.5 focus:outline-none transition shadow-sm disabled:opacity-50 cursor-pointer"
+                  >
+                    {graphLoading ? (
+                      <RefreshCw className="animate-spin text-white" size={13} />
+                    ) : (
+                      <Cpu size={13} />
+                    )}
+                    Sample {strings.length} Strings via Stringviewer
+                  </button>
+                ) : null}
               </div>
             ) : (
               <div className="h-[300px] sm:h-[350px] w-full bg-prizm-surface pr-1.5">

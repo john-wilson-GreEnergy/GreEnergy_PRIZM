@@ -74,6 +74,18 @@ const DEFAULT_TABS_ORDER: string[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTabId>("overview");
+  const [visitedTabs, setVisitedTabs] = useState<Set<AppTabId>>(
+    () => new Set<AppTabId>(["overview"])
+  );
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
   const [isPending, startTransition] = useTransition();
   const handleSetActiveTab = (tab: AppTabId | string) => {
     startTransition(() => setActiveTab(tab as AppTabId));
@@ -192,17 +204,17 @@ export default function App() {
   const warmStartFieldData = async () => {
     setWarmStartState("running");
     try {
-      const tasks = [
-        fetch("/api/local/pcs/dashboard").catch(() => null),
-        fetch("/api/local/site-distribution/strings").catch(() => null),
-        fetch("/api/local/site-sensors/summary").catch(() => null),
-        fetch("/api/feather/devices?policy=live-first").catch(() => null),
-        fetch("/api/local/feather/devices?policy=live-first").catch(() => null),
-        fetch("/api/local/hvac-simulation/targets").catch(() => null),
-        fetch("/api/local/hvac-simulation/capabilities").catch(() => null),
-        fetch("/api/local/hvac-simulation/audit").catch(() => null)
+      const endpoints = [
+        "/api/local/pcs/dashboard",
+        "/api/local/site-distribution/strings",
+        "/api/local/site-sensors/summary",
+        "/api/local/feather/devices?policy=live-first",
+        "/api/local/hvac-simulation/targets",
+        "/api/local/hvac-simulation/capabilities"
       ];
-      await Promise.allSettled(tasks);
+      for (const endpoint of endpoints) {
+        await fetch(endpoint).catch(() => null);
+      }
       setWarmStartState("complete");
       setTimeout(() => {
         setWarmStartState("idle");
@@ -582,80 +594,98 @@ export default function App() {
         ) : (
           <div className="animate-fade-in duration-300 h-full">
             <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
-              <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
-                <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active={activeTab === "overview"} />
-              </div>
-
-              <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
-                <StringDashboard active={activeTab === "arrays-strings"} />
-              </div>
-
-              <div className={activeTab === "site-health" ? "block animate-fade-in font-sans" : "hidden"}>
-                <SiteDistributionDashboard active={activeTab === "site-health"} />
-              </div>
-
-              <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
-                <PcsDashboard active={activeTab === "pcs-dashboard"} />
-              </div>
-
-              <div className={activeTab === "site-configuration" ? "block animate-fade-in" : "hidden"}>
-                <SiteConfigurationDashboard 
-                  tabsOrder={tabsOrder} 
-                  toggleTabVisibility={toggleTabVisibility} 
-                  moveTab={moveTab} 
-                  resetTabs={resetTabs} 
-                />
-              </div>
-
-              <div className={activeTab === "feather-hvac" ? "block space-y-4 animate-fade-in" : "hidden"}>
-                <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
-                  <button
-                    onClick={() => setFeatherSub("feather")}
-                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
-                      featherSub === "feather"
-                        ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
-                        : "border-transparent text-prizm-text-muted hover:text-white"
-                    }`}
-                  >
-                    Feather Core Controls
-                  </button>
-                  <button
-                    onClick={() => setFeatherSub("simulation")}
-                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
-                      featherSub === "simulation"
-                        ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
-                        : "border-transparent text-prizm-text-muted hover:text-white"
-                    }`}
-                  >
-                    HVAC Simulation & Validation
-                  </button>
+              {visitedTabs.has("overview") && (
+                <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
+                  <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active={activeTab === "overview"} />
                 </div>
-                <div className={featherSub === "feather" ? "block" : "hidden"}>
-                  <FeatherDashboard active={activeTab === "feather-hvac" && featherSub === "feather"} />
+              )}
+
+              {visitedTabs.has("arrays-strings") && (
+                <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
+                  <StringDashboard active={activeTab === "arrays-strings"} />
                 </div>
-                <div className={featherSub === "simulation" ? "block" : "hidden"}>
-                  <HvacSimulationDashboard active={activeTab === "feather-hvac" && featherSub === "simulation"} />
+              )}
+
+              {visitedTabs.has("site-health") && (
+                <div className={activeTab === "site-health" ? "block animate-fade-in font-sans" : "hidden"}>
+                  <SiteDistributionDashboard active={activeTab === "site-health"} />
                 </div>
-              </div>
+              )}
 
-              <div className={activeTab === "lightbar-control" ? "block animate-fade-in" : "hidden"}>
-                <LineupLightbarControl />
-              </div>
+              {visitedTabs.has("pcs-dashboard") && (
+                <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
+                  <PcsDashboard active={activeTab === "pcs-dashboard"} />
+                </div>
+              )}
 
-              <div className={activeTab === "reports" ? "block animate-fade-in" : "hidden"}>
-                <Reporting 
-                  devices={[]}
-                  reports={[]}
-                  onAddReport={async () => {}}
-                  onDeleteReport={async () => {}}
-                  diagnosticSession={diagnosticSession}
-                  onRefreshDiagnostic={() => fetchAllData(true)}
-                />
-              </div>
+              {visitedTabs.has("site-configuration") && (
+                <div className={activeTab === "site-configuration" ? "block animate-fade-in" : "hidden"}>
+                  <SiteConfigurationDashboard 
+                    tabsOrder={tabsOrder} 
+                    toggleTabVisibility={toggleTabVisibility} 
+                    moveTab={moveTab} 
+                    resetTabs={resetTabs} 
+                  />
+                </div>
+              )}
 
-              <div className={activeTab === "advanced" ? "block animate-fade-in" : "hidden"}>
-                <SafetyAdvancedDashboard />
-              </div>
+              {visitedTabs.has("feather-hvac") && (
+                <div className={activeTab === "feather-hvac" ? "block space-y-4 animate-fade-in" : "hidden"}>
+                  <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
+                    <button
+                      onClick={() => setFeatherSub("feather")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        featherSub === "feather"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      Feather Core Controls
+                    </button>
+                    <button
+                      onClick={() => setFeatherSub("simulation")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        featherSub === "simulation"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      HVAC Simulation & Validation
+                    </button>
+                  </div>
+                  <div className={featherSub === "feather" ? "block" : "hidden"}>
+                    <FeatherDashboard active={activeTab === "feather-hvac" && featherSub === "feather"} />
+                  </div>
+                  <div className={featherSub === "simulation" ? "block" : "hidden"}>
+                    <HvacSimulationDashboard active={activeTab === "feather-hvac" && featherSub === "simulation"} />
+                  </div>
+                </div>
+              )}
+
+              {visitedTabs.has("lightbar-control") && (
+                <div className={activeTab === "lightbar-control" ? "block animate-fade-in" : "hidden"}>
+                  <LineupLightbarControl />
+                </div>
+              )}
+
+              {visitedTabs.has("reports") && (
+                <div className={activeTab === "reports" ? "block animate-fade-in" : "hidden"}>
+                  <Reporting 
+                    devices={[]}
+                    reports={[]}
+                    onAddReport={async () => {}}
+                    onDeleteReport={async () => {}}
+                    diagnosticSession={diagnosticSession}
+                    onRefreshDiagnostic={() => fetchAllData(true)}
+                  />
+                </div>
+              )}
+
+              {visitedTabs.has("advanced") && (
+                <div className={activeTab === "advanced" ? "block animate-fade-in" : "hidden"}>
+                  <SafetyAdvancedDashboard />
+                </div>
+              )}
             </Suspense>
           </div>
         )}

@@ -83,6 +83,7 @@ app.use("/api/local/ems-apps", emsAppRoutes);
 app.use("/api/local/hvac-simulation", hvacSimulationRouter);
 app.use("/api/local/storage", storageRouter);
 app.use("/api/local/site-distribution", siteDistributionRouter);
+app.use("/api/local/site-health", siteDistributionRouter);
 app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 
