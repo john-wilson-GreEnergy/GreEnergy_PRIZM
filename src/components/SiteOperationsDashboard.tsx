@@ -248,7 +248,7 @@ export default function SiteOperationsDashboard({
   };
 
   const triggerRefresh = (sectionRefresh = false) => {
-    let url = "/api/local/site-operations/summary";
+    let url = "/api/local/site-data/block-summary";
     if (sectionRefresh || state.cacheStatus?.policy === "live-only") {
       url += "?refresh=true";
     }
@@ -273,7 +273,7 @@ export default function SiteOperationsDashboard({
     let unmounted = false;
 
     const fetchSummary = async (isFirst = false, cachePol = null) => {
-      let url = "/api/local/site-operations/summary";
+      let url = "/api/local/site-data/block-summary";
       if (cachePol === "live-only") {
         url += "?refresh=true";
       }
@@ -331,7 +331,7 @@ export default function SiteOperationsDashboard({
       }).catch(() => {});
       if (!unmounted && status && active) {
         setState((p) => ({ ...p, cacheStatus: status }));
-        let url = "/api/local/site-operations/summary";
+        let url = "/api/local/site-data/block-summary";
         if (status.policy === "live-only") {
           url += "?refresh=true";
         }

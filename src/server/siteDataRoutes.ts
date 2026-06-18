@@ -14,6 +14,18 @@ import {
 
 export const siteDataRouter = Router();
 
+siteDataRouter.use(async (req, res, next) => {
+  if (req.query.refresh === "true") {
+    console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data...`);
+    try {
+      await triggerImmediatePoll();
+    } catch (err: any) {
+      console.error("[Site Data Routes] Immediate poll failed on refresh request", err.message);
+    }
+  }
+  next();
+});
+
 siteDataRouter.get("/snapshot", async (req, res) => {
   try {
     let snap = getLatestSnapshot();

@@ -107,10 +107,11 @@ async function doBackgroundPoll() {
       let sourceOk = true;
       if (state === "OFFLINE" || latestError) sourceOk = false;
       
-      const stNow = Date.now();
       const rawConn = getEmsConnectionStatus();
+      const stNow = Date.now();
       const updatedTime = rawConn.lastUpdated ? new Date(rawConn.lastUpdated).getTime() : stNow;
-      
+      const capturedAt = rawConn.lastUpdated || new Date().toISOString();
+
       let featherCellTempExcludedCollectionSegments = 0;
       const featherNodes = parsed.featherSummary?.devices || [];
       featherNodes.forEach((f: any) => {
@@ -118,6 +119,27 @@ async function doBackgroundPoll() {
          if (ip.endsWith('.3')) {
             featherCellTempExcludedCollectionSegments++;
          }
+      });
+
+      // 1. Enrich PCS rows with explicit lineage metadata
+      const enrichedPcsRows = (parsed.pcsSummary || []).map((p: any) => {
+          const arrIdx = p.arrayIndex !== null && p.arrayIndex !== undefined ? Number(p.arrayIndex) : null;
+          const pcsIdx = p.pcsIndex !== null && p.pcsIndex !== undefined ? Number(p.pcsIndex) : null;
+          const rawKey = p.displayKey || p.rawKey || (arrIdx !== null && pcsIdx !== null ? `Array ${arrIdx} PCS ${pcsIdx}` : null);
+          return {
+              ...p,
+              sourcePath: "blockviewer.data.arrays[].pcses[]",
+              source: {
+                  domain: "pcs",
+                  sourceName: "blockviewer",
+                  sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+                  sourcePath: "data.arrays[].pcses[]",
+                  arrayIndex: arrIdx,
+                  pcsIndex: pcsIdx,
+                  rawKey,
+                  capturedAt
+              }
+          };
       });
       
       const newSnap: PrizmSiteSnapshot = {
@@ -152,14 +174,14 @@ async function doBackgroundPoll() {
           normalized: {
               strings: parsed.stringSummary?.tableRows || [],
               arrays: parsed.arraySummary || [],
-              pcs: parsed.pcsSummary || [],
+              pcs: enrichedPcsRows,
               feather: parsed.featherSummary?.devices || [],
               correctiveActions: parsed.activeIssueGroups || []
           },
           rollups: {
               stringSummary: parsed.stringSummary || {},
               arraySummary: parsed.arraySummary || [],
-              pcsSummary: parsed.pcsSummary || [],
+              pcsSummary: enrichedPcsRows,
               bessFleetSummary: parsed.bessFleetSummary || {},
               featherSummary: parsed.featherSummary || {},
               sourceHealth: parsed.sourceHealth || []
@@ -176,6 +198,14 @@ async function doBackgroundPoll() {
               errors: latestError ? [latestError.message] : []
           }
       };
+
+      // 2 & 3. Generate detailed source health rows & summary
+      const healthRows = getSourceHealthRows(newSnap);
+      const healthSummary = getSourceHealthSummary(healthRows);
+      newSnap.rollups.sourceHealth = healthRows;
+      (newSnap.rollups as any).sourceHealthSummary = healthSummary;
+      (newSnap.rollups as any).topologyCounts = parsed.topologyCounts || {};
+      (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
 
       centralSnapshot = newSnap;
 
@@ -225,13 +255,203 @@ export function getSnapshotOrNull(): PrizmSiteSnapshot | null {
     return centralSnapshot;
 }
 
+export function getSourceHealthRows(snap: any): any[] {
+    const emsDebug = getEmsSourcesDebugInfo() || [];
+    const fCache = getFeatherCache();
+    
+    // Helper to extract diagnostic debug info
+    const getDbg = (endpoints: string[]) => {
+        return emsDebug.find((d: any) => endpoints.includes(d.endpoint));
+    };
+
+    const buildRow = (
+        name: string,
+        sourceLabel: string,
+        endpoints: string[],
+        getRecordCount: () => number | null
+    ) => {
+        const dbg = getDbg(endpoints);
+        if (!dbg) {
+            return {
+                name,
+                ok: null,
+                state: "unknown" as const,
+                lastUpdated: null,
+                ageMs: null,
+                stale: null,
+                recordCount: null,
+                endpoint: endpoints[0] || null,
+                sourceLabel,
+                error: null
+            };
+        }
+
+        const ok = dbg.success ?? null;
+        const stale = dbg.stale ?? null;
+        let state: "healthy" | "stale" | "failed" | "unknown" = "unknown";
+        if (ok === false) {
+            state = "failed";
+        } else if (ok === true) {
+            state = stale ? "stale" : "healthy";
+        }
+
+        const lastUpdated = dbg.lastSuccessAt || (ok ? snap?.liveStatus?.lastUpdated : null) || null;
+        const ageMs = lastUpdated ? Math.max(0, Date.now() - new Date(lastUpdated).getTime()) : null;
+
+        return {
+            name,
+            ok,
+            state,
+            lastUpdated,
+            ageMs,
+            stale,
+            recordCount: getRecordCount(),
+            endpoint: dbg.endpoint || null,
+            sourceLabel,
+            error: dbg.lastError && dbg.lastError !== "NONE" ? dbg.lastError : (ok ? null : "Endpoint unreachable")
+        };
+    };
+
+    // 1. blockviewer
+    const blockHealth = buildRow(
+        "blockviewer",
+        "Blockviewer Data Stream",
+        ["/tools/monitor/ems/blockviewer/data"],
+        () => snap?.normalized?.pcs?.length ?? 0
+    );
+
+    // 2. status
+    const statusHealth = buildRow(
+        "status",
+        "Direct Status JSON Feed",
+        ["/tools/report/ems/status.json", "/status"],
+        () => snap?.normalized?.arrays?.length ?? 0
+    );
+
+    // 3. lastCall
+    const lastCallHealth = buildRow(
+        "lastCall",
+        "LastCall Backup Stream",
+        ["/tools/report/ems/lastCall.json"],
+        () => null
+    );
+
+    // 4. strings
+    const stringsHealth = buildRow(
+        "strings",
+        "Strings CSV Report",
+        ["/tools/report/ems/strings.csv"],
+        () => snap?.normalized?.strings?.length ?? 0
+    );
+
+    // 5. statusCodes
+    const statusCodesHealth = buildRow(
+        "statusCodes",
+        "BESS Status Codes Definitions",
+        ["/tools/report/ems/bessStatusCodes.json"],
+        () => null
+    );
+
+    // 6. feather
+    let featherHealth;
+    const fOk = fCache ? fCache.success : false;
+    const fStale = fCache ? fCache.isStale : true;
+    let fState: "healthy" | "stale" | "failed" | "unknown" = "failed";
+    if (fCache) {
+        fState = fOk ? (fStale ? "stale" : "healthy") : "failed";
+    } else {
+        fState = "unknown";
+    }
+    const featherLastUpdated = (fCache && fCache.lastUpdatedAt) || (fOk ? snap?.liveStatus?.lastUpdated : null) || null;
+    const featherAgeMs = featherLastUpdated ? Math.max(0, Date.now() - new Date(featherLastUpdated).getTime()) : null;
+    featherHealth = {
+        name: "feather",
+        ok: fCache ? fOk : null,
+        state: fState,
+        lastUpdated: featherLastUpdated,
+        ageMs: featherAgeMs,
+        stale: fCache ? fStale : null,
+        recordCount: snap?.normalized?.feather?.length ?? 0,
+        endpoint: "/api/local/feather",
+        sourceLabel: "Feather HVAC & Balance Clients",
+        error: fOk ? null : ((fCache as any)?.error || "Feather cache connection offline")
+    };
+
+    // 7. emsApps
+    let emsAppsHealth;
+    const eaOk = lastCallHealth.ok;
+    const eaStale = lastCallHealth.stale;
+    let eaState: "healthy" | "stale" | "failed" | "unknown" = "unknown";
+    if (eaOk === false) {
+        eaState = "failed";
+    } else if (eaOk === true) {
+        eaState = eaStale ? "stale" : "healthy";
+    }
+    emsAppsHealth = {
+        name: "emsApps",
+        ok: eaOk,
+        state: eaState,
+        lastUpdated: lastCallHealth.lastUpdated,
+        ageMs: lastCallHealth.ageMs,
+        stale: eaStale,
+        recordCount: snap?.rawSources?.emsApps?.length ?? 0,
+        endpoint: "/tools/report/ems/lastCall.json -> emsApps",
+        sourceLabel: "EMS Integrated Applications",
+        error: lastCallHealth.error
+    };
+
+    return [
+        blockHealth,
+        statusHealth,
+        lastCallHealth,
+        stringsHealth,
+        statusCodesHealth,
+        featherHealth,
+        emsAppsHealth
+    ];
+}
+
+export function getSourceHealthSummary(rows: any[]): any {
+    let healthySources = 0;
+    let staleSources = 0;
+    let failedSources = 0;
+    let unknownSources = 0;
+
+    rows.forEach(r => {
+        if (r.state === "healthy") {
+            healthySources++;
+        } else if (r.state === "stale") {
+            staleSources++;
+        } else if (r.state === "failed") {
+            failedSources++;
+        } else {
+            unknownSources++;
+        }
+    });
+
+    return {
+        totalSources: rows.length,
+        healthySources,
+        staleSources,
+        failedSources,
+        unknownSources
+    };
+}
+
 export function getSiteDataStatusView(): any {
     const snap = centralSnapshot;
     if (!snap) return { warming: true };
+    const healthRows = getSourceHealthRows(snap);
+    const summary = getSourceHealthSummary(healthRows);
     return {
         siteIdentity: snap.siteIdentity,
         liveStatus: snap.liveStatus,
-        debug: snap.debug,
+        sourceHealthSummary: summary,
+        sourceHealth: healthRows,
+        debug: {
+            ...snap.debug,
+            sourceHealthSummary: summary
+        },
         freshness: snap.liveStatus.lastUpdated ? {
             lastUpdated: snap.liveStatus.lastUpdated,
             ageMs: snap.liveStatus.ageMs,
@@ -243,18 +463,108 @@ export function getSiteDataStatusView(): any {
 export function getBlockSummaryView(): any {
     const snap = centralSnapshot;
     if (!snap) return { warming: true };
+
+    const htsSummary: any[] = [];
+    const fDevices = snap.normalized.feather || [];
+    fDevices.forEach((f: any) => {
+         const rt = f.rawResponse?.thermalData || f.rawResponse || {};
+         const tempC = f.spaceTemp ?? f.spaceTemperature ?? f.temperature ?? rt.spaceTemperature ?? rt.spaceTemp ?? rt.airTemp ?? rt.temperature ?? null;
+         const hum = f.spaceHumidity ?? f.humidity ?? rt.spaceHumidity ?? rt.humidity ?? rt.relativeHumidity ?? null;
+         if (tempC !== null || hum !== null) {
+             const srcIp = f.deviceIp || f.ip;
+             let enc = f.enclosureLabel || f.entityDescription || f.entityName;
+             if (!enc && f.arrayIndex != null && f.stringIndex != null) {
+                enc = `Array ${f.arrayIndex} ES${f.stringIndex}`;
+             }
+             const ct = f.cellTemp ?? f.avgCellTemperature ?? f.avgCellTemp ?? rt.cellTemp ?? rt.avgCellTemperature ?? null;
+             htsSummary.push({
+                 enclosureLabel: enc || "Unknown Enclosure",
+                 sensorId: srcIp,
+                 sourceIp: srcIp,
+                 deviceName: f.deviceType || "Feather",
+                 entityDescription: f.entityName || null,
+                 arrayIndex: f.arrayIndex ?? null,
+                 stringIndex: f.stringIndex ?? null,
+                 temperatureC: tempC,
+                 humidityPct: hum,
+                 cellTemperatureC: ct,
+                 supplyAirTempC: f.supplyAirTempC ?? f.supplyAirTemp ?? rt.supplyAirTemp ?? rt.supplyAirTempC ?? null,
+                 coolingSetpointC: f.coolingSetpointC ?? f.coolingSetpoint ?? rt.coolingSetpoint ?? rt.coolingSetpointC ?? null,
+                 heatingSetpointC: f.heatingSetpointC ?? f.heatingSetpoint ?? rt.heatingSetpoint ?? rt.heatingSetpointC ?? null,
+                 source: "feather"
+             });
+         }
+    });
+
+    const healthRows = getSourceHealthRows(snap);
+    const healthSummary = getSourceHealthSummary(healthRows);
+
+    const siteObj = {
+        stationCode: snap.siteIdentity.stationCode,
+        discoveredStationCode: snap.siteIdentity.stationCode,
+        siteCodeSource: "topology",
+        blockIndex: snap.siteIdentity.blockIndex,
+        profileId: snap.siteIdentity.activeProfileId,
+        profileName: snap.siteIdentity.activeProfileName,
+        emsBaseUrl: snap.siteIdentity.emsBaseUrl,
+        connectionState: snap.liveStatus.state === "OFFLINE" ? "disconnected" : "connected",
+        source: snap.liveStatus.source,
+        staleData: snap.liveStatus.stale,
+        lastUpdated: snap.liveStatus.lastUpdated
+    };
+
     return {
+        // Uniform unified models
         siteIdentity: snap.siteIdentity,
         liveStatus: snap.liveStatus,
+        debug: {
+            ...snap.debug,
+            sourceHealthSummary: healthSummary
+        },
+
+        // Backward compatible legacy structures
+        site: siteObj,
+        source: snap.liveStatus.state === "OFFLINE" ? "offline" : snap.liveStatus.source,
+        stale: snap.liveStatus.stale,
+        cacheUsed: snap.liveStatus.cacheUsed,
+        correctiveActions: snap.normalized.correctiveActions,
+        activeIssueGroups: snap.normalized.correctiveActions, // activeIssueGroups maps directly to correctiveActions array in modern snapshot
+        bessFleetSummary: snap.rollups.bessFleetSummary,
         stringSummary: snap.rollups.stringSummary,
         arraySummary: snap.normalized.arrays,
-        pcsSummary: snap.normalized.pcs,
-        bessFleetSummary: snap.rollups.bessFleetSummary,
+        pcsSummary: enrichedPcsRowsInBlockView(snap),
         featherSummary: snap.rollups.featherSummary,
-        correctiveActions: snap.normalized.correctiveActions,
-        sourceHealth: snap.rollups.sourceHealth,
-        debug: snap.debug
+        humidityTemperatureSensors: htsSummary,
+        safetySummary: (snap.rollups as any).safetySummary || {},
+        emsApps: snap.rawSources.emsApps || [],
+        sourceHealth: healthRows,
+        sourceHealthSummary: healthSummary,
+        topologyCounts: (snap.rollups as any).topologyCounts || {},
+        fleetCapacity: snap.rollups.stringSummary?.rollups?.fleetCapacity || null
     };
+}
+
+function enrichedPcsRowsInBlockView(snap: any): any[] {
+    const capturedAt = snap?.liveStatus?.lastUpdated || new Date().toISOString();
+    return (snap?.normalized?.pcs || []).map((p: any) => {
+        const arrIdx = p.arrayIndex !== null && p.arrayIndex !== undefined ? Number(p.arrayIndex) : null;
+        const pcsIdx = p.pcsIndex !== null && p.pcsIndex !== undefined ? Number(p.pcsIndex) : null;
+        const rawKey = p.displayKey || p.rawKey || (arrIdx !== null && pcsIdx !== null ? `Array ${arrIdx} PCS ${pcsIdx}` : null);
+        return {
+            ...p,
+            sourcePath: "blockviewer.data.arrays[].pcses[]",
+            source: {
+                domain: "pcs",
+                sourceName: "blockviewer",
+                sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+                sourcePath: "data.arrays[].pcses[]",
+                arrayIndex: arrIdx,
+                pcsIndex: pcsIdx,
+                rawKey,
+                capturedAt
+            }
+        };
+    });
 }
 
 export function getStringsView(): any {
@@ -302,9 +612,15 @@ export function getCorrectiveActionsView(): any {
 export function getSourceHealthView(): any {
     const snap = centralSnapshot;
     if (!snap) return { warming: true };
+    const healthRows = getSourceHealthRows(snap);
+    const summary = getSourceHealthSummary(healthRows);
     return {
-        sourceHealth: snap.rollups.sourceHealth,
-        debug: snap.debug
+        sourceHealth: healthRows,
+        sourceHealthSummary: summary,
+        debug: {
+            ...snap.debug,
+            sourceHealthSummary: summary
+        }
     };
 }
 
