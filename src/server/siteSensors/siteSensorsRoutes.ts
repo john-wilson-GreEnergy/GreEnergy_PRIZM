@@ -36,6 +36,54 @@ export interface NormalizedSensorRow {
   findings: string[];
   sourcePath: string;
   raw: any;
+  // Legacy UI-compatible fields
+  id: string;
+  displayLabel: string;
+  health: string;
+  sensors: {
+    temperature: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+    segmentCommunications: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+    heat: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+    gas: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+    smoke: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+    fireSuppression: {
+      state: string;
+      healthy: boolean;
+      label: string;
+      value: string;
+      sourcePath: string;
+    };
+  };
 }
 
 // Default BHE0021 V2 Payload to guarantee reliable parsing/simulation if Turtle container is offline or during testing
@@ -194,6 +242,93 @@ function isAbnormalStatus(statusStr: string | undefined): boolean {
   );
 }
 
+// Helper to build legacy UI compatibility fields on a row
+function populateLegacyFields(
+  rowWithoutLegacy: Omit<NormalizedSensorRow, "id" | "displayLabel" | "health" | "sensors">,
+  lineupId: number,
+  segmentId: number,
+  segmentType: string,
+  severity: "OK" | "Warning" | "Critical",
+  overallStatus: "OK" | "WARNING" | "FAULT" | "UNHEALTHY",
+  temperatureValue: number,
+  temperatureUnit: string,
+  temperatureStatus: string,
+  temperatureCommunicating: boolean,
+  segmentCommunicating: boolean,
+  heatStatus: string,
+  heatCommunicating: boolean,
+  gasStatus: string,
+  gasCommunicating: boolean,
+  smokeStatus: string,
+  smokeCommunicating: boolean,
+  fireSuppressionStatus: string
+): NormalizedSensorRow {
+  const id = `FRV2-L${lineupId}-S${segmentId}`;
+  const displayLabel = `Lineup ${lineupId} / Segment ${segmentId} (${segmentType})`;
+
+  let health = "unknown";
+  if (overallStatus === "FAULT" && severity === "Critical") {
+    health = "fault";
+  } else if (overallStatus === "FAULT" && severity === "Warning") {
+    health = "warning";
+  } else if (overallStatus === "OK") {
+    health = "healthy";
+  }
+
+  const sensors = {
+    temperature: {
+      state: temperatureStatus === "HIGH" ? "high" : "normal",
+      healthy: !(temperatureStatus === "HIGH" || temperatureCommunicating === false),
+      label: `${temperatureValue}${temperatureUnit} / ${temperatureStatus}`,
+      value: `${temperatureValue}${temperatureUnit}`,
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/temperature`
+    },
+    segmentCommunications: {
+      state: segmentCommunicating ? "communicating" : "notCommunicating",
+      healthy: segmentCommunicating,
+      label: segmentCommunicating ? "Communicating" : "Offline",
+      value: segmentCommunicating ? "OK" : "OFFLINE",
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/segmentCommunications`
+    },
+    heat: {
+      state: heatStatus === "NOT_TRIPPED" ? "normal" : "tripped",
+      healthy: heatStatus === "NOT_TRIPPED" && heatCommunicating !== false,
+      label: heatStatus,
+      value: heatStatus,
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/heat`
+    },
+    gas: {
+      state: gasStatus === "NOT_TRIPPED" ? "normal" : "tripped",
+      healthy: gasStatus === "NOT_TRIPPED" && gasCommunicating !== false,
+      label: gasStatus,
+      value: gasStatus,
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/gas`
+    },
+    smoke: {
+      state: smokeStatus === "NOT_TRIPPED" ? "normal" : "tripped",
+      healthy: smokeStatus === "NOT_TRIPPED" && smokeCommunicating !== false,
+      label: smokeStatus,
+      value: smokeStatus,
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/smoke`
+    },
+    fireSuppression: {
+      state: fireSuppressionStatus === "NOT_INSTALLED" ? "notInstalled" : (fireSuppressionStatus === "NOT_TRIPPED" ? "normal" : "active"),
+      healthy: fireSuppressionStatus === "NOT_INSTALLED" || fireSuppressionStatus === "NOT_TRIPPED",
+      label: fireSuppressionStatus,
+      value: fireSuppressionStatus,
+      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/fireSuppression`
+    }
+  };
+
+  return {
+    ...rowWithoutLegacy,
+    id,
+    displayLabel,
+    health,
+    sensors
+  };
+}
+
 // Orchestrator to normalize v2 schema payload into sensor rows
 export async function buildNormalizedResponderSummary(refresh = false): Promise<any> {
   let rawV2: any = null;
@@ -316,9 +451,9 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         totalAbnormalSegments++;
       }
 
-      const overallStatus = findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK";
+      const overallStatus = (findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK") as "OK" | "WARNING" | "FAULT" | "UNHEALTHY";
 
-      rows.push({
+      const rowWithoutLegacy = {
         stationCode,
         blockIndex,
         lineupId,
@@ -346,7 +481,30 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         findings,
         sourcePath: "/turtle/v2/firstresponder/data",
         raw: seg
-      });
+      };
+
+      const fullRow = populateLegacyFields(
+        rowWithoutLegacy,
+        lineupId,
+        segmentId,
+        segmentType,
+        severity,
+        overallStatus,
+        temperatureValue,
+        tempUnit,
+        temperatureStatus,
+        temperatureCommunicating,
+        segmentCommunicating,
+        heatStatus,
+        heatCommunicating,
+        gasStatus,
+        gasCommunicating,
+        smokeStatus,
+        smokeCommunicating,
+        fireSuppressionStatus
+      );
+
+      rows.push(fullRow);
     }
   }
 
@@ -480,7 +638,7 @@ export function buildSiteSensorSummary(): any {
 
       const overallStatus = findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK";
 
-      rows.push({
+      const rowWithoutLegacy = {
         stationCode,
         blockIndex,
         lineupId,
@@ -503,12 +661,35 @@ export function buildSiteSensorSummary(): any {
         smokeStatus,
         smokeCommunicating,
         smokeTrippedTimestamp,
-        overallStatus,
-        severity,
+        overallStatus: overallStatus as "OK" | "WARNING" | "FAULT" | "UNHEALTHY",
+        severity: severity as "OK" | "Warning" | "Critical",
         findings,
         sourcePath: "/turtle/v2/firstresponder/data",
         raw: seg
-      });
+      };
+
+      const fullRow = populateLegacyFields(
+        rowWithoutLegacy,
+        lineupId,
+        segmentId,
+        segmentType,
+        severity as "OK" | "Warning" | "Critical",
+        overallStatus as "OK" | "WARNING" | "FAULT" | "UNHEALTHY",
+        temperatureValue,
+        "F",
+        temperatureStatus,
+        temperatureCommunicating,
+        segmentCommunicating,
+        heatStatus,
+        heatCommunicating,
+        gasStatus,
+        gasCommunicating,
+        smokeStatus,
+        smokeCommunicating,
+        fireSuppressionStatus
+      );
+
+      rows.push(fullRow);
     }
   }
 
