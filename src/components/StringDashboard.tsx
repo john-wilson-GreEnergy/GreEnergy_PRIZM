@@ -12,18 +12,23 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   
   const data = useMemo(() => {
     if (!snapshot) return null;
+    const stringSummary = snapshot.rollups?.stringSummary || {};
+    const stringSummarySummary = stringSummary.summary || {};
+    const stringSummaryRollups = stringSummary.rollups || {};
     return {
       strings: snapshot.normalized?.strings || [],
-      summary: snapshot.rollups?.stringSummary || { totalStrings: 0, buckets: {} },
-      buckets: snapshot.rollups?.stringSummary?.buckets || {},
+      summary: stringSummarySummary,
+      rollups: stringSummaryRollups,
+      buckets: stringSummary.buckets || {},
+      sourceHealth: stringSummary.sourceHealth || snapshot.rollups?.sourceHealth || [],
       emsBaseUrl: snapshot.siteIdentity?.emsBaseUrl || "",
       durationMs: snapshot.debug?.lastPollDurationMs || 0,
       stationCode: snapshot.siteIdentity?.stationCode || "",
       blockIndex: snapshot.siteIdentity?.blockIndex || 1,
-      cache: snapshot.liveStatus ? { 
-        sourceOk: snapshot.liveStatus.state !== 'OFFLINE', 
-        isStale: snapshot.liveStatus.state === 'PARTIAL' || snapshot.liveStatus.stale === true, 
-        lastUpdatedAt: snapshot.liveStatus.lastUpdated 
+      cache: snapshot.liveStatus ? {
+        sourceOk: snapshot.liveStatus.state !== "OFFLINE",
+        isStale: snapshot.liveStatus.state === "PARTIAL" || snapshot.liveStatus.stale === true,
+        lastUpdatedAt: snapshot.liveStatus.lastUpdated
       } : null
     };
   }, [snapshot]);
@@ -133,6 +138,86 @@ const handleManualRefresh = async () => {
 
   const strings = data?.strings || [];
 
+  const countOf = (value:any): number | null => {
+    if (typeof value === "number") return value;
+    if (value && typeof value.count === "number") return value.count;
+    return null;
+  };
+  const formatNumber = (value:any, decimals = 2) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(decimals) : "--";
+  };
+  const formatMaybeInt = (value:any) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? String(Math.round(n)) : "--";
+  };
+
+  const { summary } = data || { summary: {} };
+
+  const totalStrings =
+    data?.rollups?.totalStrings ??
+    summary?.totalStrings ??
+    strings.length;
+  const normalCount =
+    countOf(data?.rollups?.normal) ??
+    countOf(data?.rollups?.online) ??
+    summary?.normalStrings ??
+    strings.filter((s:any) => s.operationalState === "NORMAL").length;
+  const offlineCount =
+    countOf(data?.rollups?.offline) ??
+    summary?.offlineStrings ??
+    strings.filter((s:any) => s.operationalState === "OFFLINE" || s.bucket === "offline" || s.bucket === "notCommunicating").length;
+  const warningCount =
+    countOf(data?.rollups?.warnings) ??
+    summary?.warningStrings ??
+    strings.reduce((sum:number, s:any) => sum + (Number(s.warningCount) || 0), 0);
+  const alarmCount =
+    countOf(data?.rollups?.alarms) ??
+    summary?.alarmStrings ??
+    strings.reduce((sum:number, s:any) => sum + (Number(s.alarmCount) || 0), 0);
+  const fleetAvgCellVoltage =
+    data?.rollups?.fleetAvgCellVoltage ??
+    data?.rollups?.nearline?.avgCellVoltageMv ??
+    summary?.avgCellVoltage ??
+    null;
+  const fleetMaxCellVoltageDelta =
+    data?.rollups?.fleetMaxCellVoltageDelta ??
+    data?.rollups?.nearline?.maxCellVoltageDeltaMv ??
+    summary?.maxCellVoltageDelta ??
+    null;
+  const fleetAvgCellTemp =
+    data?.rollups?.fleetAvgCellTemp ??
+    data?.rollups?.nearline?.avgCellTempC ??
+    summary?.avgCellTemperature ??
+    null;
+  const fleetMaxCellTempDelta =
+    data?.rollups?.fleetMaxCellTemp ??
+    data?.rollups?.nearline?.maxCellTempDeltaC ??
+    summary?.maxCellTemperatureDelta ??
+    null;
+
+  const sourceHealthRows = useMemo(() => {
+    if (!data?.sourceHealth) return [];
+    if (Array.isArray(data.sourceHealth)) {
+      return data.sourceHealth.map((h:any) => ({
+        key: h.name || h.endpoint || "source",
+        ok: h.ok ?? h.success,
+        httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
+        durationMs: h.durationMs ?? h.lastDurationMs,
+        url: h.url ?? h.endpoint,
+        error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
+      }));
+    }
+    return Object.entries(data.sourceHealth).map(([key, h]: [string, any]) => ({
+      key,
+      ok: h.ok ?? h.success,
+      httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
+      durationMs: h.durationMs ?? h.lastDurationMs,
+      url: h.url ?? h.endpoint,
+      error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
+    }));
+  }, [data?.sourceHealth]);
+
   const arrays = useMemo(() => {
     const list = Array.from(new Set(strings.map((s:any) => s.arrayNumber)));
     return list.sort((a, b) => Number(a) - Number(b));
@@ -219,8 +304,6 @@ const handleManualRefresh = async () => {
     );
   }
 
-  const { summary } = data;
-
   return (
     <div className="flex flex-col font-sans transition-all bg-transparent pb-24">
       
@@ -279,20 +362,28 @@ const handleManualRefresh = async () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-prizm-border/10">
-                 {Object.entries(data.sourceHealth || {}).map(([cKey, h]: [string, any]) => (
-                    <tr key={cKey}>
-                       <td className="pr-4 py-1.5 text-prizm-primary font-bold">{cKey}</td>
-                       <td className="pr-4 py-1.5">
-                          <span className={`px-1.5 py-0.5 rounded text-white ${h.ok ? 'bg-emerald-500/50' : 'bg-prizm-danger/50'}`}>
-                              {h.ok ? 'OK' : 'FAIL'}
-                          </span>
+                 {sourceHealthRows.length === 0 ? (
+                    <tr>
+                       <td colSpan={6} className="py-4 text-center text-prizm-text-muted">
+                          No source health telemetry published for this snapshot.
                        </td>
-                       <td className="pr-4 py-1.5 text-prizm-text">{h.httpStatus || '--'}</td>
-                       <td className="pr-4 py-1.5 text-prizm-text-muted">{h.durationMs !== null ? `${h.durationMs}ms` : '--'}</td>
-                       <td className="pr-4 py-1.5 text-prizm-text-muted opacity-80">{h.url}</td>
-                       <td className="py-1.5 text-prizm-danger/80">{h.error || '--'}</td>
                     </tr>
-                 ))}
+                 ) : (
+                    sourceHealthRows.map((row: any) => (
+                       <tr key={row.key}>
+                          <td className="pr-4 py-1.5 text-prizm-primary font-bold">{row.key}</td>
+                          <td className="pr-4 py-1.5">
+                             <span className={`px-1.5 py-0.5 rounded text-white ${row.ok ? 'bg-emerald-500/50' : 'bg-prizm-danger/50'}`}>
+                                 {row.ok ? 'OK' : 'FAIL'}
+                             </span>
+                          </td>
+                          <td className="pr-4 py-1.5 text-prizm-text">{row.httpStatus || '--'}</td>
+                          <td className="pr-4 py-1.5 text-prizm-text-muted">{row.durationMs !== null && row.durationMs !== undefined ? `${row.durationMs}ms` : '--'}</td>
+                          <td className="pr-4 py-1.5 text-prizm-text-muted opacity-80">{row.url || '--'}</td>
+                          <td className="py-1.5 text-prizm-danger/80">{row.error || '--'}</td>
+                       </tr>
+                    ))
+                 )}
               </tbody>
            </table>
         </div>
@@ -302,35 +393,43 @@ const handleManualRefresh = async () => {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Total Strings</span>
-          <span className="text-sm font-bold text-prizm-text">{data.rollups?.totalStrings ?? summary.totalStrings ?? "--"}</span>
+          <span className="text-sm font-bold text-prizm-text">{formatMaybeInt(totalStrings)}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Normal</span>
-          <span className="text-sm font-bold text-emerald-400">{data.rollups?.normal ?? summary.normalStrings ?? "--"}</span>
+          <span className="text-sm font-bold text-emerald-400">{formatMaybeInt(normalCount)}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-danger/50 rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Offline</span>
-          <span className={(data.rollups?.offline ?? summary.offlineStrings) > 0 ? "text-sm font-bold text-prizm-danger" : "text-sm font-bold text-prizm-text"}>{data.rollups?.offline ?? summary.offlineStrings ?? "--"}</span>
+          <span className={offlineCount > 0 ? "text-sm font-bold text-prizm-danger" : "text-sm font-bold text-prizm-text"}>{formatMaybeInt(offlineCount)}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase">Warns / Alarms</span>
-          <span className="text-sm font-bold text-prizm-warning">{data.rollups?.warnings ?? summary.warningStrings ?? 0} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{data.rollups?.alarms ?? summary.alarmStrings ?? 0}</span></span>
+          <span className="text-sm font-bold text-prizm-warning">{formatMaybeInt(warningCount)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(alarmCount)}</span></span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Total BPCs</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">Known {data.rollups?.knownBpcCount ?? summary.totalBpcs ?? "--"} <span className="text-prizm-text-muted font-normal mx-0.5">/</span> {data.rollups?.expectedBpcCount ?? "--"}</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">Known {formatMaybeInt(data?.rollups?.knownBpcCount ?? summary?.totalBpcs)} <span className="text-prizm-text-muted font-normal mx-0.5">/</span> {formatMaybeInt(data?.rollups?.expectedBpcCount)}</span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">BPC Alerts</span>
-          <span className="text-sm font-bold text-prizm-warning">{summary.warningBpcs} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{summary.alarmBpcs}</span></span>
+          <span className="text-sm font-bold text-prizm-warning">{formatMaybeInt(summary?.warningBpcs)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(summary?.alarmBpcs)}</span></span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Cell / V Delta</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{(data.rollups?.fleetAvgCellVoltage ?? summary.avgCellVoltage) !== null ? (data.rollups?.fleetAvgCellVoltage ?? summary.avgCellVoltage)+"V" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {(data.rollups?.fleetMaxCellVoltageDelta ?? summary.maxCellVoltageDelta) !== null ? "\u0394"+(data.rollups?.fleetMaxCellVoltageDelta ?? summary.maxCellVoltageDelta)+"V" : "--"}</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">
+            {fleetAvgCellVoltage !== null ? (fleetAvgCellVoltage > 100 ? (fleetAvgCellVoltage / 1000).toFixed(3) + "V" : fleetAvgCellVoltage.toFixed(3) + "V") : "--"}
+            <span className="text-prizm-text-muted mx-1">|</span>
+            {fleetMaxCellVoltageDelta !== null ? "\u0394" + (fleetMaxCellVoltageDelta > 10 ? fleetMaxCellVoltageDelta.toFixed(0) + "mV" : fleetMaxCellVoltageDelta.toFixed(3) + "V") : "--"}
+          </span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Temp / Max \u0394</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">{(data.rollups?.fleetAvgCellTemp ?? summary.avgCellTemperature) !== null ? (data.rollups?.fleetAvgCellTemp ?? summary.avgCellTemperature)+"°C" : "--"} <span className="text-prizm-text-muted mx-1">|</span> {(data.rollups?.fleetMaxCellTemp ?? summary.maxCellTemperature) !== null ? (data.rollups?.fleetMaxCellTemp ?? summary.maxCellTemperature)+"°C" : "--"}</span>
+          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Temp / Max &Delta;</span>
+          <span className="text-[11px] font-bold text-prizm-text mt-0.5">
+            {fleetAvgCellTemp !== null ? fleetAvgCellTemp.toFixed(1) + "°C" : "--"}
+            <span className="text-prizm-text-muted mx-1">|</span>
+            {fleetMaxCellTempDelta !== null ? "\u0394" + fleetMaxCellTempDelta.toFixed(1) + "°C" : "--"}
+          </span>
         </div>
       </div>
 
@@ -495,15 +594,60 @@ const handleManualRefresh = async () => {
                         contDot3 = s.negativeContactorClosed ? 'bg-blue-400 border border-transparent' : 'bg-prizm-bg border border-prizm-text-muted/50';
                   }
                   
-                  // Fans logic
-                  let fanDot = 'bg-prizm-text-muted/10';
-                  let fanMatch = "N/A";
-                  if (s.fanCommandRequested !== undefined && s.fanCommandRequested !== null && s.fanCommandRequested !== "") {
-                        fanMatch = s.fanHealthy ? "Yes" : "No";
-                        fanDot = fanMatch === 'Yes' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]';
+                  // Fans logic & color mapping
+                  let fanDotClass = "bg-prizm-text-muted/20";
+                  if (s.fanCommandPercent !== null && s.fanStatusPercent !== null) {
+                    const diff = Math.abs(s.fanCommandPercent - s.fanStatusPercent);
+                    if (diff <= 15) {
+                      fanDotClass = "bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
+                    } else {
+                      fanDotClass = "bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]";
+                    }
+                  } else if (s.fanCommandPercent !== null) {
+                    fanDotClass = "bg-blue-400 shadow-[0_0_4px_rgba(96,165,250,0.4)]";
+                  } else if (s.fanCommandRequested === true || s.fanRequested === true || s.lastFanCommand === true) {
+                    fanDotClass = "bg-emerald-500/80";
                   }
 
+                  const fanCommandText = s.fanCommandPercent !== null ? `${s.fanCommandPercent}%` : (s.fanCommandRequested ? "On" : "Not Reported");
+                  const fanStatusText = s.fanStatusPercent !== null ? `${s.fanStatusPercent}%` : "Not Reported";
+                  const fanCmdRpmText = s.fanCommandRpm !== null && s.fanCommandRpm !== undefined ? s.fanCommandRpm : "--";
+                  const fanSetRpmText = s.fanSettingRpm !== null && s.fanSettingRpm !== undefined ? s.fanSettingRpm : "--";
+                  const fanTimeText = s.fanLastCommandTime || s.lastFanCommandTime || "--";
+
+                  const fanTooltip = [
+                    `Command: ${fanCommandText}`,
+                    `Status: ${fanStatusText}`,
+                    `Command RPM: ${fanCmdRpmText}`,
+                    `Status RPM: ${fanSetRpmText}`,
+                    `Last Command Time: ${fanTimeText}`
+                  ].join("\n");
+
                   const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
+
+                  // Balancing details & tooltips
+                  let balanceTooltip = "Balance telemetry not reported by current EMS source.";
+                  if (Array.isArray(s.balanceDetails) && s.balanceDetails.length > 0) {
+                    const lines = s.balanceDetails.map((b: any, bIdx: number) => {
+                      const modeStr = b.mode || "--";
+                      const stateStr = b.state || "--";
+                      const cgStr = b.balancingCellGroup !== null && b.balancingCellGroup !== undefined ? `CG ${b.balancingCellGroup}` : "CG --";
+                      return `BPC ${b.bpIndex ?? (bIdx + 1)}: ${modeStr} | ${stateStr} | ${cgStr}`;
+                    });
+                    const maxLinesToShow = 18;
+                    if (lines.length > maxLinesToShow) {
+                      const displayedLines = lines.slice(0, maxLinesToShow);
+                      balanceTooltip = [
+                        ...displayedLines,
+                        `... and ${lines.length - maxLinesToShow} more BPCs (Total: ${lines.length})`
+                      ].join("\n");
+                    } else {
+                      balanceTooltip = lines.join("\n");
+                    }
+                  }
+
+                  const balCountToShow = (s.balanceDetails && s.balanceDetails.length > 0) ? s.balanceCount : "--";
+                  const balModeToShow = s.balanceMode || "--";
                   
                   let borderClass = "";
                   if (s.alarmCount > 0) borderClass = "border-l-[3px] border-l-prizm-danger/60";
@@ -579,22 +723,22 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.ah !== null && s.ah !== undefined ? s.ah : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{formatNumber(s.ah, 2)}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.balanceCount !== null && s.balanceCount !== undefined ? s.balanceCount : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text truncate max-w-[100px]" title={s.balanceMode}>{s.balanceMode || "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted cursor-help" title={balanceTooltip}>{balCountToShow}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text truncate max-w-[100px] cursor-help" title={balanceTooltip}>{balModeToShow}</td>
                     <td className="px-1.5 py-0.5 font-bold text-prizm-text-muted text-xs">
                         {locStr}
                     </td>
                     <td className="px-1.5 py-0.5">
                        <div 
-                           title={`Fan Requested: ${s.fanCommandRequested ?? "--"} | Match: ${fanMatch}`}
-                           className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDot}`}
+                           title={fanTooltip}
+                           className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDotClass}`}
                        ></div>
                     </td>
                     <td className="px-1.5 py-0.5 text-right font-mono text-prizm-text-muted text-[10px]">

@@ -44,6 +44,133 @@ function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNa
     return undefined;
 }
 
+function findBatteryPackList(row: any, arrayNumber: number, stringNumber: number, lcStrBase: any, blockStrBase: any, lastCallWrapper: any, blockWrapper: any): any[] | null {
+    if (lcStrBase) {
+        if (Array.isArray(lcStrBase.batteryPackReportList)) return lcStrBase.batteryPackReportList;
+        if (Array.isArray(lcStrBase.batteryPacks)) return lcStrBase.batteryPacks;
+        if (Array.isArray(lcStrBase.packs)) return lcStrBase.packs;
+        if (Array.isArray(lcStrBase.bpcs)) return lcStrBase.bpcs;
+        if (lcStrBase.raw && Array.isArray(lcStrBase.raw.batteryPackReportList)) return lcStrBase.raw.batteryPackReportList;
+    }
+    if (blockStrBase) {
+        if (Array.isArray(blockStrBase.batteryPackReportList)) return blockStrBase.batteryPackReportList;
+        if (Array.isArray(blockStrBase.batteryPacks)) return blockStrBase.batteryPacks;
+        if (Array.isArray(blockStrBase.packs)) return blockStrBase.packs;
+        if (Array.isArray(blockStrBase.bpcs)) return blockStrBase.bpcs;
+    }
+    if (blockWrapper?.data?.arrays) {
+        const arr = blockWrapper.data.arrays[arrayNumber - 1];
+        if (arr && arr.strings) {
+            const strObj = arr.strings[stringNumber - 1];
+            if (strObj) {
+                if (Array.isArray(strObj.batteryPackReportList)) return strObj.batteryPackReportList;
+                if (Array.isArray(strObj.batteryPacks)) return strObj.batteryPacks;
+            }
+        }
+    }
+    if (lastCallWrapper?.data?.arrays) {
+        const arr = lastCallWrapper.data.arrays[arrayNumber - 1];
+        if (arr && arr.strings) {
+            const strObj = arr.strings[stringNumber - 1];
+            if (strObj) {
+                if (Array.isArray(strObj.batteryPackReportList)) return strObj.batteryPackReportList;
+                if (Array.isArray(strObj.batteryPacks)) return strObj.batteryPacks;
+            }
+        }
+    }
+    if (row) {
+        if (Array.isArray(row.batteryPackReportList)) return row.batteryPackReportList;
+        if (Array.isArray(row.batteryPacks)) return row.batteryPacks;
+        if (row.raw && Array.isArray(row.raw.batteryPackReportList)) return row.raw.batteryPackReportList;
+    }
+    return null;
+}
+
+function extractBpcBalancing(item: any, idx: number) {
+    const data = item?.batteryPackData || item;
+    const config = data?.batteryPackBalancingConfiguration || data?.balancingConfiguration || data;
+
+    const bpIndex = item?.bpIndex ?? item?.batteryPackIndex ?? item?.packIndex ?? item?.index ?? (idx + 1);
+
+    const modeRaw = config?.balancingMode ?? config?.mode ?? null;
+    const providedVoltageTarget = config?.providedVoltageTarget ?? config?.voltageTarget ?? config?.targetVoltage ?? null;
+    const chargeBalancingPermitted = config?.chargeBalancingPermitted ?? config?.chargePermitted ?? null;
+    const dischargeBalancingPermitted = config?.dischargeBalancingPermitted ?? config?.dischargePermitted ?? null;
+    const chargeDeadband = config?.chargeDeadband ?? null;
+    const dischargeDeadband = config?.dischargeDeadband ?? null;
+    const commandTimeToLive = config?.commandTimeToLive ?? config?.ttl ?? null;
+    const balancingSource = config?.balancingSource ?? config?.source ?? null;
+
+    const balancingCellGroup = data?.balancingCellGroup ?? data?.balancingCgIndex ?? data?.cgIndex ?? null;
+    const stateRaw = data?.balancingState ?? data?.state ?? data?.activeBalancingState ?? null;
+
+    let mode = "--";
+    if (modeRaw) {
+        const mr = String(modeRaw).toUpperCase();
+        if (mr === "BALANCE_TO_PROVIDED") {
+            mode = providedVoltageTarget !== null ? `Provided (${providedVoltageTarget})` : "Provided";
+        } else if (["BALANCE_TO_AVERAGE", "BALANCE_TO_STRING_AVERAGE", "BALANCE_TO_PACK_AVERAGE"].includes(mr)) {
+            mode = "Average";
+        } else {
+            mode = String(modeRaw).replace(/_/g, ' ')
+                   .toLowerCase()
+                   .replace(/\b[a-z]/g, (c) => c.toUpperCase());
+        }
+    }
+
+    let state = "Unknown";
+    if (stateRaw) {
+        const sr = String(stateRaw).toUpperCase();
+        if (sr === "BALANCING_OFF") {
+            state = "Off";
+        } else if (sr === "BATTERY_PACK_DISCHARGE_BALANCING_ON" || (sr.includes("DISCHARGE") && sr.includes("ON"))) {
+            state = "Discharging";
+        } else if (sr === "BATTERY_PACK_CHARGE_BALANCING_ON" || (sr.includes("CHARGE") && sr.includes("ON"))) {
+            state = "Charging";
+        } else if (sr.includes("BALANCING_ON") || sr.includes("ON")) {
+            state = "On";
+        } else {
+            state = String(stateRaw);
+        }
+    }
+
+    let isActive = false;
+    if (stateRaw) {
+        const sr = String(stateRaw).toUpperCase();
+        if (sr !== "BALANCING_OFF" && (
+            sr === "BATTERY_PACK_DISCHARGE_BALANCING_ON" ||
+            sr === "BATTERY_PACK_CHARGE_BALANCING_ON" ||
+            sr.includes("BALANCING_ON") ||
+            (sr.includes("CHARGE") && sr.includes("ON")) ||
+            (sr.includes("DISCHARGE") && sr.includes("ON"))
+        )) {
+            isActive = true;
+        }
+    } else {
+        if (item.active === true || item.balancingActive === true || data.active === true || data.balancingActive === true) {
+            isActive = true;
+            if (state === "Unknown" || state === "Off") state = "On";
+        }
+    }
+
+    return {
+        bpIndex,
+        mode,
+        modeRaw,
+        providedVoltageTarget,
+        state,
+        stateRaw,
+        balancingCellGroup,
+        chargeBalancingPermitted,
+        dischargeBalancingPermitted,
+        chargeDeadband,
+        dischargeDeadband,
+        commandTimeToLive,
+        balancingSource,
+        isActive
+    };
+}
+
 router.get("/dump", (req, res) => {
     res.json({
         rawStrings: getEmsCachedRawStrings(),
@@ -236,22 +363,151 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             cellTemperatureDelta = Number((maxCellTemperature - minCellTemperature).toFixed(1));
         }
 
-        const balanceCount = pN(tryGetField(row, normalizedObject, ["balancecount", "balancingcount"]));
-        let balanceMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
-        const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
-        
-        let balanceProvided = false;
-        
-        if (balanceRaw.includes("Provided") || balanceMode.includes("Provided")) {
-            balanceProvided = true;
-            balanceMode = "Provided";
+        // Locate battery packs / reports
+        const packList = findBatteryPackList(row, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper);
+
+        let balanceCount = 0;
+        let balanceMode = "--";
+        let balanceModeRaw: string | null = null;
+        let balanceProvidedVoltageTarget: number | null = null;
+        const balanceDetails: any[] = [];
+
+        if (packList && packList.length > 0) {
+            const modesList: string[] = [];
+            packList.forEach((item: any, pIdx: number) => {
+                const bpcDetail = extractBpcBalancing(item, pIdx);
+                balanceDetails.push({
+                    bpIndex: bpcDetail.bpIndex,
+                    mode: bpcDetail.mode,
+                    modeRaw: bpcDetail.modeRaw,
+                    providedVoltageTarget: bpcDetail.providedVoltageTarget,
+                    state: bpcDetail.state,
+                    stateRaw: bpcDetail.stateRaw,
+                    balancingCellGroup: bpcDetail.balancingCellGroup,
+                    chargeBalancingPermitted: bpcDetail.chargeBalancingPermitted,
+                    dischargeBalancingPermitted: bpcDetail.dischargeBalancingPermitted,
+                    chargeDeadband: bpcDetail.chargeDeadband,
+                    dischargeDeadband: bpcDetail.dischargeDeadband,
+                    commandTimeToLive: bpcDetail.commandTimeToLive,
+                    balancingSource: bpcDetail.balancingSource
+                });
+                if (bpcDetail.isActive) {
+                    balanceCount++;
+                }
+                if (bpcDetail.mode && bpcDetail.mode !== "--") {
+                    modesList.push(bpcDetail.mode);
+                    if (!balanceModeRaw && bpcDetail.modeRaw) balanceModeRaw = bpcDetail.modeRaw;
+                    if (!balanceProvidedVoltageTarget && bpcDetail.providedVoltageTarget) balanceProvidedVoltageTarget = bpcDetail.providedVoltageTarget;
+                }
+            });
+
+            if (modesList.length > 0) {
+                const uniqueModes = Array.from(new Set(modesList));
+                if (uniqueModes.length === 1) {
+                    balanceMode = uniqueModes[0];
+                } else {
+                    balanceMode = "Mixed";
+                }
+            }
+        } else {
+            // Fallback to legacy balance fields
+            const legacyBalCount = pN(tryGetField(row, normalizedObject, ["balancecount", "balancingcount"]));
+            if (legacyBalCount !== null) balanceCount = legacyBalCount;
+            const legacyBalMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
+            if (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") {
+                balanceMode = legacyBalMode;
+            } else {
+                const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
+                if (balanceRaw.includes("Provided") || legacyBalMode.includes("Provided")) {
+                    balanceMode = "Provided";
+                } else if (balanceRaw && balanceRaw.includes("-")) {
+                    balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+                }
+            }
         }
-        if (balanceRaw && !balanceMode && balanceRaw.includes("-")) {
-            balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
-        }
+
         const container = String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
         const location = String(tryGetField(row, normalizedObject, ["location"]) || "");
         
+        // Resolve Fan fields
+        let fanCommandRpm: number | null = null;
+        let fanSettingRpm: number | null = null;
+        let fanLastCommandTime: any = null;
+
+        const fanCommandCandidates = [
+            row.fanCommand,
+            row.stringFanReport?.fanCommand,
+            blockStrBase?.fanCommand,
+            blockStrBase?.stringFanReport?.fanCommand,
+            lcStrBase?.fanCommand,
+            lcStrBase?.stringFanReport?.fanCommand,
+            row.raw?.blockviewer?.fanCommand,
+            row.raw?.stringDetail?.fanCommand,
+            row.raw?.stringsCsv?.fanCommand,
+            row.fanRequested,
+            blockStrBase?.fanRequested,
+            lcStrBase?.fanRequested,
+        ];
+        for (const val of fanCommandCandidates) {
+            if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                const n = Number(val);
+                if (!isNaN(n)) {
+                    fanCommandRpm = n;
+                    break;
+                }
+            }
+        }
+
+        const fanSettingCandidates = [
+            row.fanSetting,
+            row.stringFanReport?.fanSetting,
+            blockStrBase?.fanSetting,
+            blockStrBase?.stringFanReport?.fanSetting,
+            lcStrBase?.fanSetting,
+            lcStrBase?.stringFanReport?.fanSetting,
+            row.raw?.blockviewer?.fanSetting,
+            row.raw?.stringDetail?.fanSetting,
+            row.raw?.stringsCsv?.fanSetting,
+            row.fanActual,
+            blockStrBase?.fanActual,
+            lcStrBase?.fanActual,
+        ];
+        for (const val of fanSettingCandidates) {
+            if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                const n = Number(val);
+                if (!isNaN(n)) {
+                    fanSettingRpm = n;
+                    break;
+                }
+            }
+        }
+
+        const lastFanCommandTimeCandidates = [
+            row.lastFanCommandTime,
+            row.LastFanCommandTime,
+            row.raw?.stringsCsv?.LastFanCommandTime,
+            blockStrBase?.lastFanCommandTime,
+            lcStrBase?.lastFanCommandTime,
+            blockStrBase?.stringFanReport?.lastFanCommandTime,
+            lcStrBase?.stringFanReport?.lastFanCommandTime,
+        ];
+        for (const val of lastFanCommandTimeCandidates) {
+            if (val !== undefined && val !== null) {
+                fanLastCommandTime = val;
+                break;
+            }
+        }
+
+        const MAX_FAN_RPM = 7500;
+        const toFanPercent = (rpm: any): number | null => {
+            const n = Number(rpm);
+            if (!Number.isFinite(n) || isNaN(n)) return null;
+            return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
+        };
+
+        const fanCommandPercent = toFanPercent(fanCommandRpm);
+        const fanStatusPercent = toFanPercent(fanSettingRpm);
+
         const lastFanCommand = parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
         const lastFanCommandTime = tryGetField(row, normalizedObject, ["lastfancommandtime"]);
         const fanCommandRequested = lastFanCommand;
@@ -438,7 +694,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             amps, kw, socPct, ah, kwh,
             minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
             minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
-            balanceCount, balanceMode,
+            balanceCount,
+            balanceMode,
+            balanceModeRaw,
+            balanceProvidedVoltageTarget,
+            balanceDetails,
+            fanCommandRpm,
+            fanSettingRpm,
+            fanCommandPercent,
+            fanStatusPercent,
+            fanLastCommandTime: fanLastCommandTime || lastFanCommandTime,
             container, location,
             fanCommandRequested,
             lastFanCommandTime,
