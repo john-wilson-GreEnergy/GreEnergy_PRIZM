@@ -272,7 +272,7 @@ export default function SiteOperationsDashboard({
   useEffect(() => {
     let unmounted = false;
 
-    const fetchSummary = async (isFirst = false, cachePol = null) => {
+    const fetchSummary = async (isFirst = false, cachePol: string | null = null) => {
       let url = "/api/local/site-data/block-summary";
       if (cachePol === "live-only") {
         url += "?refresh=true";
@@ -356,12 +356,10 @@ export default function SiteOperationsDashboard({
 
   const sum = state.siteSummary;
 
+  // Since SiteDataContext delays rendering SiteOperationsDashboard until the first snapshot is ready,
+  // we can use a very brief ghost state while the local fetch connects, without showing a slow loading text.
   if (state.loading && !sum) {
-    return (
-      <div className="p-6 text-prizm-text uppercase tracking-widest font-mono text-sm animate-pulse">
-        Loading Site Operations Summary...
-      </div>
-    );
+     return <div className="p-6 text-prizm-text-muted font-mono text-xs animate-pulse opacity-50">Syncing operations...</div>;
   }
 
   if (sum?.error) {

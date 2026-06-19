@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { formatFeatherDiagnosticValue } from "../lib/featherErrorFormatter";
 import {
   Activity,
@@ -24,8 +24,24 @@ import {
 import { ManualScanConfig } from "../server/feather/featherTypes";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { sortByIPv4 } from "../lib/ipUtils";
+import { useSiteData } from '../context/SiteDataContext';
 
 export default function FeatherDashboard({ active = true }: { active?: boolean }) {
+  const { snapshot, isInitialLoading, refreshNow } = useSiteData();
+  
+  // Extract feather data locally to maintain backwards compatibility
+  const featherData = useMemo(() => {
+     if (!snapshot) return null;
+     return {
+        devices: snapshot.normalized?.feather || [],
+        summary: snapshot.rollups?.featherSummary || {},
+        cache: snapshot.liveStatus ? {
+           lastUpdatedAt: snapshot.liveStatus.lastUpdated,
+           isStale: snapshot.liveStatus.status === 'PARTIAL'
+        } : null
+     };
+  }, [snapshot]);
+
   // Navigation & Form Selection States
   const [discoverySource, setDiscoverySource] = useState<"topology" | "manual" | "both">("both");
   const [scanMode, setScanMode] = useState<"cidr" | "range" | "shorthand">("shorthand");
@@ -40,7 +56,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   // Telemetry list from server
   const [devices, setDevices] = useState<FeatherHvacDevice[]>([]);
   const [concurrency, setConcurrency] = useState<number>(16);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [loadingStatus, setLoadingStatus] = useState<string>("");
   const [cacheDetails, setCacheDetails] = useState<{
     createdAt: string | null;
@@ -84,76 +100,42 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   // Error/Success Toasts or alerts
   const [alertMessage, setAlertMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
 
-  // Load cache on bootstrap
+  useEffect(() => {
+      if (isInitialLoading) return;
+      
+      if (featherData) {
+          setDevices(featherData.devices);
+          setCacheDetails(prev => ({
+             ...prev,
+             lastUpdatedAt: featherData.cache?.lastUpdatedAt || prev.lastUpdatedAt,
+             isStale: featherData.cache?.isStale || false,
+             total: featherData.devices.length
+          }));
+          setLastRefreshTime(Date.now());
+      }
+      setLoading(false);
+      setLoadingStatus("");
+  }, [featherData, isInitialLoading]);
+
+  // Keep loadCache for manual refresh or background polling fallback if needed
   const loadCache = async (autoDiscoverOnEmpty = false, forceRefresh = false) => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const url = forceRefresh ? "/api/feather/devices?refresh=true" : "/api/feather/devices?cache=cache-first&maxAgeMs=60000";
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        const data = await res.json();
-        
-        if (data.isDiscovering) {
-            setLoading(true);
-            setLoadingStatus(`Discovery running in background... (${data.candidateCount || 0} candidates)`);
-        } else if (loading && data.live !== false) {
-            setLoading(false);
-            setLoadingStatus("");
-        }
-
-        setDevices(prev => {
-             // keep old rows around and just update matched keys to prevent jitter
-             if (!data.devices || data.devices.length === 0) {
-                 return prev || []; // keep old rows if discovery is pending
-             }
-             if (!prev || prev.length === 0) return data.devices || [];
-             const map = new Map(prev.map(d => [d.ip, d]));
-             (data.devices || []).forEach((d: FeatherHvacDevice) => {
-                  map.set(d.ip, d);
-             });
-             return Array.from(map.values());
-        });
-        setCacheDetails({
-          createdAt: data.createdAt || data.generatedAt,
-          lastUpdatedAt: data.lastUpdatedAt || data.scanCompletedAt || data.generatedAt,
-          activeProfileId: data.activeProfileId || data.profileId,
-          activeProfileName: data.activeProfileName || "Active Profile",
-          activeEmsBaseUrl: data.activeEmsBaseUrl || data.emsBaseUrl,
-          isStale: !!data.isStale,
-          candidateCount: data.candidateCount || 0,
-          rejectedCandidateCount: data.rejectedCandidateCount || 0,
-          total: data.total || 0
-        });
-
-        if (autoDiscoverOnEmpty && (!data.devices || data.devices.length === 0) && !data.isDiscovering) {
-          runTopologyDiscovery(true);
-        }
-        setLastRefreshTime(Date.now());
+      if (forceRefresh) {
+         await refreshNow(true);
       }
     } catch (e: any) {
-      if (e.name === "AbortError" || e.message?.includes("aborted")) {
-        // Silently return since fetch abort/timeout is an expected flow control path, not a failure
-        return;
-      }
       console.error("Failed to load feather devices cache", e);
     }
   };
 
   useEffect(() => {
-    loadCache(true, false);
-  }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    if (refreshIntervalSec <= 0) return;
+    // Only fetch if interval is enabled and we are actively on the tab
+    if (!active || refreshIntervalSec <= 0) return;
     const intervalId = setInterval(() => {
-      loadCache(false, true);
+        refreshNow(false);
     }, refreshIntervalSec * 1000);
     return () => clearInterval(intervalId);
-  }, [refreshIntervalSec, active]);
+  }, [refreshIntervalSec, active, refreshNow]);
 
   // Utility to calculate target count preview
   const getTargetCountPreview = (): { count: number; isValid: boolean; warningMsg: string | null } => {

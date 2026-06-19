@@ -40,6 +40,7 @@ const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteCon
 const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
 import DashboardLoadingSkeleton from "./components/common/DashboardLoadingSkeleton";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
+import { useSiteData } from "./context/SiteDataContext";
 
 type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
 
@@ -199,13 +200,14 @@ export default function App() {
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
+  const { isInitialLoading: siteDataLoading } = useSiteData();
+
   const [warmStartState, setWarmStartState] = useState<"idle" | "running" | "complete" | "failed">("idle");
 
   const warmStartFieldData = async () => {
     setWarmStartState("running");
     try {
       const endpoints = [
-        "/api/local/site-data/snapshot",
         "/api/local/hvac-simulation/targets",
         "/api/local/hvac-simulation/capabilities"
       ];
@@ -580,7 +582,7 @@ export default function App() {
 
       {/* CORE WORKSPACE CONSOLE WINDOW */}
       <main className="flex-1 p-4 sm:p-6 bg-prizm-bg w-full px-4 sm:px-6 lg:px-8">
-        {loading ? (
+        {(loading || siteDataLoading) ? (
           <div className="h-[400px] flex flex-col items-center justify-center space-y-4 border border-prizm-border bg-prizm-surface rounded-lg">
             <RefreshCw className="animate-spin text-prizm-primary" size={32} />
             <div className="text-center font-mono">

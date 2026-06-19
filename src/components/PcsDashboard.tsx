@@ -41,79 +41,82 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         if (pcsList.length > 0) setRefreshing(true);
         else setLoading(true);
         try {
-            let pcsRows: any[] = [];
-            let sourceMeta = "PCS source unavailable or unmapped.";
-            
-            try {
-                const dashboardData = await fetchJsonWithTimeout("/api/local/site-data/pcs", { timeoutMs: 5000 });
-                if (dashboardData && Array.isArray(dashboardData.pcs)) {
-                    pcsRows = dashboardData.pcs;
-                    sourceMeta = dashboardData.source || "Coordinator Site Data Engine";
-                } else if (Array.isArray(dashboardData) && dashboardData.length > 0) {
-                    pcsRows = dashboardData;
-                    sourceMeta = "Dedicated PCS Dashboard API";
-                }
-            } catch(e) {}
-
-            if (pcsRows.length > 0) {
-                // Ensure unique IDs and normalize fields
-                const pcsWithId = pcsRows.map((p: any, idx: number) => {
-                    const arrayIndex = p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex ?? 1;
-                    const pcsIndex = p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex ?? (idx + 1);
-                    const rotation = p.rotation ?? (p.outRotation ? "OUT" : "IN");
-                    const state = p.state ?? p.status ?? p.raw?.state ?? "Unknown";
-
-                    const dcVoltage = hasVal(p.dcVoltage) ? p.dcVoltage : (hasVal(p.vDc) ? p.vDc : (hasVal(p.dcVoltageVolt) ? p.dcVoltageVolt : (p.raw ? p.raw.dcVoltageVolt : null)));
-                    const dcCurrent = hasVal(p.dcCurrent) ? p.dcCurrent : (hasVal(p.iDc) ? p.iDc : (hasVal(p.dcCurrentAmp) ? p.dcCurrentAmp : (p.raw ? p.raw.dcCurrentAmp : null)));
-                    const acVoltageDisplay = p.acVoltageDisplay ?? "-- / -- / --";
-                    const acVoltage = hasVal(p.acVoltage) ? p.acVoltage : (hasVal(p.vAc) ? p.vAc : (hasVal(p.acVoltageVolt) ? p.acVoltageVolt : (p.raw ? p.raw.acVoltageVolt : null)));
-                    const acCurrent = hasVal(p.acCurrent) ? p.acCurrent : (hasVal(p.iAc) ? p.iAc : (hasVal(p.acCurrentAmp) ? p.acCurrentAmp : (p.raw ? p.raw.acCurrentAmp : null)));
-                    const acRealPowerKw = hasVal(p.acRealPowerKw) ? p.acRealPowerKw : (hasVal(p.realPwr) ? p.realPwr : (hasVal(p.acRealPowerKW) ? p.acRealPowerKW : (p.raw ? p.raw.acRealPowerKW : null)));
-                    const acReactivePowerKvar = hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (hasVal(p.reactivePwr) ? p.reactivePwr : (hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (p.raw ? p.raw.acReactivePowerKvar : null)));
-                    const frequencyHz = hasVal(p.frequencyHz) ? p.frequencyHz : (hasVal(p.freqHz) ? p.freqHz : (p.raw ? p.raw.acFrequencyHz : null));
-
-                    return {
-                        ...p,
-                        id: p.id || `${arrayIndex}-${pcsIndex}`,
-                        arrayIndex,
-                        pcsIndex,
-                        displayKey: p.displayKey ?? p.name ?? `ArrayPcs:${arrayIndex}:${pcsIndex}`,
-                        dcVoltage,
-                        dcCurrent,
-                        acVoltage,
-                        acVoltageAB: p.acVoltageAB,
-                        acVoltageBC: p.acVoltageBC,
-                        acVoltageCA: p.acVoltageCA,
-                        acVoltageDisplay,
-                        acCurrent,
-                        acRealPowerKw,
-                        acReactivePowerKvar,
-                        frequencyHz,
-                        rotation,
-                        state,
-                        sourcePath: p.sourcePath ?? "discovered",
-                        raw: p.raw ?? p
-                    };
-                });
-                setPcsList(pcsWithId);
-                setPcsSource(sourceMeta);
-                setFallbackMode(false);
-            } else if (pcsList.length === 0) {
-                setPcsList([]);
-                setPcsSource("PCS source unavailable or unmapped.");
-                setFallbackMode(true);
-            }
+            await refreshNow(true);
         } catch(e) {
-            setFallbackMode(true);
-            setPcsSource("PCS source unavailable or unmapped.");
+            console.error("Manual refresh error", e);
         } finally {
             setLoading(false);
+            setRefreshing(false);
+            markPerf('PcsDashboard fetch & map', t0);
         }
     };
 
     useEffect(() => {
-        refreshData();
-    }, []);
+        if (isInitialLoading) return;
+        
+        let pcsRows: any[] = [];
+        let sourceMeta = "PCS source unavailable or unmapped.";
+        if (dashboardData && dashboardData.pcs) {
+             pcsRows = dashboardData.pcs;
+             sourceMeta = dashboardData.source || "Coordinator Site Data Engine";
+        }
+
+        if (pcsRows.length > 0) {
+            // Ensure unique IDs and normalize fields
+            const pcsWithId = pcsRows.map((p: any, idx: number) => {
+                const arrayIndex = p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex ?? 1;
+                const pcsIndex = p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex ?? (idx + 1);
+                const rotation = p.rotation ?? (p.outRotation ? "OUT" : "IN");
+                const state = p.state ?? p.status ?? p.raw?.state ?? "Unknown";
+
+                const dcVoltage = hasVal(p.dcVoltage) ? p.dcVoltage : (hasVal(p.vDc) ? p.vDc : (hasVal(p.dcVoltageVolt) ? p.dcVoltageVolt : (p.raw ? p.raw.dcVoltageVolt : null)));
+                const dcCurrent = hasVal(p.dcCurrent) ? p.dcCurrent : (hasVal(p.iDc) ? p.iDc : (hasVal(p.dcCurrentAmp) ? p.dcCurrentAmp : (p.raw ? p.raw.dcCurrentAmp : null)));
+                const acVoltageDisplay = p.acVoltageDisplay ?? "-- / -- / --";
+                const acVoltage = hasVal(p.acVoltage) ? p.acVoltage : (hasVal(p.vAc) ? p.vAc : (hasVal(p.acVoltageVolt) ? p.acVoltageVolt : (p.raw ? p.raw.acVoltageVolt : null)));
+                const acCurrent = hasVal(p.acCurrent) ? p.acCurrent : (hasVal(p.iAc) ? p.iAc : (hasVal(p.acCurrentAmp) ? p.acCurrentAmp : (p.raw ? p.raw.acCurrentAmp : null)));
+                const acRealPowerKw = hasVal(p.acRealPowerKw) ? p.acRealPowerKw : (hasVal(p.realPwr) ? p.realPwr : (hasVal(p.acRealPowerKW) ? p.acRealPowerKW : (p.raw ? p.raw.acRealPowerKW : null)));
+                const acReactivePowerKvar = hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (hasVal(p.reactivePwr) ? p.reactivePwr : (hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (p.raw ? p.raw.acReactivePowerKvar : null)));
+                const frequencyHz = hasVal(p.frequencyHz) ? p.frequencyHz : (hasVal(p.freqHz) ? p.freqHz : (p.raw ? p.raw.acFrequencyHz : null));
+
+                return {
+                    ...p,
+                    id: p.id || `${arrayIndex}-${pcsIndex}`,
+                    arrayIndex,
+                    pcsIndex,
+                    displayKey: p.displayKey ?? p.name ?? `ArrayPcs:${arrayIndex}:${pcsIndex}`,
+                    dcVoltage,
+                    dcCurrent,
+                    acVoltage,
+                    acVoltageAB: p.acVoltageAB,
+                    acVoltageBC: p.acVoltageBC,
+                    acVoltageCA: p.acVoltageCA,
+                    acVoltageDisplay,
+                    acCurrent,
+                    acRealPowerKw,
+                    acReactivePowerKvar,
+                    frequencyHz,
+                    rotation,
+                    state,
+                    sourcePath: p.sourcePath ?? "discovered",
+                    raw: p.raw ?? p
+                };
+            });
+            setPcsList(pcsWithId);
+            setPcsSource(sourceMeta);
+            setFallbackMode(false);
+        } else {
+            setPcsList([]);
+            setPcsSource("PCS source unavailable or unmapped.");
+            setFallbackMode(true);
+        }
+        setLoading(false);
+    }, [dashboardData, isInitialLoading]);
+
+    useEffect(() => {
+        if (!active) return;
+        const iv = setInterval(() => refreshNow(false), 15000);
+        return () => clearInterval(iv);
+    }, [active, refreshNow]);
 
     const getSelectedTargets = () => {
         const targets: RotationTarget[] = [];

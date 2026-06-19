@@ -5,9 +5,25 @@ import StringDetailDashboard from "./StringDetailDashboard";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
+import { useSiteData } from '../context/SiteDataContext';
 
 export default function StringDashboard({ active = true }: { active?: boolean }) {
-  const [data, setData] = useState<any>(null);
+  const { snapshot, isInitialLoading, refreshNow } = useSiteData();
+  
+  const data = useMemo(() => {
+    if (!snapshot) return null;
+    return {
+      strings: snapshot.normalized?.strings || [],
+      summary: snapshot.rollups?.stringSummary || { totalStrings: 0, buckets: {} },
+      buckets: snapshot.rollups?.stringSummary?.buckets || {},
+      cache: snapshot.liveStatus ? { 
+        sourceOk: snapshot.liveStatus.status !== 'OFFLINE', 
+        isStale: snapshot.liveStatus.status === 'PARTIAL', 
+        lastUpdatedAt: snapshot.liveStatus.lastUpdated 
+      } : null
+    };
+  }, [snapshot]);
+
   const [loading, setLoading] = useState(true);
   
   const [search, setSearch] = useState("");
@@ -15,7 +31,6 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [stateFilter, setStateFilter] = useState("all");
   const [healthFilter, setHealthFilter] = useState("all");
   
-  const [refreshInterval, setRefreshInterval] = useState(5000);
   const cacheTtlMs = 15000;
   const [selectedString, setSelectedString] = useState<any | null>(null);
 
@@ -32,35 +47,16 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   useEffect(() => { fetch('/api/local/capabilities').then(r => r.json()).then(setRotationCapabilities).catch(()=>{}); }, []);
 
   useEffect(() => {
-    let unmounted = false;
-    const fetchData = async () => {
-      try {
-        const res = await fetch(`/api/local/strings/dashboard?array=ALL&enrich=none&maxAgeMs=${cacheTtlMs}`);
-        if (res.ok && !unmounted) {
-          const json = await res.json();
-          setData(json);
-          // Update selected string reference to get fresh data
-          if (selectedString) {
-             const updated = json.strings.find((s:any) => s.id === selectedString.id);
-             if (updated) setSelectedString(updated);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch dashboard strings", err);
-      } finally {
-        if (!unmounted) setLoading(false);
-      }
-    };
-    fetchData();
-    let interval: any;
-    if (active && refreshInterval > 0) {
-       interval = setInterval(fetchData, refreshInterval);
+    if (!isInitialLoading) setLoading(false);
+  }, [isInitialLoading]);
+
+  // Update selected string reference to get fresh data when snapshot updates
+  useEffect(() => {
+    if (selectedString && data?.strings) {
+       const updated = data.strings.find((s:any) => s.id === selectedString.id);
+       if (updated) setSelectedString(updated);
     }
-    return () => {
-      unmounted = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [refreshInterval, selectedString?.id, active]);
+  }, [data?.strings]); // Intentionally omitting selectedString to avoid infinite loop on update
 
   const handleRotationConfirm = async (req: any) => {
     await fetch("/api/local/strings/rotation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
@@ -105,7 +101,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
         if (strs.length === totalInArr) {
              targets.push({ array: arr, allStrings: true });
         } else {
-             strs.forEach(st => targets.push({ array: arr, string: st }));
+             strs.forEach((st:any) => targets.push({ array: arr, string: st }));
         }
     }
     return targets;
@@ -114,16 +110,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
 const handleManualRefresh = async () => {
       setIsRefreshing(true);
       try {
-        const res = await fetch(`/api/local/strings/dashboard?array=ALL&enrich=none&refresh=true&maxAgeMs=${cacheTtlMs}`);
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-          // Update selected string reference to get fresh data
-          if (selectedString) {
-             const updated = json.strings.find((s:any) => s.id === selectedString.id);
-             if (updated) setSelectedString(updated);
-          }
-        }
+        await refreshNow(true);
       } catch (err) {
         console.error("Failed to fetch dashboard strings", err);
       } finally {
