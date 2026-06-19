@@ -6,13 +6,14 @@ import {
     getEmsCachedStatus, 
     getEmsCachedLastCall, 
     getEmsCachedRawStrings, 
-    
+    getEmsIpMap,
+    getEmsStringIpMap,
     getEmsCachedStatusCodes,
     getEmsConnectionStatus, 
     getEmsSourcesDebugInfo 
 } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
-import { BESS_STATUS_CODE_MAP } from "../lib/bessStatusCodes";
+import { BESS_STATUS_CODE_MAP, describeBessStatusCode } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
@@ -105,30 +106,75 @@ function collectEmsAppCandidates(root: any, path: string = ""): any[] {
 }
 
 export type NormalizedStringRow = {
+  id: string;
   arrayNumber: number | null;
   stringNumber: number | null;
-  connectionState: string;
-  bucket: "online" | "nearline" | "offline" | "notCommunicating";
+  stringKey: string;
+  contactorStatus: string;
+  contactorClosed: boolean;
+  contactorsCloseExpected: boolean;
+  positiveContactorClosed: boolean;
+  negativeContactorClosed: boolean;
+  recloseCount: number | null;
+  rotationStatus: string;
   outRotation: boolean;
-  inRotation: boolean;
-  contactorsClosed: boolean;
-  connectionPermitted: boolean | null;
+  rotationEnabled: boolean;
+  measuredVoltage: number | null;
+  calculatedVoltage: number | null;
+  busVoltage: number | null;
+  voltageDelta: number | null;
+  amps: number | null;
+  kw: number | null;
   socPct: number | null;
-  kWh: number | null;
-  currentA: number | null;
-  powerKw: number | null;
-  maxCellVoltageMv: number | null;
-  avgCellVoltageMv: number | null;
-  minCellVoltageMv: number | null;
-  voltageDeltaMv: number | null;
-  maxTempC: number | null;
-  avgTempC: number | null;
-  minTempC: number | null;
-  tempDeltaC: number | null;
+  ah: number | null;
+  kwh: number | null;
+  minCellVoltage: number | null;
+  maxCellVoltage: number | null;
+  avgCellVoltage: number | null;
+  cellVoltageDelta: number | null;
+  minCellTemperature: number | null;
+  maxCellTemperature: number | null;
+  avgCellTemperature: number | null;
+  cellTemperatureDelta: number | null;
+  balanceCount: number | null;
+  balanceMode: string;
+  container: string;
+  location: string;
+  fanCommandRequested: boolean;
+  lastFanCommandTime: string | null;
+  fanHealthy: boolean;
+  timestampUtc: string | null;
+  lastUpdatedUtc: string | null;
+  bpcCount: number | null;
+  bpcFirmwareSummary: string;
+  bpcs: any[];
+  operationalState: string;
   warningCount: number;
   alarmCount: number;
-  wattHourCapacity?: number | null;
+  warnings: string[];
+  alarms: string[];
+  bucket: "online" | "nearline" | "offline" | "notCommunicating";
+  communicating: boolean;
+  inRotation: boolean;
+  contactorsClosed: boolean;
+  sourceCoverage: any;
+  sourcePath: string;
   raw: any;
+
+  // Preserve the old properties as well just in case they are used elsewhere in codebase
+  connectionState?: string;
+  connectionPermitted?: boolean | null;
+  currentA?: number | null;
+  powerKw?: number | null;
+  maxCellVoltageMv?: number | null;
+  avgCellVoltageMv?: number | null;
+  minCellVoltageMv?: number | null;
+  voltageDeltaMv?: number | null;
+  maxTempC?: number | null;
+  avgTempC?: number | null;
+  minTempC?: number | null;
+  tempDeltaC?: number | null;
+  wattHourCapacity?: number | null;
 };
 
 export function buildStringBucketSummary(stringsData: any[]) {
@@ -145,58 +191,339 @@ export function buildStringBucketSummary(stringsData: any[]) {
         return Number.isFinite(n) ? n : null;
     }
 
-    let totalStrings = 0;
+    const rawStringsWrapper = getEmsCachedRawStrings();
+    const blockWrapper = getEmsCachedBlock();
+    const stringIpMapWrapper = getEmsStringIpMap();
+    const ipMapWrapper = getEmsIpMap();
+    const lastCallWrapper = getEmsCachedLastCall();
+
+    const stringIpMap = (stringIpMapWrapper && Array.isArray(stringIpMapWrapper.data)) ? stringIpMapWrapper.data : [];
+    const ipMap = (ipMapWrapper && Array.isArray(ipMapWrapper.data)) ? ipMapWrapper.data : [];
+
+    let lastCallStrings: any[] = [];
+    let lastCallArrays: any[] = [];
+    if (lastCallWrapper && lastCallWrapper.data) {
+        if (Array.isArray(lastCallWrapper.data.strings)) lastCallStrings = lastCallWrapper.data.strings;
+        if (Array.isArray(lastCallWrapper.data.arrays)) lastCallArrays = lastCallWrapper.data.arrays;
+    }
+
+    let totalStringsVal = 0;
+    let normalStrings = 0;
+    let nearlineStrings = 0;
+    let offlineStrings = 0;
+    let gWarnCount = 0;
+    let gAlarmCount = 0;
+    let totalBpcsCount = 0;
+    let knownBpcCountVal = 0;
+
+    let gMinV: number | null = null;
+    let gMaxV: number | null = null;
+    let gSumV = 0;
+    let gCountV = 0;
+    let gMaxVDelta: number | null = null;
+
+    let gMinT: number | null = null;
+    let gMaxT: number | null = null;
+    let gSumT = 0;
+    let gCountT = 0;
+    let gMaxTDelta: number | null = null;
 
     const tableRows: NormalizedStringRow[] = stringsData.map(row => {
-        totalStrings++;
+        totalStringsVal++;
 
-        const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber);
-        const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber);
+        const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? row.ArrayNumber);
+        const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber ?? row.StringNumber);
         
         // Use the unified shared classifier!
         const classification = classifyStringOperationalState(row);
         const bucket = classification.bucket;
         const outRotation = !classification.inRotation;
+        const inRotation = classification.inRotation;
         const contactorsClosed = classification.contactorsClosed;
         const communicating = classification.communicating;
 
-        const socPct = num(row.Soc ?? row.soc);
-        const kWh = num(row.KWh ?? row.kWh);
-        const currentA = num(row.StringCurrent ?? row.stringCurrent ?? row.CtCurrent1 ?? row.ctCurrent1 ?? row.CtCurrent2 ?? row.ctCurrent2);
-        const maxCellVoltageMv = num(row.MaxCellGroupVoltage ?? row.maxCellGroupVoltage);
-        const minCellVoltageMv = num(row.MinCellGroupVoltage ?? row.minCellGroupVoltage);
-        const avgCellVoltageMv = num(row.AvgCellGroupVoltage ?? row.avgCellGroupVoltage);
-        let maxTempRaw = num(row.MaxCellGroupTemp ?? row.maxCellGroupTemp);
-        let minTempRaw = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
-        let avgTempRaw = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
+        const id = `A${arrayNumber}-S${stringNumber}`;
+        const stringKey = `A${arrayNumber}-S${stringNumber}`;
 
-        if (maxTempRaw !== null && Math.abs(maxTempRaw) > 100) maxTempRaw = maxTempRaw / 10;
-        if (minTempRaw !== null && Math.abs(minTempRaw) > 100) minTempRaw = minTempRaw / 10;
-        if (avgTempRaw !== null && Math.abs(avgTempRaw) > 100) avgTempRaw = avgTempRaw / 10;
+        // Contactor status and closed flags
+        const positiveContactorClosed = bool(row.PositiveContactorClosed ?? row.positiveContactorClosed ?? row.positive_contactor_closed ?? false);
+        const negativeContactorClosed = bool(row.NegativeContactorClosed ?? row.negativeContactorClosed ?? row.negative_contactor_closed ?? false);
+        const contactorClosed = positiveContactorClosed && negativeContactorClosed;
+        const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
+        const contactorsCloseExpected = bool(row.ContactorsCloseExpected ?? row.contactorsCloseExpected ?? row.CloseExpected ?? row.closeExpected ?? false);
+        const recloseCount = num(row.RecloseCount ?? row.recloseCount ?? null);
+
+        // Rotation
+        const rotationEnabled = !outRotation;
+        const rotationStatus = outRotation ? "OUT" : "IN";
+
+        // Voltage and power measurements
+        const measuredVoltage = num(row.MeasuredStringVoltage ?? row.measuredStringVoltage);
+        const calculatedVoltage = num(row.CalculatedStringVoltage ?? row.calculatedStringVoltage);
+        const busVoltage = num(row.DcBusVoltage ?? row.dcBusVoltage ?? row.DcBusVolt ?? row.dcBusVolt);
+        const voltageDelta = (measuredVoltage !== null && calculatedVoltage !== null) ? Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2)) : num(row.VoltageDelta ?? row.voltageDelta);
+
+        const amps = num(row.StringCurrent ?? row.stringCurrent ?? row.CtCurrent1 ?? row.ctCurrent1 ?? row.CtCurrent2 ?? row.ctCurrent2);
+        const kw = num(row.KW ?? row.kw ?? row.PowerKW ?? row.powerKw ?? row.power_kw ?? row.measuredKw ?? row.measuredKW);
+        const socPct = num(row.Soc ?? row.soc);
+        const ah = num(row.Ah ?? row.ah ?? row.CapacityAh ?? row.capacityAh);
+        const kwh = num(row.KWh ?? row.kwh);
+
+        // Cell voltages
+        const minCellVoltage = num(row.MinCellGroupVoltage ?? row.minCellGroupVoltage);
+        const maxCellVoltage = num(row.MaxCellGroupVoltage ?? row.maxCellGroupVoltage);
+        const avgCellVoltage = num(row.AvgCellGroupVoltage ?? row.avgCellGroupVoltage);
+        const cellVoltageDelta = (maxCellVoltage !== null && minCellVoltage !== null) ? Number((maxCellVoltage - minCellVoltage).toFixed(3)) : num(row.CellVoltageDelta ?? row.cellVoltageDelta);
+
+        // Cell temperatures (divide by 10 when raw is greater than 90)
+        let rawMinT = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
+        let minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
+        let rawMaxT = num(row.MaxCellGroupTemp ?? row.maxCellGroupTemp);
+        let maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
+        let rawAvgT = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
+        let avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
+        let cellTemperatureDelta = (maxCellTemperature !== null && minCellTemperature !== null) ? Number((maxCellTemperature - minCellTemperature).toFixed(1)) : null;
+
+        // Balance fields
+        const balanceCount = num(row.BalanceCount ?? row.balanceCount ?? row.BalancingCount ?? row.balancingCount);
+        const balanceModeRaw = String(row.BalanceMode ?? row.balanceMode ?? row.BalancingMode ?? row.balancingMode ?? "");
+        const balanceRaw = String(row.Balance ?? row.balance ?? row.Balancing ?? row.balancing ?? "");
+        let balanceMode = balanceModeRaw;
+        if (balanceRaw.includes("Provided") || balanceModeRaw.includes("Provided")) {
+            balanceMode = "Provided";
+        }
+
+        const container = String(row.Container ?? row.container ?? row.Enclosure ?? row.enclosure ?? "");
+        const location = String(row.Location ?? row.location ?? "");
+
+        // Fan and timestamps
+        const fanCommandRequested = bool(row.FanCommandRequested ?? row.fanCommandRequested ?? row.LastFanCommand ?? row.lastFanCommand ?? row.fanRequested);
+        const lastFanCommandTime = row.LastFanCommandTime ?? row.lastFanCommandTime ?? null;
+        const fanHealthy = bool(row.FanHealthy ?? row.fanHealthy ?? true);
+
+        function safeParseDate(val: any): string {
+            if (!val) return new Date().toISOString();
+            const ts = new Date(val);
+            if (isNaN(ts.getTime())) {
+                return new Date().toISOString();
+            }
+            return ts.toISOString();
+        }
+        const timestampUtc = safeParseDate(row.TimestampUtc ?? row.timestampUtc ?? row.Timestamp ?? row.timestamp ?? row.DateTime ?? row.datetime);
+        const lastUpdatedUtc = new Date().toISOString();
+
+        // BPC Data
+        const sIpInfo = stringIpMap.find(m => num(m.array) === arrayNumber && num(m.string) === stringNumber);
+        let lcStrBase = lastCallStrings.find(s => num(s.array) === arrayNumber && num(s.string) === stringNumber);
+        if (!lcStrBase) {
+             const lcA = lastCallArrays.find(a => num(a.index ?? a.arrayIndex) === arrayNumber);
+             if (lcA && Array.isArray(lcA.strings)) {
+                 lcStrBase = lcA.strings.find((s: any) => num(s.index ?? s.stringIndex) === stringNumber);
+             }
+        }
+
+        let blockStrBase: any = null;
+        if (blockWrapper && blockWrapper.data?.strings) {
+            blockStrBase = blockWrapper.data.strings.find((s: any) => num(s.array) === arrayNumber && num(s.string) === stringNumber) || null;
+        }
+
+        let bpcSourceData: any[] = [];
+        if (lcStrBase && Array.isArray(lcStrBase.packs)) bpcSourceData = lcStrBase.packs;
+        else if (lcStrBase && Array.isArray(lcStrBase.bpcs)) bpcSourceData = lcStrBase.bpcs;
+
+        const bpcFirmwares = new Set<string>();
+        const bpcs: any[] = [];
+        bpcSourceData.forEach((bpcBase: any, bpcIdx: number) => {
+            const bpcNum = num(bpcBase.index ?? bpcBase.bpcIndex) || (bpcIdx + 1);
+            let bpcIp = null;
+            const bpcIpMatch = ipMap.find(m => num(m.array) === arrayNumber && num(m.string) === stringNumber && num(m.pack ?? m.bpc) === bpcNum);
+            if (bpcIpMatch) bpcIp = bpcIpMatch.ip;
+
+            let bpcWarns = bpcBase.warnings ?? bpcBase.warningList ?? [];
+            let bpcAlarms = bpcBase.alarms ?? bpcBase.alarmList ?? [];
+            if (typeof bpcWarns === "string") bpcWarns = bpcWarns.split(",").map(v=>v.trim()).filter(Boolean);
+            if (typeof bpcAlarms === "string") bpcAlarms = bpcAlarms.split(",").map(v=>v.trim()).filter(Boolean);
+            if (Array.isArray(bpcWarns)) bpcWarns = bpcWarns.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+            if (Array.isArray(bpcAlarms)) bpcAlarms = bpcAlarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
+
+            if (bpcBase.firmwareVersion) bpcFirmwares.add(String(bpcBase.firmwareVersion));
+
+            bpcs.push({
+                id: `A${arrayNumber}-S${stringNumber}-B${bpcNum}`,
+                arrayNumber, stringNumber, bpcNumber: bpcNum,
+                bpcIp,
+                firmwareVersion: bpcBase.firmwareVersion,
+                minCellVoltage: num(bpcBase.minCellVoltage),
+                maxCellVoltage: num(bpcBase.maxCellVoltage),
+                avgCellVoltage: num(bpcBase.avgCellVoltage),
+                minCellTemperature: num(bpcBase.minCellTemp ?? bpcBase.minCellTemperature),
+                maxCellTemperature: num(bpcBase.maxCellTemp ?? bpcBase.maxCellTemperature),
+                avgCellTemperature: num(bpcBase.avgCellTemp ?? bpcBase.avgCellTemperature),
+                warningCount: bpcWarns.length,
+                alarmCount: bpcAlarms.length,
+                warnings: bpcWarns,
+                alarms: bpcAlarms,
+                raw: bpcBase
+            });
+        });
+
+        let bpcCount = num(row.BpcCount ?? row.bpcCount ?? row.BatteryPackCount ?? row.batteryPackCount ?? row.PackCount ?? row.packCount);
+        if (bpcSourceData.length > 0) bpcCount = bpcSourceData.length;
+
+        let bpcFirmwareSummary = "Unknown";
+        if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
+        else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
+
+        // Warnings and alarms list
+        let warnings: string[] = [];
+        const rawWarns = row.Warns ?? row.warns ?? row.Warnings ?? row.warnings ?? row.WarnsList ?? row.warnsList ?? [];
+        if (typeof rawWarns === 'string') {
+            warnings = rawWarns.split(',').map(v => v.trim()).filter(Boolean);
+        } else if (Array.isArray(rawWarns)) {
+            warnings = rawWarns.map(v => String(v).trim()).filter(Boolean);
+        }
+        warnings = warnings.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+
+        let alarms: string[] = [];
+        const rawAlarms = row.Alarms ?? row.alarms ?? row.AlarmsList ?? row.alarmsList ?? [];
+        if (typeof rawAlarms === 'string') {
+            alarms = rawAlarms.split(',').map(v => v.trim()).filter(Boolean);
+        } else if (Array.isArray(rawAlarms)) {
+            alarms = rawAlarms.map(v => String(v).trim()).filter(Boolean);
+        }
+        alarms = alarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
+
+        const warningCount = num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? warnings.length ?? 0) || 0;
+        const alarmCount = num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? alarms.length ?? 0) || 0;
+
+        // operationalState determination
+        let operationalState = "OFFLINE";
+        if (bucket === "online") {
+            if (alarmCount > 0) operationalState = "ALARM";
+            else if (warningCount > 0) operationalState = "WARNING";
+            else operationalState = "NORMAL";
+        } else if (bucket === "nearline") {
+            if (alarmCount > 0) operationalState = "ALARM";
+            else if (warningCount > 0) operationalState = "WARNING";
+            else operationalState = "NEARLINE";
+        } else {
+            operationalState = "OFFLINE";
+        }
+
+        const sourceCoverage = {
+            stringsCsv: true,
+            lastCall: !!lcStrBase,
+            stringIpMap: !!sIpInfo,
+            ipMap: !!ipMapWrapper?.data,
+            blockviewer: !!blockStrBase,
+            controllerStatistics: false,
+            bessStatusCodes: false,
+        };
+
+        if (operationalState === "NORMAL") normalStrings++;
+        if (operationalState === "NEARLINE") nearlineStrings++;
+        if (operationalState === "OFFLINE") offlineStrings++;
+        gWarnCount += warningCount;
+        gAlarmCount += alarmCount;
+        totalBpcsCount += bpcs.length;
+        if (bpcCount !== null) knownBpcCountVal += bpcCount;
+
+        if (minCellVoltage !== null) {
+            if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
+        }
+        if (maxCellVoltage !== null) {
+            if (gMaxV === null || maxCellVoltage > gMaxV) gMaxV = maxCellVoltage;
+        }
+        if (avgCellVoltage !== null) {
+            gSumV += avgCellVoltage;
+            gCountV++;
+        }
+        if (cellVoltageDelta !== null) {
+            if (gMaxVDelta === null || cellVoltageDelta > gMaxVDelta) gMaxVDelta = cellVoltageDelta;
+        }
+        if (minCellTemperature !== null) {
+            if (gMinT === null || minCellTemperature < gMinT) gMinT = minCellTemperature;
+        }
+        if (maxCellTemperature !== null) {
+            if (gMaxT === null || maxCellTemperature > gMaxT) gMaxT = maxCellTemperature;
+        }
+        if (avgCellTemperature !== null) {
+            gSumT += avgCellTemperature;
+            gCountT++;
+        }
+        if (cellTemperatureDelta !== null) {
+            if (gMaxTDelta === null || cellTemperatureDelta > gMaxTDelta) gMaxTDelta = cellTemperatureDelta;
+        }
 
         const wattHourCapacity = num(row.wattHourCapacity ?? row.WattHourCapacity ?? row.watt_hour_capacity ?? row.Watt_Hour_Capacity ?? row.CapacityWh ?? row.capacityWh ?? row.CapacityWH ?? row.capacityWH ?? null);
 
         return {
             ...row,
+            id,
             arrayNumber,
             stringNumber,
+            stringKey,
+            contactorStatus,
+            contactorClosed,
+            contactorsCloseExpected,
+            positiveContactorClosed,
+            negativeContactorClosed,
+            recloseCount,
+            rotationStatus,
+            outRotation,
+            rotationEnabled,
+            measuredVoltage,
+            calculatedVoltage,
+            busVoltage,
+            voltageDelta,
+            amps,
+            kw,
+            socPct,
+            ah,
+            kwh,
+            minCellVoltage,
+            maxCellVoltage,
+            avgCellVoltage,
+            cellVoltageDelta,
+            minCellTemperature,
+            maxCellTemperature,
+            avgCellTemperature,
+            cellTemperatureDelta,
+            balanceCount,
+            balanceMode,
+            container,
+            location,
+            fanCommandRequested,
+            lastFanCommandTime,
+            fanHealthy,
+            timestampUtc,
+            lastUpdatedUtc,
+            bpcCount,
+            bpcFirmwareSummary,
+            bpcs,
+            operationalState,
+            warningCount,
+            alarmCount,
+            warnings,
+            alarms,
             bucket,
             communicating,
-            inRotation: !outRotation,
-            contactorsClosed,
-            socPct,
-            kWh,
-            currentA,
-            maxCellVoltageMv,
-            minCellVoltageMv,
-            avgCellVoltageMv,
-            voltageDeltaMv: (maxCellVoltageMv !== null && minCellVoltageMv !== null) ? (maxCellVoltageMv - minCellVoltageMv) : null,
-            maxTempC: maxTempRaw,
-            minTempC: minTempRaw,
-            avgTempC: avgTempRaw,
-            tempDeltaC: (maxTempRaw !== null && minTempRaw !== null) ? maxTempRaw - minTempRaw : null,
-            warningCount: num(row.WarnCount ?? row.warnCount ?? row.WarningCount ?? row.warningCount ?? 0),
-            alarmCount: num(row.AlarmCount ?? row.alarmCount ?? row.AlarmsCount ?? row.alarmsCount ?? 0),
+            inRotation,
+            contactorsClosed: contactorClosed,
+            sourceCoverage,
+            sourcePath: "/tools/report/ems/strings.csv",
+
+            // Preserve old properties to prevent breakage
+            currentA: amps,
+            powerKw: kw,
+            maxCellVoltageMv: maxCellVoltage,
+            avgCellVoltageMv: avgCellVoltage,
+            minCellVoltageMv: minCellVoltage,
+            voltageDeltaMv: cellVoltageDelta,
+            maxTempC: maxCellTemperature,
+            minTempC: minCellTemperature,
+            avgTempC: avgCellTemperature,
+            tempDeltaC: cellTemperatureDelta,
             wattHourCapacity
         };
     });
@@ -215,7 +542,21 @@ export function buildStringBucketSummary(stringsData: any[]) {
         notCommunicating: bucketsRaw.notCommunicating.length
     };
 
-    const rollups: any = { totalStrings };
+    const rollups: any = { 
+        totalStrings: totalStringsVal,
+        normal: normalStrings,
+        nearline: nearlineStrings,
+        offline: offlineStrings,
+        warnings: gWarnCount,
+        alarms: gAlarmCount,
+        totalBpcs: totalBpcsCount || knownBpcCountVal,
+        knownBpcCount: knownBpcCountVal,
+        expectedBpcCount: totalStringsVal * 14,
+        fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV / gCountV).toFixed(3)) : null,
+        fleetMaxCellVoltageDelta: gMaxVDelta,
+        fleetAvgCellTemp: gCountT > 0 ? Number((gSumT / gCountT).toFixed(1)) : null,
+        fleetMaxCellTemp: gMaxT
+    };
 
     function calculateRollup(arr: any[]) {
         const count = arr.length;
@@ -245,7 +586,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
         return {
             count,
             socPctAvg: avgNum('socPct'),
-            socKwhAvg: sumNum('kWh'), // Return sum/avg per bucket requirement, actually the requirements say "SOC / KWh" so maybe socKwhAvg means average KWh, sum is better or avg is better? User says "socKwhAvg or kWh average". Let's do average.
+            socKwhAvg: sumNum('kWh'),
             kWhAvg: avgNum('kWh'),
             maxCurrentA: maxNum('currentA'),
             minCurrentA: minNum('currentA'),
@@ -705,15 +1046,15 @@ export async function buildSiteOperationsSummaryFromCache() {
                  if (str.bucket === 'online') { 
                      arr.onlineStringCount++; 
                      if (str.socPct !== null) arr.onlineSOC.push(str.socPct);
-                     if (str.kWh !== null) arr.onlineAvailableKWh.push(str.kWh);
+                     if (str.kwh !== null) arr.onlineAvailableKWh.push(str.kwh);
                  } else if (str.bucket === 'nearline') {
                      arr.nearlineStringCount++;
                      if (str.socPct !== null) arr.nearlineSOC.push(str.socPct);
-                     if (str.kWh !== null) arr.nearlineAvailableKWh.push(str.kWh);
+                     if (str.kwh !== null) arr.nearlineAvailableKWh.push(str.kwh);
                  } else if (str.bucket === 'offline') {
                      arr.offlineStringCount++;
                      if (str.socPct !== null) arr.offlineSOC.push(str.socPct);
-                     if (str.kWh !== null) arr.offlineAvailableKWh.push(str.kWh);
+                     if (str.kwh !== null) arr.offlineAvailableKWh.push(str.kwh);
                  } else {
                      arr.notCommunicationStringCount++;
                  }
@@ -769,7 +1110,7 @@ export async function buildSiteOperationsSummaryFromCache() {
                  const arr = arraysMap.get(arrId);
                  arr.stringCount++;
                  if (str.socPct !== null) arr.socs.push(str.socPct);
-                 if (str.kWh !== null) arr.kwhs.push(str.kWh);
+                 if (str.kwh !== null) arr.kwhs.push(str.kwh);
                  if (str.bucket === 'online') arr.onlineStringCount++;
                  else if (str.bucket === 'nearline') arr.nearlineStringCount++;
                  else if (str.bucket === 'offline') arr.offlineStringCount++;

@@ -40,6 +40,7 @@ export interface NormalizedSensorRow {
   overallStatus: "OK" | "WARNING" | "FAULT" | "UNHEALTHY";
   severity: "OK" | "Warning" | "Critical";
   findings: string[];
+  source: string;
   sourcePath: string;
   raw: any;
   // Legacy UI-compatible fields
@@ -270,7 +271,8 @@ function populateLegacyFields(
   fireSuppressionStatus: string,
   enclosureIp?: string
 ): NormalizedSensorRow {
-  const id = `FRV2-L${lineupId}-S${segmentId}`;
+  const isV1 = rowWithoutLegacy.sourcePath === "/turtle/firstresponder/data" || rowWithoutLegacy.sourcePath?.includes("v1") || (rowWithoutLegacy as any).source === "firstresponder_v1";
+  const id = isV1 ? `FRV1-L${lineupId}-S${segmentId}` : `FRV2-L${lineupId}-S${segmentId}`;
   const displayLabel = getSegmentName({
     lineupId,
     segmentId,
@@ -287,48 +289,50 @@ function populateLegacyFields(
     health = "healthy";
   }
 
+  const basePath = isV1 ? "/turtle/firstresponder/data" : "/turtle/v2/firstresponder/data";
+
   const sensors = {
     temperature: {
       state: temperatureStatus === "HIGH" ? "high" : "normal",
       healthy: !(temperatureStatus === "HIGH" || temperatureCommunicating === false),
       label: `${temperatureValue}${temperatureUnit} / ${temperatureStatus}`,
       value: `${temperatureValue}${temperatureUnit}`,
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/temperature`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/temperature`
     },
     segmentCommunications: {
       state: segmentCommunicating ? "communicating" : "notCommunicating",
       healthy: segmentCommunicating,
       label: segmentCommunicating ? "Communicating" : "Offline",
       value: segmentCommunicating ? "OK" : "OFFLINE",
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/segmentCommunications`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/segmentCommunications`
     },
     heat: {
       state: heatStatus === "NOT_TRIPPED" ? "normal" : "tripped",
       healthy: heatStatus === "NOT_TRIPPED" && heatCommunicating !== false,
       label: heatStatus,
       value: heatStatus,
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/heat`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/heat`
     },
     gas: {
       state: gasStatus === "NOT_TRIPPED" ? "normal" : "tripped",
       healthy: gasStatus === "NOT_TRIPPED" && gasCommunicating !== false,
       label: gasStatus,
       value: gasStatus,
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/gas`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/gas`
     },
     smoke: {
       state: smokeStatus === "NOT_TRIPPED" ? "normal" : "tripped",
       healthy: smokeStatus === "NOT_TRIPPED" && smokeCommunicating !== false,
       label: smokeStatus,
       value: smokeStatus,
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/smoke`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/smoke`
     },
     fireSuppression: {
       state: fireSuppressionStatus === "NOT_INSTALLED" ? "notInstalled" : (fireSuppressionStatus === "NOT_TRIPPED" ? "normal" : "active"),
       healthy: fireSuppressionStatus === "NOT_INSTALLED" || fireSuppressionStatus === "NOT_TRIPPED",
       label: fireSuppressionStatus,
       value: fireSuppressionStatus,
-      sourcePath: `/turtle/v2/firstresponder/data/lineup/${lineupId}/segment/${segmentId}/fireSuppression`
+      sourcePath: `${basePath}/lineup/${lineupId}/segment/${segmentId}/fireSuppression`
     }
   };
 
@@ -343,14 +347,16 @@ function populateLegacyFields(
 
 // Orchestrator to normalize v2 schema payload into sensor rows
 export async function buildNormalizedResponderSummary(refresh = false): Promise<any> {
-  let rawV2: any = null;
+  const cachedResponse = getEmsCachedFirstResponder();
+  const cachedData = cachedResponse?.data || {};
+  let rawV1 = cachedData.v1 || null;
+  let rawV2 = cachedData.v2 || null;
   let fetchFailed = false;
 
   if (refresh) {
     try {
       rawV2 = await getLiveFirstResponderV2();
-      // Ensure we hit v1 as well to populate debug metadata
-      await getLiveFirstResponderV1().catch(() => null);
+      rawV1 = await getLiveFirstResponderV1().catch(() => null);
     } catch (e) {
       fetchFailed = true;
     }
@@ -360,6 +366,9 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   if (!rawV2) {
     rawV2 = DEFAULT_BHE0021_V2_PAYLOAD;
   }
+
+  const v1Devices = rawV1 ? (Array.isArray(rawV1) ? rawV1 : (rawV1.devices || [])) : [];
+  const isV1Primary = v1Devices.length > 0;
 
   const stationCode = rawV2.stationCode || "BHE0021";
   const blockIndex = rawV2.blockIndex || 1;
@@ -380,25 +389,25 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   // Hardcode 168 rows generation for BHE0021 if candidateRows is empty
   if (candidateRows.length === 0) {
      if (stationCode === "BHE0021") {
-       for (let array = 1; array <= 8; array++) {
-         candidateRows.push({
-           deviceIp: `10.0.${array}.3`,
-           arrayIndex: array,
-           segment: 3,
-           isCollectionSegment: true,
-           entityName: `Array ${array} Collection Segment (CS) Device Node`
-         });
-         for (let stringIdx = 1; stringIdx <= 20; stringIdx++) {
-           const seg = 10 + (stringIdx - 1) * 5;
-           candidateRows.push({
-             deviceIp: `10.0.${array}.${seg}`,
-             arrayIndex: array,
-             segment: seg,
-             isCollectionSegment: false,
-             entityName: `Array ${array} Energy Segment ${stringIdx} (ES) Device Node`
-           });
-         }
-       }
+        for (let array = 1; array <= 8; array++) {
+          candidateRows.push({
+            deviceIp: `10.0.${array}.3`,
+            arrayIndex: array,
+            segment: 3,
+            isCollectionSegment: true,
+            entityName: `Array ${array} Collection Segment (CS) Device Node`
+          });
+          for (let stringIdx = 1; stringIdx <= 20; stringIdx++) {
+            const seg = 10 + (stringIdx - 1) * 5;
+            candidateRows.push({
+              deviceIp: `10.0.${array}.${seg}`,
+              arrayIndex: array,
+              segment: seg,
+              isCollectionSegment: false,
+              entityName: `Array ${array} Energy Segment ${stringIdx} (ES) Device Node`
+            });
+          }
+        }
      }
   }
 
@@ -448,85 +457,193 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
      // Look up in cached feather devices
      const matchingFeather: any = fDevices.find((d: any) => (d.ip || d.deviceIp) === cand.deviceIp) || {};
 
-     const segmentType = overrides.segmentType ?? cand.isCollectionSegment ? "CollectionSegment" : "EnergySegment";
+     // Match firstresponder v1 device
+     const matchingV1Device: any = v1Devices.find((d: any) => (d.ipAddress || d.ip) === cand.deviceIp) || null;
+
+     const segmentType = overrides.segmentType ?? ( cand.isCollectionSegment ? "CollectionSegment" : "EnergySegment" );
 
      // Resolve communicativeness
      let segComm = true;
-     if (matchingSeg.isCommunicating !== undefined) {
-         segComm = matchingSeg.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         segComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.reachable !== undefined) {
+             segComm = matchingV1Device.reachable;
+         } else if (matchingV1Device.isCommunicating !== undefined) {
+             segComm = matchingV1Device.isCommunicating;
+         } else if (matchingV1Device.connected !== undefined) {
+             segComm = matchingV1Device.connected;
+         } else if (matchingSeg.isCommunicating !== undefined) {
+             segComm = matchingSeg.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.isCommunicating !== undefined) {
+             segComm = matchingSeg.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             segComm = matchingFeather.reachable;
+         }
      }
      const segmentCommunicating = overrides.segmentCommunicating ?? segComm;
 
      // Resolve temperature values (standard or converted to F based on site state)
      let tempVal = 70;
-     if (matchingSeg.temperature?.value !== undefined) {
-         tempVal = Number(matchingSeg.temperature.value);
-     } else if (matchingFeather.spaceTemperatureC !== undefined && matchingFeather.spaceTemperatureC !== null) {
-         const st = Number(matchingFeather.spaceTemperatureC);
-         tempVal = tempUnit === "F" ? (st * 1.8 + 32) : st;
-     } else if (matchingFeather.temperatureCellC !== undefined && matchingFeather.temperatureCellC !== null) {
-         const tc = Number(matchingFeather.temperatureCellC);
-         tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.cellTemp !== undefined && matchingV1Device.cellTemp !== null) {
+             const tc = Number(matchingV1Device.cellTemp);
+             tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
+         } else if (matchingV1Device.ambientTemp !== undefined && matchingV1Device.ambientTemp !== null) {
+             const ta = Number(matchingV1Device.ambientTemp);
+             tempVal = tempUnit === "F" ? (ta * 1.8 + 32) : ta;
+         } else if (matchingV1Device.temperature !== undefined && matchingV1Device.temperature !== null) {
+             const t = Number(matchingV1Device.temperature);
+             tempVal = t;
+         } else if (matchingSeg.temperature?.value !== undefined) {
+             tempVal = Number(matchingSeg.temperature.value);
+         }
+     } else {
+         if (matchingSeg.temperature?.value !== undefined) {
+             tempVal = Number(matchingSeg.temperature.value);
+         } else if (matchingFeather.spaceTemperatureC !== undefined && matchingFeather.spaceTemperatureC !== null) {
+             const st = Number(matchingFeather.spaceTemperatureC);
+             tempVal = tempUnit === "F" ? (st * 1.8 + 32) : st;
+         } else if (matchingFeather.temperatureCellC !== undefined && matchingFeather.temperatureCellC !== null) {
+             const tc = Number(matchingFeather.temperatureCellC);
+             tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
+         }
      }
      const temperatureValue = overrides.temperatureValue !== undefined ? Number(overrides.temperatureValue) : tempVal;
 
      let tempStat = "NOT_HIGH";
-     if (matchingSeg.temperature?.status !== undefined) {
-         tempStat = matchingSeg.temperature.status;
-     } else if (temperatureValue > 115) {
-         tempStat = "HIGH";
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.temperatureStatus !== undefined) {
+             tempStat = matchingV1Device.temperatureStatus;
+         } else if (matchingSeg.temperature?.status !== undefined) {
+             tempStat = matchingSeg.temperature.status;
+         } else if (temperatureValue > 115) {
+             tempStat = "HIGH";
+         }
+     } else {
+         if (matchingSeg.temperature?.status !== undefined) {
+             tempStat = matchingSeg.temperature.status;
+         } else if (temperatureValue > 115) {
+             tempStat = "HIGH";
+         }
      }
      const temperatureStatus = overrides.temperatureStatus ?? tempStat;
 
      let tempComm = true;
-     if (matchingSeg.temperature?.isCommunicating !== undefined) {
-         tempComm = matchingSeg.temperature.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         tempComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.temperatureCommunicating !== undefined) {
+             tempComm = matchingV1Device.temperatureCommunicating;
+         } else if (matchingSeg.temperature?.isCommunicating !== undefined) {
+             tempComm = matchingSeg.temperature.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.temperature?.isCommunicating !== undefined) {
+             tempComm = matchingSeg.temperature.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             tempComm = matchingFeather.reachable;
+         }
      }
      const temperatureCommunicating = overrides.temperatureCommunicating ?? tempComm;
 
      // Disruption elements
-     const fsStat = overrides.fireSuppressionStatus ?? matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
+     let fsStat = "NOT_TRIPPED";
+     if (isV1Primary && matchingV1Device) {
+         fsStat = matchingV1Device.fireSuppressionStatus ?? matchingV1Device.fireSuppression?.status ?? matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
+     } else {
+         fsStat = matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
+     }
+     fsStat = overrides.fireSuppressionStatus ?? fsStat;
+
      let fsComm = true;
-     if (matchingSeg.fireSuppression?.isCommunicating !== undefined) {
-         fsComm = matchingSeg.fireSuppression.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         fsComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.fireSuppressionCommunicating !== undefined) {
+             fsComm = matchingV1Device.fireSuppressionCommunicating;
+         } else if (matchingSeg.fireSuppression?.isCommunicating !== undefined) {
+             fsComm = matchingSeg.fireSuppression.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.fireSuppression?.isCommunicating !== undefined) {
+             fsComm = matchingSeg.fireSuppression.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             fsComm = matchingFeather.reachable;
+         }
      }
      const fireSuppressionCommunicating = overrides.fireSuppressionCommunicating ?? fsComm;
 
-     const heatStat = overrides.heatStatus ?? matchingSeg.heat?.status ?? "NOT_TRIPPED";
+     let heatStat = "NOT_TRIPPED";
+     if (isV1Primary && matchingV1Device) {
+         heatStat = matchingV1Device.heatStatus ?? matchingV1Device.heat?.status ?? matchingSeg.heat?.status ?? "NOT_TRIPPED";
+     } else {
+         heatStat = matchingSeg.heat?.status ?? "NOT_TRIPPED";
+     }
+     heatStat = overrides.heatStatus ?? heatStat;
+
      let heatComm = true;
-     if (matchingSeg.heat?.isCommunicating !== undefined) {
-         heatComm = matchingSeg.heat.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         heatComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.heatCommunicating !== undefined) {
+             heatComm = matchingV1Device.heatCommunicating;
+         } else if (matchingSeg.heat?.isCommunicating !== undefined) {
+             heatComm = matchingSeg.heat.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.heat?.isCommunicating !== undefined) {
+             heatComm = matchingSeg.heat.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             heatComm = matchingFeather.reachable;
+         }
      }
      const heatCommunicating = overrides.heatCommunicating ?? heatComm;
-     const heatTrippedTimestamp = matchingSeg.heat?.trippedTimestamp || null;
+     const heatTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.heatTrippedTimestamp ?? matchingSeg.heat?.trippedTimestamp ?? null) : (matchingSeg.heat?.trippedTimestamp || null);
 
-     const gasStat = overrides.gasStatus ?? matchingSeg.gas?.status ?? "NOT_TRIPPED";
+     let gasStat = "NOT_TRIPPED";
+     if (isV1Primary && matchingV1Device) {
+         gasStat = matchingV1Device.gasStatus ?? matchingV1Device.gas?.status ?? matchingSeg.gas?.status ?? "NOT_TRIPPED";
+     } else {
+         gasStat = matchingSeg.gas?.status ?? "NOT_TRIPPED";
+     }
+     gasStat = overrides.gasStatus ?? gasStat;
+
      let gasComm = true;
-     if (matchingSeg.gas?.isCommunicating !== undefined) {
-         gasComm = matchingSeg.gas.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         gasComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.gasCommunicating !== undefined) {
+             gasComm = matchingV1Device.gasCommunicating;
+         } else if (matchingSeg.gas?.isCommunicating !== undefined) {
+             gasComm = matchingSeg.gas.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.gas?.isCommunicating !== undefined) {
+             gasComm = matchingSeg.gas.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             gasComm = matchingFeather.reachable;
+         }
      }
      const gasCommunicating = overrides.gasCommunicating ?? gasComm;
-     const gasTrippedTimestamp = matchingSeg.gas?.trippedTimestamp || null;
+     const gasTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.gasTrippedTimestamp ?? matchingSeg.gas?.trippedTimestamp ?? null) : (matchingSeg.gas?.trippedTimestamp || null);
 
-     const smokeStat = overrides.smokeStatus ?? matchingSeg.smoke?.status ?? "NOT_TRIPPED";
+     let smokeStat = "NOT_TRIPPED";
+     if (isV1Primary && matchingV1Device) {
+         smokeStat = matchingV1Device.smokeStatus ?? matchingV1Device.smoke?.status ?? matchingSeg.smoke?.status ?? "NOT_TRIPPED";
+     } else {
+         smokeStat = matchingSeg.smoke?.status ?? "NOT_TRIPPED";
+     }
+     smokeStat = overrides.smokeStatus ?? smokeStat;
+
      let smokeComm = true;
-     if (matchingSeg.smoke?.isCommunicating !== undefined) {
-         smokeComm = matchingSeg.smoke.isCommunicating;
-     } else if (matchingFeather.reachable !== undefined) {
-         smokeComm = matchingFeather.reachable;
+     if (isV1Primary && matchingV1Device) {
+         if (matchingV1Device.smokeCommunicating !== undefined) {
+             smokeComm = matchingV1Device.smokeCommunicating;
+         } else if (matchingSeg.smoke?.isCommunicating !== undefined) {
+             smokeComm = matchingSeg.smoke.isCommunicating;
+         }
+     } else {
+         if (matchingSeg.smoke?.isCommunicating !== undefined) {
+             smokeComm = matchingSeg.smoke.isCommunicating;
+         } else if (matchingFeather.reachable !== undefined) {
+             smokeComm = matchingFeather.reachable;
+         }
      }
      const smokeCommunicating = overrides.smokeCommunicating ?? smokeComm;
-     const smokeTrippedTimestamp = matchingSeg.smoke?.trippedTimestamp || null;
+     const smokeTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.smokeTrippedTimestamp ?? matchingSeg.smoke?.trippedTimestamp ?? null) : (matchingSeg.smoke?.trippedTimestamp || null);
 
      // Severity & findings logic
      const findings: string[] = [];
@@ -610,8 +727,9 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
        overallStatus,
        severity,
        findings,
-       sourcePath: "/turtle/v2/firstresponder/data",
-       raw: matchingSeg || { candidateIp: cand.deviceIp }
+       source: isV1Primary ? "firstresponder_v1" : "firstresponder_v2",
+       sourcePath: isV1Primary ? "/turtle/firstresponder/data" : "/turtle/v2/firstresponder/data",
+       raw: isV1Primary ? (matchingV1Device || { candidateIp: cand.deviceIp }) : (matchingSeg || { candidateIp: cand.deviceIp })
      };
 
      const fullRow = populateLegacyFields(
@@ -670,7 +788,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   return {
     success: true,
     timestamp: new Date().toISOString(),
-    source: "firstresponder_v2",
+    source: isV1Primary ? "firstresponder_v1" : "firstresponder_v2",
     stationCode,
     blockIndex,
     totalCentipedeLineups,
@@ -793,6 +911,7 @@ export function buildSiteSensorSummary(): any {
         overallStatus: overallStatus as "OK" | "WARNING" | "FAULT" | "UNHEALTHY",
         severity: severity as "OK" | "Warning" | "Critical",
         findings,
+        source: "firstresponder_v2",
         sourcePath: "/turtle/v2/firstresponder/data",
         raw: seg
       };

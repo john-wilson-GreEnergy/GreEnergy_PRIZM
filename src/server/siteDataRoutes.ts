@@ -15,14 +15,12 @@ import {
 
 export const siteDataRouter = Router();
 
-siteDataRouter.use(async (req, res, next) => {
+siteDataRouter.use((req, res, next) => {
   if (req.query.refresh === "true") {
-    console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data...`);
-    try {
-      await triggerImmediatePoll();
-    } catch (err: any) {
-      console.error("[Site Data Routes] Immediate poll failed on refresh request", err.message);
-    }
+    console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data in background...`);
+    triggerImmediatePoll().catch((err: any) => {
+      console.error("[Site Data Routes] Immediate background poll failed on refresh request", err.message);
+    });
   }
   next();
 });
@@ -31,8 +29,10 @@ siteDataRouter.get("/snapshot", async (req, res) => {
   try {
     let snap = getLatestSnapshot();
     if (!snap) {
-      console.log("[Site Data Routes] Snapshot not found, triggering immediate poll...");
-      await triggerImmediatePoll();
+      console.log("[Site Data Routes] Snapshot not found, triggering immediate background poll...");
+      triggerImmediatePoll().catch((err: any) => {
+        console.error("[Site Data Routes] Immediate background poll failed", err.message);
+      });
       snap = getLatestSnapshot();
     }
     if (!snap) {

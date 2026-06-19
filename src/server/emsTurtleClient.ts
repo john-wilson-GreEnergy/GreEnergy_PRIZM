@@ -1049,20 +1049,19 @@ export async function bootstrapEmsAndSeedCache() {
     '/tools/monitor/ems/blockviewer/data'
   ];
   
-  let completed = 0;
-  
-  for (const ep of priority1) {
+  console.log('[EMS Bootstrap] Fetching priority feeds in parallel with optimized timeout...');
+  await Promise.allSettled(priority1.map(async (ep) => {
     try {
-      await fetchAndRecord(ep, 5000);
+      await fetchAndRecord(ep, 3000);
       cacheSeedState.completedKeys.push(ep);
     } catch(e) {
       cacheSeedState.failedKeys.push(ep);
     }
-    completed++;
-    cacheSeedState.percentComplete = Math.floor((completed / priority1.length) * 100);
-  }
+  }));
+  
+  cacheSeedState.percentComplete = 85;
 
-  await pollEmsTurtle();
+  await pollEmsTurtle().catch(() => {});
 
   cacheSeedState.running = false;
   cacheSeedState.lastCompletedAt = new Date().toISOString();
