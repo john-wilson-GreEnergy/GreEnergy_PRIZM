@@ -21,6 +21,61 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
     }
 }
 
+function MatrixVisualizer({ mv, temps }: { mv: number[], temps: number[] }) {
+    const [viewMode, setViewMode] = useState<"volts" | "temps">("volts");
+    const listToUse = viewMode === "volts" ? mv : temps;
+    const isVolts = viewMode === "volts";
+
+    return (
+      <div className="space-y-1.5 pt-1 select-none">
+        <div className="flex justify-between items-center">
+           <span className="text-[7.5px] text-prizm-text-muted font-mono uppercase">
+             Raw {isVolts ? "Voltage" : "Temperature"} Grid ({listToUse.length} units)
+           </span>
+           <div className="flex gap-1.5">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setViewMode("volts"); }}
+                className={`px-1 rounded text-[7px] font-bold uppercase font-mono transition-colors ${isVolts ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-prizm-surface text-prizm-text-muted border border-prizm-border/50 hover:text-white"}`}
+              >
+                Volts
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setViewMode("temps"); }}
+                className={`px-1 rounded text-[7px] font-bold uppercase font-mono transition-colors ${!isVolts ? "bg-prizm-primary/20 text-prizm-primary border border-prizm-primary/40" : "bg-prizm-surface text-prizm-text-muted border border-prizm-border/50 hover:text-white"}`}
+              >
+                Temps
+              </button>
+           </div>
+        </div>
+
+        <div 
+           style={{
+             display: "grid",
+             gridTemplateColumns: "repeat(30, minmax(0, 1fr))",
+             gap: "1.5px"
+           }}
+           className="bg-prizm-surface p-1 rounded border border-prizm-border/30"
+        >
+           {listToUse.map((val, idx) => {
+              const opacity = 0.35 + (val % 5) * 0.15;
+              const bgClass = isVolts 
+                ? `rgba(16, 185, 129, ${opacity})`
+                : `rgba(2, 132, 199, ${opacity})`;
+
+              return (
+                <div 
+                  key={idx}
+                  title={`Cell Group ${idx + 1}: Raw compact value ${val}`}
+                  style={{ backgroundColor: bgClass }}
+                  className="aspect-square rounded-[1px] hover:scale-125 transition-transform cursor-pointer"
+                />
+              );
+           })}
+        </div>
+      </div>
+    );
+}
+
 export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const { snapshot, isInitialLoading, refreshNow } = useSiteData();
     const [pcsList, setPcsList] = useState<any[]>([]);
@@ -30,6 +85,9 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     // Default structure fallback
     const [fallbackMode, setFallbackMode] = useState(false);
     const [pcsSource, setPcsSource] = useState("PCS source unavailable or unmapped.");
+
+    // Row selection for array details
+    const [selectedArray, setSelectedArray] = useState<number | null>(null);
 
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
@@ -47,6 +105,12 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                : "Coordinator Site Data Engine"
         };
     }, [snapshot]);
+
+    const arrayDetailsByArray = useMemo(() => {
+        return snapshot?.normalized?.arrayDetailsByArray || {};
+    }, [snapshot]);
+
+    const arrayDetail = selectedArray !== null ? arrayDetailsByArray[selectedArray] : null;
 
     const refreshData = async () => {
         const t0 = performance.now();
@@ -229,7 +293,9 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     </div>
                 )}
 
-                <div className="bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
+                    <div className={selectedArray !== null ? "lg:col-span-7" : "lg:col-span-12"}>
+                        <div className="bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
                     <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>
@@ -259,7 +325,11 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                 const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrRows.length;
 
                                 return (
-                                <tr key={pcs.id} className="group hover:bg-prizm-primary/5 transition-colors">
+                                <tr 
+                                    key={pcs.id} 
+                                    onClick={() => setSelectedArray(pcs.arrayIndex)}
+                                    className={`group hover:bg-prizm-primary/5 cursor-pointer transition-colors ${selectedArray === pcs.arrayIndex ? "bg-prizm-primary/10 border-l border-prizm-primary" : ""}`}
+                                >
                                     <td className="px-1.5 py-1 border-r border-prizm-border/10 bg-transparent text-center">
                                        {isArrFirst ? (
                                          <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer animate-none" 
@@ -349,7 +419,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                         <div className="flex justify-center items-center gap-2">
                                             <button
                                               disabled={rot === "IN"}
-                                              onClick={() => {
+                                              onClick={(e) => {
+                                                e.stopPropagation();
                                                 setModalAction('in');
                                                 setModalTargets([{ array: pcs.arrayIndex, pcs: pcs.pcsIndex }]);
                                                 setModalOpen(true);
@@ -360,7 +431,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                             </button>
                                             <button
                                               disabled={rot === "OUT"}
-                                              onClick={() => {
+                                              onClick={(e) => {
+                                                e.stopPropagation();
                                                 setModalAction('out');
                                                 setModalTargets([{ array: pcs.arrayIndex, pcs: pcs.pcsIndex }]);
                                                 setModalOpen(true);
@@ -379,15 +451,168 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                         </tbody>
                     </table>
                 </div>
+            </div>
 
-                <RotationModal
-                    isOpen={modalOpen}
-                    onClose={() => setModalOpen(false)}
-                    onConfirm={handleConfirm}
-                    targets={modalTargets}
-                    action={modalAction}
-                    targetType="pcs"
-                />
+            {/* Detail Panel Column */}
+            {selectedArray !== null && (
+                <div className="lg:col-span-5 bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-5 flex flex-col h-fit max-h-[85vh] overflow-y-auto no-scrollbar relative animate-in slide-in-from-right duration-200">
+                    {arrayDetail ? (
+                        <>
+                            <div className="flex justify-between items-start border-b border-prizm-border pb-3">
+                                <div>
+                                    <div className="text-[9px] text-[#10b981] font-bold uppercase tracking-wider font-mono select-none">
+                                        ARR INDEX: 0{selectedArray}
+                                    </div>
+                                    <h2 className="text-xs font-bold text-prizm-text font-mono mt-0.5 select-none uppercase">
+                                        SUB-TELEMETRY REPORT
+                                    </h2>
+                                    <p className="text-[8.5px] text-prizm-text-muted font-mono mt-1">
+                                        Last Sample: <span className="text-prizm-text font-bold">{arrayDetail.timestamp ? new Date(Number(arrayDetail.timestamp)).toLocaleTimeString() : "--"}</span>
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedArray(null)}
+                                    className="text-prizm-text-muted hover:text-white hover:border-prizm-primary/50 text-[9px] font-bold font-mono uppercase px-2 py-0.5 border border-prizm-border rounded bg-prizm-surface-strong transition-all select-none"
+                                >
+                                    ✕ Close
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 select-none">
+                                <div className="bg-prizm-surface-strong border border-prizm-border/60 p-2.5 rounded">
+                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">Integration Lineage</div>
+                                    <div className="text-[10px] text-[#10b981] font-bold font-mono mt-0.5 flex items-center gap-1">
+                                        <CheckCircle2 size={10} /> Active Staged Cache
+                                    </div>
+                                    <div className="text-[8px] text-prizm-text-muted font-mono mt-1 break-all uppercase" title={arrayDetail.sourceEndpoint}>
+                                        Endpoint: {arrayDetail.sourceEndpoint}
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-prizm-surface-strong border border-prizm-border/60 p-2.5 rounded">
+                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">System Geometry</div>
+                                    <div className="text-[10px] text-prizm-text font-bold font-mono mt-0.5">
+                                        {arrayDetail.totalBatteryPackCount} Packs / {arrayDetail.cellGroupPerBatteryPackCount} Groups
+                                    </div>
+                                    <div className="text-[8.5px] text-prizm-text-muted font-mono mt-1">
+                                        {arrayDetail.stringCount} Active Battery Strings
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Cached Overall Rollups */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 select-none">
+                                {/* VOLTAGES */}
+                                <div className="border border-[#10b981]/20 bg-[#10b981]/5 rounded p-3 space-y-2">
+                                    <h3 className="text-[9px] font-bold text-[#10b981] font-mono flex items-center gap-1 uppercase">
+                                        VOLTAGES (COMPACT RAW)
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-y-2 gap-x-3 font-mono text-[9px]">
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Min Value</span>
+                                            <span className="text-emerald-400 font-bold">{arrayDetail.rollups.cellVoltageMin ?? "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Max Value</span>
+                                            <span className="text-emerald-400 font-bold">{arrayDetail.rollups.cellVoltageMax ?? "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Average</span>
+                                            <span className="text-prizm-text font-bold">{arrayDetail.rollups.cellVoltageAvg ? Number(arrayDetail.rollups.cellVoltageAvg).toFixed(2) : "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Delta</span>
+                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellVoltageDelta ?? "--"}</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-[7.5px] text-[#10b981]/60 font-mono italic leading-none pt-1">
+                                        * Displaying raw compact telemetry as reported by custom EMS registers.
+                                    </p>
+                                </div>
+
+                                {/* TEMPERATURES */}
+                                <div className="border border-prizm-primary/20 bg-prizm-primary/5 rounded p-3 space-y-2">
+                                    <h3 className="text-[9px] font-bold text-prizm-primary font-mono flex items-center gap-1 uppercase">
+                                        TEMPS (COMPACT RAW)
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-y-2 gap-x-3 font-mono text-[9px]">
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Min Value</span>
+                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellTempMin ?? "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Max Value</span>
+                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellTempMax ?? "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Average</span>
+                                            <span className="text-prizm-text font-bold">{arrayDetail.rollups.cellTempAvg ? Number(arrayDetail.rollups.cellTempAvg).toFixed(2) : "--"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Delta</span>
+                                            <span className="text-yellow-500 font-bold">{arrayDetail.rollups.cellTempDelta ?? "--"}</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-[7.5px] text-prizm-primary/60 font-mono italic leading-none pt-1">
+                                        * Compact values are cautious. Avoid misrepresenting absolute values.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Strings List */}
+                            <div className="space-y-3.5 pt-2">
+                                <div className="text-[9px] text-prizm-text-muted uppercase font-bold font-mono tracking-widest select-none">
+                                    Individual String Profiles
+                                </div>
+                                
+                                {arrayDetail.strings.map((str: any) => (
+                                    <div key={str.id} className="border border-prizm-border rounded bg-prizm-surface-strong p-3 space-y-2 text-left">
+                                        <div className="flex justify-between items-center bg-prizm-surface p-1.5 rounded select-none">
+                                            <span className="text-[9px] font-bold text-prizm-primary font-mono">STRING {str.stringNumber}</span>
+                                            <span className="text-[8px] text-prizm-text-muted font-mono uppercase">
+                                              {str.batteryPackCount} packs / {str.millivolts.length} groups
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-4 gap-2 text-center text-[8px] font-mono select-none">
+                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
+                                              <span className="text-prizm-text-muted block">V MIN</span>
+                                              <span className="text-emerald-400 font-bold">{str.cellVoltageMin ?? "--"}</span>
+                                            </div>
+                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
+                                              <span className="text-prizm-text-muted block">V MAX</span>
+                                              <span className="text-emerald-400 font-bold">{str.cellVoltageMax ?? "--"}</span>
+                                            </div>
+                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
+                                              <span className="text-prizm-text-muted block">T MIN</span>
+                                              <span className="text-prizm-primary font-bold">{str.cellTempMin ?? "--"}</span>
+                                            </div>
+                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
+                                              <span className="text-prizm-text-muted block">T MAX</span>
+                                              <span className="text-prizm-primary font-bold">{str.cellTempMax ?? "--"}</span>
+                                            </div>
+                                        </div>
+
+                                        <MatrixVisualizer mv={str.millivolts} temps={str.temperatures} />
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-xs font-mono text-prizm-text-muted select-none">Loading detail cache for Array {selectedArray}...</div>
+                    )}
+                </div>
+            )}
+        </div>
+
+        <RotationModal
+            isOpen={modalOpen}
+            onClose={() => setModalOpen(false)}
+            onConfirm={handleConfirm}
+            targets={modalTargets}
+            action={modalAction}
+            targetType="pcs"
+        />
             </div>
         </div>
     );

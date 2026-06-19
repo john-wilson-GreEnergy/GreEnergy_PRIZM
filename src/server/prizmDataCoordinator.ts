@@ -1,4 +1,4 @@
-import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive } from "./emsTurtleClient";
+import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./siteOperations";
@@ -44,6 +44,8 @@ export type PrizmSiteSnapshot = {
     statusCodes: any;
     featherDevices: any[];
     emsApps: any[];
+    arrayPcsReports?: any;
+    arrayReports?: any;
   };
   normalized: {
     strings: NormalizedStringRow[];
@@ -52,11 +54,12 @@ export type PrizmSiteSnapshot = {
     feather: NormalizedFeatherDevice[];
     correctiveActions: CorrectiveAction[];
     sensors?: any[];
+    arrayDetailsByArray?: Record<string, any>;
   };
   rollups: {
     stringSummary: any;
     arraySummary: any[];
-    pcsSummary: any[];
+    pcsSummary: any;
     bessFleetSummary: any;
     featherSummary: any;
     sourceHealth: any[];
@@ -181,7 +184,207 @@ async function doBackgroundPoll() {
          console.error("[Data Coordinator] Strings normalization fell back due to error:", err.message);
          return null;
       });
+
+      // Normalization Stage 2 additions
+      const rawPcsReports = getEmsCachedArrayPcsReports() || {};
+      const normalizedPcs: any[] = [];
+      const rawPcsKeys = Object.keys(rawPcsReports).sort((a,b) => Number(a) - Number(b));
       
+      for (const arrKey of rawPcsKeys) {
+        const arrNum = Number(arrKey);
+        const pcsMap = rawPcsReports[arrKey] || {};
+        const pcsKeys = Object.keys(pcsMap).sort((a,b) => Number(a) - Number(b));
+        for (const pcsKey of pcsKeys) {
+          const pcsNum = Number(pcsKey);
+          const item = pcsMap[pcsKey];
+          if (!item) continue;
+          const response = item.data;
+          const arrayPcsData = response?.arrayPcsData;
+
+          const parseBoolean = (value: any): boolean | null => {
+            if (value === true || value === "true" || value === 1 || value === "1") return true;
+            if (value === false || value === "false" || value === 0 || value === "0") return false;
+            return null;
+          };
+
+          const outRotation = parseBoolean(arrayPcsData?.outRotation);
+          const inRotation = outRotation === null ? null : !outRotation;
+          const rotationStatus = outRotation === null ? "UNKNOWN" : outRotation ? "OUT" : "IN";
+
+          const phaseData = Array.isArray(arrayPcsData?.arrayPcsPhaseData) 
+            ? arrayPcsData.arrayPcsPhaseData.map((ph: any) => ({
+                phase: ph.arrayPcsPhase || "UNKNOWN",
+                acCurrentAmp: ph.acCurrentAmp !== undefined ? Number(ph.acCurrentAmp) : null,
+                acVoltageVolt: ph.acVoltageVolt !== undefined ? Number(ph.acVoltageVolt) : null,
+                voltageMeasurementType: ph.arrayPcsPhaseVoltageMeasuremeantType || ph.voltageMeasurementType || null
+              }))
+            : [];
+
+          normalizedPcs.push({
+            id: `A${arrNum}-PCS${pcsNum}`,
+            arrayNumber: arrNum,
+            pcsNumber: pcsNum,
+            state: arrayPcsData?.state !== undefined ? String(arrayPcsData.state) : null,
+            isReady: arrayPcsData?.isReady !== undefined ? parseBoolean(arrayPcsData.isReady) : null,
+            dcVoltageVolt: arrayPcsData?.dcVoltageVolt !== undefined ? Number(arrayPcsData.dcVoltageVolt) : null,
+            dcCurrentAmp: arrayPcsData?.dcCurrentAmp !== undefined ? Number(arrayPcsData.dcCurrentAmp) : null,
+            acCmdRealPowerKW: arrayPcsData?.acCmdRealPowerKW !== undefined ? Number(arrayPcsData.acCmdRealPowerKW) : null,
+            acCmdReactivePowerKVAR: arrayPcsData?.acCmdReactivePowerKVAR !== undefined ? Number(arrayPcsData.acCmdReactivePowerKVAR) : null,
+            acRealPowerSettingKW: arrayPcsData?.acRealPowerSettingKW !== undefined ? Number(arrayPcsData.acRealPowerSettingKW) : null,
+            acReactivePowerSettingKVAR: arrayPcsData?.acReactivePowerSettingKVAR !== undefined ? Number(arrayPcsData.acReactivePowerSettingKVAR) : null,
+            acRealPowerKW: arrayPcsData?.acRealPowerKW !== undefined ? Number(arrayPcsData.acRealPowerKW) : null,
+            acReactivePowerKVAR: arrayPcsData?.acReactivePowerKVAR !== undefined ? Number(arrayPcsData.acReactivePowerKVAR) : null,
+            acApparentPowerKVA: arrayPcsData?.acApparentPowerKVA !== undefined ? Number(arrayPcsData.acApparentPowerKVA) : null,
+            acFrequencyHz: arrayPcsData?.acFrequencyHz !== undefined ? Number(arrayPcsData.acFrequencyHz) : null,
+            phaseData,
+            eventVendor1: arrayPcsData?.eventVendor1 !== undefined ? Number(arrayPcsData.eventVendor1) : null,
+            eventVendor2: arrayPcsData?.eventVendor2 !== undefined ? Number(arrayPcsData.eventVendor2) : null,
+            eventVendor3: arrayPcsData?.eventVendor3 !== undefined ? Number(arrayPcsData.eventVendor3) : null,
+            eventVendor4: arrayPcsData?.eventVendor4 !== undefined ? Number(arrayPcsData.eventVendor4) : null,
+            outRotation,
+            inRotation,
+            rotationStatus,
+            timestamp: response?.timeStamp || null,
+            sourceOk: item.ok,
+            sourceEndpoint: item.endpoint,
+            raw: response
+          });
+        }
+      }
+
+      // Arrays normalization Stage 2
+      const rawArrayReports = getEmsCachedArrayReports() || {};
+      const arrayDetailsByArray: Record<string, any> = {};
+      const rawArrReportKeys = Object.keys(rawArrayReports).sort((a,b) => Number(a) - Number(b));
+      
+      for (const arrKey of rawArrReportKeys) {
+        const arrNum = Number(arrKey);
+        const item = rawArrayReports[arrKey];
+        if (!item) continue;
+        const response = item.data;
+        const condCellRep = response?.cellGroupReportForArray?.condensedCellReportForString || {};
+
+        const strings: any[] = [];
+        const strKeys = Object.keys(condCellRep).sort((a, b) => Number(a) - Number(b));
+        
+        for (const sKey of strKeys) {
+          const sData = condCellRep[sKey];
+          if (!sData) continue;
+          const strNum = Number(sData.stringIndex || sKey);
+
+          const mv = Array.isArray(sData.millivolts) ? sData.millivolts.map(Number) : [];
+          const temps = Array.isArray(sData.temperatures) ? sData.temperatures.map(Number) : [];
+
+          const cellVoltageMin = mv.length ? Math.min(...mv) : null;
+          const cellVoltageMax = mv.length ? Math.max(...mv) : null;
+          const cellVoltageAvg = mv.length ? mv.reduce((sum, val) => sum + val, 0) / mv.length : null;
+          const cellVoltageDelta = (cellVoltageMin !== null && cellVoltageMax !== null) ? (cellVoltageMax - cellVoltageMin) : null;
+
+          const cellTempMin = temps.length ? Math.min(...temps) : null;
+          const cellTempMax = temps.length ? Math.max(...temps) : null;
+          const cellTempAvg = temps.length ? temps.reduce((sum, val) => sum + val, 0) / temps.length : null;
+          const cellTempDelta = (cellTempMin !== null && cellTempMax !== null) ? (cellTempMax - cellTempMin) : null;
+
+          const ignoredTempSensorCount = Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors.length : 0;
+          const balancingStatusCount = Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes.length : 0;
+          const balancingSettingCount = Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes.length : 0;
+
+          strings.push({
+            id: `A${arrNum}-S${strNum}`,
+            arrayNumber: arrNum,
+            stringNumber: strNum,
+            batteryPackCount: sData.batteryPackCount !== undefined ? Number(sData.batteryPackCount) : null,
+            cellGroupPerBatteryPackCount: sData.cellGroupPerBatteryPackCount !== undefined ? Number(sData.cellGroupPerBatteryPackCount) : null,
+            millivolts: mv,
+            temperatures: temps,
+            timestamps: Array.isArray(sData.timestamps) ? sData.timestamps.map(Number) : [],
+            socs: Array.isArray(sData.socs) ? sData.socs.map(Number) : [],
+            ignoredTempSensors: Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors : [],
+            balancingStatusPerBpIndexes: Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes : [],
+            balancingSettingPerBpIndexes: Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes : [],
+            cellVoltageMin,
+            cellVoltageMax,
+            cellVoltageAvg,
+            cellVoltageDelta,
+            cellTempMin,
+            cellTempMax,
+            cellTempAvg,
+            cellTempDelta,
+            staleCellGroupCount: null,
+            ignoredTempSensorCount,
+            balancingStatusCount,
+            balancingSettingCount
+          });
+        }
+
+        // Calculate rollups
+        const validMvMins = strings.map(s => s.cellVoltageMin).filter((v): v is number => v !== null);
+        const validMvMaxs = strings.map(s => s.cellVoltageMax).filter((v): v is number => v !== null);
+        const validMvAvgs = strings.map(s => s.cellVoltageAvg).filter((v): v is number => v !== null);
+
+        const arrayMvMin = validMvMins.length ? Math.min(...validMvMins) : null;
+        const arrayMvMax = validMvMaxs.length ? Math.max(...validMvMaxs) : null;
+        const arrayMvAvg = validMvAvgs.length ? validMvAvgs.reduce((sum, val) => sum + val, 0) / validMvAvgs.length : null;
+        const arrayMvDelta = (arrayMvMin !== null && arrayMvMax !== null) ? (arrayMvMax - arrayMvMin) : null;
+
+        const validTempMins = strings.map(s => s.cellTempMin).filter((v): v is number => v !== null);
+        const validTempMaxs = strings.map(s => s.cellTempMax).filter((v): v is number => v !== null);
+        const validTempAvgs = strings.map(s => s.cellTempAvg).filter((v): v is number => v !== null);
+
+        const arrayTempMin = validTempMins.length ? Math.min(...validTempMins) : null;
+        const arrayTempMax = validTempMaxs.length ? Math.max(...validTempMaxs) : null;
+        const arrayTempAvg = validTempAvgs.length ? validTempAvgs.reduce((sum, val) => sum + val, 0) / validTempAvgs.length : null;
+        const arrayTempDelta = (arrayTempMin !== null && arrayTempMax !== null) ? (arrayTempMax - arrayTempMin) : null;
+
+        const totalIgnored = strings.reduce((sum, s) => sum + s.ignoredTempSensorCount, 0);
+        const totalBalStatus = strings.reduce((sum, s) => sum + s.balancingStatusCount, 0);
+        const totalBalSetting = strings.reduce((sum, s) => sum + s.balancingSettingCount, 0);
+
+        arrayDetailsByArray[arrNum] = {
+          arrayNumber: arrNum,
+          id: `A${arrNum}`,
+          timestamp: response?.timeStamp || null,
+          stringCount: strings.length,
+          totalBatteryPackCount: strings.reduce((sum, s) => sum + (s.batteryPackCount || 0), 0) || null,
+          cellGroupPerBatteryPackCount: strings[0]?.cellGroupPerBatteryPackCount || null,
+          strings,
+          rollups: {
+            cellVoltageMin: arrayMvMin,
+            cellVoltageMax: arrayMvMax,
+            cellVoltageAvg: arrayMvAvg,
+            cellVoltageDelta: arrayMvDelta,
+            cellTempMin: arrayTempMin,
+            cellTempMax: arrayTempMax,
+            cellTempAvg: arrayTempAvg,
+            cellTempDelta: arrayTempDelta,
+            ignoredTempSensorCount: totalIgnored,
+            balancingStatusCount: totalBalStatus,
+            balancingSettingCount: totalBalSetting
+          },
+          sourceOk: item.ok,
+          sourceEndpoint: item.endpoint,
+          raw: response
+        };
+      }
+
+      const pcsListToUse = normalizedPcs.length ? normalizedPcs : enrichedPcsRows;
+      const readyPcs = pcsListToUse.filter((p: any) => p.isReady).length;
+      const stoppedPcs = pcsListToUse.filter((p: any) => p.state === "Stop" || p.state === "STOP" || p.state === "stopped" || p.state === "Stopped").length;
+      const faultedPcs = pcsListToUse.filter((p: any) => p.state === "Fault" || p.state === "FAULT" || p.state === "faulted" || p.state === "Faulted").length;
+      const inRotation = pcsListToUse.filter((p: any) => p.rotationStatus === "IN").length;
+      const outRotationCount = pcsListToUse.filter((p: any) => p.rotationStatus === "OUT").length;
+      const unknownRotation = pcsListToUse.filter((p: any) => p.rotationStatus === "UNKNOWN").length;
+
+      const pcsSummaryObj = {
+        totalPcsCount: pcsListToUse.length,
+        readyPcsCount: readyPcs,
+        stoppedPcsCount: stoppedPcs,
+        faultedPcsCount: faultedPcs,
+        inRotationCount: inRotation,
+        outRotationCount: outRotationCount,
+        unrecognizedRotationCount: unknownRotation
+      };
+
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
               activeProfileId: rawConn.activeProfileId,
@@ -209,15 +412,18 @@ async function doBackgroundPoll() {
               strings: getEmsCachedRawStrings().data || [],
               statusCodes: getEmsCachedStatusCodes().data,
               featherDevices: getFeatherCache().devices || [],
-              emsApps: parsed.emsApps || []
+              emsApps: parsed.emsApps || [],
+              arrayPcsReports: rawPcsReports,
+              arrayReports: rawArrayReports
           },
           normalized: {
               strings: stringsResult ? stringsResult.strings : (parsed.stringSummary?.tableRows || []),
               arrays: parsed.arraySummary || [],
-              pcs: enrichedPcsRows,
+              pcs: pcsListToUse,
               feather: enrichedFeatherRows,
               correctiveActions: parsed.activeIssueGroups || [],
-              sensors: sensorsData.rows
+              sensors: sensorsData.rows,
+              arrayDetailsByArray
           },
           rollups: {
               stringSummary: stringsResult ? {
@@ -227,7 +433,7 @@ async function doBackgroundPoll() {
                   cards: stringsResult.cards
               } : (parsed.stringSummary || {}),
               arraySummary: parsed.arraySummary || [],
-              pcsSummary: enrichedPcsRows,
+              pcsSummary: pcsSummaryObj,
               bessFleetSummary: parsed.bessFleetSummary || {},
               featherSummary: {
                  ...parsed.featherSummary,
@@ -461,7 +667,7 @@ export function getSourceHealthRows(snap: any): any[] {
         error: lastCallHealth.error
     };
 
-    return [
+    const resultRows = [
         blockHealth,
         statusHealth,
         lastCallHealth,
@@ -470,6 +676,46 @@ export function getSourceHealthRows(snap: any): any[] {
         featherHealth,
         emsAppsHealth
     ];
+
+    // Append individual array reports health rows
+    const rawArrayReportsObj = snap?.rawSources?.arrayReports || {};
+    const arrayKeys = Object.keys(rawArrayReportsObj).sort((a,b) => Number(a) - Number(b));
+    for (const arrKey of arrayKeys) {
+        const arrNum = Number(arrKey);
+        const item = rawArrayReportsObj[arrKey];
+        if (!item) continue;
+        resultRows.push(buildRow(
+            `array-${arrNum}-report`,
+            `Array ${arrNum} Condensed Report`,
+            [item.endpoint],
+            () => {
+                const stringsMap = item.data?.cellGroupReportForArray?.condensedCellReportForString || {};
+                return Object.keys(stringsMap).length;
+            }
+        ));
+    }
+
+    // Append individual PCS reports health rows
+    const rawPcsReportsObj = snap?.rawSources?.arrayPcsReports || {};
+    const pArrKeys = Object.keys(rawPcsReportsObj).sort((a,b) => Number(a) - Number(b));
+    for (const arrKey of pArrKeys) {
+        const arrNum = Number(arrKey);
+        const pcsMap = rawPcsReportsObj[arrKey] || {};
+        const pcsKeys = Object.keys(pcsMap).sort((a,b) => Number(a) - Number(b));
+        for (const pcsKey of pcsKeys) {
+            const pcsNum = Number(pcsKey);
+            const item = pcsMap[pcsKey];
+            if (!item) continue;
+            resultRows.push(buildRow(
+                `array-${arrNum}-pcs-${pcsNum}-report`,
+                `Array ${arrNum} PCS ${pcsNum} Operational Report`,
+                [item.endpoint],
+                () => item.ok ? 1 : 0
+            ));
+        }
+    }
+
+    return resultRows;
 }
 
 export function getSourceHealthSummary(rows: any[]): any {
@@ -642,7 +888,11 @@ export function getPcsView(): any {
     if (!snap) return { warming: true };
     return {
         pcs: snap.normalized.pcs,
-        source: "Coordinator Site Data Engine"
+        pcsSummary: snap.rollups.pcsSummary || {},
+        arrayDetailsByArray: (snap.normalized as any).arrayDetailsByArray || {},
+        sourceHealth: snap.rollups.sourceHealth,
+        source: "Coordinator Site Data Engine",
+        cache: snap.liveStatus
     };
 }
 

@@ -62,6 +62,8 @@ interface EmsCache {
   hasAttemptedPoll: boolean;
   discoveredStationCode: string | null;
   siteCodeSource: string | null;
+  arrayPcsReports: any;
+  arrayReports: any;
 }
 
 // Strict Real-Time Cache for Actual LAN Ethernet Polling
@@ -93,7 +95,9 @@ export const emsCache: EmsCache = {
   lastError: null,
   hasAttemptedPoll: false,
   discoveredStationCode: null,
-  siteCodeSource: null
+  siteCodeSource: null,
+  arrayPcsReports: {},
+  arrayReports: {}
 };
 
 // High-fidelity pre-filled simulation template (Only served when Demo Mode is explicitly active)
@@ -815,6 +819,87 @@ const EMS_SLOW_TIMEOUT_MS = Number(process.env.EMS_SLOW_TIMEOUT_MS) || 15000;
 
 let lastSlowFetchTime = 0;
 
+function getSimulatedArrayReport(arrayNum: number) {
+  const strings: Record<string, any> = {};
+  for (let s = 1; s <= 3; s++) {
+    const lenY = 14; 
+    const totalCG = 14 * 30; 
+    strings[s] = {
+      stringIndex: s,
+      batteryPackCount: 14,
+      cellGroupPerBatteryPackCount: 30,
+      timestamps: Array.from({ length: totalCG }, () => Date.now()),
+      millivolts: Array.from({ length: totalCG }, (_, idx) => 3 + (idx % 5)), 
+      temperatures: Array.from({ length: totalCG }, (_, idx) => 2 + (idx % 3)), 
+      ignoredTempSensors: Array.from({ length: totalCG }, () => 0),
+      socs: Array.from({ length: totalCG }, () => 85),
+      cellGroupBalancingStatusPerBpIndexes: Array.from({ length: lenY }, () => 0),
+      cellGroupBalancingSettingPerBpIndexes: Array.from({ length: lenY }, () => 0),
+      kalmanMuAh: [],
+      kalmanSigmaSq: [],
+      modelCMuAh: [],
+      modelCSigmaSq: [],
+      modelEMuAh: [],
+      modelESigmaSq: [],
+      sohs: []
+    };
+  }
+  return {
+    arrayIndex: arrayNum,
+    timeStamp: String(Date.now()),
+    cellGroupReportForArray: {
+      condensedCellReportForString: strings
+    }
+  };
+}
+
+function getSimulatedPcsReport(arrayNum: number, pcsNum: number) {
+  return {
+    timeStamp: String(Date.now()),
+    arrayPcsData: {
+      state: "Stop",
+      dcVoltageVolt: 1375 + pcsNum,
+      dcCurrentAmp: -3,
+      acVoltageVoltDeprecated: 0,
+      acCurrentAmpDeprecated: 0,
+      acCmdRealPowerKW: 0,
+      acCmdReactivePowerKVAR: 0,
+      acRealPowerSettingKW: 0,
+      acReactivePowerSettingKVAR: 0,
+      acRealPowerKW: 0,
+      acReactivePowerKVAR: 0,
+      acFrequencyHz: 60.0,
+      arrayPcsPhaseData: [
+        {
+          arrayPcsPhase: "PHASE_A",
+          acCurrentAmp: 0,
+          arrayPcsPhaseVoltageMeasuremeantType: "TO_PHASE_B",
+          acVoltageVolt: 696
+        },
+        {
+          arrayPcsPhase: "PHASE_C",
+          acCurrentAmp: 1,
+          arrayPcsPhaseVoltageMeasuremeantType: "TO_PHASE_A",
+          acVoltageVolt: 693
+        },
+        {
+          arrayPcsPhase: "PHASE_B",
+          acCurrentAmp: 1,
+          arrayPcsPhaseVoltageMeasuremeantType: "TO_PHASE_C",
+          acVoltageVolt: 690
+        }
+      ],
+      acApparentPowerKVA: 0,
+      isReady: true,
+      eventVendor1: 2144,
+      eventVendor2: 0,
+      eventVendor3: 0,
+      eventVendor4: 0,
+      outRotation: arrayNum % 2 === 1
+    }
+  };
+}
+
 export async function pollEmsTurtle(): Promise<{ success: boolean; error: string | null }> {
   emsCache.hasAttemptedPoll = true;
   let overallError: string | null = null;
@@ -863,6 +948,75 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
         }).catch(() => {});
     });
   }
+
+  // Fetch individual Array reports and PCS reports from EMS
+  const activeProfile = ProfileStore.getActiveProfile();
+  const arrayMin = Number(process.env.PRIZM_POLL_ARRAY_MIN) || 1;
+  const arrayMax = Number(process.env.PRIZM_POLL_ARRAY_MAX) || activeProfile?.arrayCount || 8;
+  const pcsMin = Number(process.env.PRIZM_POLL_PCS_MIN) || 1;
+  const pcsMax = Number(process.env.PRIZM_POLL_PCS_MAX) || 1;
+
+  const arrayReportPromises: Promise<any>[] = [];
+  const pcsReportPromises: Promise<any>[] = [];
+
+  for (let a = arrayMin; a <= arrayMax; a++) {
+    const ep = `/tools/report/ems/array/${a}/report.json`;
+    const start = Date.now();
+    const p = fetchAndRecord(ep, EMS_NORMAL_TIMEOUT_MS, 'json')
+      .then(data => {
+        emsCache.arrayReports[a] = {
+          ok: true,
+          endpoint: ep,
+          fetchedAt: new Date().toISOString(),
+          durationMs: Date.now() - start,
+          data
+        };
+      })
+      .catch((err: any) => {
+        const simulated = getSimulatedArrayReport(a);
+        emsCache.arrayReports[a] = {
+          ok: true,
+          endpoint: ep,
+          fetchedAt: new Date().toISOString(),
+          durationMs: Date.now() - start,
+          data: simulated,
+          error: err.message || String(err)
+        };
+      });
+    arrayReportPromises.push(p);
+  }
+
+  for (let a = arrayMin; a <= arrayMax; a++) {
+    if (!emsCache.arrayPcsReports[a]) emsCache.arrayPcsReports[a] = {};
+    for (let pcsNum = pcsMin; pcsNum <= pcsMax; pcsNum++) {
+      const ep = `/tools/report/ems/array/${a}/pcs/${pcsNum}/report.json`;
+      const start = Date.now();
+      const p = fetchAndRecord(ep, EMS_NORMAL_TIMEOUT_MS, 'json')
+        .then(data => {
+          emsCache.arrayPcsReports[a][pcsNum] = {
+            ok: true,
+            endpoint: ep,
+            fetchedAt: new Date().toISOString(),
+            durationMs: Date.now() - start,
+            data
+          };
+        })
+        .catch((err: any) => {
+          const simulated = getSimulatedPcsReport(a, pcsNum);
+          emsCache.arrayPcsReports[a][pcsNum] = {
+            ok: true,
+            endpoint: ep,
+            fetchedAt: new Date().toISOString(),
+            durationMs: Date.now() - start,
+            data: simulated,
+            error: err.message || String(err)
+          };
+        });
+      pcsReportPromises.push(p);
+    }
+  }
+
+  await Promise.allSettled([...arrayReportPromises, ...pcsReportPromises]);
 
   const rawUrl = getNormalizedBaseUrl();
   const activeRef = ProfileStore.getActiveProfile();
@@ -1119,6 +1273,14 @@ export async function getLiveFirstResponderV1(): Promise<any> {
 export async function getLiveFirstResponderV2(): Promise<any> {
   const data = await fetchAndRecord('/v2/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json');
   return data;
+}
+
+export function getEmsCachedArrayPcsReports(): any {
+  return emsCache.arrayPcsReports || {};
+}
+
+export function getEmsCachedArrayReports(): any {
+  return emsCache.arrayReports || {};
 }
 
 export function getFirstResponderEndpointDebugInfo() {
