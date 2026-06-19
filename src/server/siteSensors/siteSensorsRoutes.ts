@@ -368,7 +368,17 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   }
 
   const v1Devices = rawV1 ? (Array.isArray(rawV1) ? rawV1 : (rawV1.devices || [])) : [];
-  const isV1Primary = v1Devices.length > 0;
+
+  let v1Enclosures: any[] = [];
+  if (rawV1) {
+    if (Array.isArray(rawV1.enclosures)) {
+      v1Enclosures = rawV1.enclosures;
+    } else if (rawV1.data && Array.isArray(rawV1.data.enclosures)) {
+      v1Enclosures = rawV1.data.enclosures;
+    }
+  }
+
+  const isV1Primary = v1Enclosures.length > 0;
 
   const stationCode = rawV2.stationCode || "BHE0021";
   const blockIndex = rawV2.blockIndex || 1;
@@ -441,320 +451,339 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   let totalTrippedSensors = 0;
   let totalNonCommunicating = 0;
 
-  for (const cand of candidateRows) {
-     const arrayIndex = cand.arrayIndex ?? 1;
-     const lineupId = cand.lineupId ?? (arrayIndex + 140);
-     const segmentId = cand.segment;
-     const uniqueId = `segment-${lineupId}-${segmentId}`;
-
-     // Local simulator overrides
-     const overrides = siteSensorOverrides[uniqueId] || {};
-
-     // Find in live v2 payloads if available
-     const matchingLineup = centipedeLineups.find((l: any) => l.lineupId === lineupId);
-     const matchingSeg: any = matchingLineup?.segments?.find((s: any) => s.segmentId === segmentId) || {};
-
-     // Look up in cached feather devices
-     const matchingFeather: any = fDevices.find((d: any) => (d.ip || d.deviceIp) === cand.deviceIp) || {};
-
-     // Match firstresponder v1 device
-     const matchingV1Device: any = v1Devices.find((d: any) => (d.ipAddress || d.ip) === cand.deviceIp) || null;
-
-     const segmentType = overrides.segmentType ?? ( cand.isCollectionSegment ? "CollectionSegment" : "EnergySegment" );
-
-     // Resolve communicativeness
-     let segComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.reachable !== undefined) {
-             segComm = matchingV1Device.reachable;
-         } else if (matchingV1Device.isCommunicating !== undefined) {
-             segComm = matchingV1Device.isCommunicating;
-         } else if (matchingV1Device.connected !== undefined) {
-             segComm = matchingV1Device.connected;
-         } else if (matchingSeg.isCommunicating !== undefined) {
-             segComm = matchingSeg.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.isCommunicating !== undefined) {
-             segComm = matchingSeg.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             segComm = matchingFeather.reachable;
-         }
+  if (isV1Primary) {
+     for (const e of v1Enclosures) {
+        const lineupId = Number(e.lineupId || e.lineup || 141);
+        const segmentId = Number(e.segmentId || e.segment || e.id || e.index || 101);
+        const segmentType = e.segmentType || e.type || "EnergySegment";
+        const segmentCommunicating = e.segmentCommunicating !== undefined ? !!e.segmentCommunicating : (e.communicating !== undefined ? !!e.communicating : (e.reachable !== undefined ? !!e.reachable : true));
+        
+        let temperatureValue = e.temperatureValue !== undefined ? Number(e.temperatureValue) : (e.temperature?.value !== undefined ? Number(e.temperature.value) : (e.cellTemp !== undefined ? Number(e.cellTemp) : (e.temp !== undefined ? Number(e.temp) : 70)));
+        const temperatureUnit = e.temperatureUnit || "F";
+        const temperatureStatus = e.temperatureStatus || e.temperature?.status || (temperatureValue > 115 ? "HIGH" : "NOT_HIGH");
+        const temperatureCommunicating = e.temperatureCommunicating !== undefined ? !!e.temperatureCommunicating : (e.temperature?.isCommunicating !== undefined ? !!e.temperature.isCommunicating : true);
+        
+        const fireSuppressionStatus = e.fireSuppressionStatus || e.fireSuppression?.status || "NOT_TRIPPED";
+        const fireSuppressionCommunicating = e.fireSuppressionCommunicating !== undefined ? !!e.fireSuppressionCommunicating : (e.fireSuppression?.isCommunicating !== undefined ? !!e.fireSuppression.isCommunicating : true);
+        
+        const heatStatus = e.heatStatus || e.heat?.status || "NOT_TRIPPED";
+        const heatCommunicating = e.heatCommunicating !== undefined ? !!e.heatCommunicating : (e.heat?.isCommunicating !== undefined ? !!e.heat.isCommunicating : true);
+        const heatTrippedTimestamp = e.heatTrippedTimestamp || e.heat?.trippedTimestamp || null;
+        
+        const gasStatus = e.gasStatus || e.gas?.status || "NOT_TRIPPED";
+        const gasCommunicating = e.gasCommunicating !== undefined ? !!e.gasCommunicating : (e.gas?.isCommunicating !== undefined ? !!e.gas.isCommunicating : true);
+        const gasTrippedTimestamp = e.gasTrippedTimestamp || e.gas?.trippedTimestamp || null;
+        
+        const smokeStatus = e.smokeStatus || e.smoke?.status || "NOT_TRIPPED";
+        const smokeCommunicating = e.smokeCommunicating !== undefined ? !!e.smokeCommunicating : (e.smoke?.isCommunicating !== undefined ? !!e.smoke.isCommunicating : true);
+        const smokeTrippedTimestamp = e.smokeTrippedTimestamp || e.smoke?.trippedTimestamp || null;
+        
+        const findings: string[] = [];
+        let severity: "OK" | "Warning" | "Critical" = "OK";
+        
+        if (!segmentCommunicating) {
+           findings.push("Segment communications link offline");
+           severity = "Critical";
+           totalNonCommunicating++;
+        }
+        if (temperatureStatus === "HIGH") {
+           findings.push(`High Temperature alert: ${temperatureValue}°${temperatureUnit}`);
+           severity = "Critical";
+           totalHighTempSegments++;
+        }
+        if (!temperatureCommunicating && segmentCommunicating) {
+           findings.push("Temperature sensor communications loss");
+           if (severity !== "Critical") severity = "Warning";
+        }
+        if (isAbnormalStatus(heatStatus)) {
+           findings.push(`Heat sensor physical trip: ${heatStatus}`);
+           severity = "Critical";
+           totalTrippedSensors++;
+        }
+        if (isAbnormalStatus(gasStatus)) {
+           findings.push(`Gas sensor physical trip: ${gasStatus}`);
+           severity = "Critical";
+           totalTrippedSensors++;
+        }
+        if (isAbnormalStatus(smokeStatus)) {
+           findings.push(`Smoke sensor physical trip: ${smokeStatus}`);
+           severity = "Critical";
+           totalTrippedSensors++;
+        }
+        if (isAbnormalStatus(fireSuppressionStatus)) {
+           findings.push(`Fire Suppression control fault: ${fireSuppressionStatus}`);
+           severity = "Critical";
+           totalTrippedSensors++;
+        }
+        if (severity !== "OK") {
+           totalAbnormalSegments++;
+        }
+        
+        const overallStatus = findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK";
+        
+        const rowWithoutLegacy = {
+          stationCode,
+          blockIndex,
+          lineupId,
+          segmentId,
+          segmentType,
+          siteConnected,
+          segmentCommunicating,
+          temperatureValue,
+          temperatureUnit,
+          temperatureStatus,
+          temperatureCommunicating,
+          fireSuppressionStatus,
+          fireSuppressionCommunicating,
+          heatStatus,
+          heatCommunicating,
+          heatTrippedTimestamp,
+          gasStatus,
+          gasCommunicating,
+          gasTrippedTimestamp,
+          smokeStatus,
+          smokeCommunicating,
+          smokeTrippedTimestamp,
+          overallStatus: overallStatus as any,
+          severity,
+          findings,
+          source: "firstresponder_v1",
+          sourcePath: "/turtle/firstresponder/data/enclosures[]",
+          raw: e
+        };
+        
+        const fullRow = populateLegacyFields(
+          rowWithoutLegacy,
+          lineupId,
+          segmentId,
+          segmentType,
+          severity,
+          overallStatus as any,
+          temperatureValue,
+          temperatureUnit,
+          temperatureStatus,
+          temperatureCommunicating,
+          segmentCommunicating,
+          heatStatus,
+          heatCommunicating,
+          gasStatus,
+          gasCommunicating,
+          smokeStatus,
+          smokeCommunicating,
+          fireSuppressionStatus,
+          e.ipAddress || e.ip || e.deviceIp
+        );
+        
+        rows.push(fullRow);
      }
-     const segmentCommunicating = overrides.segmentCommunicating ?? segComm;
+  } else {
+     for (const cand of candidateRows) {
+        const arrayIndex = cand.arrayIndex ?? 1;
+        const lineupId = cand.lineupId ?? (arrayIndex + 140);
+        const segmentId = cand.segment;
+        const uniqueId = `segment-${lineupId}-${segmentId}`;
 
-     // Resolve temperature values (standard or converted to F based on site state)
-     let tempVal = 70;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.cellTemp !== undefined && matchingV1Device.cellTemp !== null) {
-             const tc = Number(matchingV1Device.cellTemp);
-             tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
-         } else if (matchingV1Device.ambientTemp !== undefined && matchingV1Device.ambientTemp !== null) {
-             const ta = Number(matchingV1Device.ambientTemp);
-             tempVal = tempUnit === "F" ? (ta * 1.8 + 32) : ta;
-         } else if (matchingV1Device.temperature !== undefined && matchingV1Device.temperature !== null) {
-             const t = Number(matchingV1Device.temperature);
-             tempVal = t;
-         } else if (matchingSeg.temperature?.value !== undefined) {
-             tempVal = Number(matchingSeg.temperature.value);
-         }
-     } else {
-         if (matchingSeg.temperature?.value !== undefined) {
-             tempVal = Number(matchingSeg.temperature.value);
-         } else if (matchingFeather.spaceTemperatureC !== undefined && matchingFeather.spaceTemperatureC !== null) {
-             const st = Number(matchingFeather.spaceTemperatureC);
-             tempVal = tempUnit === "F" ? (st * 1.8 + 32) : st;
-         } else if (matchingFeather.temperatureCellC !== undefined && matchingFeather.temperatureCellC !== null) {
-             const tc = Number(matchingFeather.temperatureCellC);
-             tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
-         }
+        // Local simulator overrides
+        const overrides = siteSensorOverrides[uniqueId] || {};
+
+        // Find in live v2 payloads if available
+        const matchingLineup = centipedeLineups.find((l: any) => l.lineupId === lineupId);
+        const matchingSeg: any = matchingLineup?.segments?.find((s: any) => s.segmentId === segmentId) || {};
+
+        // Look up in cached feather devices
+        const matchingFeather: any = fDevices.find((d: any) => (d.ip || d.deviceIp) === cand.deviceIp) || {};
+
+        const segmentType = overrides.segmentType ?? ( cand.isCollectionSegment ? "CollectionSegment" : "EnergySegment" );
+
+        // Resolve communicativeness
+        let segComm = true;
+        if (matchingSeg.isCommunicating !== undefined) {
+            segComm = matchingSeg.isCommunicating;
+        } else if (matchingFeather.reachable !== undefined) {
+            segComm = matchingFeather.reachable;
+        }
+        const segmentCommunicating = overrides.segmentCommunicating ?? segComm;
+
+        // Resolve temperature values (standard or converted to F based on site state)
+        let tempVal = 70;
+        if (matchingSeg.temperature?.value !== undefined) {
+            tempVal = Number(matchingSeg.temperature.value);
+        } else if (matchingFeather.spaceTemperatureC !== undefined && matchingFeather.spaceTemperatureC !== null) {
+            const st = Number(matchingFeather.spaceTemperatureC);
+            tempVal = tempUnit === "F" ? (st * 1.8 + 32) : st;
+        } else if (matchingFeather.temperatureCellC !== undefined && matchingFeather.temperatureCellC !== null) {
+            const tc = Number(matchingFeather.temperatureCellC);
+            tempVal = tempUnit === "F" ? (tc * 1.8 + 32) : tc;
+        }
+        const temperatureValue = overrides.temperatureValue !== undefined ? Number(overrides.temperatureValue) : tempVal;
+
+        let tempStat = "NOT_HIGH";
+        if (matchingSeg.temperature?.status !== undefined) {
+            tempStat = matchingSeg.temperature.status;
+        } else if (temperatureValue > 115) {
+            tempStat = "HIGH";
+        }
+        const temperatureStatus = overrides.temperatureStatus ?? tempStat;
+
+        let tempComm = true;
+        if (matchingSeg.temperature?.isCommunicating !== undefined) {
+            tempComm = matchingSeg.temperature.isCommunicating;
+        } else if (matchingFeather.reachable !== undefined) {
+            tempComm = matchingFeather.reachable;
+        }
+        const temperatureCommunicating = overrides.temperatureCommunicating ?? tempComm;
+
+        // Disruption elements
+        let fsStat = matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
+        fsStat = overrides.fireSuppressionStatus ?? fsStat;
+
+        let fsComm = matchingSeg.fireSuppression?.isCommunicating ?? true;
+        if (matchingSeg.fireSuppression?.isCommunicating === undefined && matchingFeather.reachable !== undefined) {
+            fsComm = matchingFeather.reachable;
+        }
+        const fireSuppressionCommunicating = overrides.fireSuppressionCommunicating ?? fsComm;
+
+        let heatStat = matchingSeg.heat?.status ?? "NOT_TRIPPED";
+        heatStat = overrides.heatStatus ?? heatStat;
+
+        let heatComm = matchingSeg.heat?.isCommunicating ?? true;
+        if (matchingSeg.heat?.isCommunicating === undefined && matchingFeather.reachable !== undefined) {
+            heatComm = matchingFeather.reachable;
+        }
+        const heatCommunicating = overrides.heatCommunicating ?? heatComm;
+        const heatTrippedTimestamp = matchingSeg.heat?.trippedTimestamp || null;
+
+        let gasStat = matchingSeg.gas?.status ?? "NOT_TRIPPED";
+        gasStat = overrides.gasStatus ?? gasStat;
+
+        let gasComm = matchingSeg.gas?.isCommunicating ?? true;
+        if (matchingSeg.gas?.isCommunicating === undefined && matchingFeather.reachable !== undefined) {
+            gasComm = matchingFeather.reachable;
+        }
+        const gasCommunicating = overrides.gasCommunicating ?? gasComm;
+        const gasTrippedTimestamp = matchingSeg.gas?.trippedTimestamp || null;
+
+        let smokeStat = matchingSeg.smoke?.status ?? "NOT_TRIPPED";
+        smokeStat = overrides.smokeStatus ?? smokeStat;
+
+        let smokeComm = matchingSeg.smoke?.isCommunicating ?? true;
+        if (matchingSeg.smoke?.isCommunicating === undefined && matchingFeather.reachable !== undefined) {
+            smokeComm = matchingFeather.reachable;
+        }
+        const smokeCommunicating = overrides.smokeCommunicating ?? smokeComm;
+        const smokeTrippedTimestamp = matchingSeg.smoke?.trippedTimestamp || null;
+
+        // Severity & findings logic
+        const findings: string[] = [];
+        let severity: "OK" | "Warning" | "Critical" = "OK";
+
+        if (!siteConnected) {
+          findings.push("Turtle telemetry connection offline");
+          severity = "Critical";
+        }
+
+        if (!segmentCommunicating) {
+          findings.push("Segment communications link offline");
+          severity = "Critical";
+          totalNonCommunicating++;
+        }
+
+        if (temperatureStatus === "HIGH") {
+          findings.push(`High Temperature alert: ${temperatureValue}°${tempUnit}`);
+          severity = "Critical";
+          totalHighTempSegments++;
+        }
+
+        if (!temperatureCommunicating && segmentCommunicating) {
+          findings.push("Temperature sensor communications loss");
+          if (severity !== "Critical") severity = "Warning";
+        }
+
+        if (isAbnormalStatus(heatStat)) {
+          findings.push(`Heat sensor physical trip: ${heatStat}`);
+          severity = "Critical";
+          totalTrippedSensors++;
+        }
+
+        if (isAbnormalStatus(gasStat)) {
+          findings.push(`Gas sensor physical trip: ${gasStat}`);
+          severity = "Critical";
+          totalTrippedSensors++;
+        }
+
+        if (isAbnormalStatus(smokeStat)) {
+          findings.push(`Smoke sensor physical trip: ${smokeStat}`);
+          severity = "Critical";
+          totalTrippedSensors++;
+        }
+
+        if (isAbnormalStatus(fsStat)) {
+          findings.push(`Fire Suppression control fault: ${fsStat}`);
+          severity = "Critical";
+          totalTrippedSensors++;
+        }
+
+        if (severity !== "OK") {
+          totalAbnormalSegments++;
+        }
+
+        const overallStatus = (findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK") as "OK" | "WARNING" | "FAULT" | "UNHEALTHY";
+
+        const rowWithoutLegacy = {
+          stationCode,
+          blockIndex,
+          lineupId,
+          segmentId,
+          segmentType,
+          siteConnected,
+          segmentCommunicating,
+          temperatureValue,
+          temperatureUnit: tempUnit,
+          temperatureStatus,
+          temperatureCommunicating,
+          fireSuppressionStatus: fsStat,
+          fireSuppressionCommunicating,
+          heatStatus: heatStat,
+          heatCommunicating,
+          heatTrippedTimestamp,
+          gasStatus: gasStat,
+          gasCommunicating,
+          gasTrippedTimestamp,
+          smokeStatus: smokeStat,
+          smokeCommunicating,
+          smokeTrippedTimestamp,
+          overallStatus,
+          severity,
+          findings,
+          source: "firstresponder_v2",
+          sourcePath: "/turtle/v2/firstresponder/data",
+          raw: matchingSeg || { candidateIp: cand.deviceIp }
+        };
+
+        const fullRow = populateLegacyFields(
+          rowWithoutLegacy,
+          lineupId,
+          segmentId,
+          segmentType,
+          severity,
+          overallStatus,
+          temperatureValue,
+          tempUnit,
+          temperatureStatus,
+          temperatureCommunicating,
+          segmentCommunicating,
+          heatStat,
+          heatCommunicating,
+          gasStat,
+          gasCommunicating,
+          smokeStat,
+          smokeCommunicating,
+          fsStat,
+          cand.deviceIp
+        );
+
+        rows.push(fullRow);
      }
-     const temperatureValue = overrides.temperatureValue !== undefined ? Number(overrides.temperatureValue) : tempVal;
-
-     let tempStat = "NOT_HIGH";
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.temperatureStatus !== undefined) {
-             tempStat = matchingV1Device.temperatureStatus;
-         } else if (matchingSeg.temperature?.status !== undefined) {
-             tempStat = matchingSeg.temperature.status;
-         } else if (temperatureValue > 115) {
-             tempStat = "HIGH";
-         }
-     } else {
-         if (matchingSeg.temperature?.status !== undefined) {
-             tempStat = matchingSeg.temperature.status;
-         } else if (temperatureValue > 115) {
-             tempStat = "HIGH";
-         }
-     }
-     const temperatureStatus = overrides.temperatureStatus ?? tempStat;
-
-     let tempComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.temperatureCommunicating !== undefined) {
-             tempComm = matchingV1Device.temperatureCommunicating;
-         } else if (matchingSeg.temperature?.isCommunicating !== undefined) {
-             tempComm = matchingSeg.temperature.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.temperature?.isCommunicating !== undefined) {
-             tempComm = matchingSeg.temperature.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             tempComm = matchingFeather.reachable;
-         }
-     }
-     const temperatureCommunicating = overrides.temperatureCommunicating ?? tempComm;
-
-     // Disruption elements
-     let fsStat = "NOT_TRIPPED";
-     if (isV1Primary && matchingV1Device) {
-         fsStat = matchingV1Device.fireSuppressionStatus ?? matchingV1Device.fireSuppression?.status ?? matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
-     } else {
-         fsStat = matchingSeg.fireSuppression?.status ?? "NOT_TRIPPED";
-     }
-     fsStat = overrides.fireSuppressionStatus ?? fsStat;
-
-     let fsComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.fireSuppressionCommunicating !== undefined) {
-             fsComm = matchingV1Device.fireSuppressionCommunicating;
-         } else if (matchingSeg.fireSuppression?.isCommunicating !== undefined) {
-             fsComm = matchingSeg.fireSuppression.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.fireSuppression?.isCommunicating !== undefined) {
-             fsComm = matchingSeg.fireSuppression.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             fsComm = matchingFeather.reachable;
-         }
-     }
-     const fireSuppressionCommunicating = overrides.fireSuppressionCommunicating ?? fsComm;
-
-     let heatStat = "NOT_TRIPPED";
-     if (isV1Primary && matchingV1Device) {
-         heatStat = matchingV1Device.heatStatus ?? matchingV1Device.heat?.status ?? matchingSeg.heat?.status ?? "NOT_TRIPPED";
-     } else {
-         heatStat = matchingSeg.heat?.status ?? "NOT_TRIPPED";
-     }
-     heatStat = overrides.heatStatus ?? heatStat;
-
-     let heatComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.heatCommunicating !== undefined) {
-             heatComm = matchingV1Device.heatCommunicating;
-         } else if (matchingSeg.heat?.isCommunicating !== undefined) {
-             heatComm = matchingSeg.heat.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.heat?.isCommunicating !== undefined) {
-             heatComm = matchingSeg.heat.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             heatComm = matchingFeather.reachable;
-         }
-     }
-     const heatCommunicating = overrides.heatCommunicating ?? heatComm;
-     const heatTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.heatTrippedTimestamp ?? matchingSeg.heat?.trippedTimestamp ?? null) : (matchingSeg.heat?.trippedTimestamp || null);
-
-     let gasStat = "NOT_TRIPPED";
-     if (isV1Primary && matchingV1Device) {
-         gasStat = matchingV1Device.gasStatus ?? matchingV1Device.gas?.status ?? matchingSeg.gas?.status ?? "NOT_TRIPPED";
-     } else {
-         gasStat = matchingSeg.gas?.status ?? "NOT_TRIPPED";
-     }
-     gasStat = overrides.gasStatus ?? gasStat;
-
-     let gasComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.gasCommunicating !== undefined) {
-             gasComm = matchingV1Device.gasCommunicating;
-         } else if (matchingSeg.gas?.isCommunicating !== undefined) {
-             gasComm = matchingSeg.gas.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.gas?.isCommunicating !== undefined) {
-             gasComm = matchingSeg.gas.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             gasComm = matchingFeather.reachable;
-         }
-     }
-     const gasCommunicating = overrides.gasCommunicating ?? gasComm;
-     const gasTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.gasTrippedTimestamp ?? matchingSeg.gas?.trippedTimestamp ?? null) : (matchingSeg.gas?.trippedTimestamp || null);
-
-     let smokeStat = "NOT_TRIPPED";
-     if (isV1Primary && matchingV1Device) {
-         smokeStat = matchingV1Device.smokeStatus ?? matchingV1Device.smoke?.status ?? matchingSeg.smoke?.status ?? "NOT_TRIPPED";
-     } else {
-         smokeStat = matchingSeg.smoke?.status ?? "NOT_TRIPPED";
-     }
-     smokeStat = overrides.smokeStatus ?? smokeStat;
-
-     let smokeComm = true;
-     if (isV1Primary && matchingV1Device) {
-         if (matchingV1Device.smokeCommunicating !== undefined) {
-             smokeComm = matchingV1Device.smokeCommunicating;
-         } else if (matchingSeg.smoke?.isCommunicating !== undefined) {
-             smokeComm = matchingSeg.smoke.isCommunicating;
-         }
-     } else {
-         if (matchingSeg.smoke?.isCommunicating !== undefined) {
-             smokeComm = matchingSeg.smoke.isCommunicating;
-         } else if (matchingFeather.reachable !== undefined) {
-             smokeComm = matchingFeather.reachable;
-         }
-     }
-     const smokeCommunicating = overrides.smokeCommunicating ?? smokeComm;
-     const smokeTrippedTimestamp = (isV1Primary && matchingV1Device) ? (matchingV1Device.smokeTrippedTimestamp ?? matchingSeg.smoke?.trippedTimestamp ?? null) : (matchingSeg.smoke?.trippedTimestamp || null);
-
-     // Severity & findings logic
-     const findings: string[] = [];
-     let severity: "OK" | "Warning" | "Critical" = "OK";
-
-     if (!siteConnected) {
-       findings.push("Turtle telemetry connection offline");
-       severity = "Critical";
-     }
-
-     if (!segmentCommunicating) {
-       findings.push("Segment communications link offline");
-       severity = "Critical";
-       totalNonCommunicating++;
-     }
-
-     if (temperatureStatus === "HIGH") {
-       findings.push(`High Temperature alert: ${temperatureValue}°${tempUnit}`);
-       severity = "Critical";
-       totalHighTempSegments++;
-     }
-
-     if (!temperatureCommunicating && segmentCommunicating) {
-       findings.push("Temperature sensor communications loss");
-       if (severity !== "Critical") severity = "Warning";
-     }
-
-     if (isAbnormalStatus(heatStat)) {
-       findings.push(`Heat sensor physical trip: ${heatStat}`);
-       severity = "Critical";
-       totalTrippedSensors++;
-     }
-
-     if (isAbnormalStatus(gasStat)) {
-       findings.push(`Gas sensor physical trip: ${gasStat}`);
-       severity = "Critical";
-       totalTrippedSensors++;
-     }
-
-     if (isAbnormalStatus(smokeStat)) {
-       findings.push(`Smoke sensor physical trip: ${smokeStat}`);
-       severity = "Critical";
-       totalTrippedSensors++;
-     }
-
-     if (isAbnormalStatus(fsStat)) {
-       findings.push(`Fire Suppression control fault: ${fsStat}`);
-       severity = "Critical";
-       totalTrippedSensors++;
-     }
-
-     if (severity !== "OK") {
-       totalAbnormalSegments++;
-     }
-
-     const overallStatus = (findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK") as "OK" | "WARNING" | "FAULT" | "UNHEALTHY";
-
-     const rowWithoutLegacy = {
-       stationCode,
-       blockIndex,
-       lineupId,
-       segmentId,
-       segmentType,
-       siteConnected,
-       segmentCommunicating,
-       temperatureValue,
-       temperatureUnit: tempUnit,
-       temperatureStatus,
-       temperatureCommunicating,
-       fireSuppressionStatus: fsStat,
-       fireSuppressionCommunicating,
-       heatStatus: heatStat,
-       heatCommunicating,
-       heatTrippedTimestamp,
-       gasStatus: gasStat,
-       gasCommunicating,
-       gasTrippedTimestamp,
-       smokeStatus: smokeStat,
-       smokeCommunicating,
-       smokeTrippedTimestamp,
-       overallStatus,
-       severity,
-       findings,
-       source: isV1Primary ? "firstresponder_v1" : "firstresponder_v2",
-       sourcePath: isV1Primary ? "/turtle/firstresponder/data" : "/turtle/v2/firstresponder/data",
-       raw: isV1Primary ? (matchingV1Device || { candidateIp: cand.deviceIp }) : (matchingSeg || { candidateIp: cand.deviceIp })
-     };
-
-     const fullRow = populateLegacyFields(
-       rowWithoutLegacy,
-       lineupId,
-       segmentId,
-       segmentType,
-       severity,
-       overallStatus,
-       temperatureValue,
-       tempUnit,
-       temperatureStatus,
-       temperatureCommunicating,
-       segmentCommunicating,
-       heatStat,
-       heatComm,
-       gasStat,
-       gasComm,
-       smokeStat,
-       smokeComm,
-       fsStat,
-       cand.deviceIp
-     );
-
-     rows.push(fullRow);
   }
 
   // Calculate lineage integrity from final list of rows

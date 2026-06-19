@@ -8,6 +8,7 @@ import { ProfileStore } from "./profiles/profileStore";
 import { buildNormalizedResponderSummary } from "./siteSensors/siteSensorsRoutes";
 import { fetchEnrichedDevices } from "./feather/deviceEnrichment";
 import { getSegmentName } from "./siteData/segmentTranslator";
+import { buildNormalizedStringsData } from "./stringsDashboard";
 
 
 export type NormalizedArraySummary = any;
@@ -174,6 +175,12 @@ async function doBackgroundPoll() {
          console.error("[Data Coordinator] Site safety analysis execution failed:", err.message);
          return { rows: [], totalCentipedeLineups: 8, totalHealthyLineups: 8, totalFaultyLineups: 0 };
       });
+
+      // Fetch UI-ready normalized string details
+      const stringsResult = await buildNormalizedStringsData(false).catch((err: any) => {
+         console.error("[Data Coordinator] Strings normalization fell back due to error:", err.message);
+         return null;
+      });
       
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
@@ -205,7 +212,7 @@ async function doBackgroundPoll() {
               emsApps: parsed.emsApps || []
           },
           normalized: {
-              strings: parsed.stringSummary?.tableRows || [],
+              strings: stringsResult ? stringsResult.strings : (parsed.stringSummary?.tableRows || []),
               arrays: parsed.arraySummary || [],
               pcs: enrichedPcsRows,
               feather: enrichedFeatherRows,
@@ -213,7 +220,12 @@ async function doBackgroundPoll() {
               sensors: sensorsData.rows
           },
           rollups: {
-              stringSummary: parsed.stringSummary || {},
+              stringSummary: stringsResult ? {
+                  tableRows: stringsResult.strings,
+                  rollups: stringsResult.rollups,
+                  summary: stringsResult.summary,
+                  cards: stringsResult.cards
+              } : (parsed.stringSummary || {}),
               arraySummary: parsed.arraySummary || [],
               pcsSummary: enrichedPcsRows,
               bessFleetSummary: parsed.bessFleetSummary || {},
