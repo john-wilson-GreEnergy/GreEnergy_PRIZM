@@ -67,7 +67,7 @@ export default function CellTelemetryHeatmap({
   // Determine standard columns: single-string defaults to 12 items, site-overview defaults to 30.
   const cols = gridColumns ?? (mode === "single-string" ? 14 : 30);
 
-  const unit = isCompact ? " (Compact EMS)" : (isVolts ? " V" : " °C");
+  const unit = isCompact ? " Compact value" : (isVolts ? " V" : " °C");
 
   return (
     <div className="bg-prizm-surface border border-prizm-border/40 p-4 rounded-lg space-y-3 font-mono text-[9px] w-full select-none">
@@ -188,7 +188,7 @@ export default function CellTelemetryHeatmap({
 
 function labelValueForHover(val: number, isVolts: boolean, isCompact: boolean): string {
   if (isCompact) {
-    return `${val.toFixed(1)} Unit (Compact EMS Register)`;
+    return `Compact EMS report value ${val}`;
   }
   return isVolts ? `${val.toFixed(3)} V` : `${val.toFixed(1)} °C`;
 }

@@ -599,15 +599,8 @@ const handleManualRefresh = async () => {
                   const FAN_MATCH_TOLERANCE_PERCENT = 5;
 
                   const toFiniteNumber = (value: any): number | null => {
-                    if (value === undefined || value === null) return null;
                     const n = Number(value);
                     return Number.isFinite(n) ? n : null;
-                  };
-
-                  const toFanPercent = (rpm: any): number | null => {
-                    const n = toFiniteNumber(rpm);
-                    if (n === null) return null;
-                    return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
                   };
 
                   const formatPercent = (value: any): string => {
@@ -620,27 +613,19 @@ const handleManualRefresh = async () => {
                     return n === null ? "--" : `${Math.round(n)} RPM`;
                   };
 
-                  const fanCmdRpm = toFiniteNumber(s.fanCommandRpm) ?? toFiniteNumber(s.fanCommand);
-                  const fanSetRpm = toFiniteNumber(s.fanSettingRpm) ?? toFiniteNumber(s.fanSetting);
+                  const formatFanCount = (value: any): string => {
+                    const n = toFiniteNumber(value);
+                    return n === null ? "--" : `${Math.round(n)}`;
+                  };
 
-                  const commandPct = toFiniteNumber(s.fanCommandPercent) ?? toFanPercent(fanCmdRpm);
-                  const statusPct = toFiniteNumber(s.fanStatusPercent) ?? toFanPercent(fanSetRpm);
-
-                  const hasCommand = commandPct !== null && commandPct > 0;
-                  const hasStatus = statusPct !== null;
-
-                  let fanState: "no-command" | "match" | "mismatch" | "unknown" = "no-command";
-                  if (s.fanState) {
-                    fanState = s.fanState;
-                  } else if (!hasCommand) {
-                    fanState = "no-command";
-                  } else if (!hasStatus) {
-                    fanState = "unknown";
-                  } else if (Math.abs(commandPct - statusPct) <= FAN_MATCH_TOLERANCE_PERCENT) {
-                    fanState = "match";
-                  } else {
-                    fanState = "mismatch";
-                  }
+                  const commandPct = toFiniteNumber(s.fanCommandPercent);
+                  const settingPct = toFiniteNumber(s.fanSettingPercent);
+                  const actualPct = toFiniteNumber(s.fanStatusPercent);
+                  const avgRpm = toFiniteNumber(s.fanStatusAvgRpm);
+                  const ratedRpm = toFiniteNumber(s.fanRatedRpm) ?? 7500;
+                  const fanCountValue = toFiniteNumber(s.fanCount);
+                  const fanState = String(s.fanState || "no-command").toLowerCase();
+                  const fanTimeText = s.fanLastCommandTime || s.lastFanCommandTime || "--";
 
                   const fanDotClass =
                     fanState === "match"
@@ -649,37 +634,30 @@ const handleManualRefresh = async () => {
                         ? "bg-yellow-500 shadow-[0_0_5px_rgba(234,179,8,0.5)]"
                         : "bg-black border border-neutral-700";
 
-                  const fanTimeText = s.fanLastCommandTime || s.lastFanCommandTime || "--";
-
                   let fanTooltip = "";
                   if (fanState === "no-command") {
                     fanTooltip = [
                       `Command: --`,
-                      `Status: --`,
-                      `Command RPM: --`,
-                      `Status RPM: --`,
+                      `Actual: --`,
+                      `Setting: --`,
+                      `Avg RPM: --`,
+                      `Rated RPM: ${formatRpm(ratedRpm)}`,
+                      `Fans: --`,
                       `Tolerance: ±5%`,
                       `State: No Command`,
                       `Last Command Time: --`
                     ].join("\n");
-                  } else if (fanState === "unknown") {
-                    fanTooltip = [
-                      `Command: ${formatPercent(commandPct)}`,
-                      `Status: Not Reported`,
-                      `Command RPM: ${formatRpm(fanCmdRpm)}`,
-                      `Status RPM: --`,
-                      `Tolerance: ±5%`,
-                      `State: Unknown`,
-                      `Last Command Time: ${fanTimeText}`
-                    ].join("\n");
                   } else {
+                    const stateLabel = fanState === "match" ? "Match" : fanState === "mismatch" ? "Mismatch" : fanState === "unknown" ? "Unknown" : "No Command";
                     fanTooltip = [
                       `Command: ${formatPercent(commandPct)}`,
-                      `Status: ${formatPercent(statusPct)}`,
-                      `Command RPM: ${formatRpm(fanCmdRpm)}`,
-                      `Status RPM: ${formatRpm(fanSetRpm)}`,
+                      `Actual: ${formatPercent(actualPct)}`,
+                      `Setting: ${formatPercent(settingPct)}`,
+                      `Avg RPM: ${formatRpm(avgRpm)}`,
+                      `Rated RPM: ${formatRpm(ratedRpm)}`,
+                      `Fans: ${formatFanCount(fanCountValue)}`,
                       `Tolerance: ±5%`,
-                      `State: ${fanState === "match" ? "Match" : "Mismatch"}`,
+                      `State: ${stateLabel}`,
                       `Last Command Time: ${fanTimeText}`
                     ].join("\n");
                   }
@@ -695,33 +673,33 @@ const handleManualRefresh = async () => {
                       balCountToShow = String(s.balanceCount ?? 0);
                       balModeToShow = s.balanceMode || "--";
 
-                      if (Array.isArray(s.balanceDetails) && s.balanceDetails.length > 0) {
-                          const lines = s.balanceDetails.map((b: any, bIdx: number) => {
-                              const modeStr = b.mode || "--";
-                              const stateStr = b.state || "--";
-                              const cgStr = b.balancingCellGroup !== null && b.balancingCellGroup !== undefined ? `CG ${b.balancingCellGroup}` : "CG --";
-                              return `BPC ${b.bpIndex ?? (bIdx + 1)}: ${modeStr} | ${stateStr} | ${cgStr}`;
-                          });
-
-                          const limit = 14;
-                          if (lines.length > limit) {
-                              const displayed = lines.slice(0, limit);
-                              balanceTooltip = [
-                                  `Showing ${limit} of ${lines.length} BPCs`,
-                                  `Active balancing count: ${s.balanceCount ?? 0}`,
-                                  "",
-                                  ...displayed
-                              ].join("\n");
-                          } else {
-                              balanceTooltip = [
-                                  `Active balancing count: ${s.balanceCount ?? 0}`,
-                                  "",
-                                  ...lines
-                              ].join("\n");
-                          }
-                      } else {
-                          balanceTooltip = `Balance Mode: ${balModeToShow}\nActive configuration detected, but detailed per-BPC telemetry is not published.`;
-                      }
+                      const details = Array.isArray(s.balanceDetails) ? s.balanceDetails : [];
+                      const totalBpcs = details.length || 14;
+                      const activeCount =
+                        toFiniteNumber(s.balanceCount) ??
+                        details.filter((b: any) => b.isActive === true).length;
+                      const reportedCount = details.filter((b: any) =>
+                        b.balanceTelemetryPresent === true && b.missingFromSource !== true
+                      ).length;
+                      const lines = details.map((b: any, bIdx: number) => {
+                        const idx = b.bpIndex ?? b.bpcNumber ?? (bIdx + 1);
+                        const modeStr = b.mode || "--";
+                        const stateStr =
+                          b.displayState ||
+                          b.state ||
+                          (b.missingFromSource ? "Not Reported" : "Off");
+                        const cgStr =
+                          b.balancingCellGroup !== null && b.balancingCellGroup !== undefined
+                            ? `CG ${b.balancingCellGroup}`
+                            : "CG --";
+                        return `BPC ${idx}: ${modeStr} | ${stateStr} | ${cgStr}`;
+                      });
+                      balanceTooltip = [
+                        `Active: ${activeCount} / ${totalBpcs}`,
+                        `Telemetry: ${reportedCount} / ${totalBpcs}`,
+                        "",
+                        ...lines
+                      ].join("\n");
                   }
                   
                   let borderClass = "";

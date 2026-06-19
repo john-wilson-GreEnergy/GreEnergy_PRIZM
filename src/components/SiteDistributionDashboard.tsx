@@ -21,6 +21,7 @@ import {
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import { useSiteData } from "../context/SiteDataContext";
 import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
+import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -592,22 +593,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
         </div>
       ) : currentView === "heatmap" ? (
         <div className="animate-fade-in bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-5" id="prizm-site-heatmap-view">
-          <div className="border-b border-prizm-border pb-3 font-mono">
-            <h1 className="text-sm font-bold text-prizm-text tracking-tight uppercase flex items-center gap-2">
-              <Layers className="text-[#10b981]" size={16} />
-              Full-Site Cell Group Distribution Heatmap
-            </h1>
-            <p className="text-[10px] text-prizm-text-muted mt-0.5 font-sans leading-relaxed">
-              Geographical distribution map of all active battery cells across all arrays at the site.
-            </p>
-          </div>
-          <CellTelemetryHeatmap 
-            mode="site-overview"
-            voltages={siteHeatmapData.voltages}
-            temperatures={siteHeatmapData.temperatures}
-            title="Full-Site Cell Group Distribution Heatmap"
-            gridColumns={48}
-          />
+          <ArrayCellHeatmapGrid arrayDetailsByArray={snapshot?.normalized?.arrayDetailsByArray || {}} />
         </div>
       ) : (
         <>
@@ -1084,13 +1070,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             {/* REAL RECHARTS PLOT FRAME */}
             {activeTab === "heatmap" ? (
               <div className="w-full">
-                <CellTelemetryHeatmap 
-                  mode="site-overview"
-                  voltages={siteHeatmapData.voltages}
-                  temperatures={siteHeatmapData.temperatures}
-                  title="Full-Site Cell Group Distribution Heatmap"
-                  gridColumns={48}
-                />
+                <ArrayCellHeatmapGrid arrayDetailsByArray={snapshot?.normalized?.arrayDetailsByArray || {}} />
               </div>
             ) : (!data && loading) ? (
               <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong">

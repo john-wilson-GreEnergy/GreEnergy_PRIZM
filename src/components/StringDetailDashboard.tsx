@@ -74,6 +74,11 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {}, hasBalancingMap = false } = data || {};
 
+  const safeArray = (value: any): any[] => Array.isArray(value) ? value : [];
+  const safeVoltageMatrix = safeArray(voltageMatrix).filter((row: any) => Array.isArray(row));
+  const safeTemperatureMatrix = safeArray(temperatureMatrix).filter((row: any) => Array.isArray(row));
+  const safeBpcs = safeArray(bpcs);
+
   const stringViewerHealth = sourceHealth?.stringviewer;
 
   const finite = (value: any): number | null => {
@@ -228,12 +233,12 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     URL.revokeObjectURL(url);
   };
 
-  const hasBpcCellGroups = bpcs?.some((bpc: any) => Array.isArray(bpc.cellGroups) && bpc.cellGroups.length > 0);
-  const hasVoltageMatrix = hasBpcCellGroups || (Array.isArray(voltageMatrix) && voltageMatrix.some(r => Array.isArray(r) && r.length > 0));
-  const hasTempMatrix = hasBpcCellGroups || (Array.isArray(temperatureMatrix) && temperatureMatrix.some(r => Array.isArray(r) && r.length > 0));
+  const hasBpcCellGroups = safeBpcs.some((bpc: any) => bpc && Array.isArray(bpc.cellGroups) && bpc.cellGroups.length > 0);
+  const hasVoltageMatrix = hasBpcCellGroups || (safeVoltageMatrix.length > 0 && safeVoltageMatrix.some(r => Array.isArray(r) && r.length > 0));
+  const hasTempMatrix = hasBpcCellGroups || (safeTemperatureMatrix.length > 0 && safeTemperatureMatrix.some(r => Array.isArray(r) && r.length > 0));
   const hasNotifMatrix = Array.isArray(notificationMatrix) && notificationMatrix.some((r: any) => Array.isArray(r) && r.length > 0);
 
-  const finalBpcCount = data?.summary?.bpcCount ?? bpcs?.length ?? s.bpcCount ?? 0;
+  const finalBpcCount = data?.summary?.bpcCount ?? safeBpcs.length ?? s.bpcCount ?? 0;
 
   const heatmapData = useMemo(() => {
     let volts: (number | null)[] = [];
@@ -241,26 +246,28 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     let isCompact = false;
 
     // Priority 1: bpcs cellGroups
-    if (bpcs && bpcs.length > 0 && bpcs.some((b: any) => Array.isArray(b.cellGroups) && b.cellGroups.length > 0)) {
-      bpcs.forEach((b: any) => {
-        if (Array.isArray(b.cellGroups)) {
+    if (safeBpcs.length > 0 && safeBpcs.some((b: any) => b && Array.isArray(b.cellGroups) && b.cellGroups.length > 0)) {
+      safeBpcs.forEach((b: any) => {
+        if (b && Array.isArray(b.cellGroups)) {
           b.cellGroups.forEach((cg: any) => {
-            volts.push(cg.voltage ?? null);
-            temps.push(cg.temperature ?? null);
+            if (cg) {
+              volts.push(cg.voltage ?? null);
+              temps.push(cg.temperature ?? null);
+            }
           });
         }
       });
     }
 
     // Priority 2: Flat map of existing matrix arrays
-    if (volts.length === 0 && Array.isArray(voltageMatrix) && voltageMatrix.length > 0) {
-      volts = voltageMatrix.flat().map((v: any) => {
+    if (volts.length === 0 && safeVoltageMatrix.length > 0) {
+      volts = safeVoltageMatrix.flat().map((v: any) => {
         const val = finite(v);
         return val !== null ? val : null;
       });
     }
-    if (temps.length === 0 && Array.isArray(temperatureMatrix) && temperatureMatrix.length > 0) {
-      temps = temperatureMatrix.flat().map((t: any) => {
+    if (temps.length === 0 && safeTemperatureMatrix.length > 0) {
+      temps = safeTemperatureMatrix.flat().map((t: any) => {
         const val = finite(t);
         return val !== null ? val : null;
       });
@@ -287,9 +294,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       temperatures: temps,
       isCompact
     };
-  }, [bpcs, voltageMatrix, temperatureMatrix, snapshot, s.arrayNumber, s.stringNumber]);
+  }, [safeBpcs, safeVoltageMatrix, safeTemperatureMatrix, snapshot, s.arrayNumber, s.stringNumber]);
 
-  const getVoltageColor = (v: number) => {
+  const getVoltageColor = (v: number | null | undefined) => {
+       if (v === null || v === undefined) return "bg-white/5 border-white/10 text-prizm-text-muted";
        if (v > 3600) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
        if (v > 3500) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
        if (v < 2800) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
@@ -298,7 +306,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
        return "bg-white/5 border-white/10 text-prizm-text-muted";
   };
 
-  const getTempColor = (t: number) => {
+  const getTempColor = (t: number | null | undefined) => {
+       if (t === null || t === undefined) return "bg-white/5 border-white/10 text-prizm-text-muted";
        if (t > 45) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
        if (t > 40) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
        if (t < 5) return "bg-blue-500/20 border-blue-500/40 text-blue-100 font-bold";
@@ -325,6 +334,12 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                 <span>FW: {s.stringControllerFirmware || "Unknown"}</span>
             </div>
           </div>
+
+          {!data && (
+            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500 p-3 rounded text-[11px] font-mono mb-4 flex items-center justify-between">
+              <span>⚠ Detail data unavailable for A{s.arrayNumber}-S{s.stringNumber}. Showing cached summary only.</span>
+            </div>
+          )}
 
           {/* Top summary strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6 shrink-0 text-center font-mono select-none">
@@ -417,7 +432,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                 voltages={heatmapData.voltages}
                 temperatures={heatmapData.temperatures}
                 title={`Array ${s.arrayNumber} - String ${s.stringNumber} - Interactive Cell Heatmap`}
-                gridColumns={(bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) ? (bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) : 30}
+                gridColumns={(safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length) ? (safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length) : 30}
                 isCompact={heatmapData.isCompact}
               />
 
@@ -429,15 +444,15 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
                      </h3>
                      {hasVoltageMatrix && (
-                        <button onClick={() => downloadMatrixCsv(voltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
+                        <button onClick={() => downloadMatrixCsv(safeVoltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
                            <Download size={14} />
                         </button>
                      )}
                   </div>
                   
                   {hasVoltageMatrix ? (() => {
-                      const cgCount = bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length || 30;
-                      const bpcList = hasBpcCellGroups ? bpcs : voltageMatrix;
+                      const cgCount = safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length || 30;
+                      const bpcList = hasBpcCellGroups ? safeBpcs : safeVoltageMatrix;
                       return (
                       <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
@@ -507,15 +522,15 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
                      </h3>
                      {hasTempMatrix && (
-                        <button onClick={() => downloadMatrixCsv(temperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
+                        <button onClick={() => downloadMatrixCsv(safeTemperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
                            <Download size={14} />
                         </button>
                      )}
                   </div>
                   
                   {hasTempMatrix ? (() => {
-                      const cgCount = bpcs?.[0]?.cellGroups?.length || temperatureMatrix?.[0]?.length || 30;
-                      const bpcList = hasBpcCellGroups ? bpcs : temperatureMatrix;
+                      const cgCount = safeBpcs?.[0]?.cellGroups?.length || safeTemperatureMatrix?.[0]?.length || 30;
+                      const bpcList = hasBpcCellGroups ? safeBpcs : safeTemperatureMatrix;
                       return (
                       <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
                          <table className="w-full text-left font-mono text-[9px] border-collapse relative">
