@@ -16,15 +16,20 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       strings: snapshot.normalized?.strings || [],
       summary: snapshot.rollups?.stringSummary || { totalStrings: 0, buckets: {} },
       buckets: snapshot.rollups?.stringSummary?.buckets || {},
+      emsBaseUrl: snapshot.siteIdentity?.emsBaseUrl || "",
+      durationMs: snapshot.debug?.lastPollDurationMs || 0,
+      stationCode: snapshot.siteIdentity?.stationCode || "",
+      blockIndex: snapshot.siteIdentity?.blockIndex || 1,
       cache: snapshot.liveStatus ? { 
-        sourceOk: snapshot.liveStatus.status !== 'OFFLINE', 
-        isStale: snapshot.liveStatus.status === 'PARTIAL', 
+        sourceOk: snapshot.liveStatus.state !== 'OFFLINE', 
+        isStale: snapshot.liveStatus.state === 'PARTIAL' || snapshot.liveStatus.stale === true, 
         lastUpdatedAt: snapshot.liveStatus.lastUpdated 
       } : null
     };
   }, [snapshot]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(15000);
   
   const [search, setSearch] = useState("");
   const [arrayFilter, setArrayFilter] = useState("all");
@@ -43,6 +48,14 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [rotationModalTargets, setRotationModalTargets] = useState<any[]>([]);
   
   const [balancingModalOpen, setBalancingModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!active || refreshInterval === 0) return;
+    const iv = setInterval(() => {
+        refreshNow(false);
+    }, refreshInterval);
+    return () => clearInterval(iv);
+  }, [active, refreshInterval, refreshNow]);
   
   useEffect(() => { fetch('/api/local/capabilities').then(r => r.json()).then(setRotationCapabilities).catch(()=>{}); }, []);
 

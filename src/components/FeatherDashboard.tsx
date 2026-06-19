@@ -37,7 +37,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
         summary: snapshot.rollups?.featherSummary || {},
         cache: snapshot.liveStatus ? {
            lastUpdatedAt: snapshot.liveStatus.lastUpdated,
-           isStale: snapshot.liveStatus.status === 'PARTIAL'
+           isStale: snapshot.liveStatus.state === 'PARTIAL' || snapshot.liveStatus.stale === true
         } : null
      };
   }, [snapshot]);

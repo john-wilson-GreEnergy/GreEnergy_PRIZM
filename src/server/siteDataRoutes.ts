@@ -9,6 +9,7 @@ import {
   getArraysView,
   getCorrectiveActionsView,
   getSourceHealthView,
+  getSensorsView,
   triggerImmediatePoll
 } from "./prizmDataCoordinator";
 
@@ -112,6 +113,15 @@ siteDataRouter.get("/arrays", (req, res) => {
 siteDataRouter.get("/source-health", (req, res) => {
   try {
     const view = getSourceHealthView();
+    res.json(view);
+  } catch (err: any) {
+    res.json({ warming: true, error: err.message });
+  }
+});
+
+siteDataRouter.get("/sensors", (req, res) => {
+  try {
+    const view = getSensorsView();
     res.json(view);
   } catch (err: any) {
     res.json({ warming: true, error: err.message });

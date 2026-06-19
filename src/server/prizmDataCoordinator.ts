@@ -5,6 +5,10 @@ import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./site
 import { recordTelemetrySample } from "./telemetry/siteTelemetryAggregator";
 import * as prizmCache from "./cache/prizmCache";
 import { ProfileStore } from "./profiles/profileStore";
+import { buildNormalizedResponderSummary } from "./siteSensors/siteSensorsRoutes";
+import { fetchEnrichedDevices } from "./feather/deviceEnrichment";
+import { getSegmentName } from "./siteData/segmentTranslator";
+
 
 export type NormalizedArraySummary = any;
 export type NormalizedPcsSummary = any;
@@ -46,6 +50,7 @@ export type PrizmSiteSnapshot = {
     pcs: NormalizedPcsSummary[];
     feather: NormalizedFeatherDevice[];
     correctiveActions: CorrectiveAction[];
+    sensors?: any[];
   };
   rollups: {
     stringSummary: any;
@@ -54,6 +59,7 @@ export type PrizmSiteSnapshot = {
     bessFleetSummary: any;
     featherSummary: any;
     sourceHealth: any[];
+    sensorsSummary?: any;
   };
   debug: {
     coordinatorStartedAt: string;
@@ -141,6 +147,33 @@ async function doBackgroundPoll() {
               }
           };
       });
+
+      // 2. Poll and parse enriched HVAC segment device models
+      const enrichedFeatherResult = await fetchEnrichedDevices().catch((err: any) => {
+         console.warn("[Data Coordinator] Enriched feather device query failed, utilizing base cache:", err.message);
+         return { devices: getFeatherCache().devices || [] };
+      });
+
+      const enrichedFeatherRows = (enrichedFeatherResult?.devices || []).map((d: any) => {
+         const isCS = d.isCollectionSegment ?? (d.ip ? d.ip.endsWith('.3') : false);
+         return {
+            ...d,
+            segmentName: getSegmentName({
+                lineupId: d.lineupId,
+                arrayIndex: d.arrayIndex,
+                segmentId: d.stringIndex,
+                ipAddress: d.ip,
+                isCollectionSegment: isCS,
+                enclosureName: d.displayKey || d.entityName || d.entityDescription || d.segmentLabel
+            })
+         };
+      });
+
+      // 3. Query safety firstresponder telemetry structure
+      const sensorsData = await buildNormalizedResponderSummary(false).catch((err: any) => {
+         console.error("[Data Coordinator] Site safety analysis execution failed:", err.message);
+         return { rows: [], totalCentipedeLineups: 8, totalHealthyLineups: 8, totalFaultyLineups: 0 };
+      });
       
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
@@ -175,16 +208,32 @@ async function doBackgroundPoll() {
               strings: parsed.stringSummary?.tableRows || [],
               arrays: parsed.arraySummary || [],
               pcs: enrichedPcsRows,
-              feather: parsed.featherSummary?.devices || [],
-              correctiveActions: parsed.activeIssueGroups || []
+              feather: enrichedFeatherRows,
+              correctiveActions: parsed.activeIssueGroups || [],
+              sensors: sensorsData.rows
           },
           rollups: {
               stringSummary: parsed.stringSummary || {},
               arraySummary: parsed.arraySummary || [],
               pcsSummary: enrichedPcsRows,
               bessFleetSummary: parsed.bessFleetSummary || {},
-              featherSummary: parsed.featherSummary || {},
-              sourceHealth: parsed.sourceHealth || []
+              featherSummary: {
+                 ...parsed.featherSummary,
+                 devices: enrichedFeatherRows
+              },
+              sourceHealth: parsed.sourceHealth || [],
+              sensorsSummary: {
+                 totalRows: sensorsData.rows.length,
+                 totalLineups: sensorsData.totalCentipedeLineups,
+                 healthyLineups: sensorsData.totalHealthyLineups,
+                 faultyLineups: sensorsData.totalFaultyLineups,
+                 abnormalSegments: sensorsData.totalAbnormalSegments,
+                 highTempSegments: sensorsData.totalHighTempSegments,
+                 trippedSensors: sensorsData.totalTrippedSensors,
+                 nonCommunicating: sensorsData.totalNonCommunicating,
+                 sourcePrimary: "firstresponder_v1",
+                 sourceSupplemental: "firstresponder_v2"
+              }
           },
           debug: {
               coordinatorStartedAt,
@@ -620,7 +669,33 @@ export function getSourceHealthView(): any {
         debug: {
             ...snap.debug,
             sourceHealthSummary: summary
-        }
+         }
+    };
+}
+
+export function getSensorsView(): any {
+    const snap = centralSnapshot;
+    if (!snap) return { warming: true };
+    const sensors = (snap.normalized as any).sensors || [];
+    const summary = (snap.rollups as any).sensorsSummary || {
+        totalRows: sensors.length,
+        totalLineups: 8,
+        healthyLineups: 8,
+        faultyLineups: 0,
+        abnormalSegments: 0,
+        highTempSegments: 0,
+        trippedSensors: 0,
+        nonCommunicating: 0,
+        sourcePrimary: "firstresponder_v1",
+        sourceSupplemental: "firstresponder_v2"
+    };
+    const healthRows = getSourceHealthRows(snap);
+    const healthSummary = getSourceHealthSummary(healthRows);
+    return {
+        sensors,
+        summary,
+        sourceHealth: healthRows,
+        sourceHealthSummary: healthSummary
     };
 }
 

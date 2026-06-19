@@ -41,6 +41,7 @@ const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdva
 import DashboardLoadingSkeleton from "./components/common/DashboardLoadingSkeleton";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteData } from "./context/SiteDataContext";
+import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
 type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
 
@@ -395,15 +396,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col">
+      <PrizmLoadingIndicator show={isPending} />
       
       {/* TOP NAVIGATION BAR (DAYLIGHT DESIGN THEME) */}
-      {isPending && (
-        <div className="bg-prizm-bg border-b border-prizm-border px-4 py-1 text-center">
-          <span className="text-[9px] font-mono uppercase tracking-widest text-prizm-info animate-pulse">
-            Loading view...
-          </span>
-        </div>
-      )}
       <header className="h-14 border-b border-prizm-border flex items-center justify-between px-4 sm:px-6 bg-prizm-header sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
             {manualRepollMessage && <span className="text-emerald-500 font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2">{manualRepollMessage}</span>}

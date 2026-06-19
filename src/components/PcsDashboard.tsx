@@ -2,6 +2,7 @@ import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { Zap, Activity, CheckCircle2, XOctagon } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
+import { useSiteData } from "../context/SiteDataContext";
 
 const hasVal = (v: any) => v !== undefined && v !== null && v !== "" && v !== "--";
 
@@ -21,6 +22,7 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
 }
 
 export default function PcsDashboard({ active = true }: { active?: boolean }) {
+    const { snapshot, isInitialLoading, refreshNow } = useSiteData();
     const [pcsList, setPcsList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -35,6 +37,16 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const [modalAction, setModalAction] = useState<"in" | "out">("in");
     
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+    const dashboardData = useMemo(() => {
+        if (!snapshot) return null;
+        return {
+            pcs: snapshot.normalized?.pcs || [],
+            source: snapshot.normalized?.pcs?.[0]?.source?.sourceName 
+               ? "Coordinator Site Data Engine" 
+               : "Coordinator Site Data Engine"
+        };
+    }, [snapshot]);
 
     const refreshData = async () => {
         const t0 = performance.now();
