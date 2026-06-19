@@ -104,52 +104,58 @@ function extractBpcBalancing(item: any, idx: number) {
     const balancingCellGroup = data?.balancingCellGroup ?? data?.balancingCgIndex ?? data?.cgIndex ?? null;
     const stateRaw = data?.balancingState ?? data?.state ?? data?.activeBalancingState ?? null;
 
-    let mode = "--";
-    if (modeRaw) {
-        const mr = String(modeRaw).toUpperCase();
-        if (mr === "BALANCE_TO_PROVIDED") {
-            mode = providedVoltageTarget !== null ? `Provided (${providedVoltageTarget})` : "Provided";
-        } else if (["BALANCE_TO_AVERAGE", "BALANCE_TO_STRING_AVERAGE", "BALANCE_TO_PACK_AVERAGE"].includes(mr)) {
-            mode = "Average";
-        } else {
-            mode = String(modeRaw).replace(/_/g, ' ')
-                   .toLowerCase()
-                   .replace(/\b[a-z]/g, (c) => c.toUpperCase());
+    const formatBalanceMode = (mRaw: any, targetVal: any): string => {
+        const raw = String(mRaw || "").toUpperCase();
+        const target = Number(targetVal);
+        if (raw.includes("PROVIDED")) {
+            return Number.isFinite(target) ? `Provided (${target})` : "Provided";
         }
-    }
+        if (raw.includes("AVERAGE")) {
+            return "Average";
+        }
+        if (!raw) {
+            return "--";
+        }
+        return raw
+            .replace(/^BALANCE_TO_/, "")
+            .replace(/_/g, " ")
+            .toLowerCase()
+            .replace(/\b\w/g, c => c.toUpperCase());
+    };
 
-    let state = "Unknown";
-    if (stateRaw) {
-        const sr = String(stateRaw).toUpperCase();
-        if (sr === "BALANCING_OFF") {
-            state = "Off";
-        } else if (sr === "BATTERY_PACK_DISCHARGE_BALANCING_ON" || (sr.includes("DISCHARGE") && sr.includes("ON"))) {
-            state = "Discharging";
-        } else if (sr === "BATTERY_PACK_CHARGE_BALANCING_ON" || (sr.includes("CHARGE") && sr.includes("ON"))) {
-            state = "Charging";
-        } else if (sr.includes("BALANCING_ON") || sr.includes("ON")) {
-            state = "On";
-        } else {
-            state = String(stateRaw);
-        }
-    }
+    const mode = formatBalanceMode(modeRaw, providedVoltageTarget);
+
+    const formatBalanceState = (sRaw: any): string => {
+        const raw = String(sRaw || "").toUpperCase();
+        if (!raw) return "Unknown";
+        if (raw.includes("OFF")) return "Off";
+        if (raw.includes("DISCHARGE") && raw.includes("ON")) return "Discharging";
+        if (raw.includes("CHARGE") && raw.includes("ON")) return "Charging";
+        if (raw.includes("ON")) return "On";
+        return raw
+            .replace(/^BATTERY_PACK_/, "")
+            .replace(/_/g, " ")
+            .toLowerCase()
+            .replace(/\b\w/g, c => c.toUpperCase());
+    };
+
+    const state = formatBalanceState(stateRaw);
 
     let isActive = false;
-    if (stateRaw) {
-        const sr = String(stateRaw).toUpperCase();
-        if (sr !== "BALANCING_OFF" && (
-            sr === "BATTERY_PACK_DISCHARGE_BALANCING_ON" ||
-            sr === "BATTERY_PACK_CHARGE_BALANCING_ON" ||
-            sr.includes("BALANCING_ON") ||
-            (sr.includes("CHARGE") && sr.includes("ON")) ||
-            (sr.includes("DISCHARGE") && sr.includes("ON"))
+    if (state !== "Off" && state !== "Unknown") {
+        isActive = true;
+    } else if (stateRaw) {
+        const raw = String(stateRaw).toUpperCase();
+        if (raw !== "BALANCING_OFF" && (
+            raw.includes("ON") ||
+            (raw.includes("CHARGE") && raw.includes("ON")) ||
+            (raw.includes("DISCHARGE") && raw.includes("ON"))
         )) {
             isActive = true;
         }
     } else {
         if (item.active === true || item.balancingActive === true || data.active === true || data.balancingActive === true) {
             isActive = true;
-            if (state === "Unknown" || state === "Off") state = "On";
         }
     }
 
@@ -366,13 +372,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         // Locate battery packs / reports
         const packList = findBatteryPackList(row, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper);
 
-        let balanceCount = 0;
+        let balanceTelemetryAvailable = false;
+        let balanceCount: number | null = null;
         let balanceMode = "--";
         let balanceModeRaw: string | null = null;
         let balanceProvidedVoltageTarget: number | null = null;
         const balanceDetails: any[] = [];
 
         if (packList && packList.length > 0) {
+            balanceTelemetryAvailable = true;
+            balanceCount = 0;
             const modesList: string[] = [];
             packList.forEach((item: any, pIdx: number) => {
                 const bpcDetail = extractBpcBalancing(item, pIdx);
@@ -392,7 +401,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                     balancingSource: bpcDetail.balancingSource
                 });
                 if (bpcDetail.isActive) {
-                    balanceCount++;
+                    balanceCount!++;
                 }
                 if (bpcDetail.mode && bpcDetail.mode !== "--") {
                     modesList.push(bpcDetail.mode);
@@ -408,21 +417,31 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 } else {
                     balanceMode = "Mixed";
                 }
+            } else {
+                balanceMode = "--";
             }
         } else {
             // Fallback to legacy balance fields
             const legacyBalCount = pN(tryGetField(row, normalizedObject, ["balancecount", "balancingcount"]));
-            if (legacyBalCount !== null) balanceCount = legacyBalCount;
             const legacyBalMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
-            if (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") {
-                balanceMode = legacyBalMode;
-            } else {
-                const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
-                if (balanceRaw.includes("Provided") || legacyBalMode.includes("Provided")) {
-                    balanceMode = "Provided";
-                } else if (balanceRaw && balanceRaw.includes("-")) {
-                    balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+            const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
+            
+            if (legacyBalCount !== null || (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") || (balanceRaw && balanceRaw !== "undefined" && balanceRaw !== "")) {
+                balanceTelemetryAvailable = true;
+                balanceCount = legacyBalCount ?? 0;
+                if (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") {
+                    balanceMode = legacyBalMode;
+                } else {
+                    if (balanceRaw.includes("Provided") || legacyBalMode.includes("Provided")) {
+                        balanceMode = "Provided";
+                    } else if (balanceRaw && balanceRaw.includes("-")) {
+                        balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+                    }
                 }
+            } else {
+                balanceTelemetryAvailable = false;
+                balanceCount = null;
+                balanceMode = "--";
             }
         }
 
@@ -694,6 +713,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             amps, kw, socPct, ah, kwh,
             minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
             minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
+            balanceTelemetryAvailable,
             balanceCount,
             balanceMode,
             balanceModeRaw,
