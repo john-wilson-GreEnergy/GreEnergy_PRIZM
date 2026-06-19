@@ -110,6 +110,17 @@ function extractBpcBalancing(item: any, idx: number) {
     const balancingCellGroup = data?.balancingCellGroup ?? data?.balancingCgIndex ?? data?.cgIndex ?? null;
     const stateRaw = data?.balancingState ?? data?.state ?? data?.activeBalancingState ?? null;
 
+    const chargeBalancing =
+      data?.chargeBalancing ??
+      item?.chargeBalancing ??
+      config?.chargeBalancing ??
+      null;
+    const dischargeBalancing =
+      data?.dischargeBalancing ??
+      item?.dischargeBalancing ??
+      config?.dischargeBalancing ??
+      null;
+
     const formatBalanceMode = (mRaw: any, targetVal: any): string => {
         const raw = String(mRaw || "").toUpperCase();
         const target = Number(targetVal);
@@ -145,11 +156,20 @@ function extractBpcBalancing(item: any, idx: number) {
             .replace(/\b\w/g, c => c.toUpperCase());
     };
 
-    const state = formatBalanceState(stateRaw);
+    let state = "Unknown";
+    if (chargeBalancing === true) {
+      state = "Charging";
+    } else if (dischargeBalancing === true) {
+      state = "Discharging";
+    } else if (chargeBalancing === false || dischargeBalancing === false) {
+      state = "Off";
+    } else {
+      state = formatBalanceState(stateRaw);
+    }
 
-    let isActive = false;
-    if (state !== "Off" && state !== "Unknown") {
-        isActive = true;
+    let derivedActiveFromState = false;
+    if (formatBalanceState(stateRaw) !== "Off" && formatBalanceState(stateRaw) !== "Unknown") {
+        derivedActiveFromState = true;
     } else if (stateRaw) {
         const raw = String(stateRaw).toUpperCase();
         if (raw !== "BALANCING_OFF" && (
@@ -157,13 +177,20 @@ function extractBpcBalancing(item: any, idx: number) {
             (raw.includes("CHARGE") && raw.includes("ON")) ||
             (raw.includes("DISCHARGE") && raw.includes("ON"))
         )) {
-            isActive = true;
+            derivedActiveFromState = true;
         }
     } else {
         if (item.active === true || item.balancingActive === true || data.active === true || data.balancingActive === true) {
-            isActive = true;
+            derivedActiveFromState = true;
         }
     }
+
+    const isActive =
+      chargeBalancing === true ||
+      dischargeBalancing === true ||
+      derivedActiveFromState === true;
+
+    const balanceTelemetryPresent = chargeBalancing !== null || dischargeBalancing !== null || stateRaw !== null || modeRaw !== null;
 
     return {
         bpIndex,
@@ -179,8 +206,61 @@ function extractBpcBalancing(item: any, idx: number) {
         dischargeDeadband,
         commandTimeToLive,
         balancingSource,
+        chargeBalancing,
+        dischargeBalancing,
+        balanceTelemetryPresent,
         isActive
     };
+}
+
+const EXPECTED_BPCS_PER_STRING = 14;
+function normalizeBalanceDetailsToExpectedBpcs(details: any[], expectedCount = EXPECTED_BPCS_PER_STRING) {
+  const byIndex = new Map<number, any>();
+  for (const d of details || []) {
+    const idx = Number(d.bpIndex ?? d.bpcNumber ?? d.batteryPackIndex);
+    if (Number.isFinite(idx) && idx >= 1) {
+      byIndex.set(idx, d);
+    }
+  }
+  const normalized = [];
+  for (let i = 1; i <= expectedCount; i++) {
+    const existing = byIndex.get(i);
+    if (existing) {
+      normalized.push({
+        ...existing,
+        bpIndex: i,
+        bpcNumber: i,
+        state: existing.state && existing.state !== "Unknown" ? existing.state : "Off",
+        displayState: existing.state && existing.state !== "Unknown" ? existing.state : "Off",
+        balanceTelemetryPresent: existing.balanceTelemetryPresent ?? true,
+        missingFromSource: false
+      });
+    } else {
+      normalized.push({
+        bpIndex: i,
+        bpcNumber: i,
+        mode: "--",
+        modeRaw: null,
+        providedVoltageTarget: null,
+        state: "Not Reported",
+        displayState: "Not Reported",
+        stateRaw: null,
+        balancingCellGroup: null,
+        chargeBalancing: null,
+        dischargeBalancing: null,
+        chargeBalancingPermitted: null,
+        dischargeBalancingPermitted: null,
+        chargeDeadband: null,
+        dischargeDeadband: null,
+        commandTimeToLive: null,
+        balancingSource: null,
+        balanceTelemetryPresent: false,
+        missingFromSource: true,
+        isActive: false
+      });
+    }
+  }
+  return normalized;
 }
 
 router.get("/dump", (req, res) => {
@@ -465,7 +545,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         let balanceMode = "--";
         let balanceModeRaw: string | null = null;
         let balanceProvidedVoltageTarget: number | null = null;
-        const balanceDetails: any[] = [];
+        let balanceDetails: any[] = [];
 
         if (packList && packList.length > 0) {
             balanceTelemetryAvailable = true;
@@ -481,12 +561,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                     state: bpcDetail.state,
                     stateRaw: bpcDetail.stateRaw,
                     balancingCellGroup: bpcDetail.balancingCellGroup,
+                    chargeBalancing: bpcDetail.chargeBalancing,
+                    dischargeBalancing: bpcDetail.dischargeBalancing,
+                    balanceTelemetryPresent: bpcDetail.balanceTelemetryPresent,
                     chargeBalancingPermitted: bpcDetail.chargeBalancingPermitted,
                     dischargeBalancingPermitted: bpcDetail.dischargeBalancingPermitted,
                     chargeDeadband: bpcDetail.chargeDeadband,
                     dischargeDeadband: bpcDetail.dischargeDeadband,
                     commandTimeToLive: bpcDetail.commandTimeToLive,
-                    balancingSource: bpcDetail.balancingSource
+                    balancingSource: bpcDetail.balancingSource,
+                    isActive: bpcDetail.isActive
                 });
                 if (bpcDetail.isActive) {
                     balanceCount!++;
@@ -533,6 +617,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             }
         }
 
+        const normalizedBalanceDetails = normalizeBalanceDetailsToExpectedBpcs(balanceDetails, 14);
+        balanceDetails = normalizedBalanceDetails;
+        balanceCount = normalizedBalanceDetails.filter(d => d.isActive === true).length;
+        balanceTelemetryAvailable = normalizedBalanceDetails.some(d => d.balanceTelemetryPresent === true);
+        if (!balanceTelemetryAvailable) {
+          balanceMode = "--";
+        } else if (balanceCount === 0) {
+          balanceMode = "Off";
+        }
+
         const container = hasStringData 
             ? String(row.enclosureIndex || "") 
             : String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
@@ -554,7 +648,9 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         let fanState: "no-command" | "unknown" | "match" | "mismatch" = "no-command";
         let fanLastCommandTime: any = null;
 
-        if (hasStringData) {
+        const fanReport = stringData?.stringFanReport || row?.stringFanReport || row?.stringData?.stringFanReport;
+
+        if (fanReport) {
             const FAN_MATCH_TOLERANCE_PERCENT = 5;
             const finite = (v: any): number | null => {
               const n = Number(v);
@@ -568,24 +664,26 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             const clampPercent = (v: number): number =>
               Math.max(0, Math.min(100, Math.round(v)));
               
-            const fanReport = stringData?.stringFanReport || {};
-            fanRatedRpm = finite(fanReport.fanRatedRPM) ?? 7500;
+            fanRatedRpm = finite(fanReport.fanRatedRPM) ?? finite(fanReport.fanRatedRpm) ?? 7500;
             fanCommandPercent = finite(fanReport.fanCommand);
             fanSettingPercent = finite(fanReport.fanSetting);
-            fanStatusRpmValues = Array.isArray(fanReport.fanStatusRPM) ? fanReport.fanStatusRPM.map((v: any) => Number(v) || 0) : [];
-            fanStatusAvgRpm = Array.isArray(fanReport.fanStatusRPM) ? avg(fanReport.fanStatusRPM) : null;
+            fanStatusRpmValues = Array.isArray(fanReport.fanStatusRPM) 
+              ? fanReport.fanStatusRPM.map(finite).filter((n): n is number => n !== null) 
+              : (Array.isArray(fanReport.fanStatusRpm) ? fanReport.fanStatusRpm.map(finite).filter((n): n is number => n !== null) : []);
+            
+            fanStatusAvgRpm = fanStatusRpmValues.length ? avg(fanStatusRpmValues) : null;
             
             fanStatusPercent =
               fanStatusAvgRpm !== null && fanRatedRpm > 0
-                ? clampPercent((fanStatusAvgRpm / fanRatedRpm) * 105) // allow normal scaling alignment
+                ? clampPercent((fanStatusAvgRpm / fanRatedRpm) * 100)
                 : fanSettingPercent;
             
             if (fanStatusPercent !== null) {
               fanStatusPercent = clampPercent(fanStatusPercent);
             }
 
-            fanCount = Number(fanReport.fanCount) || 1;
-            fanLastCommandTime = stringData?.lastFanCommandTime;
+            fanCount = Number(fanReport.fanCount) || fanStatusRpmValues.length || 1;
+            fanLastCommandTime = stringData?.lastFanCommandTime ?? row?.lastFanCommandTime ?? row?.stringData?.lastFanCommandTime ?? null;
 
             const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
             const hasStatus = fanStatusPercent !== null;
@@ -595,16 +693,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             else fanState = "mismatch";
         } else {
             const fanCommandCandidates = [
-                row.fanCommand,
-                row.stringFanReport?.fanCommand,
+                row?.fanCommand,
+                row?.stringFanReport?.fanCommand,
                 blockStrBase?.fanCommand,
                 blockStrBase?.stringFanReport?.fanCommand,
                 lcStrBase?.fanCommand,
                 lcStrBase?.stringFanReport?.fanCommand,
-                row.raw?.blockviewer?.fanCommand,
-                row.raw?.stringDetail?.fanCommand,
-                row.raw?.stringsCsv?.fanCommand,
-                row.fanRequested,
+                row?.raw?.blockviewer?.fanCommand,
+                row?.raw?.stringDetail?.fanCommand,
+                row?.raw?.stringsCsv?.fanCommand,
+                row?.fanRequested,
                 blockStrBase?.fanRequested,
                 lcStrBase?.fanRequested,
             ];
@@ -619,16 +717,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             }
 
             const fanSettingCandidates = [
-                row.fanSetting,
-                row.stringFanReport?.fanSetting,
+                row?.fanSetting,
+                row?.stringFanReport?.fanSetting,
                 blockStrBase?.fanSetting,
                 blockStrBase?.stringFanReport?.fanSetting,
                 lcStrBase?.fanSetting,
                 lcStrBase?.stringFanReport?.fanSetting,
-                row.raw?.blockviewer?.fanSetting,
-                row.raw?.stringDetail?.fanSetting,
-                row.raw?.stringsCsv?.fanSetting,
-                row.fanActual,
+                row?.raw?.blockviewer?.fanSetting,
+                row?.raw?.stringDetail?.fanSetting,
+                row?.raw?.stringsCsv?.fanSetting,
+                row?.fanActual,
                 blockStrBase?.fanActual,
                 lcStrBase?.fanActual,
             ];
@@ -643,9 +741,9 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             }
 
             const lastFanCommandTimeCandidates = [
-                row.lastFanCommandTime,
-                row.LastFanCommandTime,
-                row.raw?.stringsCsv?.LastFanCommandTime,
+                row?.lastFanCommandTime,
+                row?.LastFanCommandTime,
+                row?.raw?.stringsCsv?.LastFanCommandTime,
                 blockStrBase?.lastFanCommandTime,
                 lcStrBase?.lastFanCommandTime,
                 blockStrBase?.stringFanReport?.lastFanCommandTime,

@@ -19,6 +19,8 @@ import {
   Shield
 } from "lucide-react";
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
+import { useSiteData } from "../context/SiteDataContext";
+import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -135,6 +137,37 @@ export interface SiteHealthGraphResponse {
 }
 
 export default function SiteDistributionDashboard({ active = true }: { active?: boolean }) {
+  const { snapshot } = useSiteData();
+
+  const siteHeatmapData = useMemo(() => {
+    let siteVolts: (number | null)[] = [];
+    let siteTemps: (number | null)[] = [];
+
+    const arrayDetails = snapshot?.normalized?.arrayDetailsByArray || {};
+    Object.keys(arrayDetails).sort((a,b) => Number(a) - Number(b)).forEach((arrKey) => {
+      const arr = arrayDetails[arrKey];
+      if (arr && Array.isArray(arr.strings)) {
+        arr.strings.forEach((str: any) => {
+          if (Array.isArray(str.millivolts)) {
+            str.millivolts.forEach((mv: any) => {
+              if (mv !== undefined && mv !== null) siteVolts.push(Number(mv));
+            });
+          }
+          if (Array.isArray(str.temperatures)) {
+            str.temperatures.forEach((t: any) => {
+              if (t !== undefined && t !== null) siteTemps.push(Number(t));
+            });
+          }
+        });
+      }
+    });
+
+    return {
+      voltages: siteVolts,
+      temperatures: siteTemps
+    };
+  }, [snapshot]);
+
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -150,7 +183,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [currentView, setCurrentView] = useState<"distribution" | "sensors">("distribution");
 
   // Filters & Settings state
-  const [activeTab, setActiveTab] = useState<"voltage" | "temperature">("voltage");
+  const [activeTab, setActiveTab] = useState<"voltage" | "temperature" | "heatmap">("voltage");
   const [arrayFilter, setArrayFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -291,7 +324,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
       // 3. Outlier filter logic
       if (outliersOnly) {
-        const val = getMetricValue(s, activeTab, tempMetric);
+        const val = getMetricValue(s, activeTab === "heatmap" ? "voltage" : activeTab, tempMetric);
         const hasIssue = s.statusColor !== "green";
         let isValOutlier = false;
         
@@ -322,7 +355,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const flaggedCount = useMemo(() => {
     return filteredStrings.filter(s => {
       const isNotGreen = s.statusColor !== "green";
-      const v = getMetricValue(s, activeTab, tempMetric);
+      const v = getMetricValue(s, activeTab === "heatmap" ? "voltage" : activeTab, tempMetric);
       
       let isThresholdOutlier = false;
       if (v !== undefined && v !== null) {
@@ -697,26 +730,36 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           {/* SPREAD TYPE RADIO PILLS */}
           <div className="space-y-1.5">
             <label className="text-[10px] text-prizm-text-muted font-bold uppercase tracking-wider block">Chart Spread View</label>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-3 gap-1">
               <button
                 onClick={() => setActiveTab("voltage")}
-                className={`py-2 px-2 text-[10px] font-bold text-center border rounded transition-all uppercase cursor-pointer ${
+                className={`py-2 px-1 text-[9px] font-bold text-center border rounded transition-all uppercase cursor-pointer truncate ${
                   activeTab === "voltage"
                     ? "bg-emerald-600/15 border-prizm-primary text-emerald-700"
                     : "bg-prizm-surface hover:bg-prizm-surface-strong border-prizm-border text-prizm-text-muted"
                 }`}
               >
-                Voltage Spread
+                Volt Spread
               </button>
               <button
                 onClick={() => setActiveTab("temperature")}
-                className={`py-2 px-2 text-[10px] font-bold text-center border rounded transition-all uppercase cursor-pointer ${
+                className={`py-2 px-1 text-[9px] font-bold text-center border rounded transition-all uppercase cursor-pointer truncate ${
                   activeTab === "temperature"
                     ? "bg-orange-600/15 border-orange-500 text-orange-700"
                     : "bg-prizm-surface hover:bg-prizm-surface-strong border-prizm-border text-prizm-text-muted"
                 }`}
               >
                 Temp Spread
+              </button>
+              <button
+                onClick={() => setActiveTab("heatmap")}
+                className={`py-2 px-1 text-[9px] font-bold text-center border rounded transition-all uppercase cursor-pointer truncate ${
+                  activeTab === "heatmap"
+                    ? "bg-[#10b981]/15 border-[#10b981] text-[#10b981]"
+                    : "bg-prizm-surface hover:bg-prizm-surface-strong border-prizm-border text-prizm-text-muted"
+                }`}
+              >
+                Heatmap
               </button>
             </div>
           </div>
@@ -1009,7 +1052,17 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             </div>
 
             {/* REAL RECHARTS PLOT FRAME */}
-            {(!data && loading) ? (
+            {activeTab === "heatmap" ? (
+              <div className="w-full">
+                <CellTelemetryHeatmap 
+                  mode="site-overview"
+                  voltages={siteHeatmapData.voltages}
+                  temperatures={siteHeatmapData.temperatures}
+                  title="Full-Site Cell Group Distribution Heatmap"
+                  gridColumns={48}
+                />
+              </div>
+            ) : (!data && loading) ? (
               <div className="h-[300px] sm:h-[350px] flex flex-col items-center justify-center border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong">
                 <RefreshCw className="animate-spin text-prizm-info mb-2" size={24} />
                 <span className="text-xs text-prizm-text-muted">Loading telemetry distribution coordinates...</span>

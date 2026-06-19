@@ -1,7 +1,8 @@
 import { markPerf } from '../lib/perf';
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
+import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const [data, setData] = useState<any>(null);
@@ -232,6 +233,42 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   const finalBpcCount = data?.summary?.bpcCount ?? bpcs?.length ?? s.bpcCount ?? 0;
 
+  const heatmapData = useMemo(() => {
+    let volts: (number | null)[] = [];
+    let temps: (number | null)[] = [];
+
+    // Priority 1: bpcs cellGroups
+    if (bpcs && bpcs.length > 0 && bpcs.some((b: any) => Array.isArray(b.cellGroups) && b.cellGroups.length > 0)) {
+      bpcs.forEach((b: any) => {
+        if (Array.isArray(b.cellGroups)) {
+          b.cellGroups.forEach((cg: any) => {
+            volts.push(cg.voltage ?? null);
+            temps.push(cg.temperature ?? null);
+          });
+        }
+      });
+    }
+
+    // Priority 2: Flat map of existing matrix arrays
+    if (volts.length === 0 && Array.isArray(voltageMatrix) && voltageMatrix.length > 0) {
+      volts = voltageMatrix.flat().map((v: any) => {
+        const val = finite(v);
+        return val !== null ? val : null;
+      });
+    }
+    if (temps.length === 0 && Array.isArray(temperatureMatrix) && temperatureMatrix.length > 0) {
+      temps = temperatureMatrix.flat().map((t: any) => {
+        const val = finite(t);
+        return val !== null ? val : null;
+      });
+    }
+
+    return {
+      voltages: volts,
+      temperatures: temps
+    };
+  }, [bpcs, voltageMatrix, temperatureMatrix]);
+
   const getVoltageColor = (v: number) => {
        if (v > 3600) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
        if (v > 3500) return "bg-amber-400/20 border-amber-400/40 text-amber-100 font-bold";
@@ -354,6 +391,15 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
           </details>
 
           <div className="flex flex-col gap-6 mb-6">
+              {/* Grandular Cell-Level Heatmap visualizer */}
+              <CellTelemetryHeatmap 
+                mode="single-string"
+                voltages={heatmapData.voltages}
+                temperatures={heatmapData.temperatures}
+                title={`Array ${s.arrayNumber} - String ${s.stringNumber} - Interactive Cell Heatmap`}
+                gridColumns={(bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) ? (bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) : 30}
+              />
+
               {/* Voltage Matrix */}
               <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
                   <div className="flex justify-between items-center mb-4">

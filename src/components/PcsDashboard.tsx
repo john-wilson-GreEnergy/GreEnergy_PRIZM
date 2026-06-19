@@ -21,60 +21,7 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
     }
 }
 
-function MatrixVisualizer({ mv, temps }: { mv: number[], temps: number[] }) {
-    const [viewMode, setViewMode] = useState<"volts" | "temps">("volts");
-    const listToUse = viewMode === "volts" ? mv : temps;
-    const isVolts = viewMode === "volts";
 
-    return (
-      <div className="space-y-1.5 pt-1 select-none">
-        <div className="flex justify-between items-center">
-           <span className="text-[7.5px] text-prizm-text-muted font-mono uppercase">
-             Raw {isVolts ? "Voltage" : "Temperature"} Grid ({listToUse.length} units)
-           </span>
-           <div className="flex gap-1.5">
-              <button 
-                onClick={(e) => { e.stopPropagation(); setViewMode("volts"); }}
-                className={`px-1 rounded text-[7px] font-bold uppercase font-mono transition-colors ${isVolts ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-prizm-surface text-prizm-text-muted border border-prizm-border/50 hover:text-white"}`}
-              >
-                Volts
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setViewMode("temps"); }}
-                className={`px-1 rounded text-[7px] font-bold uppercase font-mono transition-colors ${!isVolts ? "bg-prizm-primary/20 text-prizm-primary border border-prizm-primary/40" : "bg-prizm-surface text-prizm-text-muted border border-prizm-border/50 hover:text-white"}`}
-              >
-                Temps
-              </button>
-           </div>
-        </div>
-
-        <div 
-           style={{
-             display: "grid",
-             gridTemplateColumns: "repeat(30, minmax(0, 1fr))",
-             gap: "1.5px"
-           }}
-           className="bg-prizm-surface p-1 rounded border border-prizm-border/30"
-        >
-           {listToUse.map((val, idx) => {
-              const opacity = 0.35 + (val % 5) * 0.15;
-              const bgClass = isVolts 
-                ? `rgba(16, 185, 129, ${opacity})`
-                : `rgba(2, 132, 199, ${opacity})`;
-
-              return (
-                <div 
-                  key={idx}
-                  title={`Cell Group ${idx + 1}: Raw compact value ${val}`}
-                  style={{ backgroundColor: bgClass }}
-                  className="aspect-square rounded-[1px] hover:scale-125 transition-transform cursor-pointer"
-                />
-              );
-           })}
-        </div>
-      </div>
-    );
-}
 
 export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const { snapshot, isInitialLoading, refreshNow } = useSiteData();
@@ -140,19 +87,69 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         if (pcsRows.length > 0) {
             // Ensure unique IDs and normalize fields
             const pcsWithId = pcsRows.map((p: any, idx: number) => {
-                const arrayIndex = p.arrayIndex ?? p.arrayNum ?? p.raw?.arrayIndex ?? 1;
-                const pcsIndex = p.pcsIndex ?? p.pcsNum ?? p.arrayPcsIndex ?? p.raw?.arrayPcsIndex ?? (idx + 1);
-                const rotation = p.rotation ?? (p.outRotation ? "OUT" : "IN");
+                const finite = (v: any): number | null => {
+                  const n = Number(v);
+                  return Number.isFinite(n) ? n : null;
+                };
+
+                const arrayIndex =
+                  finite(p.arrayNumber) ??
+                  finite(p.arrayIndex) ??
+                  finite(p.arrayNum) ??
+                  finite(p.raw?.arrayIndex) ??
+                  1;
+                const pcsIndex =
+                  finite(p.pcsNumber) ??
+                  finite(p.pcsIndex) ??
+                  finite(p.pcsNum) ??
+                  finite(p.arrayPcsIndex) ??
+                  finite(p.raw?.arrayPcsIndex) ??
+                  1;
+                const rotation =
+                  String(
+                    p.rotationStatus ??
+                    p.rotation ??
+                    (
+                      p.outRotation === true ? "OUT" :
+                      p.outRotation === false ? "IN" :
+                      "UNKNOWN"
+                    )
+                  ).toUpperCase();
+
                 const state = p.state ?? p.status ?? p.raw?.state ?? "Unknown";
 
-                const dcVoltage = hasVal(p.dcVoltage) ? p.dcVoltage : (hasVal(p.vDc) ? p.vDc : (hasVal(p.dcVoltageVolt) ? p.dcVoltageVolt : (p.raw ? p.raw.dcVoltageVolt : null)));
-                const dcCurrent = hasVal(p.dcCurrent) ? p.dcCurrent : (hasVal(p.iDc) ? p.iDc : (hasVal(p.dcCurrentAmp) ? p.dcCurrentAmp : (p.raw ? p.raw.dcCurrentAmp : null)));
-                const acVoltageDisplay = p.acVoltageDisplay ?? "-- / -- / --";
-                const acVoltage = hasVal(p.acVoltage) ? p.acVoltage : (hasVal(p.vAc) ? p.vAc : (hasVal(p.acVoltageVolt) ? p.acVoltageVolt : (p.raw ? p.raw.acVoltageVolt : null)));
-                const acCurrent = hasVal(p.acCurrent) ? p.acCurrent : (hasVal(p.iAc) ? p.iAc : (hasVal(p.acCurrentAmp) ? p.acCurrentAmp : (p.raw ? p.raw.acCurrentAmp : null)));
-                const acRealPowerKw = hasVal(p.acRealPowerKw) ? p.acRealPowerKw : (hasVal(p.realPwr) ? p.realPwr : (hasVal(p.acRealPowerKW) ? p.acRealPowerKW : (p.raw ? p.raw.acRealPowerKW : null)));
-                const acReactivePowerKvar = hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (hasVal(p.reactivePwr) ? p.reactivePwr : (hasVal(p.acReactivePowerKvar) ? p.acReactivePowerKvar : (p.raw ? p.raw.acReactivePowerKvar : null)));
-                const frequencyHz = hasVal(p.frequencyHz) ? p.frequencyHz : (hasVal(p.freqHz) ? p.freqHz : (p.raw ? p.raw.acFrequencyHz : null));
+                const dcVoltage = finite(p.dcVoltageVolt) ?? finite(p.dcVoltage) ?? finite(p.vDc) ?? finite(p.raw?.dcVoltageVolt);
+                const dcCurrent = finite(p.dcCurrentAmp) ?? finite(p.dcCurrent) ?? finite(p.iDc) ?? finite(p.raw?.dcCurrentAmp);
+                const acRealPowerKw =
+                  finite(p.acRealPowerKW) ??
+                  finite(p.acRealPowerKw) ??
+                  finite(p.realPwr) ??
+                  finite(p.raw?.acRealPowerKW);
+                const acReactivePowerKvar =
+                  finite(p.acReactivePowerKVAR) ??
+                  finite(p.acReactivePowerKvar) ??
+                  finite(p.reactivePwr) ??
+                  finite(p.raw?.acReactivePowerKVAR);
+                const frequencyHz =
+                  finite(p.acFrequencyHz) ??
+                  finite(p.frequencyHz) ??
+                  finite(p.freqHz) ??
+                  finite(p.raw?.acFrequencyHz);
+
+                const acVoltageDisplay = Array.isArray(p.phaseData) && p.phaseData.length
+                  ? p.phaseData
+                      .map((ph: any) => finite(ph.acVoltageVolt))
+                      .filter((n: number | null): n is number => n !== null)
+                      .map((n: number) => n.toFixed(0))
+                      .join(" / ")
+                  : (p.acVoltageDisplay ?? "-- / -- / --");
+
+                const acCurrent = Array.isArray(p.phaseData) && p.phaseData.length
+                  ? p.phaseData
+                      .map((ph: any) => finite(ph.acCurrentAmp))
+                      .filter((n: number | null): n is number => n !== null)
+                      .reduce((sum: number, curr: number) => sum + curr, 0) / p.phaseData.length
+                  : (finite(p.acCurrent) ?? finite(p.iAc) ?? finite(p.acCurrentAmp) ?? null);
 
                 return {
                     ...p,
@@ -162,10 +159,6 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     displayKey: p.displayKey ?? p.name ?? `ArrayPcs:${arrayIndex}:${pcsIndex}`,
                     dcVoltage,
                     dcCurrent,
-                    acVoltage,
-                    acVoltageAB: p.acVoltageAB,
-                    acVoltageBC: p.acVoltageBC,
-                    acVoltageCA: p.acVoltageCA,
                     acVoltageDisplay,
                     acCurrent,
                     acRealPowerKw,
@@ -593,7 +586,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                             </div>
                                         </div>
 
-                                        <MatrixVisualizer mv={str.millivolts} temps={str.temperatures} />
+                                        
                                     </div>
                                 ))}
                             </div>
