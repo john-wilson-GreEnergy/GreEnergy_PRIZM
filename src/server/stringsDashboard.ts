@@ -25,6 +25,12 @@ function pN(val: any, def: number | null = null): number | null {
   return isNaN(n) ? def : n;
 }
 
+const finite = (value: any): number | null => {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
 function normalizeHeader(h: string): string {
     return h.toLowerCase().replace(/[\s_\-\.]/g, "");
 }
@@ -284,8 +290,11 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             normalizedObject[normalizeHeader(k)] = v;
         }
 
-        const arrayNumber = pN(tryGetField(row, normalizedObject, ["array", "arrayindex", "arr"]));
-        const stringNumber = pN(tryGetField(row, normalizedObject, ["string", "stringindex", "str"]));
+        const hasStringData = row && (row.stringData !== undefined || row.StringData !== undefined);
+        const stringData = hasStringData ? (row.stringData || row.StringData) : null;
+
+        const arrayNumber = hasStringData ? Number(row.arrayIndex) : pN(tryGetField(row, normalizedObject, ["array", "arrayindex", "arr"]));
+        const stringNumber = hasStringData ? Number(row.stringIndex) : pN(tryGetField(row, normalizedObject, ["string", "stringindex", "str"]));
         
         if (arrayNumber === null || stringNumber === null) {
             require('fs').appendFileSync('skips.log', JSON.stringify({ arrayNumber, stringNumber, row }) + "\n");
@@ -315,62 +324,141 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         }
 
         // Identify Connection State
-        let conn = tryGetField(row, normalizedObject, ["connectionstate", "contact", "communicating"]);
-        if (conn === undefined && blockStrBase) conn = blockStrBase.communicating;
-        if (conn === undefined && lcStrBase) {
-             conn = lcStrBase.communicating ?? lcStrBase.connectionState;
+        let isOnline: boolean | null = null;
+        if (hasStringData) {
+            const scState = stringData.stringConnectionState;
+            isOnline = scState === "ONLINE" || scState === "Online" || scState === "NORMAL" || scState === true;
+        } else {
+            let conn = tryGetField(row, normalizedObject, ["connectionstate", "contact", "communicating"]);
+            if (conn === undefined && blockStrBase) conn = blockStrBase.communicating;
+            if (conn === undefined && lcStrBase) {
+                 conn = lcStrBase.communicating ?? lcStrBase.connectionState;
+            }
+            if (conn === true || conn === "true" || conn === "Online" || conn === "ONLINE") isOnline = true;
+            else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE" || row.StringConnectionState === "OFFLINE") isOnline = false;
         }
         
-        let isOnline: boolean | null = null;
-        if (conn === true || conn === "true" || conn === "Online" || conn === "ONLINE") isOnline = true;
-        else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE" || row.StringConnectionState === "OFFLINE") isOnline = false;
-        
-        const contactorsCloseExpected = parseBoolean(tryGetField(row, normalizedObject, ["contactorscloseexpected", "closeexpected"]));
-        const positiveContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "positive_contactor_closed"]));
-        const negativeContactorClosed = parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed", "negative_contactor_closed"]));
+        const contactorsCloseExpected = hasStringData 
+            ? parseBoolean(stringData.contactorsCloseExpected) 
+            : parseBoolean(tryGetField(row, normalizedObject, ["contactorscloseexpected", "closeexpected"]));
+            
+        const positiveContactorClosed = hasStringData 
+            ? parseBoolean(stringData.positiveContactorClosed) 
+            : parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "positive_contactor_closed"]));
+            
+        const negativeContactorClosed = hasStringData 
+            ? parseBoolean(stringData.negativeContactorClosed) 
+            : parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed", "negative_contactor_closed"]));
+            
         const contactorClosed = positiveContactorClosed && negativeContactorClosed;
         const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
-        const recloseCount = pN(tryGetField(row, normalizedObject, ["reclosecount"]));
+        const recloseCount = hasStringData 
+            ? pN(stringData.recloseCount) 
+            : pN(tryGetField(row, normalizedObject, ["reclosecount"]));
         
-        const outRotation = parseBoolean(tryGetField(row, normalizedObject, ["outrotation", "out_rotation", "rotation"]));
+        const outRotation = hasStringData 
+            ? parseBoolean(stringData.outRotation) 
+            : parseBoolean(tryGetField(row, normalizedObject, ["outrotation", "out_rotation", "rotation"]));
+            
         const rotationStatus = outRotation ? "OUT" : "IN";
         const rotationEnabled = !outRotation;
 
-        const measuredVoltage = pN(tryGetField(row, normalizedObject, ["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
-        const calculatedVoltage = pN(tryGetField(row, normalizedObject, ["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
-        const busVoltage = pN(tryGetField(row, normalizedObject, ["busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
-        let voltageDelta = pN(tryGetField(row, normalizedObject, ["voltagedelta", "voltage_delta"]));
-        if (voltageDelta === null && measuredVoltage !== null && calculatedVoltage !== null) {
+        const measuredVoltage = hasStringData 
+            ? pN(stringData.measuredStringVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
+            
+        const calculatedVoltage = hasStringData 
+            ? pN(stringData.calculatedStringVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
+            
+        const preciseCalculatedVoltage = hasStringData 
+            ? pN(stringData.preciseCalculatedStringVoltage) 
+            : calculatedVoltage;
+
+        const busVoltage = hasStringData 
+            ? pN(stringData.dcBusVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
+            
+        let voltageDelta = null;
+        if (measuredVoltage !== null && calculatedVoltage !== null) {
             voltageDelta = Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2));
         }
 
-        const amps = pN(tryGetField(row, normalizedObject, ["current", "stringcurrent", "string_current"]));
-        const kw = pN(tryGetField(row, normalizedObject, ["kw", "powerkw", "measuredkw", "power_kw"]));
-        const socPct = pN(tryGetField(row, normalizedObject, ["soc", "powersoc"]));
-        const ah = pN(tryGetField(row, normalizedObject, ["ah", "capacityah"]));
-        const kwh = pN(tryGetField(row, normalizedObject, ["kwh", "powerkwh"]));
+        const amps = hasStringData 
+            ? pN(stringData.stringCurrent) 
+            : pN(tryGetField(row, normalizedObject, ["current", "stringcurrent", "string_current"]));
+            
+        const kw = hasStringData 
+            ? pN(stringData.kW) 
+            : pN(tryGetField(row, normalizedObject, ["kw", "powerkw", "measuredkw", "power_kw"]));
+            
+        const socPct = hasStringData 
+            ? pN(stringData.soc) 
+            : pN(tryGetField(row, normalizedObject, ["soc", "powersoc"]));
+            
+        const ah = hasStringData 
+            ? pN(stringData.ah) 
+            : pN(tryGetField(row, normalizedObject, ["ah", "capacityah"]));
+            
+        const kwh = hasStringData 
+            ? pN(stringData.kWh) 
+            : pN(tryGetField(row, normalizedObject, ["kwh", "powerkwh"]));
 
-        const minCellVoltage = pN(tryGetField(row, normalizedObject, ["mincellvoltage", "cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage"]));
-        const maxCellVoltage = pN(tryGetField(row, normalizedObject, ["maxcellvoltage", "cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage"]));
-        const avgCellVoltage = pN(tryGetField(row, normalizedObject, ["avgcellvoltage", "cellgroupvoltageavg", "avgcellgroupvoltage"]));
-        let cellVoltageDelta = pN(tryGetField(row, normalizedObject, ["cellvoltagedelta", "celldelta"]));
-        if (cellVoltageDelta === null && maxCellVoltage !== null && minCellVoltage !== null) {
+        const minCellVoltage = hasStringData 
+            ? pN(stringData.minCellGroupVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["mincellvoltage", "cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage"]));
+            
+        const maxCellVoltage = hasStringData 
+            ? pN(stringData.maxCellGroupVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["maxcellvoltage", "cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage"]));
+            
+        const avgCellVoltage = hasStringData 
+            ? pN(stringData.avgCellGroupVoltage) 
+            : pN(tryGetField(row, normalizedObject, ["avgcellvoltage", "cellgroupvoltageavg", "avgcellgroupvoltage"]));
+            
+        let cellVoltageDelta = null;
+        if (maxCellVoltage !== null && minCellVoltage !== null) {
             cellVoltageDelta = Number((maxCellVoltage - minCellVoltage).toFixed(3));
         }
 
-        let rawMinT = pN(tryGetField(row, normalizedObject, ["mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp"]));
-        let minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
-        let rawMaxT = pN(tryGetField(row, normalizedObject, ["maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp"]));
-        let maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
-        let rawAvgT = pN(tryGetField(row, normalizedObject, ["avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp"]));
-        let avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
-        let cellTemperatureDelta = pN(tryGetField(row, normalizedObject, ["celltempdelta"]));
-        if (cellTemperatureDelta === null && maxCellTemperature !== null && minCellTemperature !== null) {
+        let minCellTemperature = null;
+        if (hasStringData) {
+            const rawMinT = pN(stringData.minCellGroupTemp);
+            minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
+        } else {
+            const rawMinT = pN(tryGetField(row, normalizedObject, ["mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp"]));
+            minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
+        }
+
+        let maxCellTemperature = null;
+        if (hasStringData) {
+            const rawMaxT = pN(stringData.maxCellGroupTemp);
+            maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
+        } else {
+            const rawMaxT = pN(tryGetField(row, normalizedObject, ["maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp"]));
+            maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
+        }
+
+        let avgCellTemperature = null;
+        if (hasStringData) {
+            const rawAvgT = pN(stringData.avgCellGroupTemp);
+            avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
+        } else {
+            const rawAvgT = pN(tryGetField(row, normalizedObject, ["avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp"]));
+            avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
+        }
+
+        let cellTemperatureDelta = null;
+        if (maxCellTemperature !== null && minCellTemperature !== null) {
             cellTemperatureDelta = Number((maxCellTemperature - minCellTemperature).toFixed(1));
         }
 
         // Locate battery packs / reports
-        const packList = findBatteryPackList(row, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper);
+        const packList = (hasStringData && Array.isArray(row.batteryPackReportList))
+            ? row.batteryPackReportList
+            : (hasStringData && Array.isArray(stringData?.batteryPackReportList)
+                ? stringData.batteryPackReportList
+                : findBatteryPackList(row, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper));
 
         let balanceTelemetryAvailable = false;
         let balanceCount: number | null = null;
@@ -445,87 +533,153 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             }
         }
 
-        const container = String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
-        const location = String(tryGetField(row, normalizedObject, ["location"]) || "");
+        const container = hasStringData 
+            ? String(row.enclosureIndex || "") 
+            : String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
+            
+        const location = hasStringData 
+            ? String(row.enclosureLocation || "") 
+            : String(tryGetField(row, normalizedObject, ["location"]) || "");
         
         // Resolve Fan fields
         let fanCommandRpm: number | null = null;
         let fanSettingRpm: number | null = null;
+        let fanCommandPercent: number | null = null;
+        let fanSettingPercent: number | null = null;
+        let fanStatusPercent: number | null = null;
+        let fanRatedRpm: number = 7500;
+        let fanStatusRpmValues: number[] = [];
+        let fanStatusAvgRpm: number | null = null;
+        let fanCount: number = 1;
+        let fanState: "no-command" | "unknown" | "match" | "mismatch" = "no-command";
         let fanLastCommandTime: any = null;
 
-        const fanCommandCandidates = [
-            row.fanCommand,
-            row.stringFanReport?.fanCommand,
-            blockStrBase?.fanCommand,
-            blockStrBase?.stringFanReport?.fanCommand,
-            lcStrBase?.fanCommand,
-            lcStrBase?.stringFanReport?.fanCommand,
-            row.raw?.blockviewer?.fanCommand,
-            row.raw?.stringDetail?.fanCommand,
-            row.raw?.stringsCsv?.fanCommand,
-            row.fanRequested,
-            blockStrBase?.fanRequested,
-            lcStrBase?.fanRequested,
-        ];
-        for (const val of fanCommandCandidates) {
-            if (val !== undefined && val !== null && typeof val !== 'boolean') {
-                const n = Number(val);
-                if (!isNaN(n)) {
-                    fanCommandRpm = n;
+        if (hasStringData) {
+            const FAN_MATCH_TOLERANCE_PERCENT = 5;
+            const finite = (v: any): number | null => {
+              const n = Number(v);
+              return Number.isFinite(n) ? n : null;
+            };
+            const avg = (values: any[]): number | null => {
+              const nums = values.map(finite).filter((n): n is number => n !== null);
+              if (!nums.length) return null;
+              return nums.reduce((a, b) => a + b, 0) / nums.length;
+            };
+            const clampPercent = (v: number): number =>
+              Math.max(0, Math.min(100, Math.round(v)));
+              
+            const fanReport = stringData?.stringFanReport || {};
+            fanRatedRpm = finite(fanReport.fanRatedRPM) ?? 7500;
+            fanCommandPercent = finite(fanReport.fanCommand);
+            fanSettingPercent = finite(fanReport.fanSetting);
+            fanStatusRpmValues = Array.isArray(fanReport.fanStatusRPM) ? fanReport.fanStatusRPM.map((v: any) => Number(v) || 0) : [];
+            fanStatusAvgRpm = Array.isArray(fanReport.fanStatusRPM) ? avg(fanReport.fanStatusRPM) : null;
+            
+            fanStatusPercent =
+              fanStatusAvgRpm !== null && fanRatedRpm > 0
+                ? clampPercent((fanStatusAvgRpm / fanRatedRpm) * 105) // allow normal scaling alignment
+                : fanSettingPercent;
+            
+            if (fanStatusPercent !== null) {
+              fanStatusPercent = clampPercent(fanStatusPercent);
+            }
+
+            fanCount = Number(fanReport.fanCount) || 1;
+            fanLastCommandTime = stringData?.lastFanCommandTime;
+
+            const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
+            const hasStatus = fanStatusPercent !== null;
+            if (!hasCommand) fanState = "no-command";
+            else if (!hasStatus) fanState = "unknown";
+            else if (Math.abs(fanCommandPercent - fanStatusPercent) <= FAN_MATCH_TOLERANCE_PERCENT) fanState = "match";
+            else fanState = "mismatch";
+        } else {
+            const fanCommandCandidates = [
+                row.fanCommand,
+                row.stringFanReport?.fanCommand,
+                blockStrBase?.fanCommand,
+                blockStrBase?.stringFanReport?.fanCommand,
+                lcStrBase?.fanCommand,
+                lcStrBase?.stringFanReport?.fanCommand,
+                row.raw?.blockviewer?.fanCommand,
+                row.raw?.stringDetail?.fanCommand,
+                row.raw?.stringsCsv?.fanCommand,
+                row.fanRequested,
+                blockStrBase?.fanRequested,
+                lcStrBase?.fanRequested,
+            ];
+            for (const val of fanCommandCandidates) {
+                if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                    const n = Number(val);
+                    if (!isNaN(n)) {
+                        fanCommandRpm = n;
+                        break;
+                    }
+                }
+            }
+
+            const fanSettingCandidates = [
+                row.fanSetting,
+                row.stringFanReport?.fanSetting,
+                blockStrBase?.fanSetting,
+                blockStrBase?.stringFanReport?.fanSetting,
+                lcStrBase?.fanSetting,
+                lcStrBase?.stringFanReport?.fanSetting,
+                row.raw?.blockviewer?.fanSetting,
+                row.raw?.stringDetail?.fanSetting,
+                row.raw?.stringsCsv?.fanSetting,
+                row.fanActual,
+                blockStrBase?.fanActual,
+                lcStrBase?.fanActual,
+            ];
+            for (const val of fanSettingCandidates) {
+                if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                    const n = Number(val);
+                    if (!isNaN(n)) {
+                        fanSettingRpm = n;
+                        break;
+                    }
+                }
+            }
+
+            const lastFanCommandTimeCandidates = [
+                row.lastFanCommandTime,
+                row.LastFanCommandTime,
+                row.raw?.stringsCsv?.LastFanCommandTime,
+                blockStrBase?.lastFanCommandTime,
+                lcStrBase?.lastFanCommandTime,
+                blockStrBase?.stringFanReport?.lastFanCommandTime,
+                lcStrBase?.stringFanReport?.lastFanCommandTime,
+            ];
+            for (const val of lastFanCommandTimeCandidates) {
+                if (val !== undefined && val !== null) {
+                    fanLastCommandTime = val;
                     break;
                 }
             }
+
+            const MAX_FAN_RPM = 7500;
+            const toFanPercent = (rpm: any): number | null => {
+                const n = Number(rpm);
+                if (!Number.isFinite(n) || isNaN(n)) return null;
+                return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
+            };
+
+            fanCommandPercent = toFanPercent(fanCommandRpm);
+            fanStatusPercent = toFanPercent(fanSettingRpm);
+            fanSettingPercent = fanStatusPercent;
+            fanRatedRpm = MAX_FAN_RPM;
+            fanStatusRpmValues = fanSettingRpm !== null ? [fanSettingRpm] : [];
+            fanStatusAvgRpm = fanSettingRpm;
+            fanCount = 1;
+            
+            const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
+            const hasStatus = fanStatusPercent !== null;
+            if (!hasCommand) fanState = "no-command";
+            else if (!hasStatus) fanState = "unknown";
+            else if (Math.abs(fanCommandPercent - fanStatusPercent) <= 5) fanState = "match";
+            else fanState = "mismatch";
         }
-
-        const fanSettingCandidates = [
-            row.fanSetting,
-            row.stringFanReport?.fanSetting,
-            blockStrBase?.fanSetting,
-            blockStrBase?.stringFanReport?.fanSetting,
-            lcStrBase?.fanSetting,
-            lcStrBase?.stringFanReport?.fanSetting,
-            row.raw?.blockviewer?.fanSetting,
-            row.raw?.stringDetail?.fanSetting,
-            row.raw?.stringsCsv?.fanSetting,
-            row.fanActual,
-            blockStrBase?.fanActual,
-            lcStrBase?.fanActual,
-        ];
-        for (const val of fanSettingCandidates) {
-            if (val !== undefined && val !== null && typeof val !== 'boolean') {
-                const n = Number(val);
-                if (!isNaN(n)) {
-                    fanSettingRpm = n;
-                    break;
-                }
-            }
-        }
-
-        const lastFanCommandTimeCandidates = [
-            row.lastFanCommandTime,
-            row.LastFanCommandTime,
-            row.raw?.stringsCsv?.LastFanCommandTime,
-            blockStrBase?.lastFanCommandTime,
-            lcStrBase?.lastFanCommandTime,
-            blockStrBase?.stringFanReport?.lastFanCommandTime,
-            lcStrBase?.stringFanReport?.lastFanCommandTime,
-        ];
-        for (const val of lastFanCommandTimeCandidates) {
-            if (val !== undefined && val !== null) {
-                fanLastCommandTime = val;
-                break;
-            }
-        }
-
-        const MAX_FAN_RPM = 7500;
-        const toFanPercent = (rpm: any): number | null => {
-            const n = Number(rpm);
-            if (!Number.isFinite(n) || isNaN(n)) return null;
-            return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
-        };
-
-        const fanCommandPercent = toFanPercent(fanCommandRpm);
-        const fanStatusPercent = toFanPercent(fanSettingRpm);
 
         const lastFanCommand = parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
         const lastFanCommandTime = tryGetField(row, normalizedObject, ["lastfancommandtime"]);
@@ -694,6 +848,25 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
              if (gMaxTDelta === null || cellTemperatureDelta > gMaxTDelta) gMaxTDelta = cellTemperatureDelta;
          }
 
+        const stringNumValue = pN(stringNumber);
+        const energySegmentNumber = stringNumValue !== null ? Math.ceil(stringNumValue / 2) : null;
+        const containerNumber = energySegmentNumber;
+        const containerLabel = energySegmentNumber !== null ? `ES ${energySegmentNumber}` : "--";
+
+        const measuredStringVoltage = measuredVoltage;
+        const calculatedStringVoltage = calculatedVoltage;
+
+        const cellVoltageMin = minCellVoltage;
+        const cellVoltageMax = maxCellVoltage;
+        const cellVoltageAvg = avgCellVoltage;
+
+        const cellTempMin = minCellTemperature;
+        const cellTempMax = maxCellTemperature;
+        const cellTempAvg = avgCellTemperature;
+        const cellTempDelta = cellTemperatureDelta;
+
+        const computedBpcCount = finite(bpcCount) ?? (Array.isArray(bpcs) ? bpcs.length : null);
+
         strings.push({
             id, arrayNumber, stringNumber,
             stringKey: `A${arrayNumber}-S${stringNumber}`,
@@ -710,9 +883,12 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             outRotation,
             rotationEnabled,
             measuredVoltage, calculatedVoltage, busVoltage, voltageDelta,
+            measuredStringVoltage, calculatedStringVoltage, preciseCalculatedStringVoltage: preciseCalculatedVoltage,
             amps, kw, socPct, ah, kwh,
             minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
+            cellVoltageMin, cellVoltageMax, cellVoltageAvg,
             minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
+            cellTempMin, cellTempMax, cellTempAvg, cellTempDelta,
             balanceTelemetryAvailable,
             balanceCount,
             balanceMode,
@@ -731,7 +907,10 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             timestampUtc,
             lastUpdatedUtc: new Date().toISOString(),
             stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(row, normalizedObject, ["firmware", "firmwareversion"]),
-            bpcCount,
+            bpcCount: computedBpcCount,
+            energySegmentNumber,
+            containerNumber,
+            containerLabel,
             bpcFirmwareSummary,
             bpcs,
             operationalState,

@@ -599,6 +599,7 @@ const handleManualRefresh = async () => {
                   const FAN_MATCH_TOLERANCE_PERCENT = 5;
 
                   const toFiniteNumber = (value: any): number | null => {
+                    if (value === undefined || value === null) return null;
                     const n = Number(value);
                     return Number.isFinite(n) ? n : null;
                   };
@@ -625,11 +626,13 @@ const handleManualRefresh = async () => {
                   const commandPct = toFiniteNumber(s.fanCommandPercent) ?? toFanPercent(fanCmdRpm);
                   const statusPct = toFiniteNumber(s.fanStatusPercent) ?? toFanPercent(fanSetRpm);
 
-                  const hasCommand = commandPct !== null;
+                  const hasCommand = commandPct !== null && commandPct > 0;
                   const hasStatus = statusPct !== null;
 
                   let fanState: "no-command" | "match" | "mismatch" | "unknown" = "no-command";
-                  if (!hasCommand) {
+                  if (s.fanState) {
+                    fanState = s.fanState;
+                  } else if (!hasCommand) {
                     fanState = "no-command";
                   } else if (!hasStatus) {
                     fanState = "unknown";
@@ -643,8 +646,8 @@ const handleManualRefresh = async () => {
                     fanState === "match"
                       ? "bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
                       : fanState === "mismatch"
-                        ? "bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]"
-                        : "bg-black border border-prizm-text-muted/40";
+                        ? "bg-yellow-500 shadow-[0_0_5px_rgba(234,179,8,0.5)]"
+                        : "bg-black border border-neutral-700";
 
                   const fanTimeText = s.fanLastCommandTime || s.lastFanCommandTime || "--";
 

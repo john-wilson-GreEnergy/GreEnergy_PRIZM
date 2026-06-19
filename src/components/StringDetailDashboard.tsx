@@ -73,6 +73,142 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   const stringViewerHealth = sourceHealth?.stringviewer;
 
+  const finite = (value: any): number | null => {
+    if (value === undefined || value === null || value === "") return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const stringNum = finite(s.stringNumber ?? s.stringIndex ?? s.StringIndex);
+  const energySegmentNumber =
+    stringNum !== null
+      ? Math.ceil(stringNum / 2)
+      : null;
+  const containerNumber = energySegmentNumber;
+  const containerLabel =
+    energySegmentNumber !== null
+      ? `ES ${energySegmentNumber}`
+      : "--";
+
+  const measuredStringVoltage =
+    finite(s.measuredStringVoltage) ??
+    finite(s.measuredVoltage) ??
+    (s.stringData && finite(s.stringData.measuredStringVoltage));
+  const calculatedStringVoltage =
+    finite(s.calculatedStringVoltage) ??
+    finite(s.calculatedVoltage) ??
+    (s.stringData && finite(s.stringData.calculatedStringVoltage));
+  const preciseCalculatedStringVoltage =
+    finite(s.preciseCalculatedStringVoltage) ??
+    (s.stringData && finite(s.stringData.preciseCalculatedStringVoltage));
+
+  const formatStringVolts = (value: any): string => {
+    const n = finite(value);
+    return n === null ? "--" : `${Math.round(n)}V`;
+  };
+
+  const matrixValues = (matrix: any): number[] => {
+    if (!Array.isArray(matrix)) return [];
+    return matrix
+      .flatMap((row: any) => Array.isArray(row) ? row : Object.values(row || {}))
+      .map(finite)
+      .filter((n): n is number => n !== null);
+  };
+  const matrixMin = (matrix: any): number | null => {
+    const values = matrixValues(matrix);
+    return values.length ? Math.min(...values) : null;
+  };
+  const matrixMax = (matrix: any): number | null => {
+    const values = matrixValues(matrix);
+    return values.length ? Math.max(...values) : null;
+  };
+  const matrixAvg = (matrix: any): number | null => {
+    const values = matrixValues(matrix);
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  };
+
+  const cellVoltageMin =
+    finite(s.cellVoltageMin) ??
+    finite(s.minCellVoltage) ??
+    (s.stringData && finite(s.stringData.minCellGroupVoltage)) ??
+    matrixMin(voltageMatrix);
+  const cellVoltageMax =
+    finite(s.cellVoltageMax) ??
+    finite(s.maxCellVoltage) ??
+    (s.stringData && finite(s.stringData.maxCellGroupVoltage)) ??
+    matrixMax(voltageMatrix);
+  const cellVoltageAvg =
+    finite(s.cellVoltageAvg) ??
+    finite(s.avgCellVoltage) ??
+    (s.stringData && finite(s.stringData.avgCellGroupVoltage)) ??
+    matrixAvg(voltageMatrix);
+  const cellVoltageDelta =
+    finite(s.cellVoltageDelta) ??
+    finite(s.cellVoltageMaxDelta) ??
+    (
+      cellVoltageMax !== null && cellVoltageMin !== null
+        ? cellVoltageMax - cellVoltageMin
+        : null
+    );
+
+  const normalizeTempC = (value: any): number | null => {
+    const n = finite(value);
+    if (n === null) return null;
+    // EMS sometimes reports deci-Celsius values like 270 = 27.0°C.
+    if (Math.abs(n) > 100) return n / 10;
+    return n;
+  };
+
+  const cellTempMin =
+    normalizeTempC(s.cellTempMin) ??
+    normalizeTempC(s.minCellTemperature) ??
+    (s.stringData && normalizeTempC(s.stringData.minCellGroupTemp)) ??
+    matrixMin(temperatureMatrix);
+  const cellTempMax =
+    normalizeTempC(s.cellTempMax) ??
+    normalizeTempC(s.maxCellTemperature) ??
+    (s.stringData && normalizeTempC(s.stringData.maxCellGroupTemp)) ??
+    matrixMax(temperatureMatrix);
+  const cellTempAvg =
+    normalizeTempC(s.cellTempAvg) ??
+    normalizeTempC(s.avgCellTemperature) ??
+    (s.stringData && normalizeTempC(s.stringData.avgCellGroupTemp)) ??
+    matrixAvg(temperatureMatrix);
+  const cellTempDelta =
+    finite(s.cellTempDelta) ??
+    finite(s.cellTemperatureDelta) ??
+    (
+      cellTempMax !== null && cellTempMin !== null
+        ? cellTempMax - cellTempMin
+        : null
+    );
+
+  const bpcCount =
+    finite(s.bpcCount) ??
+    finite(s.batteryPackCount) ??
+    (Array.isArray(s.batteryPacks) ? s.batteryPacks.length : null) ??
+    (Array.isArray(s.balanceDetails) ? s.balanceDetails.length : null) ??
+    (Array.isArray(voltageMatrix) ? voltageMatrix.length : null);
+
+  const formatMv = (value: any): string => {
+    const n = finite(value);
+    return n === null ? "--" : `${Math.round(n)} mV`;
+  };
+  const formatTemp = (value: any): string => {
+    const n = finite(value);
+    if (n === null) return "--";
+    return Number.isInteger(n) ? `${n}°C` : `${n.toFixed(1)}°C`;
+  };
+  const formatDeltaMv = (value: any): string => {
+    const n = finite(value);
+    return n === null ? "Δ --" : `Δ ${Math.round(n)} mV`;
+  };
+  const formatDeltaTemp = (value: any): string => {
+    const n = finite(value);
+    if (n === null) return "Δ --";
+    return Number.isInteger(n) ? `Δ ${n}°C` : `Δ ${n.toFixed(1)}°C`;
+  };
+
   const downloadMatrixCsv = (matrix: any[], name: string) => {
     if (!matrix || matrix.length === 0) return;
     const csvRows = [];
@@ -152,20 +288,22 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.kw ?? '--'}kW | {s.amps ?? '--'}A</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Voltages (Meas/Calc)</span>
-               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.measuredVoltage ?? '--'}V / {s.calculatedVoltage ?? '--'}V</span>
+              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">VOLTAGES (MEAS/CALC)</span>
+               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{formatStringVolts(measuredStringVoltage)} / {formatStringVolts(calculatedStringVoltage)}</span>
+            </div>
+            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center min-h-[64px]">
+              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">CELL VOLTAGE</span>
+              <span className="text-[10px] font-bold text-prizm-text mt-0.5">Min {formatMv(cellVoltageMin)} | Max {formatMv(cellVoltageMax)}</span>
+              <span className="text-[9px] text-prizm-text-muted mt-0.5 font-semibold">Avg {formatMv(cellVoltageAvg)} | {formatDeltaMv(cellVoltageDelta)}</span>
+            </div>
+            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center min-h-[64px]">
+               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">CELL TEMP</span>
+               <span className="text-[10px] font-bold text-prizm-text mt-0.5">Min {formatTemp(cellTempMin)} | Max {formatTemp(cellTempMax)}</span>
+               <span className="text-[9px] text-prizm-text-muted mt-0.5 font-semibold">Avg {formatTemp(cellTempAvg)} | {formatDeltaTemp(cellTempDelta)}</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Cell Bounds</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellVoltage ?? '--'}V &rarr; {s.maxCellVoltage ?? '--'}V</span>
-            </div>
-            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Temp Bounds</span>
-               <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.minCellTemperature ?? '--'}° &rarr; {s.maxCellTemperature ?? '--'}°</span>
-            </div>
-            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Container / BPCs</span>
-              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{s.container || s.location || '--'} | {finalBpcCount} BPCs</span>
+              <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">ENERGY SEGMENT / BPCS</span>
+              <span className="text-[11px] font-bold text-prizm-text mt-0.5">{containerLabel} | {bpcCount !== null ? bpcCount : "--"} BPCs</span>
             </div>
           </div>
 
