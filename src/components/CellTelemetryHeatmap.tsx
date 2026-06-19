@@ -6,6 +6,7 @@ interface CellTelemetryHeatmapProps {
   temperatures?: (number | null)[];
   title?: string;
   gridColumns?: number;
+  isCompact?: boolean;
 }
 
 export default function CellTelemetryHeatmap({
@@ -13,7 +14,8 @@ export default function CellTelemetryHeatmap({
   voltages = [],
   temperatures = [],
   title,
-  gridColumns
+  gridColumns,
+  isCompact = false
 }: CellTelemetryHeatmapProps) {
   const [viewMode, setViewMode] = useState<"volts" | "temps">("volts");
 
@@ -32,15 +34,17 @@ export default function CellTelemetryHeatmap({
       }
       
       let parsed = Number(val);
-      if (isVolts) {
-        // Normalize mV to V if value is typical of mV
-        if (parsed > 1000) {
-          parsed = parsed / 1000;
-        }
-      } else {
-        // Temperature division: if raw is above 100, normalize (e.g. 250 -> 25.0)
-        if (parsed > 100) {
-          parsed = parsed / 10;
+      if (!isCompact) {
+        if (isVolts) {
+          // Normalize mV to V if value is typical of mV
+          if (parsed > 1000) {
+            parsed = parsed / 1000;
+          }
+        } else {
+          // Temperature division: if raw is above 100, normalize (e.g. 250 -> 25.0)
+          if (parsed > 100) {
+            parsed = parsed / 10;
+          }
         }
       }
 
@@ -58,10 +62,12 @@ export default function CellTelemetryHeatmap({
       avg: validCount > 0 ? sum / validCount : null,
       formattedList: formatted
     };
-  }, [listToUse, isVolts]);
+  }, [listToUse, isVolts, isCompact]);
 
   // Determine standard columns: single-string defaults to 12 items, site-overview defaults to 30.
   const cols = gridColumns ?? (mode === "single-string" ? 14 : 30);
+
+  const unit = isCompact ? " (Compact EMS)" : (isVolts ? " V" : " °C");
 
   return (
     <div className="bg-prizm-surface border border-prizm-border/40 p-4 rounded-lg space-y-3 font-mono text-[9px] w-full select-none">
@@ -71,7 +77,7 @@ export default function CellTelemetryHeatmap({
             {title ?? (mode === "single-string" ? "STRING TELEMETRY HEATMAP" : "SITE OVERVIEW HEATMAP")}
           </span>
           <span className="text-prizm-text-muted mt-0.5 block text-[8.5px]">
-            Mode: {mode === "single-string" ? "Single String" : "Site Overview"} ({formattedList.length} items)
+            Mode: {mode === "single-string" ? "Single String" : "Site Overview"} ({formattedList.length} items){isCompact ? " - COMPACT EMS REPORT" : ""}
           </span>
         </div>
 
@@ -99,24 +105,30 @@ export default function CellTelemetryHeatmap({
         </div>
       </div>
 
+      {isCompact && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 p-1.5 rounded uppercase text-[7px] text-center tracking-wider">
+          ⚠ Compact EMS report values. Not absolute mV/°C.
+        </div>
+      )}
+
       {min !== null && max !== null ? (
         <div className="grid grid-cols-3 gap-2.5 bg-prizm-surface border border-prizm-border/30 p-2 rounded text-center text-[8.5px]">
           <div>
             <span className="text-prizm-text-muted text-[7.5px] block uppercase">Min</span>
             <span className={`font-bold ${isVolts ? "text-emerald-400" : "text-prizm-primary"}`}>
-              {min.toFixed(isVolts ? 3 : 1)} {isVolts ? "V" : "°C"}
+              {min.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{unit}
             </span>
           </div>
           <div>
             <span className="text-prizm-text-muted text-[7.5px] block uppercase">Max</span>
             <span className={`font-bold ${isVolts ? "text-emerald-400" : "text-prizm-primary"}`}>
-              {max.toFixed(isVolts ? 3 : 1)} {isVolts ? "V" : "°C"}
+              {max.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{unit}
             </span>
           </div>
           <div>
             <span className="text-prizm-text-muted text-[7.5px] block uppercase">Avg</span>
             <span className="text-prizm-text font-bold">
-              {avg !== null ? avg.toFixed(isVolts ? 3 : 1) : "--"} {isVolts ? "V" : "°C"}
+              {avg !== null ? avg.toFixed(isCompact ? 1 : (isVolts ? 3 : 1)) : "--"}{unit}
             </span>
           </div>
         </div>
@@ -153,9 +165,7 @@ export default function CellTelemetryHeatmap({
             ? `rgba(16, 185, 129, ${opacity})`
             : `rgba(2, 132, 199, ${opacity})`;
 
-          const label = isVolts
-            ? `${val.toFixed(3)} V`
-            : `${val.toFixed(1)} °C`;
+          const label = labelValueForHover(val, isVolts, isCompact);
 
           return (
             <div
@@ -170,8 +180,15 @@ export default function CellTelemetryHeatmap({
       
       <div className="text-[7.5px] text-prizm-text-muted flex justify-between select-none">
         <span>* Hover over a cell block to see individual measurements.</span>
-        <span>Low-intensity ({isVolts ? "V Min" : "T Min"}) ➔ High-intensity ({isVolts ? "V Max" : "T Max"})</span>
+        <span>Low-intensity ({isVolts ? "Min" : "Min"}) ➔ High-intensity ({isVolts ? "Max" : "Max"})</span>
       </div>
     </div>
   );
+}
+
+function labelValueForHover(val: number, isVolts: boolean, isCompact: boolean): string {
+  if (isCompact) {
+    return `${val.toFixed(1)} Unit (Compact EMS Register)`;
+  }
+  return isVolts ? `${val.toFixed(3)} V` : `${val.toFixed(1)} °C`;
 }

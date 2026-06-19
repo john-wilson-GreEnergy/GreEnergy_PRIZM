@@ -1,6 +1,6 @@
 import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
-import { Zap, Activity, CheckCircle2, XOctagon } from "lucide-react";
+import { Zap, Activity, CheckCircle2, XOctagon, AlertTriangle } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { useSiteData } from "../context/SiteDataContext";
 
@@ -33,8 +33,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const [fallbackMode, setFallbackMode] = useState(false);
     const [pcsSource, setPcsSource] = useState("PCS source unavailable or unmapped.");
 
-    // Row selection for array details
-    const [selectedArray, setSelectedArray] = useState<number | null>(null);
+    // Row selection for array/PCS details
+    const [selectedPcsId, setSelectedPcsId] = useState<string | null>(null);
 
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
@@ -53,11 +53,10 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         };
     }, [snapshot]);
 
-    const arrayDetailsByArray = useMemo(() => {
-        return snapshot?.normalized?.arrayDetailsByArray || {};
-    }, [snapshot]);
-
-    const arrayDetail = selectedArray !== null ? arrayDetailsByArray[selectedArray] : null;
+    const selectedPcs = useMemo(() => {
+        if (!selectedPcsId) return null;
+        return pcsList.find(p => p.id === selectedPcsId) || null;
+    }, [pcsList, selectedPcsId]);
 
     const refreshData = async () => {
         const t0 = performance.now();
@@ -287,7 +286,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
-                    <div className={selectedArray !== null ? "lg:col-span-7" : "lg:col-span-12"}>
+                    <div className={selectedPcsId !== null ? "lg:col-span-7" : "lg:col-span-12"}>
                         <div className="bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
                     <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
@@ -320,8 +319,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                 return (
                                 <tr 
                                     key={pcs.id} 
-                                    onClick={() => setSelectedArray(pcs.arrayIndex)}
-                                    className={`group hover:bg-prizm-primary/5 cursor-pointer transition-colors ${selectedArray === pcs.arrayIndex ? "bg-prizm-primary/10 border-l border-prizm-primary" : ""}`}
+                                    onClick={() => setSelectedPcsId(pcs.id)}
+                                    className={`group hover:bg-prizm-primary/5 cursor-pointer transition-colors ${selectedPcsId === pcs.id ? "bg-prizm-primary/10 border-l border-prizm-primary" : ""}`}
                                 >
                                     <td className="px-1.5 py-1 border-r border-prizm-border/10 bg-transparent text-center">
                                        {isArrFirst ? (
@@ -447,24 +446,26 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             </div>
 
             {/* Detail Panel Column */}
-            {selectedArray !== null && (
+            {selectedPcsId !== null && (
                 <div className="lg:col-span-5 bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-5 flex flex-col h-fit max-h-[85vh] overflow-y-auto no-scrollbar relative animate-in slide-in-from-right duration-200">
-                    {arrayDetail ? (
+                    {selectedPcs ? (
                         <>
                             <div className="flex justify-between items-start border-b border-prizm-border pb-3">
                                 <div>
                                     <div className="text-[9px] text-[#10b981] font-bold uppercase tracking-wider font-mono select-none">
-                                        ARR INDEX: 0{selectedArray}
+                                        ARRAY: 0{selectedPcs.arrayIndex} - PCS: 0{selectedPcs.pcsIndex}
                                     </div>
                                     <h2 className="text-xs font-bold text-prizm-text font-mono mt-0.5 select-none uppercase">
-                                        SUB-TELEMETRY REPORT
+                                        PCS INVERTER TELEMETRY
                                     </h2>
                                     <p className="text-[8.5px] text-prizm-text-muted font-mono mt-1">
-                                        Last Sample: <span className="text-prizm-text font-bold">{arrayDetail.timestamp ? new Date(Number(arrayDetail.timestamp)).toLocaleTimeString() : "--"}</span>
+                                        Last Update: <span className="text-prizm-text font-bold">
+                                            {selectedPcs.raw?.timestamp ? new Date(Number(selectedPcs.raw.timestamp)).toLocaleTimeString() : new Date().toLocaleTimeString()}
+                                        </span>
                                     </p>
                                 </div>
                                 <button 
-                                    onClick={() => setSelectedArray(null)}
+                                    onClick={() => setSelectedPcsId(null)}
                                     className="text-prizm-text-muted hover:text-white hover:border-prizm-primary/50 text-[9px] font-bold font-mono uppercase px-2 py-0.5 border border-prizm-border rounded bg-prizm-surface-strong transition-all select-none"
                                 >
                                     ✕ Close
@@ -473,126 +474,129 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
 
                             <div className="grid grid-cols-2 gap-3 select-none">
                                 <div className="bg-prizm-surface-strong border border-prizm-border/60 p-2.5 rounded">
-                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">Integration Lineage</div>
-                                    <div className="text-[10px] text-[#10b981] font-bold font-mono mt-0.5 flex items-center gap-1">
-                                        <CheckCircle2 size={10} /> Active Staged Cache
+                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">Operation State</div>
+                                    <div className="text-[10px] text-emerald-400 font-bold font-mono mt-0.5 flex items-center gap-1">
+                                        <CheckCircle2 size={10} className="text-emerald-400" /> {selectedPcs.state || "ACTIVE"}
                                     </div>
-                                    <div className="text-[8px] text-prizm-text-muted font-mono mt-1 break-all uppercase" title={arrayDetail.sourceEndpoint}>
-                                        Endpoint: {arrayDetail.sourceEndpoint}
+                                    <div className="text-[8px] text-prizm-text-muted font-mono mt-1 truncate uppercase">
+                                        Ready Status: <span className="text-prizm-text font-bold">
+                                            {selectedPcs.raw?.ready === true || selectedPcs.raw?.isReady === true || selectedPcs.raw?.readyStatus === "READY" || selectedPcs.state === "Ready" || selectedPcs.state === "Running" ? "READY" : "NOT READY"}
+                                        </span>
                                     </div>
                                 </div>
                                 
                                 <div className="bg-prizm-surface-strong border border-prizm-border/60 p-2.5 rounded">
-                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">System Geometry</div>
-                                    <div className="text-[10px] text-prizm-text font-bold font-mono mt-0.5">
-                                        {arrayDetail.totalBatteryPackCount} Packs / {arrayDetail.cellGroupPerBatteryPackCount} Groups
+                                    <div className="text-[8px] text-prizm-text-muted font-mono uppercase font-bold">Rotation Status</div>
+                                    <div className="text-[10px] text-prizm-text font-bold font-mono mt-0.5 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${selectedPcs.rotation === "IN" ? "bg-emerald-400" : "bg-slate-400"}`}></span>
+                                        {selectedPcs.rotation}
                                     </div>
-                                    <div className="text-[8.5px] text-prizm-text-muted font-mono mt-1">
-                                        {arrayDetail.stringCount} Active Battery Strings
+                                    <div className="text-[8px] text-prizm-text-muted font-mono mt-1 uppercase">
+                                        Apparent Pwr: <span className="text-prizm-text font-bold">
+                                            {Math.round(Math.sqrt(Math.pow(selectedPcs.acRealPowerKw || 0, 2) + Math.pow(selectedPcs.acReactivePowerKvar || 0, 2)))} kVA
+                                        </span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Cached Overall Rollups */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 select-none">
-                                {/* VOLTAGES */}
-                                <div className="border border-[#10b981]/20 bg-[#10b981]/5 rounded p-3 space-y-2">
-                                    <h3 className="text-[9px] font-bold text-[#10b981] font-mono flex items-center gap-1 uppercase">
-                                        VOLTAGES (COMPACT RAW)
-                                    </h3>
-                                    <div className="grid grid-cols-2 gap-y-2 gap-x-3 font-mono text-[9px]">
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Min Value</span>
-                                            <span className="text-emerald-400 font-bold">{arrayDetail.rollups.cellVoltageMin ?? "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Max Value</span>
-                                            <span className="text-emerald-400 font-bold">{arrayDetail.rollups.cellVoltageMax ?? "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Average</span>
-                                            <span className="text-prizm-text font-bold">{arrayDetail.rollups.cellVoltageAvg ? Number(arrayDetail.rollups.cellVoltageAvg).toFixed(2) : "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Delta</span>
-                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellVoltageDelta ?? "--"}</span>
-                                        </div>
-                                    </div>
-                                    <p className="text-[7.5px] text-[#10b981]/60 font-mono italic leading-none pt-1">
-                                        * Displaying raw compact telemetry as reported by custom EMS registers.
-                                    </p>
-                                </div>
-
-                                {/* TEMPERATURES */}
-                                <div className="border border-prizm-primary/20 bg-prizm-primary/5 rounded p-3 space-y-2">
-                                    <h3 className="text-[9px] font-bold text-prizm-primary font-mono flex items-center gap-1 uppercase">
-                                        TEMPS (COMPACT RAW)
-                                    </h3>
-                                    <div className="grid grid-cols-2 gap-y-2 gap-x-3 font-mono text-[9px]">
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Min Value</span>
-                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellTempMin ?? "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Max Value</span>
-                                            <span className="text-prizm-primary font-bold">{arrayDetail.rollups.cellTempMax ?? "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Average</span>
-                                            <span className="text-prizm-text font-bold">{arrayDetail.rollups.cellTempAvg ? Number(arrayDetail.rollups.cellTempAvg).toFixed(2) : "--"}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-prizm-text-muted block text-[7.5px] uppercase">Delta</span>
-                                            <span className="text-yellow-500 font-bold">{arrayDetail.rollups.cellTempDelta ?? "--"}</span>
-                                        </div>
-                                    </div>
-                                    <p className="text-[7.5px] text-prizm-primary/60 font-mono italic leading-none pt-1">
-                                        * Compact values are cautious. Avoid misrepresenting absolute values.
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Strings List */}
-                            <div className="space-y-3.5 pt-2">
-                                <div className="text-[9px] text-prizm-text-muted uppercase font-bold font-mono tracking-widest select-none">
-                                    Individual String Profiles
-                                </div>
+                            {/* Electrical Parameters */}
+                            <div className="border border-prizm-border bg-prizm-surface-strong rounded p-3.5 space-y-3.5 font-mono">
+                                <h3 className="text-[9px] font-bold text-prizm-primary uppercase tracking-wider border-b border-prizm-border/60 pb-1.5">Electrical Parameters</h3>
                                 
-                                {arrayDetail.strings.map((str: any) => (
-                                    <div key={str.id} className="border border-prizm-border rounded bg-prizm-surface-strong p-3 space-y-2 text-left">
-                                        <div className="flex justify-between items-center bg-prizm-surface p-1.5 rounded select-none">
-                                            <span className="text-[9px] font-bold text-prizm-primary font-mono">STRING {str.stringNumber}</span>
-                                            <span className="text-[8px] text-prizm-text-muted font-mono uppercase">
-                                              {str.batteryPackCount} packs / {str.millivolts.length} groups
-                                            </span>
-                                        </div>
-
-                                        <div className="grid grid-cols-4 gap-2 text-center text-[8px] font-mono select-none">
-                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
-                                              <span className="text-prizm-text-muted block">V MIN</span>
-                                              <span className="text-emerald-400 font-bold">{str.cellVoltageMin ?? "--"}</span>
-                                            </div>
-                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
-                                              <span className="text-prizm-text-muted block">V MAX</span>
-                                              <span className="text-emerald-400 font-bold">{str.cellVoltageMax ?? "--"}</span>
-                                            </div>
-                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
-                                              <span className="text-prizm-text-muted block">T MIN</span>
-                                              <span className="text-prizm-primary font-bold">{str.cellTempMin ?? "--"}</span>
-                                            </div>
-                                            <div className="bg-prizm-surface p-1 rounded border border-prizm-border/30">
-                                              <span className="text-prizm-text-muted block">T MAX</span>
-                                              <span className="text-prizm-primary font-bold">{str.cellTempMax ?? "--"}</span>
-                                            </div>
-                                        </div>
-
-                                        
+                                <div className="grid grid-cols-2 gap-4 text-[9px]">
+                                    <div>
+                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">DC Input Voltage</span>
+                                        <span className="text-prizm-text font-bold text-xs">{selectedPcs.dcVoltage !== null ? `${selectedPcs.dcVoltage.toFixed(1)} Vdc` : "--"}</span>
                                     </div>
-                                ))}
+                                    <div>
+                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">DC Input Current</span>
+                                        <span className="text-prizm-text font-bold text-xs">{selectedPcs.dcCurrent !== null ? `${selectedPcs.dcCurrent.toFixed(1)} Adc` : "--"}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">AC Grid Frequency</span>
+                                        <span className="text-prizm-text font-bold text-xs">{selectedPcs.frequencyHz !== null ? `${selectedPcs.frequencyHz.toFixed(2)} Hz` : "--"}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">Source Endpoint</span>
+                                        <span className="text-prizm-text-muted text-[8px] block truncate text-left uppercase" title={selectedPcs.sourcePath}>{selectedPcs.sourcePath || "discovered"}</span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 text-[8px] border-t border-prizm-border/40 pt-3">
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Real Measured</span>
+                                        <span className="text-emerald-400 font-bold">{selectedPcs.acRealPowerKw !== null ? `${selectedPcs.acRealPowerKw.toFixed(1)} kW` : "--"}</span>
+                                    </div>
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Setting</span>
+                                        <span className="text-prizm-text font-bold">{selectedPcs.raw?.acRealPowerSettingKW !== undefined ? `${selectedPcs.raw.acRealPowerSettingKW} kW` : (selectedPcs.raw?.acRealPowerSetting !== undefined ? `${selectedPcs.raw.acRealPowerSetting} kW` : "--")}</span>
+                                    </div>
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Command</span>
+                                        <span className="text-prizm-text font-bold">{selectedPcs.raw?.acRealPowerCommandKW !== undefined ? `${selectedPcs.raw.acRealPowerCommandKW} kW` : (selectedPcs.raw?.acRealPowerCommand !== undefined ? `${selectedPcs.raw.acRealPowerCommand} kW` : "--")}</span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 text-[8px]">
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Reactive Meas</span>
+                                        <span className="text-prizm-primary font-bold">{selectedPcs.acReactivePowerKvar !== null ? `${selectedPcs.acReactivePowerKvar.toFixed(1)} kVAR` : "--"}</span>
+                                    </div>
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Setting</span>
+                                        <span className="text-prizm-text font-bold">{selectedPcs.raw?.acReactivePowerSettingKVAR !== undefined ? `${selectedPcs.raw.acReactivePowerSettingKVAR} kVAR` : (selectedPcs.raw?.acReactivePowerSetting !== undefined ? `${selectedPcs.raw.acReactivePowerSetting} kVAR` : "--")}</span>
+                                    </div>
+                                    <div className="bg-prizm-surface p-2 rounded">
+                                        <span className="text-prizm-text-muted block uppercase text-[7px]">Command</span>
+                                        <span className="text-prizm-text font-bold">{selectedPcs.raw?.acReactivePowerCommandKVAR !== undefined ? `${selectedPcs.raw.acReactivePowerCommandKVAR} kVAR` : (selectedPcs.raw?.acReactivePowerCommand !== undefined ? `${selectedPcs.raw.acReactivePowerCommand} kVAR` : "--")}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Phase Grid Details */}
+                            {Array.isArray(selectedPcs.phaseData) && selectedPcs.phaseData.length > 0 && (
+                                <div className="border border-prizm-border bg-prizm-surface-strong rounded p-3 font-mono">
+                                    <h3 className="text-[9px] font-bold text-prizm-primary uppercase tracking-wider mb-2 select-none">Phase Metrics (A/B/C)</h3>
+                                    <table className="w-full text-left text-[8px]">
+                                        <thead>
+                                            <tr className="border-b border-prizm-border/40 text-prizm-text-muted uppercase">
+                                                <th className="py-1 font-bold">Phase</th>
+                                                <th className="py-1 font-bold text-right">AC Voltage</th>
+                                                <th className="py-1 font-bold text-right">AC Current</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-prizm-border/20 text-prizm-text">
+                                            {selectedPcs.phaseData.map((ph: any, idx: number) => (
+                                                <tr key={idx}>
+                                                    <td className="py-1 font-bold">Phase {String.fromCharCode(65 + idx)}</td>
+                                                    <td className="py-1 text-right">{ph.acVoltageVolt !== null && ph.acVoltageVolt !== undefined ? `${Number(ph.acVoltageVolt).toFixed(1)} V` : "--"}</td>
+                                                    <td className="py-1 text-right">{ph.acCurrentAmp !== null && ph.acCurrentAmp !== undefined ? `${Number(ph.acCurrentAmp).toFixed(1)} A` : "--"}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* Vendor Event Codes */}
+                            {selectedPcs.raw?.vendorEventCodes !== undefined && (
+                                <div className="border border-prizm-border bg-prizm-surface-strong rounded p-3 font-mono text-[8.5px]">
+                                    <h3 className="text-[9px] font-bold text-yellow-500 uppercase tracking-wider mb-1.5 select-none font-sans flex items-center gap-1">
+                                        <AlertTriangle size={10} /> Active Event Manifest
+                                    </h3>
+                                    <div className="bg-prizm-surface p-2 border border-prizm-border/40 rounded max-h-[80px] overflow-y-auto font-mono text-[8px] break-all uppercase text-prizm-text">
+                                        {selectedPcs.raw?.vendorEventCodes && String(selectedPcs.raw.vendorEventCodes).length > 0 ? String(selectedPcs.raw.vendorEventCodes) : "No anomalous event codes detected."}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Small notification */}
+                            <div className="text-[7.5px] text-prizm-text-muted text-center font-mono select-none uppercase">
+                                * Array string telemetry is available in String Detail and Site Health.
                             </div>
                         </>
                     ) : (
-                        <div className="text-xs font-mono text-prizm-text-muted select-none">Loading detail cache for Array {selectedArray}...</div>
+                        <div className="text-xs font-mono text-prizm-text-muted select-none uppercase">Loading selected PCS telemetry cache...</div>
                     )}
                 </div>
             )}

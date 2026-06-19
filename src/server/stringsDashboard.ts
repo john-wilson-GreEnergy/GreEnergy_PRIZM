@@ -1002,6 +1002,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             fanCommandRequested,
             lastFanCommandTime,
             fanHealthy,
+            fanState,
             timestampUtc,
             lastUpdatedUtc: new Date().toISOString(),
             stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(row, normalizedObject, ["firmware", "firmwareversion"]),

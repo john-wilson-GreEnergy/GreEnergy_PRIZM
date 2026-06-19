@@ -180,7 +180,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [graphError, setGraphError] = useState<string | null>(null);
 
   // Sub-tab selection state
-  const [currentView, setCurrentView] = useState<"distribution" | "sensors">("distribution");
+  const [currentView, setCurrentView] = useState<"distribution" | "sensors" | "heatmap">("distribution");
 
   // Filters & Settings state
   const [activeTab, setActiveTab] = useState<"voltage" | "temperature" | "heatmap">("voltage");
@@ -563,6 +563,17 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           Voltage & Temp Spreads
         </button>
         <button
+          onClick={() => setCurrentView("heatmap")}
+          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+            currentView === "heatmap"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+              : "border-transparent text-prizm-text-muted hover:text-white"
+          }`}
+        >
+          <Layers size={12} />
+          Cell Heatmap
+        </button>
+        <button
           onClick={() => setCurrentView("sensors")}
           className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
             currentView === "sensors"
@@ -578,6 +589,25 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       {currentView === "sensors" ? (
         <div className="animate-fade-in" id="prizm-merged-sensors-view">
           <SiteSensorsDashboard />
+        </div>
+      ) : currentView === "heatmap" ? (
+        <div className="animate-fade-in bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-5" id="prizm-site-heatmap-view">
+          <div className="border-b border-prizm-border pb-3 font-mono">
+            <h1 className="text-sm font-bold text-prizm-text tracking-tight uppercase flex items-center gap-2">
+              <Layers className="text-[#10b981]" size={16} />
+              Full-Site Cell Group Distribution Heatmap
+            </h1>
+            <p className="text-[10px] text-prizm-text-muted mt-0.5 font-sans leading-relaxed">
+              Geographical distribution map of all active battery cells across all arrays at the site.
+            </p>
+          </div>
+          <CellTelemetryHeatmap 
+            mode="site-overview"
+            voltages={siteHeatmapData.voltages}
+            temperatures={siteHeatmapData.temperatures}
+            title="Full-Site Cell Group Distribution Heatmap"
+            gridColumns={48}
+          />
         </div>
       ) : (
         <>

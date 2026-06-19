@@ -703,7 +703,7 @@ const handleManualRefresh = async () => {
                               return `BPC ${b.bpIndex ?? (bIdx + 1)}: ${modeStr} | ${stateStr} | ${cgStr}`;
                           });
 
-                          const limit = 10;
+                          const limit = 14;
                           if (lines.length > limit) {
                               const displayed = lines.slice(0, limit);
                               balanceTooltip = [

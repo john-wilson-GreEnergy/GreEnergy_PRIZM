@@ -2,9 +2,11 @@ import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
+import { useSiteData } from "../context/SiteDataContext";
 import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
+  const { snapshot } = useSiteData();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -236,6 +238,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const heatmapData = useMemo(() => {
     let volts: (number | null)[] = [];
     let temps: (number | null)[] = [];
+    let isCompact = false;
 
     // Priority 1: bpcs cellGroups
     if (bpcs && bpcs.length > 0 && bpcs.some((b: any) => Array.isArray(b.cellGroups) && b.cellGroups.length > 0)) {
@@ -263,11 +266,28 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       });
     }
 
+    // Priority 3: Fallback from cache strings if still empty (Compact EMS reported values)
+    if (volts.length === 0 || temps.length === 0) {
+      const arrD = snapshot?.normalized?.arrayDetailsByArray?.[s.arrayNumber];
+      const strD = arrD?.strings?.find((st: any) => st.stringNumber === s.stringNumber || st.stringIndex === s.stringNumber);
+      if (strD) {
+        if (volts.length === 0 && Array.isArray(strD.millivolts) && strD.millivolts.length > 0) {
+          volts = strD.millivolts.map((v: any) => finite(v));
+          isCompact = true;
+        }
+        if (temps.length === 0 && Array.isArray(strD.temperatures) && strD.temperatures.length > 0) {
+          temps = strD.temperatures.map((t: any) => finite(t));
+          isCompact = true;
+        }
+      }
+    }
+
     return {
       voltages: volts,
-      temperatures: temps
+      temperatures: temps,
+      isCompact
     };
-  }, [bpcs, voltageMatrix, temperatureMatrix]);
+  }, [bpcs, voltageMatrix, temperatureMatrix, snapshot, s.arrayNumber, s.stringNumber]);
 
   const getVoltageColor = (v: number) => {
        if (v > 3600) return "bg-red-500/20 border-red-500/40 text-red-100 font-bold animate-pulse";
@@ -398,6 +418,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                 temperatures={heatmapData.temperatures}
                 title={`Array ${s.arrayNumber} - String ${s.stringNumber} - Interactive Cell Heatmap`}
                 gridColumns={(bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) ? (bpcs?.[0]?.cellGroups?.length || voltageMatrix?.[0]?.length) : 30}
+                isCompact={heatmapData.isCompact}
               />
 
               {/* Voltage Matrix */}
