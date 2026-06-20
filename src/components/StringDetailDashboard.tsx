@@ -419,12 +419,12 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                         Detail endpoint loaded: {data ? 'true' : 'false'}
                     </span>
                     <span className="text-prizm-text-muted">sourceViewerUsed: {data?.sourceViewerUsed ? 'true' : 'false'}</span>
-                    <span className="text-prizm-text-muted">bpcs: {bpcs?.length || 0}</span>
-                    <span className="text-prizm-text-muted">firstBpcCellGroups: {bpcs?.[0]?.cellGroups?.length || 0}</span>
-                    <span className="text-prizm-text-muted">voltageRows: {voltageMatrix?.length || 0}</span>
-                    <span className="text-prizm-text-muted">temperatureRows: {temperatureMatrix?.length || 0}</span>
-                    <span className="text-prizm-text-muted">balancingDetails: {balancingDetails?.length || 0}</span>
-                    <span className="text-prizm-text-muted">notifications: {notifications?.length || 0}</span>
+                    <span className="text-prizm-text-muted">bpcs: {safeBpcs.length || 0}</span>
+                    <span className="text-prizm-text-muted">firstBpcCellGroups: {safeArray(safeBpcs?.[0]?.cellGroups).length || 0}</span>
+                    <span className="text-prizm-text-muted">voltageRows: {safeVoltageMatrix.length || 0}</span>
+                    <span className="text-prizm-text-muted">temperatureRows: {safeTemperatureMatrix.length || 0}</span>
+                    <span className="text-prizm-text-muted">balancingDetails: {safeBalancingDetails.length || 0}</span>
+                    <span className="text-prizm-text-muted">notifications: {safeNotifications.length || 0}</span>
                 </div>
                 {balancingDebugKeys && balancingDebugKeys.length > 0 && (
                      <div className="bg-black/30 p-2 rounded text-[9px] font-mono text-prizm-text-muted mt-2 border border-prizm-border/50 max-h-[150px] overflow-y-auto">
@@ -503,7 +503,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                      </td>
                                      {Array.from({ length: cgCount }, (_, cIdx) => {
                                          if (hasBpcCellGroups) {
-                                            const cg = bpc.cellGroups[cIdx];
+                                            const cellGroups = safeArray(bpc?.cellGroups);
+                                            const cg = cellGroups[cIdx];
                                             if (!cg) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
                                                <td key={cIdx} className="p-0.5">
@@ -581,7 +582,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                      </td>
                                      {Array.from({ length: cgCount }, (_, cIdx) => {
                                          if (hasBpcCellGroups) {
-                                            const cg = bpc.cellGroups[cIdx];
+                                            const cellGroups = safeArray(bpc?.cellGroups);
+                                            const cg = cellGroups[cIdx];
                                             if (!cg) return <td key={cIdx} className="p-0.5"></td>;
                                             return (
                                                <td key={cIdx} className="p-0.5">

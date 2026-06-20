@@ -713,7 +713,19 @@ const handleManualRefresh = async () => {
                     `Last Command Time: ${fanTimeText || "--"}`
                   ].join("\n");
 
-                  const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
+                  const safeText = (value: any, fallback = "--"): string => {
+                    if (value === null || value === undefined) return fallback;
+                    if (typeof value === "string") {
+                      const trimmed = value.trim();
+                      return trimmed.length ? trimmed : fallback;
+                    }
+                    if (typeof value === "number" || typeof value === "boolean") {
+                      return String(value);
+                    }
+                    return fallback;
+                  };
+
+                  const locStr = safeText(s.location, "") || safeText(s.container, "") || "--";
 
                   const telemetryAvailable = s.balanceTelemetryAvailable === true || (Array.isArray(s.balanceDetails) && s.balanceDetails.length > 0);
                   let balanceTooltip = "Balance telemetry not reported by current EMS source.";
