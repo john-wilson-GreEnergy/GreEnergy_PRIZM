@@ -7,6 +7,53 @@ import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
 import { useSiteData } from '../context/SiteDataContext';
 
+interface StringDetailErrorBoundaryProps {
+  children: React.ReactNode;
+  onBack?: () => void;
+}
+
+interface StringDetailErrorBoundaryState {
+  error: any;
+}
+
+class StringDetailErrorBoundary extends React.Component<StringDetailErrorBoundaryProps, StringDetailErrorBoundaryState> {
+  props!: StringDetailErrorBoundaryProps;
+  state: StringDetailErrorBoundaryState = { error: null };
+
+  constructor(props: StringDetailErrorBoundaryProps) {
+    super(props);
+  }
+  static getDerivedStateFromError(error: any) {
+    return { error };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error("[StringDetailErrorBoundary]", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-6 bg-prizm-bg text-prizm-text font-mono h-full overflow-y-auto w-full">
+          <button
+            onClick={this.props.onBack}
+            className="mb-4 px-3 py-1 border border-prizm-border rounded text-prizm-primary font-bold hover:bg-prizm-surface"
+          >
+            Back to String List
+          </button>
+          <div className="bg-prizm-surface border border-prizm-danger/40 rounded p-4 w-full">
+            <div className="text-prizm-danger font-bold uppercase text-xs mb-2">
+              String Detail Render Error
+            </div>
+            <pre className="text-[10px] whitespace-pre-wrap text-prizm-text-muted">
+              {String(this.state.error?.message || this.state.error)}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function StringDashboard({ active = true }: { active?: boolean }) {
   const { snapshot, isInitialLoading, refreshNow } = useSiteData();
   
@@ -268,20 +315,22 @@ const handleManualRefresh = async () => {
   const downloadJson = () => {
       if (!data) return;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `EMS_Strings_Dashboard_${new Date().toISOString()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `EMS_Strings_Dashboard_${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (selectedString) {
     return (
-      <StringDetailDashboard 
-        stringData={selectedString} 
-        onBack={() => setSelectedString(null)} 
-      />
+      <StringDetailErrorBoundary onBack={() => setSelectedString(null)}>
+        <StringDetailDashboard 
+          stringData={selectedString} 
+          onBack={() => setSelectedString(null)} 
+        />
+      </StringDetailErrorBoundary>
     );
   }
 

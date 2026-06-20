@@ -12,12 +12,16 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const stringDataArrayNumber = Number(stringData?.arrayNumber);
+  const stringDataStringNumber = Number(stringData?.stringNumber);
+
   useEffect(() => {
+    if (!stringDataArrayNumber || !stringDataStringNumber) return;
     let unmounted = false;
     const fetchDetail = async () => {
       const t0 = performance.now();
       try {
-        const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail?captureHistory=true`);
+        const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?captureHistory=true`);
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -31,17 +35,17 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     };
     fetchDetail();
     // Detail could also auto-refresh, but we'll leave it as one-off or simple interval
-    const interval = setInterval(fetchDetail, 5000);
+    const interval = window.setInterval(fetchDetail, 15000);
     return () => {
       unmounted = true;
-      clearInterval(interval);
+      window.clearInterval(interval);
     };
-  }, [stringData.arrayNumber, stringData.stringNumber]);
+  }, [stringDataArrayNumber, stringDataStringNumber]);
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const res = await fetch(`/api/local/strings/dashboard/${stringData.arrayNumber}/${stringData.stringNumber}/detail?refresh=true&captureHistory=true`);
+      const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?refresh=true&captureHistory=true`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -75,18 +79,41 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {}, hasBalancingMap = false } = data || {};
 
   const safeArray = (value: any): any[] => Array.isArray(value) ? value : [];
-  const safeVoltageMatrix = safeArray(voltageMatrix).filter((row: any) => Array.isArray(row));
-  const safeTemperatureMatrix = safeArray(temperatureMatrix).filter((row: any) => Array.isArray(row));
-  const safeNotificationMatrix = safeArray(notificationMatrix).filter((row: any) => Array.isArray(row));
-  const safeBpcs = safeArray(bpcs);
-
-  const stringViewerHealth = sourceHealth?.stringviewer;
-
+  const safeObject = (value: any): Record<string, any> => {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  };
+  const safeText = (value: any, fallback = "--"): string => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : fallback;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    return fallback;
+  };
   const finite = (value: any): number | null => {
     if (value === undefined || value === null || value === "") return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   };
+  const safeMatrix = (value: any): any[][] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((row: any) => Array.isArray(row));
+  };
+
+  const safeVoltageMatrix = safeMatrix(voltageMatrix);
+  const safeTemperatureMatrix = safeMatrix(temperatureMatrix);
+  const safeNotificationMatrix = safeMatrix(notificationMatrix);
+  const safeBpcs = safeArray(bpcs);
+  const safeBalancingDetails = safeArray(balancingDetails);
+  const safeNotifications = safeArray(notifications);
+  const safeEventLogs = safeArray(eventLogs);
+  const safeSourceHealth = safeObject(sourceHealth);
+  const safeStringViewerHealth = safeObject(safeSourceHealth.stringviewer);
+
+  const stringViewerHealth = safeStringViewerHealth;
 
   const stringNum = finite(s.stringNumber ?? s.stringIndex ?? s.StringIndex);
   const energySegmentNumber =
@@ -117,9 +144,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   };
 
   const matrixValues = (matrix: any): number[] => {
-    if (!Array.isArray(matrix)) return [];
-    return matrix
-      .flatMap((row: any) => Array.isArray(row) ? row : Object.values(row || {}))
+    const rows = safeMatrix(matrix);
+    return rows
+      .flatMap((row: any[]) => row)
       .map(finite)
       .filter((n): n is number => n !== null);
   };
@@ -140,17 +167,17 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     finite(s.cellVoltageMin) ??
     finite(s.minCellVoltage) ??
     (s.stringData && finite(s.stringData.minCellGroupVoltage)) ??
-    matrixMin(voltageMatrix);
+    matrixMin(safeVoltageMatrix);
   const cellVoltageMax =
     finite(s.cellVoltageMax) ??
     finite(s.maxCellVoltage) ??
     (s.stringData && finite(s.stringData.maxCellGroupVoltage)) ??
-    matrixMax(voltageMatrix);
+    matrixMax(safeVoltageMatrix);
   const cellVoltageAvg =
     finite(s.cellVoltageAvg) ??
     finite(s.avgCellVoltage) ??
     (s.stringData && finite(s.stringData.avgCellGroupVoltage)) ??
-    matrixAvg(voltageMatrix);
+    matrixAvg(safeVoltageMatrix);
   const cellVoltageDelta =
     finite(s.cellVoltageDelta) ??
     finite(s.cellVoltageMaxDelta) ??
@@ -172,17 +199,17 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     normalizeTempC(s.cellTempMin) ??
     normalizeTempC(s.minCellTemperature) ??
     (s.stringData && normalizeTempC(s.stringData.minCellGroupTemp)) ??
-    matrixMin(temperatureMatrix);
+    matrixMin(safeTemperatureMatrix);
   const cellTempMax =
     normalizeTempC(s.cellTempMax) ??
     normalizeTempC(s.maxCellTemperature) ??
     (s.stringData && normalizeTempC(s.stringData.maxCellGroupTemp)) ??
-    matrixMax(temperatureMatrix);
+    matrixMax(safeTemperatureMatrix);
   const cellTempAvg =
     normalizeTempC(s.cellTempAvg) ??
     normalizeTempC(s.avgCellTemperature) ??
     (s.stringData && normalizeTempC(s.stringData.avgCellGroupTemp)) ??
-    matrixAvg(temperatureMatrix);
+    matrixAvg(safeTemperatureMatrix);
   const cellTempDelta =
     finite(s.cellTempDelta) ??
     finite(s.cellTemperatureDelta) ??
@@ -218,19 +245,20 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     return Number.isInteger(n) ? `Δ ${n}°C` : `Δ ${n.toFixed(1)}°C`;
   };
 
-  const downloadMatrixCsv = (matrix: any[], name: string) => {
-    const safeMatrix = Array.isArray(matrix) ? matrix.filter(Array.isArray) : [];
-    if (safeMatrix.length === 0) return;
+  const downloadMatrixCsv = (matrix: any, name: string) => {
+    const safeRows = safeMatrix(matrix);
+    if (safeRows.length === 0) return;
+    const colCount = safeRows[0]?.length || 0;
     const csvRows = [];
-    csvRows.push(["BPC Index", ...Array.from({length: safeMatrix[0]?.length || 0}, (_,i) => `Cell ${i+1}`)].join(','));
-    safeMatrix.forEach((row, rIdx) => {
-        csvRows.push([`BPC ${rIdx+1}`, ...row].join(','));
+    csvRows.push(["BPC Index", ...Array.from({ length: colCount }, (_, i) => `Cell ${i + 1}`)].join(","));
+    safeRows.forEach((row, rIdx) => {
+      csvRows.push([`BPC ${rIdx + 1}`, ...row.map((v: any) => v ?? "")].join(","));
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${stringData.stringKey}_${name}_${new Date().toISOString()}.csv`;
+    a.download = `${safeText(stringData.stringKey, "Array_String")}_${name}_${new Date().toISOString()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -248,37 +276,31 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     let isCompact = false;
 
     // Priority 1: bpcs cellGroups
-    if (safeBpcs.length > 0 && safeBpcs.some((b: any) => b && Array.isArray(b.cellGroups) && b.cellGroups.length > 0)) {
+    if (hasBpcCellGroups) {
       safeBpcs.forEach((b: any) => {
-        if (b && Array.isArray(b.cellGroups)) {
-          b.cellGroups.forEach((cg: any) => {
-            if (cg) {
-              volts.push(cg.voltage ?? null);
-              temps.push(cg.temperature ?? null);
-            }
-          });
-        }
+        safeArray(b?.cellGroups).forEach((cg: any) => {
+          volts.push(finite(cg?.voltage));
+          temps.push(finite(cg?.temperature));
+        });
       });
     }
 
     // Priority 2: Flat map of existing matrix arrays
     if (volts.length === 0 && safeVoltageMatrix.length > 0) {
-      volts = safeVoltageMatrix.flat().map((v: any) => {
-        const val = finite(v);
-        return val !== null ? val : null;
-      });
+      volts = safeVoltageMatrix.flat().map((v: any) => finite(v));
     }
     if (temps.length === 0 && safeTemperatureMatrix.length > 0) {
-      temps = safeTemperatureMatrix.flat().map((t: any) => {
-        const val = finite(t);
-        return val !== null ? val : null;
-      });
+      temps = safeTemperatureMatrix.flat().map((t: any) => finite(t));
     }
 
     // Priority 3: Fallback from cache strings if still empty (Compact EMS reported values)
     if (volts.length === 0 || temps.length === 0) {
-      const arrD = snapshot?.normalized?.arrayDetailsByArray?.[s.arrayNumber];
-      const strD = arrD?.strings?.find((st: any) => st.stringNumber === s.stringNumber || st.stringIndex === s.stringNumber);
+      const arrD = snapshot?.normalized?.arrayDetailsByArray?.[String(s.arrayNumber)] ??
+                   snapshot?.normalized?.arrayDetailsByArray?.[s.arrayNumber];
+      const arrStrings = Array.isArray(arrD?.strings) ? arrD.strings : [];
+      const strD = arrStrings.find((st: any) => 
+        Number(st.stringNumber ?? st.stringIndex) === Number(s.stringNumber ?? s.stringIndex)
+      );
       if (strD) {
         if (volts.length === 0 && Array.isArray(strD.millivolts) && strD.millivolts.length > 0) {
           volts = strD.millivolts.map((v: any) => finite(v));
@@ -296,7 +318,12 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       temperatures: temps,
       isCompact
     };
-  }, [safeBpcs, safeVoltageMatrix, safeTemperatureMatrix, snapshot, s.arrayNumber, s.stringNumber]);
+  }, [safeBpcs, safeVoltageMatrix, safeTemperatureMatrix, snapshot, s.arrayNumber, s.stringNumber, s.stringIndex]);
+
+  const heatmapGridColumns =
+    safeArray(safeBpcs?.[0]?.cellGroups).length ||
+    safeVoltageMatrix?.[0]?.length ||
+    30;
 
   const getVoltageColor = (v: number | null | undefined) => {
        if (v === null || v === undefined) return "bg-white/5 border-white/10 text-prizm-text-muted";
@@ -433,8 +460,8 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                 mode="single-string"
                 voltages={heatmapData.voltages}
                 temperatures={heatmapData.temperatures}
-                title={`Array ${s.arrayNumber} - String ${s.stringNumber} - Interactive Cell Heatmap`}
-                gridColumns={(safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length) ? (safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length) : 30}
+                title={`Array ${safeText(s.arrayNumber)} - String ${safeText(s.stringNumber)} - Interactive Cell Heatmap`}
+                gridColumns={heatmapGridColumns}
                 isCompact={heatmapData.isCompact}
               />
 

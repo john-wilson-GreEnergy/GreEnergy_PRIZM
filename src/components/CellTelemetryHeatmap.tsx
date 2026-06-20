@@ -19,7 +19,9 @@ export default function CellTelemetryHeatmap({
 }: CellTelemetryHeatmapProps) {
   const [viewMode, setViewMode] = useState<"volts" | "temps">("volts");
 
-  const listToUse = viewMode === "volts" ? voltages : temperatures;
+  const safeVoltages = Array.isArray(voltages) ? voltages : [];
+  const safeTemperatures = Array.isArray(temperatures) ? temperatures : [];
+  const listToUse = viewMode === "volts" ? safeVoltages : safeTemperatures;
   const isVolts = viewMode === "volts";
 
   const { min, max, avg, formattedList } = useMemo(() => {
@@ -29,31 +31,32 @@ export default function CellTelemetryHeatmap({
     let validCount = 0;
 
     const formatted = listToUse.map((val) => {
-      if (val === undefined || val === null || Number.isNaN(val)) {
+      const parsed = Number(val);
+      if (val === undefined || val === null || !Number.isFinite(parsed)) {
         return null;
       }
       
-      let parsed = Number(val);
+      let p = parsed;
       if (!isCompact) {
         if (isVolts) {
           // Normalize mV to V if value is typical of mV
-          if (parsed > 1000) {
-            parsed = parsed / 1000;
+          if (p > 1000) {
+            p = p / 1000;
           }
         } else {
           // Temperature division: if raw is above 100, normalize (e.g. 250 -> 25.0)
-          if (parsed > 100) {
-            parsed = parsed / 10;
+          if (p > 100) {
+            p = p / 10;
           }
         }
       }
 
-      if (parsed < rawMin) rawMin = parsed;
-      if (parsed > rawMax) rawMax = parsed;
-      sum += parsed;
+      if (p < rawMin) rawMin = p;
+      if (p > rawMax) rawMax = p;
+      sum += p;
       validCount++;
 
-      return parsed;
+      return p;
     });
 
     return {
@@ -64,10 +67,18 @@ export default function CellTelemetryHeatmap({
     };
   }, [listToUse, isVolts, isCompact]);
 
-  // Determine standard columns: single-string defaults to 12 items, site-overview defaults to 30.
-  const cols = gridColumns ?? (mode === "single-string" ? 14 : 30);
+  const rawCols = Number(gridColumns);
+  const cols = Math.max(1, Number.isFinite(rawCols) && rawCols > 0 ? rawCols : 30);
 
   const unit = isCompact ? " Compact value" : (isVolts ? " V" : " °C");
+
+  if (formattedList.length === 0) {
+    return (
+      <div className="bg-prizm-surface border border-prizm-border/40 p-4 rounded-lg space-y-3 font-mono text-[9px] w-full select-none flex items-center justify-center min-h-[100px] text-prizm-text-muted italic">
+        No heatmap telemetry available for this string.
+      </div>
+    );
+  }
 
   return (
     <div className="bg-prizm-surface border border-prizm-border/40 p-4 rounded-lg space-y-3 font-mono text-[9px] w-full select-none">
