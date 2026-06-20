@@ -19,6 +19,25 @@ import { classifyStringOperationalState } from "../lib/stringClassifier";
 
 const router = Router();
 
+type StringDetailCacheEntry = {
+  arrayNumber: number;
+  stringNumber: number;
+  endpoint: string;
+  url: string;
+  ok: boolean;
+  httpStatus: number | null;
+  lastUpdated: string;
+  data: any;
+  error?: string;
+};
+const stringDetailCache = new Map<string, StringDetailCacheEntry>();
+const getStringDetailCacheKey = (arrayNumber: number, stringNumber: number) =>
+  `A${arrayNumber}-S${stringNumber}`;
+
+export const getCachedStringDetail = (arrayNumber: number, stringNumber: number) => {
+    return stringDetailCache.get(getStringDetailCacheKey(arrayNumber, stringNumber)) ?? null;
+};
+
 function pN(val: any, def: number | null = null): number | null {
   if (val === undefined || val === null || val === "") return def;
   const n = Number(val);
@@ -269,6 +288,90 @@ router.get("/dump", (req, res) => {
         debug: getEmsSourcesDebugInfo()
     });
 });
+
+export async function warmStringDetailCacheForKnownRows(rows: any[], options?: { limit?: number; concurrency?: number; maxAgeMs?: number }): Promise<void> {
+    const concurrency = options?.concurrency ?? 6;
+    const maxAgeMs = options?.maxAgeMs ?? 60_000;
+    const profile = ProfileStore.getActiveProfile();
+    if (!profile) return;
+    const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
+
+    const chunks: any[][] = [];
+    for (let i = 0; i < rows.length; i += concurrency) {
+        chunks.push(rows.slice(i, i + concurrency));
+    }
+
+    const now = Date.now();
+    for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (row) => {
+            if (!row.arrayNumber || !row.stringNumber) return;
+            const key = getStringDetailCacheKey(row.arrayNumber, row.stringNumber);
+            const existing = stringDetailCache.get(key);
+            if (existing && existing.ok) {
+                const age = now - new Date(existing.lastUpdated).getTime();
+                if (age < maxAgeMs) return;
+            }
+
+            const endpoint = `/tools/report/ems/array/${row.arrayNumber}/string/${row.stringNumber}/report.json`;
+            const stringViewerUrl = `${baseUrl}${endpoint}`;
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const r = await fetch(stringViewerUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
+                if (r.ok) {
+                    const data = await r.json();
+                    stringDetailCache.set(key, {
+                        arrayNumber: row.arrayNumber,
+                        stringNumber: row.stringNumber,
+                        endpoint,
+                        url: stringViewerUrl,
+                        ok: true,
+                        httpStatus: r.status,
+                        lastUpdated: new Date().toISOString(),
+                        data
+                    });
+                } else {
+                    stringDetailCache.set(key, {
+                        arrayNumber: row.arrayNumber,
+                        stringNumber: row.stringNumber,
+                        endpoint,
+                        url: stringViewerUrl,
+                        ok: false,
+                        httpStatus: r.status,
+                        lastUpdated: new Date().toISOString(),
+                        data: null,
+                        error: `HTTP ${r.status}`
+                    });
+                }
+            } catch (err: any) {
+                stringDetailCache.set(key, {
+                    arrayNumber: row.arrayNumber,
+                    stringNumber: row.stringNumber,
+                    endpoint,
+                    url: stringViewerUrl,
+                    ok: false,
+                    httpStatus: null,
+                    lastUpdated: new Date().toISOString(),
+                    data: null,
+                    error: err.message
+                });
+            }
+        }));
+    }
+}
+
+let detailWarmupInFlight: Promise<void> | null = null;
+function startStringDetailWarmup(rows: any[]) {
+  if (detailWarmupInFlight) return;
+  detailWarmupInFlight = warmStringDetailCacheForKnownRows(rows, {
+    concurrency: 6,
+    maxAgeMs: 60_000
+  }).finally(() => {
+    detailWarmupInFlight = null;
+  });
+}
 
 export async function buildNormalizedStringsData(enrich = false, targetArray: number | null = null): Promise<any> {
     const profile = ProfileStore.getActiveProfile();
@@ -648,7 +751,28 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         let fanState: "no-command" | "unknown" | "match" | "mismatch" = "no-command";
         let fanLastCommandTime: any = null;
 
-        const fanReport = stringData?.stringFanReport || row?.stringFanReport || row?.stringData?.stringFanReport;
+        const detail = getCachedStringDetail(arrayNumber, stringNumber);
+        const detailStringData = detail?.data?.stringData ?? detail?.data ?? null;
+
+        const fanReport =
+            detailStringData?.stringFanReport ??
+            stringData?.stringFanReport ??
+            row?.stringFanReport ??
+            row?.stringData?.stringFanReport;
+            
+        const lastFanCommandValue =
+            detailStringData?.lastFanCommand ??
+            stringData?.lastFanCommand ??
+            row?.lastFanCommand ??
+            row?.stringData?.lastFanCommand ??
+            null;
+            
+        const lastFanCommandTimeValue =
+            detailStringData?.lastFanCommandTime ??
+            stringData?.lastFanCommandTime ??
+            row?.lastFanCommandTime ??
+            row?.stringData?.lastFanCommandTime ??
+            null;
 
         if (fanReport) {
             const FAN_MATCH_TOLERANCE_PERCENT = 5;
@@ -683,7 +807,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             }
 
             fanCount = Number(fanReport.fanCount) || fanStatusRpmValues.length || 1;
-            fanLastCommandTime = stringData?.lastFanCommandTime ?? row?.lastFanCommandTime ?? row?.stringData?.lastFanCommandTime ?? null;
+            fanLastCommandTime = lastFanCommandTimeValue;
 
             const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
             const hasStatus = fanStatusPercent !== null;
@@ -788,8 +912,8 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             else fanState = "mismatch";
         }
 
-        const lastFanCommand = parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
-        const lastFanCommandTime = tryGetField(row, normalizedObject, ["lastfancommandtime"]);
+        const lastFanCommand = lastFanCommandValue !== null ? parseBoolean(lastFanCommandValue) : parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
+        const lastFanCommandTime = fanLastCommandTime || lastFanCommandTimeValue || tryGetField(row, normalizedObject, ["lastfancommandtime"]);
         const fanCommandRequested = lastFanCommand;
         const fanHealthy = true;
 
@@ -1017,6 +1141,13 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             lastFanCommandTime,
             fanHealthy,
             fanState,
+            fanSourceAvailable: !!fanReport,
+            fanSourceEndpoint: detail?.endpoint || null,
+            fanSourceUrl: detail?.url || null,
+            fanSourceHttpStatus: detail?.httpStatus || null,
+            fanSourceKeys: fanReport ? Object.keys(fanReport) : [],
+            rawFanReport: fanReport,
+            rawStringDataFanReport: detailStringData?.stringFanReport ?? null,
             timestampUtc,
             lastUpdatedUtc: new Date().toISOString(),
             stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(row, normalizedObject, ["firmware", "firmwareversion"]),
@@ -1084,6 +1215,8 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         }));
     }
 
+    startStringDetailWarmup(strings);
+
     return {
         profileId: profile?.id,
         emsBaseUrl: baseUrl,
@@ -1150,6 +1283,27 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         strings
     };
 }
+
+router.get("/detail-cache/status", (req, res) => {
+    const status: any = {
+        totalEntries: stringDetailCache.size,
+        okEntries: 0,
+        failedEntries: 0,
+        inFlightWarmup: !!detailWarmupInFlight,
+        entries: {}
+    };
+    stringDetailCache.forEach((v, k) => {
+        if (v.ok) status.okEntries++;
+        else status.failedEntries++;
+        status.entries[k] = {
+            ok: v.ok,
+            httpStatus: v.httpStatus,
+            ageMs: Date.now() - new Date(v.lastUpdated).getTime(),
+            error: v.error || null
+        };
+    });
+    res.json(status);
+});
 
 router.get("/", async (req, res) => {
     try {
@@ -1291,128 +1445,15 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
         if (!profile) return res.status(400).json({ error: "No active profile" });
         const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
 
-        console.time(`String Detail Parse ${arrayNumber}-${stringNumber}`);
         const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
-        
-        let ok = false;
-        let httpStatus = null;
-        let data: any = null;
-        let error = null;
-        
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
-            const r = await fetch(stringViewerUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            
-            httpStatus = r.status;
-            ok = r.ok;
-            
-            if (r.ok) {
-                data = await r.json();
-            } else {
-                error = `HTTP ${r.status}`;
-            }
-        } catch(e: any) {
-            error = e.message;
+        const r = await fetch(stringViewerUrl);
+        if (r.ok) {
+            res.json(await r.json());
+        } else {
+            res.status(r.status).json({ error: `HTTP ${r.status}` });
         }
-
-        const topLevelKeys = data ? Object.keys(data) : [];
-        const modelKeys = data?.stringViewerDataModel ? Object.keys(data.stringViewerDataModel) : [];
-        
-        const balanceRelatedPaths: Array<{path: string, value: any}> = [];
-        const notificationRelatedPaths: Array<{path: string, value: any}> = [];
-        const rawBalanceCandidates: Array<{path: string, value: any}> = [];
-        const rawNotificationCandidates: Array<{path: string, value: any}> = [];
-
-        const scanPaths = (obj: any, currentPath: string = "", depth: number = 0) => {
-            if (!obj || typeof obj !== 'object' || depth > 8) return;
-            for (const key of Object.keys(obj)) {
-                const lower = key.toLowerCase();
-                const v = obj[key];
-                const fullPath = currentPath ? `${currentPath}.${key}` : key;
-                
-                const inBalancingMap = fullPath.toLowerCase().includes("balanc");
-                let isBalanceRelated = inBalancingMap || ['provided', 'target'].some(k => lower.includes(k));
-                
-                // If it looks like cellGroup or mode related but is just inside batteryPacks, we include if it indicates balancing
-                if (!isBalanceRelated) {
-                    if (['cellgroup', 'cgindex', 'cg', 'mode', 'state'].some(k => lower.includes(k))) {
-                        isBalanceRelated = true;
-                    }
-                }
-                
-                // Exclude ordinary cellGroupIndex/cellgroup unless inside a balancing structure
-                if (isBalanceRelated && !inBalancingMap) {
-                    const pathLower = fullPath.toLowerCase();
-                    
-                    // Strictly exclude ordinary cell groups from voltage/temperature/bpc lists if they don't say balance
-                    if (!pathLower.includes("balanc") && (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cg"))) {
-                         isBalanceRelated = false;
-                    }
-                }
-                
-                const isNotificationRelated = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => lower.includes(k));
-                
-                const strValue = typeof v === 'object' ? JSON.stringify(v).substring(0, 150) : String(v);
-                
-                const valLower = typeof v === 'string' ? v.toLowerCase() : '';
-                let valIsBalanceRelated = typeof v === 'string' && ['balanc', 'provided', 'target', 'mode', 'state'].some(k => valLower.includes(k));
-                if (!valIsBalanceRelated && typeof v === 'string' && ['cellgroup', 'cgindex', 'cg'].some(k => valLower.includes(k))) {
-                     valIsBalanceRelated = true;
-                }
-                
-                if (valIsBalanceRelated && !inBalancingMap) {
-                    const pathLower = fullPath.toLowerCase();
-                    if (!pathLower.includes("balanc") && (pathLower.includes("cellgroup") || pathLower.includes("cgindex") || pathLower.includes("cg"))) {
-                        valIsBalanceRelated = false;
-                    }
-                }
-
-                const valIsNotificationRelated = typeof v === 'string' && ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message', '2534', '2561'].some(k => valLower.includes(k));
-                const valIsSpecificCode = typeof v === 'number' && (v === 2534 || v === 2561);
-
-                if ((isBalanceRelated || valIsBalanceRelated) && typeof v !== 'object') {
-                    balanceRelatedPaths.push({ path: fullPath, value: strValue });
-                    rawBalanceCandidates.push({ path: fullPath, value: v });
-                }
-                if ((isNotificationRelated || valIsNotificationRelated || valIsSpecificCode) && typeof v !== 'object') {
-                    notificationRelatedPaths.push({ path: fullPath, value: strValue });
-                    rawNotificationCandidates.push({ path: fullPath, value: v });
-                }
-                
-                if (typeof v === 'object' && v !== null) {
-                    scanPaths(v, fullPath, depth + 1);
-                }
-            }
-        };
-
-        if (data) scanPaths(data);
-
-        res.json({
-            sourceUrl: stringViewerUrl,
-            httpStatus,
-            ok,
-            error,
-            topLevelKeys,
-            modelKeys,
-            hasBalancingMap: data?.stringViewerDataModel?.hasBalancingMap ?? false,
-            balancingMapType: data?.stringViewerDataModel?.balancingMap ? typeof data.stringViewerDataModel.balancingMap : "undefined",
-            balancingMapKeys: data?.stringViewerDataModel?.balancingMap
-              ? Object.keys(data.stringViewerDataModel.balancingMap)
-              : [],
-            balancingMapPreview: data?.stringViewerDataModel?.balancingMap ?? null,
-            balanceRelatedPaths,
-            notificationRelatedPaths,
-            rawBalanceCandidates,
-            rawNotificationCandidates,
-            rawPreview: data ? Object.keys(data).reduce((acc: any, k) => {
-                acc[k] = typeof data[k] === 'object' ? '{...}' : data[k];
-                return acc;
-            }, {}) : null
-        });
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
+    } catch(e) {
+        res.status(500).json({ error: String(e) });
     }
 });
 
@@ -1431,558 +1472,85 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         const maxAgeMs = req.query.maxAgeMs ? parseInt(String(req.query.maxAgeMs), 10) : 5000;
 
         const fetcher = async () => {
-
-        const stringViewerUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
-        const startTime = Date.now();
-        let stringViewerSourceHealth: any = {
-            ok: false,
-            url: stringViewerUrl,
-            httpStatus: null,
-            durationMs: null,
-            error: null
-        };
-
-        let stringViewerData: any = null;
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
-            const r = await fetch(stringViewerUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            
-            stringViewerSourceHealth.httpStatus = r.status;
-            stringViewerSourceHealth.ok = r.ok;
-            
-            if (r.ok) {
-                stringViewerData = await r.json();
-            } else {
-                stringViewerSourceHealth.error = `HTTP ${r.status}`;
-            }
-        } catch(e: any) {
-            stringViewerSourceHealth.error = e.message;
-        } finally {
-            stringViewerSourceHealth.durationMs = Date.now() - startTime;
-        }
-
-        let lcBaseData = null;
-        const lastCallWrapper = getEmsCachedLastCall();
-        if (lastCallWrapper.data) {
-             let lcS = null;
-             if (Array.isArray(lastCallWrapper.data.strings)) {
-                 lcS = lastCallWrapper.data.strings.find((s:any) => (s.array === arrayNumber || s.arrayIndex === arrayNumber) && (s.string === stringNumber || s.stringIndex === stringNumber));
-             }
-             if (!lcS && Array.isArray(lastCallWrapper.data.arrays)) {
-                 const lcA = lastCallWrapper.data.arrays.find((a:any) => a.index === arrayNumber || a.arrayIndex === arrayNumber);
-                 if (lcA && Array.isArray(lcA.strings)) {
-                     lcS = lcA.strings.find((s:any) => s.index === stringNumber || s.stringIndex === stringNumber);
-                 }
-             }
-             if (lcS) lcBaseData = lcS;
-        }
-
-        let voltageMatrix: number[][] = [];
-        let temperatureMatrix: number[][] = [];
-        let notificationMatrix: any[][] = [];
-        let balancingDetails: any[] = [];
-        let notifications: any[] = [];
-        let eventLogs: any[] = [];
-        const balancingDebugKeys: string[] = [];
-        const notificationDebugKeys: string[] = [];
-
-        const extractDebugKeys = (obj: any, currentPath: string = "") => {
-            if (!obj || typeof obj !== 'object') return;
-            for (const key of Object.keys(obj)) {
-                const lower = key.toLowerCase();
-                const isBal = lower.includes("balanc") || lower.includes("provided") || lower.includes("target");
-                const isNotif = ['notification', 'warn', 'alarm', 'event', 'status', 'code', 'message'].some(k => lower.includes(k));
-                
-                if (isBal) {
-                    balancingDebugKeys.push(`${currentPath}.${key}: ${typeof obj[key] === 'object' ? 'object' : obj[key]}`);
-                }
-                if (isNotif) {
-                    notificationDebugKeys.push(`${currentPath}.${key}: ${typeof obj[key] === 'object' ? 'object' : obj[key]}`);
-                }
-                // Recurse at limited depth
-                if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-                    if (currentPath.split('.').length < 4) {
-                        extractDebugKeys(obj[key], `${currentPath}.${key}`);
-                    }
-                } else if (Array.isArray(obj[key]) && typeof obj[key][0] === 'object') {
-                    if (currentPath.split('.').length < 4) {
-                        extractDebugKeys(obj[key][0], `${currentPath}.${key}[0]`);
-                    }
-                }
-            }
-        };
-
-        let bpcs: any[] = [];
-        let summary: any = {};
-        
-        // Helper for lastCall fallback notifications
-        const handleFallbackNotif = (defaultLevel: string, w: string, source: string) => {
-            const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
-            if (match) {
-                const code = match[1];
-                const msgPart = match[2];
-                let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
-                const displayLevel = classifyBessStatusCode(code) || defaultLevel;
-                notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
-            } else {
-                notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
-            }
-        };
-
-        if (stringViewerData && stringViewerData.stringViewerDataModel) {
-            extractDebugKeys(stringViewerData.stringViewerDataModel, "sv");
-            const sv = stringViewerData.stringViewerDataModel;
-            summary = {
-                arrayNumber: sv.arrayIndex || arrayNumber,
-                stringNumber: sv.stringIndex || stringNumber,
-                bpcCount: sv.batteryPackCount,
-                cellGroupCount: sv.cellGroupCount,
-                socPct: sv.soc,
-                soc: sv.soc,
-                busVoltage: sv.dcBusVoltage,
-                rotationStatus: sv.outRotation ? "OUT" : "IN",
-                positiveContactorClosed: sv.positiveContactorClosed,
-                negativeContactorClosed: sv.negativeContactorClosed,
-                calculatedVoltage: sv.calculatedStringVoltage,
-                measuredVoltage: sv.measuredStringVoltage,
-                amps: sv.stringCurrent,
-                contactorsCloseExpected: sv.contactorsCloseExpected,
-                recloseCount: sv.recloseCount,
-                maxCellTemperature: sv.maxCellGroupTemp,
-                minCellTemperature: sv.minCellGroupTemp,
-                avgCellTemperature: sv.avgCellGroupTemp,
-                maxCellVoltage: sv.maxCellGroupVoltage,
-                minCellVoltage: sv.minCellGroupVoltage,
-                avgCellVoltage: sv.avgCellGroupVoltage,
-                operationalState: sv.stringConnectionState,
-                preciseCalculatedVoltage: sv.preciseCalculatedStringVoltage,
-                ctCurrent1: sv.ctCurrent1,
-                ctCurrent2: sv.ctCurrent2,
-                badReport: sv.badReport,
-                timestampUtc: sv.reportTimestamp,
-                cellVoltageDelta: (sv.maxCellGroupVoltage !== undefined && sv.minCellGroupVoltage !== undefined) ? Number((sv.maxCellGroupVoltage - sv.minCellGroupVoltage).toFixed(3)) : undefined,
-                cellTemperatureDelta: (sv.maxCellGroupTemp !== undefined && sv.minCellGroupTemp !== undefined) ? Number((sv.maxCellGroupTemp - sv.minCellGroupTemp).toFixed(1)) : undefined,
-                voltageDelta: (sv.measuredStringVoltage !== undefined && sv.calculatedStringVoltage !== undefined) ? Number(Math.abs(sv.measuredStringVoltage - sv.calculatedStringVoltage).toFixed(2)) : undefined,
+            const endpoint = `/tools/report/ems/array/${arrayNumber}/string/${stringNumber}/report.json`;
+            const stringViewerUrl = `${baseUrl}${endpoint}`;
+            const startTime = Date.now();
+            let stringViewerSourceHealth: any = {
+                ok: false,
+                url: stringViewerUrl,
+                endpoint,
+                httpStatus: null,
+                durationMs: null,
+                error: null
             };
 
-            const vm = sv.voltageMap?.batteryPacks || {};
-            const tm = sv.temperatureMap?.batteryPacks || {};
-
-            // --- Normalize Balancing Details ---
-            const parseBalMode = (modeRaw: any): string | null => {
-                if (!modeRaw) return null;
-                return String(modeRaw);
-            };
-            const parseTargetVoltage = (modeRaw: any, targetRaw: any): number | null => {
-                if (targetRaw !== undefined && targetRaw !== null && targetRaw !== "") return Number(targetRaw);
-                if (typeof modeRaw === 'string' && modeRaw.includes('Provided (')) {
-                    const match = modeRaw.match(/Provided\s+\((\d+)\)/);
-                    if (match) return Number(match[1]);
+            let stringViewerData: any = null;
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const r = await fetch(stringViewerUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
+                stringViewerSourceHealth.httpStatus = r.status;
+                stringViewerSourceHealth.ok = r.ok;
+                
+                if (r.ok) {
+                    stringViewerData = await r.json();
+                } else {
+                    stringViewerSourceHealth.error = `HTTP ${r.status}`;
                 }
-                return null;
-            };
-
-            const bmSources = [
-                sv.balanceMap?.batteryPacks,
-                sv.balancingMap?.batteryPacks,
-                sv.balancing?.batteryPacks,
-                sv.balance?.batteryPacks,
-                sv.batteryPacks, // sometimes embedded here
-                sv.batteryPackBalance,
-                sv.voltageMap?.batteryPacks,
-                sv.temperatureMap?.batteryPacks,
-                sv.balanceModeMap,
-                sv.balancingCgIndexMap,
-                sv.balanceTargetVoltageMap
-            ].filter(Boolean);
-
-            const bpcSeen = new Set<number>();
-
-            // --- Confirm Primary Turtle balancingMap Parser ---
-            if (sv && sv.hasBalancingMap === true && sv.balancingMap && sv.balancingMap.batteryPacks) {
-                const bPacks = sv.balancingMap.batteryPacks;
-                Object.keys(bPacks).forEach(key => {
-                    const bpcN = Number(key);
-                    if (isNaN(bpcN)) return;
-                    
-                    const batteryPackObject = bPacks[key];
-                    if (!batteryPackObject) return;
-                    
-                    const batteryPack = batteryPackObject.batteryPack || {};
-                    const packVal = batteryPack.value;
-                    const packColor = batteryPack.color;
-                    const cellGroups = batteryPackObject.cellGroups || {};
-                    
-                    let balancingCellGroupIndex: number | null = null;
-                    let targetVoltage: number | null = null;
-                    let color = packColor;
-                    
-                    const match = packVal ? String(packVal).match(/CG\s*(\d+)\s*->\s*(\d+(?:\.\d+)?)/i) : null;
-                    if (match && packColor !== "#FFFFFF" && packVal !== "---") {
-                        balancingCellGroupIndex = Number(match[1]);
-                        targetVoltage = Number(match[2]);
-                        const cg = cellGroups[String(balancingCellGroupIndex)];
-                        if (cg && cg.color) {
-                            color = cg.color;
-                        }
-                    } else {
-                        // Fallback: check cell groups
-                        const cgKeys = Object.keys(cellGroups);
-                        for (const cgKey of cgKeys) {
-                            const cg = cellGroups[cgKey];
-                            if (cg && cg.value && cg.value !== "---" && cg.color && cg.color !== "#FFFFFF") {
-                                balancingCellGroupIndex = Number(cg.cellGroupIndex || cgKey);
-                                targetVoltage = Number(cg.value);
-                                color = cg.color;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (balancingCellGroupIndex === null || targetVoltage === null) return;
-                    
-                    let state: "Charging" | "Discharging" | "Active" | "Inactive" = "Active";
-                    const c = String(color || "").toUpperCase();
-                    if (c === "#AED6F1") {
-                        state = "Charging";
-                    } else if (c === "#F9E79F") {
-                        state = "Discharging";
-                    } else if (c === "#FFFFFF") {
-                        state = "Inactive";
-                    }
-                    
-                    if (state === "Inactive") return;
-                    
-                    balancingDetails.push({
-                        arrayNumber,
-                        stringNumber,
-                        bpcNumber: bpcN,
-                        mode: "Provided",
-                        displayMode: `Provided (${targetVoltage})`,
-                        state,
-                        balancingActive: true,
-                        balancingCellGroupIndex,
-                        targetCellGroup: balancingCellGroupIndex,
-                        targetVoltage,
-                        sourcePath: `stringViewerDataModel.balancingMap.batteryPacks.${bpcN}`,
-                        raw: batteryPackObject
-                    });
-                    
-                    bpcSeen.add(bpcN);
-                });
-            }
-            for (const source of bmSources) {
-                if (Array.isArray(source)) {
-                    source.forEach((item: any, i: number) => {
-                        const bpcN = item.bpcNumber || item.bpIndex || item.batteryPackIndex || item.packIndex || item.index || (i + 1);
-                        if (!bpcSeen.has(bpcN)) {
-                            const rawMode = item.mode || item.balanceMode || item.balancingMode || item.providedMode;
-                            const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
-                            const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
-                            const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
-                            if (rawMode !== undefined || state !== undefined || tcg !== undefined || tv !== null) {
-                                const m = parseBalMode(rawMode);
-                                const dm = m && m.toLowerCase().includes('provided') && tv !== null ? `Provided (${tv})` : (m || "--");
-                                balancingDetails.push({ bpcNumber: bpcN, mode: m, displayMode: dm, state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
-                                bpcSeen.add(bpcN);
-                            }
-                        }
-                    });
-                } else if (typeof source === 'object') {
-                    Object.keys(source).forEach(key => {
-                        const bpcN = Number(key);
-                        const item = source[key];
-                        if (!isNaN(bpcN) && !bpcSeen.has(bpcN)) {
-                            const rawMode = item.mode || item.balanceMode || item.balancingMode || item.providedMode;
-                            const state = item.state || item.balanceState || item.balancingState || (item.active !== undefined ? String(item.active) : undefined) || (item.balancingActive !== undefined ? String(item.balancingActive) : undefined);
-                            const tcg = item.balancingCellGroupIndex || item.balancingCgIndex || item.balancingCGIndex || item.activeCellGroup || item.targetCellGroup || item.targetCg || item.cgIndex;
-                            const tv = parseTargetVoltage(rawMode, item.targetVoltage || item.providedBalanceVoltage || item.targetCellVoltage || item.balanceVoltage);
-                            if (rawMode !== undefined || state !== undefined || tcg !== undefined || tv !== null) {
-                                const m = parseBalMode(rawMode);
-                                const dm = m && m.toLowerCase().includes('provided') && tv !== null ? `Provided (${tv})` : (m || "--");
-                                balancingDetails.push({ bpcNumber: bpcN, mode: m, displayMode: dm, state: state, balancingCellGroupIndex: tcg, targetVoltage: tv, raw: item });
-                                bpcSeen.add(bpcN);
-                            }
-                        }
-                    });
-                }
+            } catch(e: any) {
+                stringViewerSourceHealth.error = e.message;
+            } finally {
+                stringViewerSourceHealth.durationMs = Date.now() - startTime;
             }
 
-            // --- Normalize Notifications ---
-            const codeToMsgMap = { ...(getEmsCachedStatusCodes().data as Record<string, string>), ...BESS_STATUS_CODE_MAP };
-            const parseNotif = (level: string, item: any, src: string) => {
-                if (typeof item === 'string') {
-                    // Try to parse "2534 Contactor Open Warning"
-                    const match = item.match(/^(\d+)(?:\s+(.+))?$/);
-                    if (match) {
-                        const code = match[1];
-                        const msgPart = match[2];
-                        let msg = msgPart || codeToMsgMap[code] || describeBessStatusCode(code);
-                        if (!msg) msg = `Code ${code}`;
-                        const displayLevel = classifyBessStatusCode(code) || level || 'INFO';
-                        notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source: src });
-                    } else {
-                        notifications.push({ level, code: null, message: item, displayText: item, source: src });
-                    }
-                } else if (typeof item === 'object') {
-                    const codeRaw = item.code || item.status || item.messageCode;
-                    const code = codeRaw ? String(codeRaw) : null;
-                    let msg = item.message || item.text || item.description || (code ? codeToMsgMap[code] : null) || describeBessStatusCode(code);
-                    if (!msg && code) msg = `Code ${code}`;
-                    if (code || msg) {
-                        const displayLevel = code ? (classifyBessStatusCode(code) || item.level || level) : (item.level || level);
-                        notifications.push({
-                            level: displayLevel,
-                            code,
-                            message: msg,
-                            displayText: code && msg && msg !== `Code ${code}` && !msg.startsWith(code) ? `${code} - ${msg}` : (msg || code),
-                            timestamp: item.timestamp || item.time || item.created,
-                            trigger: item.trigger || item.triggerValue,
-                            source: src,
-                            raw: item
-                        });
-                    }
-                }
-            };
-
-            const notifLists = [
-                { data: sv.notifications, source: "stringviewer.notifications" },
-                { data: sv.notificationList, source: "stringviewer.notificationList" },
-                { data: sv.activeNotifications, source: "stringviewer.activeNotifications" },
-                { data: sv.warningList, source: "stringviewer.warningList", lev: "WARNING" },
-                { data: sv.warnings, source: "stringviewer.warnings", lev: "WARNING" },
-                { data: sv.alarms, source: "stringviewer.alarms", lev: "ALARM" },
-                { data: sv.stringWarnings, source: "stringviewer.stringWarnings", lev: "WARNING" },
-                { data: sv.stringAlarms, source: "stringviewer.stringAlarms", lev: "ALARM" }
-            ];
-
-            notifLists.forEach(nl => {
-                if (Array.isArray(nl.data)) {
-                    nl.data.forEach(n => parseNotif(nl.lev || "WARNING", n, nl.source));
-                } else if (nl.data && typeof nl.data === 'object') {
-                    Object.keys(nl.data).forEach(k => parseNotif(nl.lev || "WARNING", nl.data[k], `${nl.source}.${k}`));
-                }
-            });
-            
-            const bpKeys = Object.keys(vm).map(Number).sort((a,b) => a-b);
-            bpKeys.forEach(bpIdx => {
-                const cgsV = vm[String(bpIdx)]?.cellGroups || {};
-                const cgsT = tm[String(bpIdx)]?.cellGroups || {};
-                const cgKeys = Object.keys(cgsV).map(Number).sort((a,b) => a-b);
-                const vRow = cgKeys.map(cg => Number(cgsV[String(cg)]?.value));
-                const tRow = cgKeys.map(cg => Number(cgsT[String(cg)]?.value));
-                voltageMatrix.push(vRow);
-                temperatureMatrix.push(tRow);
-                
-                let minV: number | null = null;
-                let maxV: number | null = null;
-                let sumV = 0, countV = 0;
-                let minT: number | null = null;
-                let maxT: number | null = null;
-                let sumT = 0, countT = 0;
-                
-                const cellGroups = cgKeys.map(cg => {
-                    const v = Number(cgsV[String(cg)]?.value);
-                    const t = Number(cgsT[String(cg)]?.value);
-                    if (!isNaN(v)) {
-                         if (minV === null || v < minV) minV = v;
-                         if (maxV === null || v > maxV) maxV = v;
-                         sumV += v; countV++;
-                    }
-                    if (!isNaN(t)) {
-                         if (minT === null || t < minT) minT = t;
-                         if (maxT === null || t > maxT) maxT = t;
-                         sumT += t; countT++;
-                    }
-                    return {
-                        arrayNumber,
-                        stringNumber,
-                        bpcNumber: bpIdx,
-                        cellGroupNumber: cg,
-                        voltage: v,
-                        temperature: t,
-                        voltageColor: cgsV[String(cg)]?.color,
-                        temperatureColor: cgsT[String(cg)]?.color,
-                        voltageColorIndex: cgsV[String(cg)]?.colorIndex,
-                        temperatureColorIndex: cgsT[String(cg)]?.colorIndex,
-                        rawVoltage: cgsV[String(cg)]?.value,
-                        rawTemperature: cgsT[String(cg)]?.value
-                    };
-                });
-                
-                bpcs.push({
+            if (stringViewerSourceHealth.ok && stringViewerData) {
+                stringDetailCache.set(getStringDetailCacheKey(arrayNumber, stringNumber), {
                     arrayNumber,
                     stringNumber,
-                    bpcNumber: bpIdx,
-                    cellGroups,
-                    minCellVoltage: minV,
-                    maxCellVoltage: maxV,
-                    avgCellVoltage: countV > 0 ? Number((sumV / countV).toFixed(3)) : null,
-                    cellVoltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
-                    minCellTemperature: minT,
-                    maxCellTemperature: maxT,
-                    avgCellTemperature: countT > 0 ? Number((sumT / countT).toFixed(1)) : null,
-                    cellTemperatureDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
+                    endpoint,
+                    url: stringViewerUrl,
+                    ok: true,
+                    httpStatus: stringViewerSourceHealth.httpStatus,
+                    lastUpdated: new Date().toISOString(),
+                    data: stringViewerData
                 });
-            });
-        } else if (lcBaseData) {
-            let bpcsData = lcBaseData.packs || lcBaseData.bpcs || lcBaseData.batteryPacks || [];
-            if (!Array.isArray(bpcsData)) bpcsData = [];
-            
-            bpcsData.sort((a,b) => (a.index || a.bpcIndex || 0) - (b.index || b.bpcIndex || 0));
-            
-            bpcsData.forEach((bpc: any) => {
-                const cv = Array.isArray(bpc.cellVoltages) ? bpc.cellVoltages : [];
-                voltageMatrix.push(cv);
-                
-                const ct = Array.isArray(bpc.cellTemperatures) ? bpc.cellTemperatures : [];
-                temperatureMatrix.push(ct);
-                
-                const cn = Array.isArray(bpc.notifications || bpc.cgStatus) ? (bpc.notifications || bpc.cgStatus) : [];
-                notificationMatrix.push(cn);
-                
-                const bpcIdx = bpc.index || bpc.bpcIndex;
-                const cellGroups = [];
-                const maxLen = Math.max(cv.length, ct.length);
-                for (let i = 0; i < maxLen; i++) {
-                    cellGroups.push({
-                        arrayNumber,
-                        stringNumber,
-                        bpcNumber: bpcIdx,
-                        cellGroupNumber: i + 1,
-                        voltage: cv[i],
-                        temperature: ct[i]
-                    });
-                }
-                
-                bpcs.push({
-                    arrayNumber,
-                    stringNumber,
-                    bpcNumber: bpcIdx,
-                    cellGroups,
-                    minCellVoltage: bpc.minCellVoltage,
-                    maxCellVoltage: bpc.maxCellVoltage,
-                    avgCellVoltage: bpc.avgCellVoltage,
-                    minCellTemperature: bpc.minCellTemp || bpc.minCellTemperature,
-                    maxCellTemperature: bpc.maxCellTemp || bpc.maxCellTemperature,
-                    avgCellTemperature: bpc.avgCellTemp || bpc.avgCellTemperature,
-                });
-                
-                if (bpc.balancing || bpc.balancingMode || bpc.balancingState) {
-                    balancingDetails.push({
-                        bpcNumber: bpcIdx,
-                        mode: bpc.balancingMode,
-                        state: bpc.balancingState,
-                        balancingCellGroupIndex: undefined,
-                        targetVoltage: undefined,
-                        raw: bpc
-                    });
-                }
-                
-                const handleFallbackNotif = (defaultLevel: string, w: string, source: string) => {
-                    const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
-                    if (match) {
-                        const code = match[1];
-                        const msgPart = match[2];
-                        let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
-                        const displayLevel = classifyBessStatusCode(code) || defaultLevel;
-                        notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
-                    } else {
-                        notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
+
+                return {
+                    arrayIndex: stringViewerData.arrayIndex ?? arrayNumber,
+                    stringIndex: stringViewerData.stringIndex ?? stringNumber,
+                    enclosureIndex: stringViewerData.enclosureIndex,
+                    enclosureLocation: stringViewerData.enclosureLocation,
+                    batteryPackReportList: stringViewerData.batteryPackReportList || [],
+                    stringData: stringViewerData.stringData || null,
+                    timeStamp: stringViewerData.timeStamp,
+                    sourceHealth: {
+                      stringviewer: stringViewerSourceHealth
                     }
                 };
-
-                if (bpc.warnings && Array.isArray(bpc.warnings) && bpc.warnings.length > 0) {
-                     bpc.warnings.forEach(w => handleFallbackNotif("WARNING", w, `BPC ${bpcIdx}`));
-                } else if (bpc.warningList && Array.isArray(bpc.warningList) && bpc.warningList.length > 0) {
-                     bpc.warningList.forEach(w => handleFallbackNotif("WARNING", w, `BPC ${bpcIdx}`));
-                }
-                if (bpc.alarms && Array.isArray(bpc.alarms) && bpc.alarms.length > 0) {
-                     bpc.alarms.forEach(a => handleFallbackNotif("ALARM", a, `BPC ${bpcIdx}`));
-                } else if (bpc.alarmList && Array.isArray(bpc.alarmList) && bpc.alarmList.length > 0) {
-                     bpc.alarmList.forEach(a => handleFallbackNotif("ALARM", a, `BPC ${bpcIdx}`));
-                }
-            });
-            
-            if (lcBaseData.warnings && Array.isArray(lcBaseData.warnings) && lcBaseData.warnings.length > 0) {
-                lcBaseData.warnings.forEach(w => handleFallbackNotif("WARNING", w, `lastCall String`));
-            }
-            if (lcBaseData.alarms && Array.isArray(lcBaseData.alarms) && lcBaseData.alarms.length > 0) {
-                lcBaseData.alarms.forEach(a => handleFallbackNotif("ALARM", a, `lastCall String`));
-            }
-        }
-
-        // Check fallback from main strings dashboard cache
-        if (balancingDetails.length === 0 || notifications.length === 0) {
-            const cachedDash = prizmCache.get<any>('string_dashboard_base_ALL');
-            if (cachedDash && cachedDash.data && Array.isArray(cachedDash.data.strings)) {
-                const mainRow = cachedDash.data.strings.find((s: any) => s.arrayNumber === arrayNumber && s.stringNumber === stringNumber);
-                if (mainRow) {
-                    if (balancingDetails.length === 0 && (mainRow.balanceMode || mainRow.balanceRaw)) {
-                        // Create a faux balancing detail if we know there is balancing
-                        balancingDetails.push({
-                            bpcNumber: null,
-                            mode: mainRow.balanceMode || mainRow.balanceRaw,
-                            state: null,
-                            balancingCellGroupIndex: null,
-                            targetVoltage: null,
-                            raw: mainRow.raw || {}
-                        });
+            } else {
+                stringDetailCache.set(getStringDetailCacheKey(arrayNumber, stringNumber), {
+                    arrayNumber,
+                    stringNumber,
+                    endpoint,
+                    url: stringViewerUrl,
+                    ok: false,
+                    httpStatus: stringViewerSourceHealth.httpStatus,
+                    lastUpdated: new Date().toISOString(),
+                    data: null,
+                    error: stringViewerSourceHealth.error
+                });
+                return {
+                    arrayIndex: arrayNumber,
+                    stringIndex: stringNumber,
+                    stringData: null,
+                    sourceHealth: {
+                      stringviewer: stringViewerSourceHealth
                     }
-                    if (notifications.length === 0) {
-                        const handleRefNotif = (defaultLevel: string, w: string, source: string) => {
-                            const match = String(w).match(/^(\d+)(?:\s+(.+))?$/);
-                            if (match) {
-                                const code = match[1];
-                                const msgPart = match[2];
-                                let msg = msgPart || describeBessStatusCode(code) || `Code ${code}`;
-                                const displayLevel = classifyBessStatusCode(code) || defaultLevel;
-                                notifications.push({ level: displayLevel, code, message: msg, displayText: `${code} - ${msg}`, source });
-                            } else {
-                                notifications.push({ level: defaultLevel, code: null, message: w, displayText: String(w), source });
-                            }
-                        };
-                        
-                        if (Array.isArray(mainRow.warnings) && mainRow.warnings.length > 0) {
-                            mainRow.warnings.forEach((w: string) => {
-                                handleRefNotif("WARNING", w, "strings_dashboard");
-                            });
-                        }
-                        if (Array.isArray(mainRow.alarms) && mainRow.alarms.length > 0) {
-                            mainRow.alarms.forEach((a: string) => {
-                                handleRefNotif("ALARM", a, "strings_dashboard");
-                            });
-                        }
-                    }
-                }
+                };
             }
-        }
-
-        console.timeEnd(`String Detail Parse ${arrayNumber}-${stringNumber}`);
-        return {
-            profileId: profile.id,
-            emsBaseUrl: baseUrl,
-            stationCode: "BHE",
-            blockIndex: 1,
-            arrayNumber,
-            stringNumber,
-            sourceHealth: { stringviewer: stringViewerSourceHealth },
-            summary,
-            bpcs,
-            voltageMatrix,
-            temperatureMatrix,
-            notificationMatrix,
-            balancingDetails,
-            notifications,
-            eventLogs,
-            sourceViewerUsed: !!stringViewerData,
-            hasBalancingMap: !!(stringViewerData?.stringViewerDataModel?.hasBalancingMap),
-            balancingDebugKeys,
-            notificationDebugKeys
         };
-        }; // end fetcher function
 
         const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
         const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
@@ -1997,36 +1565,6 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
 
         const wasLiveSucceeded = cacheEntry.wasFetched && cacheEntry.sourceOk;
         const wasCacheUsed = !cacheEntry.wasFetched && (!cacheEntry.error || cacheEntry.data);
-
-        // Hysteresis / History tracking
-        const captureHistoryRequested = req.query.captureHistory === "true";
-        if (cacheEntry.data && cacheEntry.data.bpcs && captureHistoryRequested && cacheEntry.wasFetched) {
-             const hMetrics: any[] = [];
-             const timestampUtc = new Date().toISOString();
-             cacheEntry.data.bpcs.forEach((b:any, i:number) => {
-                  let maxV = 0, minV = 9999;
-                  if (b.cellGroups && b.cellGroups.length > 0) {
-                      b.cellGroups.forEach((cg:any) => {
-                          if (cg.voltage > maxV) maxV = cg.voltage;
-                          if (cg.voltage < minV && cg.voltage > 0) minV = cg.voltage;
-                      });
-                  }
-                  hMetrics.push({
-                      timestampUtc,
-                      profileId: profile?.id,
-                      source: "string_detail_bpcs",
-                      entityType: "bpc",
-                      entityKey: `BPC_${cacheEntry.data.arrayNumber}_${cacheEntry.data.stringNumber}_${b.bpcNumber ?? (i+1)}`,
-                      metricName: "maxVoltage",
-                      metricValue: maxV,
-                      quality: cacheEntry.isLive ? "live" : "cached",
-                      arrayNumber: cacheEntry.data.arrayNumber,
-                      stringNumber: cacheEntry.data.stringNumber,
-                      bpcNumber: b.bpcNumber ?? (i+1)
-                  });
-             });
-             prizmHistory.appendSamples(hMetrics);
-        }
 
         cacheEntry.dataClass = "live-telemetry";
         const meta = prizmCache.getActiveSiteMetadata();
