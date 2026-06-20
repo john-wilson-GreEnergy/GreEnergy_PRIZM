@@ -683,33 +683,35 @@ const handleManualRefresh = async () => {
                         ? "bg-yellow-500 shadow-[0_0_5px_rgba(234,179,8,0.5)]"
                         : "bg-black border border-neutral-700";
 
-                  let fanTooltip = "";
-                  if (fanState === "no-command") {
-                    fanTooltip = [
-                      `Command: --`,
-                      `Actual: --`,
-                      `Setting: --`,
-                      `Avg RPM: --`,
-                      `Rated RPM: ${formatRpm(ratedRpm)}`,
-                      `Fans: --`,
-                      `Tolerance: ±5%`,
-                      `State: No Command`,
-                      `Last Command Time: --`
-                    ].join("\n");
-                  } else {
-                    const stateLabel = fanState === "match" ? "Match" : fanState === "mismatch" ? "Mismatch" : fanState === "unknown" ? "Unknown" : "No Command";
-                    fanTooltip = [
-                      `Command: ${formatPercent(commandPct)}`,
-                      `Actual: ${formatPercent(actualPct)}`,
-                      `Setting: ${formatPercent(settingPct)}`,
-                      `Avg RPM: ${formatRpm(avgRpm)}`,
-                      `Rated RPM: ${formatRpm(ratedRpm)}`,
-                      `Fans: ${formatFanCount(fanCountValue)}`,
-                      `Tolerance: ±5%`,
-                      `State: ${stateLabel}`,
-                      `Last Command Time: ${fanTimeText}`
-                    ].join("\n");
-                  }
+                  const fanRpmValues = Array.isArray(s.fanStatusRpmValues)
+                    ? s.fanStatusRpmValues
+                        .map((v: any) => toFiniteNumber(v))
+                        .filter((v: number | null): v is number => v !== null)
+                    : [];
+
+                  const fanRpmLines =
+                    fanRpmValues.length > 0
+                      ? fanRpmValues.map((rpm: number, fanIdx: number) => `Fan ${fanIdx + 1} RPM: ${formatRpm(rpm)}`)
+                      : [`Fan RPMs: --`];
+
+                  const stateLabel =
+                    fanState === "match" ? "Match" :
+                    fanState === "mismatch" ? "Mismatch" :
+                    fanState === "unknown" ? "Unknown" :
+                    "No Command";
+
+                  const fanTooltip = [
+                    `Command: ${formatPercent(commandPct)}`,
+                    `Actual: ${formatPercent(actualPct)}`,
+                    `Setting: ${formatPercent(settingPct)}`,
+                    `Avg RPM: ${formatRpm(avgRpm)}`,
+                    `Rated RPM: ${formatRpm(ratedRpm)}`,
+                    `Fans: ${formatFanCount(fanCountValue)}`,
+                    ...fanRpmLines,
+                    `Tolerance: ±5%`,
+                    `State: ${stateLabel}`,
+                    `Last Command Time: ${fanTimeText || "--"}`
+                  ].join("\n");
 
                   const locStr = s.location && s.location.trim() !== "" ? s.location : s.container && s.container.trim() !== "" ? s.container : "--";
 

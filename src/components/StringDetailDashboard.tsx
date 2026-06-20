@@ -57,20 +57,6 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     }
   };
 
-  if (!data && loading) {
-    return (
-       <div className="flex-1 flex flex-col h-full bg-prizm-bg p-6">
-         <button onClick={onBack} className="text-prizm-text-muted hover:text-prizm-text flex items-center gap-2 font-mono text-xs mb-6 w-fit">
-            <ArrowLeft size={14} /> BACK TO STRINGS
-         </button>
-         <div className="flex-1 flex flex-col items-center justify-center p-8 text-prizm-text-muted font-mono">
-            <RefreshCw className="animate-spin mb-4 text-prizm-primary" size={32} />
-            <span className="text-xs font-bold tracking-widest uppercase">Fetching detail for {stringData.stringKey}...</span>
-         </div>
-       </div>
-    );
-  }
-
   const s = {
     ...stringData,
     ...(data?.summary || {})
@@ -324,6 +310,20 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     safeArray(safeBpcs?.[0]?.cellGroups).length ||
     safeVoltageMatrix?.[0]?.length ||
     30;
+
+  if (!data && loading) {
+    return (
+       <div className="flex-1 flex flex-col h-full bg-prizm-bg p-6">
+         <button onClick={onBack} className="text-prizm-text-muted hover:text-prizm-text flex items-center gap-2 font-mono text-xs mb-6 w-fit">
+            <ArrowLeft size={14} /> BACK TO STRINGS
+         </button>
+         <div className="flex-1 flex flex-col items-center justify-center p-8 text-prizm-text-muted font-mono">
+            <RefreshCw className="animate-spin mb-4 text-prizm-primary" size={32} />
+            <span className="text-xs font-bold tracking-widest uppercase">Fetching detail for {stringData.stringKey}...</span>
+         </div>
+       </div>
+    );
+  }
 
   const getVoltageColor = (v: number | null | undefined) => {
        if (v === null || v === undefined) return "bg-white/5 border-white/10 text-prizm-text-muted";
