@@ -114,21 +114,21 @@ export default function CellTelemetryHeatmap({
       {min !== null && max !== null ? (
         <div className="grid grid-cols-3 gap-2.5 bg-prizm-surface border border-prizm-border/30 p-2 rounded text-center text-[8.5px]">
           <div>
-            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Min</span>
+            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Min{isCompact ? " compact" : ""}</span>
             <span className={`font-bold ${isVolts ? "text-emerald-400" : "text-prizm-primary"}`}>
-              {min.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{unit}
+              {min.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{!isCompact ? unit : ""}
             </span>
           </div>
           <div>
-            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Max</span>
+            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Max{isCompact ? " compact" : ""}</span>
             <span className={`font-bold ${isVolts ? "text-emerald-400" : "text-prizm-primary"}`}>
-              {max.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{unit}
+              {max.toFixed(isCompact ? 1 : (isVolts ? 3 : 1))}{!isCompact ? unit : ""}
             </span>
           </div>
           <div>
-            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Avg</span>
+            <span className="text-prizm-text-muted text-[7.5px] block uppercase">Avg{isCompact ? " compact" : ""}</span>
             <span className="text-prizm-text font-bold">
-              {avg !== null ? avg.toFixed(isCompact ? 1 : (isVolts ? 3 : 1)) : "--"}{unit}
+              {avg !== null ? avg.toFixed(isCompact ? 1 : (isVolts ? 3 : 1)) : "--"}{!isCompact && avg !== null ? unit : ""}
             </span>
           </div>
         </div>

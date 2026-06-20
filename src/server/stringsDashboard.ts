@@ -763,9 +763,18 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
             };
 
-            fanCommandPercent = toFanPercent(fanCommandRpm);
-            fanStatusPercent = toFanPercent(fanSettingRpm);
-            fanSettingPercent = fanStatusPercent;
+            fanCommandPercent = null;
+            fanSettingPercent = null;
+
+            if (fanCommandRpm !== null) {
+                if (fanCommandRpm <= 100) fanCommandPercent = fanCommandRpm;
+                else fanCommandPercent = toFanPercent(fanCommandRpm);
+            }
+            if (fanSettingRpm !== null) {
+                if (fanSettingRpm <= 100) fanStatusPercent = fanSettingRpm;
+                else fanStatusPercent = toFanPercent(fanSettingRpm);
+                fanSettingPercent = fanStatusPercent;
+            }
             fanRatedRpm = MAX_FAN_RPM;
             fanStatusRpmValues = fanSettingRpm !== null ? [fanSettingRpm] : [];
             fanStatusAvgRpm = fanSettingRpm;

@@ -421,7 +421,7 @@ async function doBackgroundPoll() {
               arrays: parsed.arraySummary || [],
               pcs: pcsListToUse,
               feather: enrichedFeatherRows,
-              correctiveActions: parsed.activeIssueGroups || [],
+              correctiveActions: parsed.correctiveActions || [],
               sensors: sensorsData.rows,
               arrayDetailsByArray
           },
@@ -460,7 +460,7 @@ async function doBackgroundPoll() {
               lastPollDurationMs: Date.now() - startTime,
               normalizedStringRowCount: (parsed.stringSummary?.tableRows || []).length,
               arraySummarySource: parsed.debug?.arraySummarySource as any,
-              correctiveActionsCount: (parsed.activeIssueGroups || []).length,
+              correctiveActionsCount: (parsed.correctiveActions || []).length,
               featherCellTempExcludedCollectionSegments,
               errors: latestError ? [latestError.message] : []
           }

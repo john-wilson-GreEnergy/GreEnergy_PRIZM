@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import { useSiteData } from "../context/SiteDataContext";
-import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
 import {
   ResponsiveContainer,
@@ -139,35 +138,6 @@ export interface SiteHealthGraphResponse {
 
 export default function SiteDistributionDashboard({ active = true }: { active?: boolean }) {
   const { snapshot } = useSiteData();
-
-  const siteHeatmapData = useMemo(() => {
-    let siteVolts: (number | null)[] = [];
-    let siteTemps: (number | null)[] = [];
-
-    const arrayDetails = snapshot?.normalized?.arrayDetailsByArray || {};
-    Object.keys(arrayDetails).sort((a,b) => Number(a) - Number(b)).forEach((arrKey) => {
-      const arr = arrayDetails[arrKey];
-      if (arr && Array.isArray(arr.strings)) {
-        arr.strings.forEach((str: any) => {
-          if (Array.isArray(str.millivolts)) {
-            str.millivolts.forEach((mv: any) => {
-              if (mv !== undefined && mv !== null) siteVolts.push(Number(mv));
-            });
-          }
-          if (Array.isArray(str.temperatures)) {
-            str.temperatures.forEach((t: any) => {
-              if (t !== undefined && t !== null) siteTemps.push(Number(t));
-            });
-          }
-        });
-      }
-    });
-
-    return {
-      voltages: siteVolts,
-      temperatures: siteTemps
-    };
-  }, [snapshot]);
 
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);

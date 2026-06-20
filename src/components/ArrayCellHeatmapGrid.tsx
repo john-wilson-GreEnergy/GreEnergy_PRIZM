@@ -45,7 +45,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
                   : "text-prizm-text-muted hover:text-white"
               }`}
             >
-              Voltages [mV]
+              Voltage Compact
             </button>
             <button
               onClick={() => setMode("temperature")}
@@ -55,7 +55,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
                   : "text-prizm-text-muted hover:text-white"
               }`}
             >
-              Temps [°C]
+              Temp Compact
             </button>
           </div>
 

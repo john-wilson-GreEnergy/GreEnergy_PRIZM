@@ -77,6 +77,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const safeArray = (value: any): any[] => Array.isArray(value) ? value : [];
   const safeVoltageMatrix = safeArray(voltageMatrix).filter((row: any) => Array.isArray(row));
   const safeTemperatureMatrix = safeArray(temperatureMatrix).filter((row: any) => Array.isArray(row));
+  const safeNotificationMatrix = safeArray(notificationMatrix).filter((row: any) => Array.isArray(row));
   const safeBpcs = safeArray(bpcs);
 
   const stringViewerHealth = sourceHealth?.stringviewer;
@@ -196,7 +197,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     finite(s.batteryPackCount) ??
     (Array.isArray(s.batteryPacks) ? s.batteryPacks.length : null) ??
     (Array.isArray(s.balanceDetails) ? s.balanceDetails.length : null) ??
-    (Array.isArray(voltageMatrix) ? voltageMatrix.length : null);
+    (safeVoltageMatrix.length > 0 ? safeVoltageMatrix.length : null);
 
   const formatMv = (value: any): string => {
     const n = finite(value);
@@ -218,10 +219,11 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   };
 
   const downloadMatrixCsv = (matrix: any[], name: string) => {
-    if (!matrix || matrix.length === 0) return;
+    const safeMatrix = Array.isArray(matrix) ? matrix.filter(Array.isArray) : [];
+    if (safeMatrix.length === 0) return;
     const csvRows = [];
-    csvRows.push(["BPC Index", ...Array.from({length: matrix[0]?.length || 0}, (_,i) => `Cell ${i+1}`)].join(','));
-    matrix.forEach((row, rIdx) => {
+    csvRows.push(["BPC Index", ...Array.from({length: safeMatrix[0]?.length || 0}, (_,i) => `Cell ${i+1}`)].join(','));
+    safeMatrix.forEach((row, rIdx) => {
         csvRows.push([`BPC ${rIdx+1}`, ...row].join(','));
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
@@ -236,7 +238,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const hasBpcCellGroups = safeBpcs.some((bpc: any) => bpc && Array.isArray(bpc.cellGroups) && bpc.cellGroups.length > 0);
   const hasVoltageMatrix = hasBpcCellGroups || (safeVoltageMatrix.length > 0 && safeVoltageMatrix.some(r => Array.isArray(r) && r.length > 0));
   const hasTempMatrix = hasBpcCellGroups || (safeTemperatureMatrix.length > 0 && safeTemperatureMatrix.some(r => Array.isArray(r) && r.length > 0));
-  const hasNotifMatrix = Array.isArray(notificationMatrix) && notificationMatrix.some((r: any) => Array.isArray(r) && r.length > 0);
+  const hasNotifMatrix = safeNotificationMatrix.some((r: any) => Array.isArray(r) && r.length > 0);
 
   const finalBpcCount = data?.summary?.bpcCount ?? safeBpcs.length ?? s.bpcCount ?? 0;
 
