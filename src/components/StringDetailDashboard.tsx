@@ -4,6 +4,9 @@ import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activi
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import { useSiteData } from "../context/SiteDataContext";
 import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
+import PhysicalEnergySegmentHeatmap from "./PhysicalEnergySegmentHeatmap";
+import { buildPhysicalSlotsFromRichDetail } from "../lib/physicalEnergySegmentLayout";
+import { cToF } from "../lib/temperatureUnits";
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const { snapshot } = useSiteData();
@@ -11,6 +14,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const [loading, setLoading] = useState(true);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [heatmapLayoutMode, setHeatmapLayoutMode] = useState<"physical" | "raw">("physical");
 
   const stringDataArrayNumber = Number(stringData?.arrayNumber);
   const stringDataStringNumber = Number(stringData?.stringNumber);
@@ -205,6 +209,11 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
         : null
     );
 
+  const cellTempMinF = cellTempMin !== null ? cToF(cellTempMin) : null;
+  const cellTempMaxF = cellTempMax !== null ? cToF(cellTempMax) : null;
+  const cellTempAvgF = cellTempAvg !== null ? cToF(cellTempAvg) : null;
+  const cellTempDeltaF = cellTempDelta !== null ? cellTempDelta * 9 / 5 : null;
+
   const bpcCount =
     finite(s.bpcCount) ??
     finite(s.batteryPackCount) ??
@@ -221,6 +230,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     if (n === null) return "--";
     return Number.isInteger(n) ? `${n}°C` : `${n.toFixed(1)}°C`;
   };
+  const formatTempF = (valueF: number | null, valueC: number | null): string => {
+    if (valueF === null) {
+        if (valueC === null) return "--";
+        return Number.isInteger(valueC) ? `${valueC}°C` : `${valueC.toFixed(1)}°C`;
+    }
+    return Number.isInteger(valueF) ? `${valueF}°F` : `${valueF.toFixed(1)}°F`;
+  };
   const formatDeltaMv = (value: any): string => {
     const n = finite(value);
     return n === null ? "Δ --" : `Δ ${Math.round(n)} mV`;
@@ -229,6 +245,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     const n = finite(value);
     if (n === null) return "Δ --";
     return Number.isInteger(n) ? `Δ ${n}°C` : `Δ ${n.toFixed(1)}°C`;
+  };
+  const formatDeltaTempF = (valueF: number | null, valueC: number | null): string => {
+    if (valueF === null) {
+      if (valueC === null) return "Δ --";
+      return Number.isInteger(valueC) ? `Δ ${valueC}°C` : `Δ ${valueC.toFixed(1)}°C`;
+    }
+    return Number.isInteger(valueF) ? `Δ ${valueF}°F` : `Δ ${valueF.toFixed(1)}°F`;
   };
 
   const downloadMatrixCsv = (matrix: any, name: string) => {
@@ -310,6 +333,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     safeArray(safeBpcs?.[0]?.cellGroups).length ||
     safeVoltageMatrix?.[0]?.length ||
     30;
+
+  const physicalLayout = useMemo(() => {
+    return buildPhysicalSlotsFromRichDetail(data);
+  }, [data]);
 
   if (!data && loading) {
     return (
@@ -397,10 +424,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
               <span className="text-[10px] font-bold text-prizm-text mt-0.5">Min {formatMv(cellVoltageMin)} | Max {formatMv(cellVoltageMax)}</span>
               <span className="text-[9px] text-prizm-text-muted mt-0.5 font-semibold">Avg {formatMv(cellVoltageAvg)} | {formatDeltaMv(cellVoltageDelta)}</span>
             </div>
-            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center min-h-[64px]">
+            <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center min-h-[64px]" title={`Celsius: Min ${formatTemp(cellTempMin)} | Max ${formatTemp(cellTempMax)} | Avg ${formatTemp(cellTempAvg)}`}>
                <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">CELL TEMP</span>
-               <span className="text-[10px] font-bold text-prizm-text mt-0.5">Min {formatTemp(cellTempMin)} | Max {formatTemp(cellTempMax)}</span>
-               <span className="text-[9px] text-prizm-text-muted mt-0.5 font-semibold">Avg {formatTemp(cellTempAvg)} | {formatDeltaTemp(cellTempDelta)}</span>
+               <span className="text-[10px] font-bold text-prizm-text mt-0.5">Min {formatTempF(cellTempMinF, cellTempMin)} | Max {formatTempF(cellTempMaxF, cellTempMax)}</span>
+               <span className="text-[9px] text-prizm-text-muted mt-0.5 font-semibold">Avg {formatTempF(cellTempAvgF, cellTempAvg)} | {formatDeltaTempF(cellTempDeltaF, cellTempDelta)}</span>
             </div>
             <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
               <span className="text-[9px] text-prizm-text-muted uppercase leading-tight font-bold">ENERGY SEGMENT / BPCS</span>
@@ -455,15 +482,46 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
           </details>
 
           <div className="flex flex-col gap-6 mb-6">
-              {/* Grandular Cell-Level Heatmap visualizer */}
-              <CellTelemetryHeatmap 
-                mode="single-string"
-                voltages={heatmapData.voltages}
-                temperatures={heatmapData.temperatures}
-                title={`Array ${safeText(s.arrayNumber)} - String ${safeText(s.stringNumber)} - Interactive Cell Heatmap`}
-                gridColumns={heatmapGridColumns}
-                isCompact={heatmapData.isCompact}
-              />
+              <div className="mb-2 flex gap-4 border-b border-prizm-border/40 pb-2 font-mono text-[10px] font-bold">
+                 <button
+                   className={`px-3 py-1 rounded transition-colors ${heatmapLayoutMode === "physical" ? "bg-prizm-primary text-prizm-bg" : "bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text-muted"}`}
+                   onClick={() => setHeatmapLayoutMode("physical")}
+                 >
+                   Physical ES Layout
+                 </button>
+                 <button
+                   className={`px-3 py-1 rounded transition-colors ${heatmapLayoutMode === "raw" ? "bg-prizm-primary text-prizm-bg" : "bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text-muted"}`}
+                   onClick={() => setHeatmapLayoutMode("raw")}
+                 >
+                   Raw Matrix View
+                 </button>
+              </div>
+
+              {heatmapLayoutMode === "physical" ? (
+                  physicalLayout.available ? (
+                      <PhysicalEnergySegmentHeatmap
+                        slots={physicalLayout.slots}
+                        arrayNumber={s.arrayNumber}
+                        stringNumber={s.stringNumber}
+                      />
+                  ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-xs font-mono border border-dashed border-prizm-border/50 rounded bg-black/10 py-12 text-center text-prizm-text-muted">
+                          <AlertTriangle className="mb-2 text-prizm-warning" size={24} />
+                          <span className="mb-2 font-bold text-prizm-text">Physical cell layout requires rich string detail telemetry.</span>
+                          <span>Required source: <br /> <span className="text-[10px] text-prizm-primary bg-black/30 px-1 py-0.5 mt-1 inline-block rounded">/tools/report/ems/array/{"{array}"}/string/{"{string}"}/report.json</span></span>
+                          <span className="mt-2 text-[10px]">{physicalLayout.reason || "Individual BPC/cell-group voltage and temperature telemetry was not returned for this string."}</span>
+                      </div>
+                  )
+              ) : (
+                  <CellTelemetryHeatmap 
+                    mode="single-string"
+                    voltages={heatmapData.voltages}
+                    temperatures={heatmapData.temperatures}
+                    title={`Array ${safeText(s.arrayNumber)} - String ${safeText(s.stringNumber)} - Interactive Cell Heatmap`}
+                    gridColumns={heatmapGridColumns}
+                    isCompact={heatmapData.isCompact}
+                  />
+              )}
 
               {/* Voltage Matrix */}
               <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
