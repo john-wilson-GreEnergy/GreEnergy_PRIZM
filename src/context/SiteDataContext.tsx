@@ -27,6 +27,12 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (!response.ok) {
         throw new Error(`Failed to fetch site data: ${response.statusText}`);
       }
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("text/html")) {
+        // NGINX Proxy or Vite SPA fallback during restart/warming
+        throw new Error("Server is restarting or unreachable");
+      }
+      
       const data = await response.json();
       setSnapshot(data);
       setLastUpdated(new Date().toISOString());

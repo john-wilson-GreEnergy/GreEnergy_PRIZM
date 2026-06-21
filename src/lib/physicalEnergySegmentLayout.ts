@@ -168,11 +168,17 @@ export function buildPhysicalSlotsFromRichDetail(detail: any): {
   available: boolean;
   reason?: string;
 } {
-  const bpcSource = Array.isArray(detail?.batteryPackReportList) && detail?.batteryPackReportList.length > 0
-    ? detail.batteryPackReportList
-    : Array.isArray(detail?.bpcs) && detail?.bpcs.length > 0
-      ? detail.bpcs
-      : [];
+  let bpcSource = [];
+  
+  if (Array.isArray(detail?.bpcs) && detail?.bpcs.length > 0 && detail.bpcs.some((b: any) => getCellGroupsFromBpc(b)?.length > 0)) {
+     bpcSource = detail.bpcs;
+  } else if (Array.isArray(detail?.batteryPackReportList) && detail?.batteryPackReportList.length > 0 && detail.batteryPackReportList.some((b: any) => getCellGroupsFromBpc(b)?.length > 0)) {
+     bpcSource = detail.batteryPackReportList;
+  } else if (Array.isArray(detail?.batteryPackReportList) && detail?.batteryPackReportList.length > 0) {
+     bpcSource = detail.batteryPackReportList;
+  } else if (Array.isArray(detail?.bpcs) && detail?.bpcs.length > 0) {
+     bpcSource = detail.bpcs;
+  }
 
   if (bpcSource.length === 0) {
     return {

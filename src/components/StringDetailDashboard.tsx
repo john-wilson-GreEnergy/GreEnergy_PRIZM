@@ -26,6 +26,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       const t0 = performance.now();
       try {
         const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?captureHistory=true`);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error("Server is restarting or unreachable");
+        }
         if (res.ok && !unmounted) {
           const json = await res.json();
           setData(json);
@@ -50,6 +54,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     setIsRefreshing(true);
     try {
       const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?refresh=true&captureHistory=true`);
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("text/html")) {
+        throw new Error("Server is restarting or unreachable");
+      }
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -63,7 +71,10 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
   const s = {
     ...stringData,
-    ...(data?.summary || {})
+    ...(data?.summary || {}),
+    ...(data || {}),
+    contactorStatus: data?.positiveContactorClosed !== undefined ? (data.positiveContactorClosed ? "CLOSED" : "OPEN") : stringData?.contactorStatus,
+    rotationStatus: data?.outRotation !== undefined ? (data.outRotation ? "OUT" : "IN") : stringData?.rotationStatus,
   };
 
   const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {}, hasBalancingMap = false } = data || {};

@@ -69,7 +69,7 @@ Source: ${cell.source}`;
                ></div>
              )
            })}
-           {Array.from({ length: 10 - moduleCells.length }).map((_, i) => (
+           {Array.from({ length: Math.max(0, 10 - moduleCells.length) }).map((_, i) => (
              <div key={`empty-${i}`} className="w-full aspect-square border border-white/5 bg-white/5"></div>
            ))}
          </div>

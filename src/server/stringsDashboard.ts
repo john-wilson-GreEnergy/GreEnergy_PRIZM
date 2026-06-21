@@ -1457,6 +1457,117 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
     }
 });
 
+function parseNumberOrNull(value: any): number | null {
+  if (value === null || value === undefined || value === "" || value === "---") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getCellMapEntry(
+  model: any,
+  mapName: "voltageMap" | "temperatureMap" | "timestampMap" | "balancingMap",
+  bp: number,
+  cg: number
+): any | null {
+  return model?.[mapName]?.batteryPacks?.[String(bp)]?.cellGroups?.[String(cg)] ?? null;
+}
+
+function normalizeStringViewerMonitorData(raw: any) {
+  const model = raw?.stringViewerDataModel ?? raw;
+  const batteryPackCount = Number(model?.batteryPackCount ?? 14);
+  const cellGroupCount = Number(model?.cellGroupCount ?? 30);
+  const voltageMatrix: (number | null)[][] = [];
+  const temperatureMatrix: (number | null)[][] = [];
+  const timestampMatrix: (number | null)[][] = [];
+  const balancingMatrix: (string | null)[][] = [];
+  const bpcs = [];
+  for (let bp = 1; bp <= batteryPackCount; bp++) {
+    const voltageRow = [];
+    const temperatureRow = [];
+    const timestampRow = [];
+    const balancingRow = [];
+    const cellGroups = [];
+    for (let cg = 1; cg <= cellGroupCount; cg++) {
+      const voltageEntry = getCellMapEntry(model, "voltageMap", bp, cg);
+      const temperatureEntry = getCellMapEntry(model, "temperatureMap", bp, cg);
+      const timestampEntry = getCellMapEntry(model, "timestampMap", bp, cg);
+      const balancingEntry = getCellMapEntry(model, "balancingMap", bp, cg);
+      const voltage = parseNumberOrNull(voltageEntry?.value);
+      const temperature = parseNumberOrNull(temperatureEntry?.value);
+      const timestampAge = parseNumberOrNull(timestampEntry?.value);
+      const balancing = balancingEntry?.value === "---" ? null : String(balancingEntry?.value ?? "");
+      voltageRow.push(voltage);
+      temperatureRow.push(temperature);
+      timestampRow.push(timestampAge);
+      balancingRow.push(balancing);
+      cellGroups.push({
+        cellGroupIndex: cg,
+        voltage,
+        temperature,
+        timestampAge,
+        balancing,
+        voltageColor: voltageEntry?.color ?? null,
+        temperatureColor: temperatureEntry?.color ?? null,
+        timestampColor: timestampEntry?.color ?? null,
+        balancingColor: balancingEntry?.color ?? null,
+        source: "stringviewer-monitor"
+      });
+    }
+    voltageMatrix.push(voltageRow);
+    temperatureMatrix.push(temperatureRow);
+    timestampMatrix.push(timestampRow);
+    balancingMatrix.push(balancingRow);
+    bpcs.push({
+      bpcNumber: bp,
+      batteryPackIndex: bp,
+      cellGroups
+    });
+  }
+  return {
+    stringViewerMonitorDataModel: model,
+    voltageMatrix,
+    temperatureMatrix,
+    timestampMatrix,
+    balancingMatrix,
+    bpcs,
+    monitorSummary: {
+      arrayIndex: model?.arrayIndex,
+      stringIndex: model?.stringIndex,
+      batteryPackCount,
+      cellGroupCount,
+      soc: model?.soc,
+      dcBusVoltage: model?.dcBusVoltage,
+      outRotation: model?.outRotation,
+      positiveContactorClosed: model?.positiveContactorClosed,
+      negativeContactorClosed: model?.negativeContactorClosed,
+      calculatedStringVoltage: model?.calculatedStringVoltage,
+      measuredStringVoltage: model?.measuredStringVoltage,
+      preciseCalculatedStringVoltage: model?.preciseCalculatedStringVoltage,
+      stringCurrent: model?.stringCurrent,
+      contactorsCloseExpected: model?.contactorsCloseExpected,
+      recloseCount: model?.recloseCount,
+      maxCellGroupTemp: model?.maxCellGroupTemp,
+      minCellGroupTemp: model?.minCellGroupTemp,
+      avgCellGroupTemp: model?.avgCellGroupTemp,
+      maxCellGroupVoltage: model?.maxCellGroupVoltage,
+      minCellGroupVoltage: model?.minCellGroupVoltage,
+      avgCellGroupVoltage: model?.avgCellGroupVoltage,
+      stringConnectionState: model?.stringConnectionState,
+      badReport: model?.badReport,
+      reportTimestamp: model?.reportTimestamp,
+      isLockedOutOfRotation: model?.isLockedOutOfRotation,
+      hasVoltageMap: model?.hasVoltageMap,
+      hasTemperatureMap: model?.hasTemperatureMap,
+      hasTimestampMap: model?.hasTimestampMap,
+      hasBalancingMap: model?.hasBalancingMap,
+      ampHours: model?.ampHours,
+      powerkW: model?.powerkW,
+      energykWh: model?.energykWh,
+      alarmsAndWarns: model?.alarmsAndWarns ?? []
+    }
+  };
+}
+
 router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
     const startedAt = Date.now();
     const includePerf = req.query.includePerf === "true";
@@ -1472,84 +1583,112 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
         const maxAgeMs = req.query.maxAgeMs ? parseInt(String(req.query.maxAgeMs), 10) : 5000;
 
         const fetcher = async () => {
-            const endpoint = `/tools/report/ems/array/${arrayNumber}/string/${stringNumber}/report.json`;
-            const stringViewerUrl = `${baseUrl}${endpoint}`;
-            const startTime = Date.now();
-            let stringViewerSourceHealth: any = {
-                ok: false,
-                url: stringViewerUrl,
-                endpoint,
-                httpStatus: null,
-                durationMs: null,
-                error: null
-            };
+            const reportEndpoint = `/tools/report/ems/array/${arrayNumber}/string/${stringNumber}/report.json`;
+            const monitorEndpoint = `/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
+            const reportUrl = `${baseUrl}${reportEndpoint}`;
+            const monitorUrl = `${baseUrl}${monitorEndpoint}`;
 
-            let stringViewerData: any = null;
+            let reportSourceHealth: any = { ok: false, url: reportUrl, endpoint: reportEndpoint, httpStatus: null, durationMs: null, error: null };
+            let monitorSourceHealth: any = { ok: false, url: monitorUrl, endpoint: monitorEndpoint, httpStatus: null, durationMs: null, error: null };
+
+            let reportData: any = null;
+            let monitorData: any = null;
+
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
-                const r = await fetch(stringViewerUrl, { signal: controller.signal });
-                clearTimeout(timeoutId);
-                
-                stringViewerSourceHealth.httpStatus = r.status;
-                stringViewerSourceHealth.ok = r.ok;
-                
-                if (r.ok) {
-                    stringViewerData = await r.json();
-                } else {
-                    stringViewerSourceHealth.error = `HTTP ${r.status}`;
-                }
-            } catch(e: any) {
-                stringViewerSourceHealth.error = e.message;
-            } finally {
-                stringViewerSourceHealth.durationMs = Date.now() - startTime;
+                const [reportRes, monitorRes] = await Promise.allSettled([
+                    (async () => {
+                        const start = Date.now();
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 2000);
+                            const r = await fetch(reportUrl, { signal: controller.signal });
+                            clearTimeout(timeoutId);
+                            reportSourceHealth.httpStatus = r.status;
+                            reportSourceHealth.ok = r.ok;
+                            if (r.ok) reportData = await r.json();
+                            else reportSourceHealth.error = `HTTP ${r.status}`;
+                        } catch(e: any) {
+                            reportSourceHealth.error = e.message;
+                        } finally {
+                            reportSourceHealth.durationMs = Date.now() - start;
+                        }
+                    })(),
+                    (async () => {
+                        const start = Date.now();
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 2000);
+                            const r = await fetch(monitorUrl, { signal: controller.signal });
+                            clearTimeout(timeoutId);
+                            monitorSourceHealth.httpStatus = r.status;
+                            monitorSourceHealth.ok = r.ok;
+                            if (r.ok) monitorData = await r.json();
+                            else monitorSourceHealth.error = `HTTP ${r.status}`;
+                        } catch(e: any) {
+                            monitorSourceHealth.error = e.message;
+                        } finally {
+                            monitorSourceHealth.durationMs = Date.now() - start;
+                        }
+                    })()
+                ]);
+            } catch (e) {
+                // Ignore unexpected errors from allSettled
             }
 
-            if (stringViewerSourceHealth.ok && stringViewerData) {
-                stringDetailCache.set(getStringDetailCacheKey(arrayNumber, stringNumber), {
-                    arrayNumber,
-                    stringNumber,
-                    endpoint,
-                    url: stringViewerUrl,
-                    ok: true,
-                    httpStatus: stringViewerSourceHealth.httpStatus,
-                    lastUpdated: new Date().toISOString(),
-                    data: stringViewerData
-                });
-
-                return {
-                    arrayIndex: stringViewerData.arrayIndex ?? arrayNumber,
-                    stringIndex: stringViewerData.stringIndex ?? stringNumber,
-                    enclosureIndex: stringViewerData.enclosureIndex,
-                    enclosureLocation: stringViewerData.enclosureLocation,
-                    batteryPackReportList: stringViewerData.batteryPackReportList || [],
-                    stringData: stringViewerData.stringData || null,
-                    timeStamp: stringViewerData.timeStamp,
-                    sourceHealth: {
-                      stringviewer: stringViewerSourceHealth
-                    }
+            let finalData: any = {};
+            
+            if (reportSourceHealth.ok && reportData) {
+                finalData = {
+                    arrayIndex: reportData.arrayIndex ?? arrayNumber,
+                    stringIndex: reportData.stringIndex ?? stringNumber,
+                    enclosureIndex: reportData.enclosureIndex,
+                    enclosureLocation: reportData.enclosureLocation,
+                    batteryPackReportList: reportData.batteryPackReportList || [],
+                    stringData: reportData.stringData || null,
+                    timeStamp: reportData.timeStamp,
                 };
             } else {
-                stringDetailCache.set(getStringDetailCacheKey(arrayNumber, stringNumber), {
-                    arrayNumber,
-                    stringNumber,
-                    endpoint,
-                    url: stringViewerUrl,
-                    ok: false,
-                    httpStatus: stringViewerSourceHealth.httpStatus,
-                    lastUpdated: new Date().toISOString(),
-                    data: null,
-                    error: stringViewerSourceHealth.error
-                });
-                return {
+                finalData = {
                     arrayIndex: arrayNumber,
                     stringIndex: stringNumber,
                     stringData: null,
-                    sourceHealth: {
-                      stringviewer: stringViewerSourceHealth
-                    }
                 };
             }
+
+            if (monitorSourceHealth.ok && monitorData) {
+                const normalizedMonitor = normalizeStringViewerMonitorData(monitorData);
+                finalData = {
+                    ...finalData,
+                    ...normalizedMonitor.monitorSummary,
+                    voltageMatrix: normalizedMonitor.voltageMatrix,
+                    temperatureMatrix: normalizedMonitor.temperatureMatrix,
+                    timestampMatrix: normalizedMonitor.timestampMatrix,
+                    balancingMatrix: normalizedMonitor.balancingMatrix,
+                    bpcs: normalizedMonitor.bpcs,
+                    stringViewerMonitorDataModel: normalizedMonitor.stringViewerMonitorDataModel
+                };
+            }
+
+            finalData.sourceHealth = {
+                stringviewerReport: reportSourceHealth,
+                stringviewerMonitor: monitorSourceHealth
+            };
+
+            const isOk = reportSourceHealth.ok || monitorSourceHealth.ok;
+
+            stringDetailCache.set(getStringDetailCacheKey(arrayNumber, stringNumber), {
+                arrayNumber,
+                stringNumber,
+                endpoint: reportEndpoint,
+                url: reportUrl,
+                ok: isOk,
+                httpStatus: monitorSourceHealth.ok ? monitorSourceHealth.httpStatus : reportSourceHealth.httpStatus,
+                lastUpdated: new Date().toISOString(),
+                data: isOk ? finalData : null,
+                error: isOk ? undefined : (monitorSourceHealth.error || reportSourceHealth.error)
+            });
+
+            return finalData;
         };
 
         const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);

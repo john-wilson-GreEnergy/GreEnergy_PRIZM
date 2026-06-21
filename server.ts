@@ -89,6 +89,9 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 
+import debugSourceScanRouter from "./src/server/debugSourceScan";
+app.use("/api/local", debugSourceScanRouter);
+
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 
 import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
