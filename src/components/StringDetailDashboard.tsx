@@ -112,9 +112,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const safeNotifications = safeArray(notifications);
   const safeEventLogs = safeArray(eventLogs);
   const safeSourceHealth = safeObject(sourceHealth);
-  const safeStringViewerHealth = safeObject(safeSourceHealth.stringviewer);
-
-  const stringViewerHealth = safeStringViewerHealth;
+  const safeStringViewerReportHealth = safeObject(safeSourceHealth.stringviewerReport);
+  const safeStringViewerMonitorHealth = safeObject(safeSourceHealth.stringviewerMonitor);
+  const legacyStringViewerHealth = safeObject(safeSourceHealth.stringviewer);
 
   const stringNum = finite(s.stringNumber ?? s.stringIndex ?? s.StringIndex);
   const energySegmentNumber =
@@ -476,18 +476,44 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                          {notificationDebugKeys.map((k: string, i: number) => <div key={i}>{k}</div>)}
                      </div>
                 )}
-                {stringViewerHealth && (
+                {Object.keys(safeStringViewerReportHealth).length > 0 && (
                     <div className="flex gap-4 items-center bg-black/20 p-2 rounded">
-                        <span className={`px-1.5 py-0.5 rounded font-bold ${stringViewerHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
-                            stringviewer {stringViewerHealth.ok ? 'OK' : 'FAIL'}
+                        <span className={`px-1.5 py-0.5 rounded font-bold ${safeStringViewerReportHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
+                            Report source {safeStringViewerReportHealth.ok ? 'OK' : 'FAIL'}
                         </span>
-                        <span className="text-prizm-text-muted">HTTP {stringViewerHealth.httpStatus || '--'}</span>
-                        <span className="text-prizm-text-muted">{stringViewerHealth.durationMs}ms</span>
-                        <span className="text-prizm-text-muted break-all">{stringViewerHealth.url}</span>
+                        <span className="text-prizm-text-muted">HTTP {safeStringViewerReportHealth.httpStatus || '--'}</span>
+                        <span className="text-prizm-text-muted">{safeStringViewerReportHealth.durationMs ? `${safeStringViewerReportHealth.durationMs}ms` : '-- ms'}</span>
+                        <span className="text-prizm-text-muted break-all">{safeStringViewerReportHealth.endpoint || safeStringViewerReportHealth.url || '--'}</span>
+                        {!safeStringViewerReportHealth.ok && safeStringViewerReportHealth.error && (
+                            <span className="text-prizm-danger ml-auto">Error: {safeStringViewerReportHealth.error}</span>
+                        )}
                     </div>
                 )}
-                {stringViewerHealth && !stringViewerHealth.ok && stringViewerHealth.error && (
-                    <div className="text-prizm-danger">Error: {stringViewerHealth.error}</div>
+                {Object.keys(safeStringViewerMonitorHealth).length > 0 && (
+                    <div className="flex gap-4 items-center bg-black/20 p-2 rounded">
+                        <span className={`px-1.5 py-0.5 rounded font-bold ${safeStringViewerMonitorHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
+                            Monitor source {safeStringViewerMonitorHealth.ok ? 'OK' : 'FAIL'}
+                        </span>
+                        <span className="text-prizm-text-muted">HTTP {safeStringViewerMonitorHealth.httpStatus || '--'}</span>
+                        <span className="text-prizm-text-muted">{safeStringViewerMonitorHealth.durationMs ? `${safeStringViewerMonitorHealth.durationMs}ms` : '-- ms'}</span>
+                        <span className="text-prizm-text-muted break-all">{safeStringViewerMonitorHealth.endpoint || safeStringViewerMonitorHealth.url || '--'}</span>
+                        {!safeStringViewerMonitorHealth.ok && safeStringViewerMonitorHealth.error && (
+                            <span className="text-prizm-danger ml-auto">Error: {safeStringViewerMonitorHealth.error}</span>
+                        )}
+                    </div>
+                )}
+                {Object.keys(legacyStringViewerHealth).length > 0 && (
+                    <div className="flex gap-4 items-center bg-black/20 p-2 rounded">
+                        <span className={`px-1.5 py-0.5 rounded font-bold ${legacyStringViewerHealth.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-prizm-danger/20 text-prizm-danger'}`}>
+                            Legacy source {legacyStringViewerHealth.ok ? 'OK' : 'FAIL'}
+                        </span>
+                        <span className="text-prizm-text-muted">HTTP {legacyStringViewerHealth.httpStatus || '--'}</span>
+                        <span className="text-prizm-text-muted">{legacyStringViewerHealth.durationMs ? `${legacyStringViewerHealth.durationMs}ms` : '-- ms'}</span>
+                        <span className="text-prizm-text-muted break-all">{legacyStringViewerHealth.endpoint || legacyStringViewerHealth.url || '--'}</span>
+                        {!legacyStringViewerHealth.ok && legacyStringViewerHealth.error && (
+                            <span className="text-prizm-danger ml-auto">Error: {legacyStringViewerHealth.error}</span>
+                        )}
+                    </div>
                 )}
             </div>
           </details>

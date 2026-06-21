@@ -21,7 +21,11 @@ export type PhysicalCellSlot = {
   tempC: number | null;
   tempF: number | null;
   tempSourceKind: "deci-celsius" | "celsius" | "compact" | "unknown";
-  source: "rich-string-detail";
+  timestampAge: number | null;
+  balancing: string | null;
+  timestampColor?: string | null;
+  balancingColor?: string | null;
+  source: "stringviewer-monitor" | "rich-string-detail";
 };
 
 export function getPhysicalBpcPosition(bpcNumber: number): {
@@ -210,6 +214,18 @@ export function buildPhysicalSlotsFromRichDetail(detail: any): {
       const voltageMv = getCellVoltageMv(cg);
       const tempRaw = getCellTempRaw(cg);
       const tempInfo = normalizeRichTemp(tempRaw);
+      const timestampAge = finite(
+        cg?.timestampAge ??
+        cg?.age ??
+        cg?.timestamp ??
+        cg?.dataAge
+      );
+      const balancing =
+        cg?.balancing === "---" || cg?.balancing === undefined || cg?.balancing === null
+          ? null
+          : String(cg.balancing);
+      const timestampColor = cg?.timestampColor ?? null;
+      const balancingColor = cg?.balancingColor ?? null;
 
       slots.push({
         bpcNumber,
@@ -226,7 +242,11 @@ export function buildPhysicalSlotsFromRichDetail(detail: any): {
         tempC: tempInfo.celsius,
         tempF: tempInfo.fahrenheit,
         tempSourceKind: tempInfo.sourceKind,
-        source: "rich-string-detail"
+        timestampAge,
+        balancing,
+        timestampColor,
+        balancingColor,
+        source: "stringviewer-monitor"
       });
     }
   }

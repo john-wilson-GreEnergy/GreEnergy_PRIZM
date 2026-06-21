@@ -65,7 +65,18 @@ export default function PhysicalEnergySegmentHeatmap({
          </div>
          <div className="grid grid-cols-5 gap-0.5">
            {moduleCells.map((cell, idx) => {
-             const title = `Array ${arrayNumber} / String ${stringNumber}\nBPC ${cell.bpcNumber} / Cell Group ${cell.cellNumber}\nSide: ${cell.side.charAt(0).toUpperCase() + cell.side.slice(1)}\nModule: ${cell.moduleLabel}\nHVAC: ${cell.hvacProximity.charAt(0).toUpperCase() + cell.hvacProximity.slice(1)}\nTemperature: ${formatFahrenheit(cell.tempF)} / ${formatCelsius(cell.tempC)}\nVoltage: ${cell.voltageMv ?? "--"} mV\nSource: ${cell.source}`;
+             const title = [
+               `Array ${arrayNumber} / String ${stringNumber}`,
+               `BPC ${cell.bpcNumber} / Cell Group ${cell.cellNumber}`,
+               `Side: ${cell.side.charAt(0).toUpperCase() + cell.side.slice(1)}`,
+               `Module: ${cell.moduleLabel}`,
+               `HVAC: ${cell.hvacProximity.charAt(0).toUpperCase() + cell.hvacProximity.slice(1)}`,
+               `Temperature: ${formatFahrenheit(cell.tempF)} / ${formatCelsius(cell.tempC)}`,
+               `Voltage: ${cell.voltageMv ?? "--"} mV`,
+               `Timestamp age: ${cell.timestampAge ?? "--"}`,
+               `Balancing: ${cell.balancing ?? "--"}`,
+               `Source: ${cell.source}`
+             ].join("\n");
 
              let colorClass = "bg-white/5 border-white/10 text-white/40";
              let valueLabel = "--";
@@ -107,7 +118,7 @@ export default function PhysicalEnergySegmentHeatmap({
               PHYSICAL ENERGY SEGMENT LAYOUT
             </span>
             <span className="text-prizm-text-muted text-[10px] uppercase mt-1">
-              Mode: {mode === "temperature" ? "Temperature °F" : "Voltage mV"} &nbsp;|&nbsp; Source: Rich String Detail &nbsp;|&nbsp; {slots.length} cells
+              Mode: {mode === "temperature" ? "Temperature °F" : "Voltage mV"} &nbsp;|&nbsp; Source: String Viewer Monitor &nbsp;|&nbsp; {slots.length} cells
             </span>
             {mode === "temperature" ? (
                 <span className="text-prizm-text-muted text-[10px] mt-0.5">
