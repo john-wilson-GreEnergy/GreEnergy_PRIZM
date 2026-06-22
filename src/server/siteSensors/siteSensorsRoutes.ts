@@ -1318,10 +1318,10 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
 }
 
 // 4. Fallback Blockviewer Generator
-export function generateFallbackBlockviewerData() {
+export function generateFallbackBlockviewerData(arrayCountOverride?: number) {
   const elementList: any[] = [];
   const activeProfile = ProfileStore.getActiveProfile();
-  const arrayCount = activeProfile?.arrayCount || 8;
+  const arrayCount = arrayCountOverride || activeProfile?.arrayCount || 8;
   const esCount = 20;
 
   for (let A = 1; A <= arrayCount; A++) {
@@ -1520,9 +1520,84 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     }
   }
 
+  // --- Dynamic Topology Discovery/Handshake ---
+  const activeProfile = ProfileStore.getActiveProfile();
+  const stringIPMap = emsCache.stringIPMap;
+  const ipMap = emsCache.ipMap;
+  
+  let arrayIndexSet = new Set<number>();
+  let stationCodeFromData: string | null = null;
+
+  // 1. Inspect blockviewer elements if we have any
+  const testElements = blockData?.elementList || blockData?.data?.elementList || [];
+  if (Array.isArray(testElements) && testElements.length > 0) {
+    for (const elem of testElements) {
+      if (elem.stationCode && !stationCodeFromData) {
+        stationCodeFromData = elem.stationCode;
+      }
+      const loc = elem.locationInfo || {};
+      let arrIdx: number | null = null;
+      if (loc.arrays && loc.arrays[0]) arrIdx = Number(loc.arrays[0].arrayIndex);
+      if ((arrIdx === null || isNaN(arrIdx)) && loc.strings && loc.strings[0]) arrIdx = Number(loc.strings[0].arrayIndex);
+      if (arrIdx !== null && !isNaN(arrIdx) && arrIdx > 0 && arrIdx <= 32) {
+        arrayIndexSet.add(arrIdx);
+      }
+    }
+  }
+
+  // 2. Inspect stringIPMap
+  if (stringIPMap) {
+    try {
+      if (Array.isArray(stringIPMap)) {
+        stringIPMap.forEach((entry: any) => {
+          if (entry.arrayIndex && !isNaN(Number(entry.arrayIndex))) {
+            arrayIndexSet.add(Number(entry.arrayIndex));
+          }
+        });
+      } else if (typeof stringIPMap === "object") {
+        Object.keys(stringIPMap).forEach((k) => {
+          const match = k.match(/A(\d+)/i) || k.match(/array\D*(\d+)/i);
+          if (match) arrayIndexSet.add(Number(match[1]));
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 3. Inspect ipMap
+  if (ipMap) {
+    try {
+      if (Array.isArray(ipMap)) {
+        ipMap.forEach((entry: any) => {
+          if (entry.arrayIndex && !isNaN(Number(entry.arrayIndex))) {
+            arrayIndexSet.add(Number(entry.arrayIndex));
+          }
+        });
+      } else if (typeof ipMap === "object") {
+        Object.keys(ipMap).forEach((k) => {
+          const match = k.match(/A(\d+)/i) || k.match(/array\D*(\d+)/i);
+          if (match) arrayIndexSet.add(Number(match[1]));
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 4. Default / Fallback from profile/topology
+  let arrayCount = activeProfile?.arrayCount || 8;
+  if (arrayIndexSet.size > 0) {
+    arrayCount = Math.max(...Array.from(arrayIndexSet));
+  } else if (activeProfile?.topologyModel) {
+    const topo = activeProfile.topologyModel;
+    if (topo.arrayEnd && !isNaN(Number(topo.arrayEnd))) {
+      arrayCount = Number(topo.arrayEnd);
+    }
+  }
+  if (arrayCount <= 0 || arrayCount > 32) {
+    arrayCount = activeProfile?.arrayCount || 8;
+  }
+
   if (!blockData) {
     source = "fallback_blockviewer";
-    blockData = generateFallbackBlockviewerData();
+    blockData = generateFallbackBlockviewerData(arrayCount);
   }
 
   const elements = blockData.elementList || blockData.data?.elementList || [];

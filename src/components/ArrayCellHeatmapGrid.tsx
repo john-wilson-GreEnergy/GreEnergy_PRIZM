@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Info, Layers } from "lucide-react";
+import { cToF } from "../lib/temperatureUnits";
 
 type ArrayCellHeatmapGridProps = {
   arrayDetailsByArray: Record<string, any>;
@@ -7,6 +8,7 @@ type ArrayCellHeatmapGridProps = {
 
 export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: ArrayCellHeatmapGridProps) {
   const [mode, setMode] = useState<"voltage" | "temperature">("voltage");
+  const [tempUnit, setTempUnit] = useState<"C" | "F">("F");
   const [selectedArray, setSelectedArray] = useState<string | "all">("all");
 
   const arrayKeys = useMemo(() => {
@@ -20,6 +22,85 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
     return [arrayDetailsByArray[selectedArray]].filter(Boolean);
   }, [selectedArray, arrayKeys, arrayDetailsByArray]);
 
+  const getCompactCell = (bpc: number, cg: number, voltsArr: any[], tempsArr: any[]) => {
+    const idx = (bpc - 1) * 30 + (cg - 1);
+    const voltage = voltsArr[idx] !== undefined && voltsArr[idx] !== null ? Number(voltsArr[idx]) : null;
+    const temperature = tempsArr[idx] !== undefined && tempsArr[idx] !== null ? Number(tempsArr[idx]) : null;
+    
+    return {
+      bpc,
+      cellNumber: cg,
+      voltage,
+      temperature
+    };
+  };
+
+  const renderCompactModuleInCard = (
+    moduleCells: any[], 
+    sMin: number, 
+    sMax: number,
+    arrayIndex: number,
+    stringIndex: number,
+    rowNum: number,
+    bpc: number,
+    moduleNum: number
+  ) => {
+    const cellsToRender = [...moduleCells];
+    while (cellsToRender.length < 10) {
+      cellsToRender.push({ bpc, cellNumber: cellsToRender.length + 1, voltage: null, temperature: null });
+    }
+
+    return (
+      <div className="grid grid-cols-5 gap-[1.5px] p-0.5 bg-slate-950/40 rounded border border-slate-800/10">
+        {cellsToRender.map((cell, idx) => {
+          const val = mode === "voltage" ? cell.voltage : cell.temperature;
+          const displayVal = mode === "voltage" ? val : (tempUnit === "F" && val !== null ? cToF(val) : val);
+
+          let valDisp = "--";
+          // Detailed physical label format: Array X - String Y - ES Z
+          let titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nNo telemetry reported`;
+          let colorStyle: React.CSSProperties = { backgroundColor: "rgba(255,255,255,0.03)" };
+
+          if (displayVal !== null && displayVal !== undefined && !Number.isNaN(displayVal)) {
+            if (mode === "voltage") {
+              const valNum = Number(displayVal);
+              valDisp = `${Math.round(valNum)} mV`;
+              titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nVoltage: ${valDisp}`;
+              
+              let opacity = 0.25;
+              if (sMax > sMin) {
+                opacity = 0.15 + 0.85 * ((valNum - sMin) / (sMax - sMin));
+              }
+              colorStyle = { backgroundColor: `rgba(16, 185, 129, ${opacity})` };
+            } else {
+              const valNum = Number(displayVal);
+              valDisp = `${valNum.toFixed(1)}°${tempUnit}`;
+              titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nTemp: ${valDisp}`;
+
+              const sMinDisp = tempUnit === "F" && sMin !== null ? cToF(sMin) : sMin;
+              const sMaxDisp = tempUnit === "F" && sMax !== null ? cToF(sMax) : sMax;
+
+              let opacity = 0.25;
+              if (sMaxDisp > sMinDisp) {
+                opacity = 0.15 + 0.85 * ((valNum - sMinDisp) / (sMaxDisp - sMinDisp));
+              }
+              colorStyle = { backgroundColor: `rgba(2, 132, 199, ${opacity})` };
+            }
+          }
+
+          return (
+            <div
+              key={idx}
+              title={titleStr}
+              style={colorStyle}
+              className="w-[7px] h-[7px] min-w-[7px] min-h-[7px] max-w-[7px] max-h-[7px] rounded-sm transition-transform duration-75 hover:scale-130 hover:border hover:border-white/35 cursor-crosshair"
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 font-mono text-[9px] w-full select-none" id="array-cell-heatmap-grid">
       {/* Header Controls Bar */}
@@ -30,7 +111,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
             Site Cell Telemetry Heatmap Windows
           </span>
           <span className="text-prizm-text-muted mt-0.5 block text-[8.5px]">
-            Windowed granular matrices grouped by Array and String
+            Windowed granular physical alignment layout cards grouped by Array and String
           </span>
         </div>
 
@@ -59,13 +140,39 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
             </button>
           </div>
 
+          {/* Temperature Unit Toggle */}
+          {mode === "temperature" && (
+            <div className="flex bg-prizm-surface p-0.5 rounded border border-prizm-border/40">
+              <button
+                onClick={() => setTempUnit("C")}
+                className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-colors ${
+                  tempUnit === "C"
+                    ? "bg-sky-500/20 text-sky-450 border border-sky-500/30"
+                    : "text-prizm-text-muted hover:text-white"
+                }`}
+              >
+                °C
+              </button>
+              <button
+                onClick={() => setTempUnit("F")}
+                className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-colors ${
+                  tempUnit === "F"
+                    ? "bg-sky-500/20 text-sky-450 border border-sky-500/30"
+                    : "text-prizm-text-muted hover:text-white"
+                }`}
+              >
+                °F
+              </button>
+            </div>
+          )}
+
           {/* Array Dropdown Filter */}
           <div className="flex items-center gap-1.5">
-            <span className="text-prizm-text-muted text-[8px] uppercase">Filter:</span>
+            <span className="text-prizm-text-muted text-[8px] uppercase font-bold">Filter:</span>
             <select
               value={selectedArray}
               onChange={(e) => setSelectedArray(e.target.value)}
-              className="bg-prizm-surface-strong text-prizm-text border border-prizm-border rounded px-2.5 py-1 text-[8.5px] font-bold uppercase cursor-pointer outline-none focus:border-prizm-primary font-mono text-center"
+              className="bg-prizm-surface-strong text-prizm-text border border-prizm-border rounded px-2.5 py-1 text-[8.5px] font-bold uppercase cursor-pointer outline-none focus:border-prizm-primary text-center"
             >
               <option value="all">All Arrays</option>
               {arrayKeys.map((k) => (
@@ -82,7 +189,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
       <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500/90 p-3 rounded-lg text-[8.5px] leading-relaxed flex items-start gap-2 sm:gap-3">
         <Info size={14} className="shrink-0 mt-0.5 text-amber-500" />
         <p className="normal-case">
-          <strong>Caution:</strong> Compact EMS report values from staged cache. Use for relative comparison and anomaly spotting; do not interpret as absolute mV or °C unless source is confirmed absolute.
+          <strong>Site-Wide Physical Layout:</strong> This view generates exact physical alignment tables mapping modules to environmental slots. Use toggles above to switch modes and display units dynamically.
         </p>
       </div>
 
@@ -101,7 +208,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
               <div className="border-b border-prizm-border/40 pb-1.5">
                 <h3 className="text-prizm-text font-bold text-[9.5px] uppercase tracking-widest flex items-center gap-2">
                   <span className="w-1.5 h-3 bg-prizm-primary rounded-sm inline-block"></span>
-                  ARRAY {arr.arrayNumber} CELL HEATMAP
+                  ARRAY {arr.arrayNumber} PHYSICAL TIMELINE HEATMAPS
                   <span className="text-prizm-text-muted font-normal text-[8px] tracking-normal normal-case">
                     ({sortedStrings.length} strings mapped)
                   </span>
@@ -110,90 +217,106 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
 
               {sortedStrings.length === 0 ? (
                 <div className="text-prizm-text-muted italic p-4 text-center border border-dashed border-prizm-border/20 rounded bg-prizm-surface-strong">
-                  No string data reported in Array {arr.arrayNumber}
+                  No active string data reported in Array {arr.arrayNumber}
                 </div>
               ) : (
-                /* 4 strings per row card layout */
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                /* Balanced 4-column physical layout card structure */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {sortedStrings.map((str) => {
-                    const stringKey = str.id || `A${arr.arrayNumber}-S${str.stringIndex ?? str.stringNumber}`;
-                    const rawVals = mode === "voltage" ? str.millivolts : str.temperatures;
-                    const vals = Array.isArray(rawVals) ? rawVals : [];
+                    const stringIndex = str.stringNumber ?? str.stringIndex ?? 1;
+                    const stringKey = str.id || `Array ${arr.arrayNumber} - String ${stringIndex}`;
+                    const volts = Array.isArray(str.millivolts) ? str.millivolts : [];
+                    const temps = Array.isArray(str.temperatures) ? str.temperatures : [];
+                    const vals = mode === "voltage" ? volts : temps;
 
-                    // Calculate local string relative bounds to color cells nicely
                     const validValues = vals.map(Number).filter((v) => !Number.isNaN(v) && v !== null && v !== undefined);
                     const sMin = validValues.length ? Math.min(...validValues) : 0;
                     const sMax = validValues.length ? Math.max(...validValues) : 0;
 
-                    // Compute columns (typically 14 BPCs * 30 CG = 420 cells. So 30 columns makes 14 rows)
-                    const colsCount = vals.length === 420 ? 30 : (vals.length % 30 === 0 && vals.length > 0) ? 30 : 30;
-
                     return (
                       <div
                         key={stringKey}
-                        className="bg-prizm-surface-strong border border-prizm-border/30 rounded-lg p-3 space-y-2 flex flex-col justify-between"
+                        className="bg-[#0f172a] border border-slate-800 rounded-xl p-3.5 space-y-4 flex flex-col justify-between"
                       >
-                        {/* String Card Header */}
-                        <div className="flex justify-between items-center border-b border-prizm-border/20 pb-1.5 select-none font-bold">
-                          <span className="text-prizm-text text-[9px] uppercase tracking-wide">
-                            {stringKey}
-                          </span>
-                          <span className="text-prizm-text-muted text-[8px] font-normal tracking-normal text-right">
-                            {vals.length > 0 ? `${Math.round(vals.length / 30)} BPC / 30 CG` : "-- BPC / CG"}
+                        {/* Title block with Array, String, and Category */}
+                        <div className="flex justify-between items-start border-b border-slate-800 pb-2">
+                          <div>
+                            <span className="text-slate-100 text-[10px] font-bold uppercase tracking-wider block">
+                              {stringKey}
+                            </span>
+                            <span className="text-slate-400 text-[8px] tracking-wider uppercase mt-0.5 block">
+                              Station {arr.stationCode || "BESS"} · Array {arr.arrayNumber}
+                            </span>
+                          </div>
+                          <span className="bg-slate-800 text-slate-300 text-[6.5px] font-bold px-1.5 py-0.5 rounded border border-slate-700/50 uppercase tracking-widest leading-none">
+                            PHYSICAL
                           </span>
                         </div>
 
-                        {/* Relative Range Bar */}
+                        {/* Relative Ranges Bar (Slate style) */}
                         {validValues.length > 0 && (
-                          <div className="flex justify-between items-center text-[7.5px] text-prizm-text-muted px-0.5 select-none font-semibold">
-                            <span>Min: {sMin}</span>
-                            <span>Max: {sMax}</span>
+                          <div className="flex justify-between items-center text-[7.5px] bg-slate-950/50 border border-slate-800/30 p-1.5 rounded-lg select-none font-semibold font-mono">
+                            <span className="text-emerald-400 flex items-center gap-1">
+                              MIN: {mode === "voltage" ? `${Math.round(sMin)}mV` : `${(tempUnit === "F" ? cToF(sMin) : sMin).toFixed(1)}°${tempUnit}`}
+                            </span>
+                            <span className="text-slate-500 font-bold tracking-tighter text-[7px]">RANGE LIMITS</span>
+                            <span className="text-sky-400 flex items-center gap-1">
+                              MAX: {mode === "voltage" ? `${Math.round(sMax)}mV` : `${(tempUnit === "F" ? cToF(sMax) : sMax).toFixed(1)}°${tempUnit}`}
+                            </span>
                           </div>
                         )}
 
-                        {/* Heatmap Grid */}
+                        {/* Miniature Physical Rack Layout */}
                         {vals.length === 0 ? (
-                          <div className="h-[80px] flex items-center justify-center text-prizm-text-muted text-[8px] border border-dashed border-prizm-border/20 rounded bg-prizm-surface p-2 text-center italic">
+                          <div className="h-[120px] flex items-center justify-center text-prizm-text-muted text-[8px] border border-dashed border-prizm-border/10 rounded bg-prizm-surface p-2 text-center italic">
                             No active telemetry reported
                           </div>
                         ) : (
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: `repeat(${colsCount}, minmax(0, 1fr))`,
-                              gap: "1.5px"
-                            }}
-                            className="bg-prizm-surface border border-prizm-border/10 p-1.5 rounded"
-                          >
-                            {vals.map((val, cIdx) => {
-                              if (val === null || val === undefined || Number.isNaN(val)) {
-                                return (
-                                  <div
-                                    key={cIdx}
-                                    title={`${stringKey} Index ${cIdx + 1}: No data`}
-                                    className="aspect-square rounded-[0.5px] bg-prizm-border/15"
-                                  />
-                                );
-                              }
+                          <div className="flex flex-col space-y-1">
+                            {/* Column alignment labels */}
+                            <div className="grid grid-cols-7 text-[6.5px] text-slate-500 font-bold uppercase text-center tracking-tighter pb-0.5">
+                              <div>L.OUT</div>
+                              <div>L.MID</div>
+                              <div>L.INR</div>
+                              <div className="text-sky-405/60 text-[6px]">HVAC</div>
+                              <div>R.INR</div>
+                              <div>R.MID</div>
+                              <div>R.OUT</div>
+                            </div>
 
-                              const valNum = Number(val);
-                              let opacity = 0.25;
-                              if (sMax > sMin) {
-                                opacity = 0.15 + 0.85 * ((valNum - sMin) / (sMax - sMin));
-                              }
+                            {/* Row 1 to 7 corresponding to environmental layouts */}
+                            {Array.from({ length: 7 }, (_, rIdx) => {
+                              const rowNum = rIdx + 1;
+                              const bpcLeft = rowNum;
+                              const bpcRight = 15 - rowNum;
 
-                              const bgStyle =
-                                mode === "voltage"
-                                  ? `rgba(16, 185, 129, ${opacity})`
-                                  : `rgba(2, 132, 199, ${opacity})`;
+                              // Slice the 10 cells corresponding to Module 1, Module 2, Module 3 per BPC
+                              const leftOuterCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcLeft, ci + 1, volts, temps));
+                              const leftMidCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcLeft, ci + 11, volts, temps));
+                              const leftInnerCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcLeft, ci + 21, volts, temps));
+
+                              const rightInnerCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcRight, ci + 1, volts, temps));
+                              const rightMidCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcRight, ci + 11, volts, temps));
+                              const rightOuterCells = Array.from({ length: 10 }, (_, ci) => getCompactCell(bpcRight, ci + 21, volts, temps));
 
                               return (
-                                <div
-                                  key={cIdx}
-                                  title={`${stringKey} Index ${cIdx + 1}: Compact EMS report value ${valNum}`}
-                                  style={{ backgroundColor: bgStyle }}
-                                  className="aspect-square rounded-[0.5px] hover:scale-125 transition-transform cursor-pointer border border-transparent hover:border-white/30"
-                                />
+                                <div key={rowNum} className="grid grid-cols-7 items-center gap-1">
+                                  {/* Left Module 1 (Outer), 2 (Middle), 3 (Inner) */}
+                                  {renderCompactModuleInCard(leftOuterCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcLeft, 1)}
+                                  {renderCompactModuleInCard(leftMidCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcLeft, 2)}
+                                  {renderCompactModuleInCard(leftInnerCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcLeft, 3)}
+
+                                  {/* Center Column: ES / Row tag */}
+                                  <div className="flex flex-col items-center justify-center bg-slate-950/85 border border-slate-800 rounded-[2px] py-1 h-full select-none">
+                                    <span className="text-[5.5px] scale-90 text-slate-500 font-bold leading-none tracking-tighter mb-[1px]">ES</span>
+                                    <span className="text-sky-400 font-extrabold leading-none text-[8px]">{rowNum}</span>
+                                  </div>
+
+                                  {/* Right Module 1 (Inner), 2 (Middle), 3 (Outer) */}
+                                  {renderCompactModuleInCard(rightInnerCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcRight, 1)}
+                                  {renderCompactModuleInCard(rightMidCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcRight, 2)}
+                                  {renderCompactModuleInCard(rightOuterCells, sMin, sMax, arr.arrayNumber, stringIndex, rowNum, bpcRight, 3)}
+                                </div>
                               );
                             })}
                           </div>

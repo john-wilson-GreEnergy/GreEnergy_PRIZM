@@ -518,205 +518,21 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             </div>
           </details>
 
-          <div className="flex flex-col gap-6 mb-6">
-              <div className="mb-2 flex gap-4 border-b border-prizm-border/40 pb-2 font-mono text-[10px] font-bold">
-                 <button
-                   className={`px-3 py-1 rounded transition-colors ${heatmapLayoutMode === "physical" ? "bg-prizm-primary text-prizm-bg" : "bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text-muted"}`}
-                   onClick={() => setHeatmapLayoutMode("physical")}
-                 >
-                   Physical ES Layout
-                 </button>
-                 <button
-                   className={`px-3 py-1 rounded transition-colors ${heatmapLayoutMode === "raw" ? "bg-prizm-primary text-prizm-bg" : "bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text-muted"}`}
-                   onClick={() => setHeatmapLayoutMode("raw")}
-                 >
-                   Raw Matrix View
-                 </button>
-              </div>
-
-              {heatmapLayoutMode === "physical" ? (
-                  physicalLayout.available ? (
-                      <PhysicalEnergySegmentHeatmap
-                        slots={physicalLayout.slots}
-                        arrayNumber={s.arrayNumber}
-                        stringNumber={s.stringNumber}
-                      />
-                  ) : (
-                      <div className="flex-1 flex flex-col items-center justify-center text-xs font-mono border border-dashed border-prizm-border/50 rounded bg-black/10 py-12 text-center text-prizm-text-muted">
-                          <AlertTriangle className="mb-2 text-prizm-warning" size={24} />
-                          <span className="mb-2 font-bold text-prizm-text">Physical cell layout requires rich string detail telemetry.</span>
-                          <span>Required source: <br /> <span className="text-[10px] text-prizm-primary bg-black/30 px-1 py-0.5 mt-1 inline-block rounded">/tools/report/ems/array/{"{array}"}/string/{"{string}"}/report.json</span></span>
-                          <span className="mt-2 text-[10px]">{physicalLayout.reason || "Individual BPC/cell-group voltage and temperature telemetry was not returned for this string."}</span>
-                      </div>
-                  )
-              ) : (
-                  <CellTelemetryHeatmap 
-                    mode="single-string"
-                    voltages={heatmapData.voltages}
-                    temperatures={heatmapData.temperatures}
-                    title={`Array ${safeText(s.arrayNumber)} - String ${safeText(s.stringNumber)} - Interactive Cell Heatmap`}
-                    gridColumns={heatmapGridColumns}
-                    isCompact={heatmapData.isCompact}
+          <div className="flex flex-col gap-6 mb-6 font-semibold">
+              {physicalLayout.available ? (
+                  <PhysicalEnergySegmentHeatmap
+                    slots={physicalLayout.slots}
+                    arrayNumber={s.arrayNumber}
+                    stringNumber={s.stringNumber}
                   />
+              ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-xs font-mono border border-dashed border-prizm-border/50 rounded bg-black/10 py-12 text-center text-prizm-text-muted">
+                      <AlertTriangle className="mb-2 text-prizm-warning" size={24} />
+                      <span className="mb-2 font-bold text-prizm-text">Physical cell layout requires rich string detail telemetry.</span>
+                      <span>Required source: <br /> <span className="text-[10px] text-prizm-primary bg-black/30 px-1 py-0.5 mt-1 inline-block rounded">/tools/report/ems/array/{"{array}"}/string/{"{string}"}/report.json</span></span>
+                      <span className="mt-2 text-[10px]">{physicalLayout.reason || "Individual BPC/cell-group voltage and temperature telemetry was not returned for this string."}</span>
+                  </div>
               )}
-
-              {/* Voltage Matrix */}
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
-                  <div className="flex justify-between items-center mb-4">
-                     <h3 className="font-mono text-xs font-bold text-prizm-primary flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
-                         <div className="flex items-center gap-2"><Zap size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Voltage Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
-                     </h3>
-                     {hasVoltageMatrix && (
-                        <button onClick={() => downloadMatrixCsv(safeVoltageMatrix, "Voltage_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
-                           <Download size={14} />
-                        </button>
-                     )}
-                  </div>
-                  
-                  {hasVoltageMatrix ? (() => {
-                      const cgCount = safeBpcs?.[0]?.cellGroups?.length || safeVoltageMatrix?.[0]?.length || 30;
-                      const bpcList = hasBpcCellGroups ? safeBpcs : safeVoltageMatrix;
-                      return (
-                      <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
-                         <table className="w-full text-left font-mono text-[9px] border-collapse relative">
-                            <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
-                               <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 w-[44px] min-w-[44px] max-w-[44px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
-                                  {Array.from({ length: cgCount }, (_, cIdx) => (
-                                      <th key={cIdx} className="min-w-[46px] w-[46px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        CG{cIdx + 1}
-                                      </th>
-                                  ))}
-                               </tr>
-                            </thead>
-                            <tbody>
-                             {bpcList.map((bpc: any, bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 w-[44px] min-w-[44px] max-w-[44px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
-                                     </td>
-                                     {Array.from({ length: cgCount }, (_, cIdx) => {
-                                         if (hasBpcCellGroups) {
-                                            const cellGroups = safeArray(bpc?.cellGroups);
-                                            const cg = cellGroups[cIdx];
-                                            if (!cg) return <td key={cIdx} className="p-0.5"></td>;
-                                            return (
-                                               <td key={cIdx} className="p-0.5">
-                                                  <div 
-                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.voltage} mV${cg.voltageColor ? ` (source color: ${cg.voltageColor})` : ''}`}
-                                                    className={`w-full min-w-[46px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getVoltageColor(cg.voltage)}`}
-                                                  >
-                                                      {cg.voltage}
-                                                  </div>
-                                               </td>
-                                            );
-                                         } else {
-                                            const v = bpc[cIdx];
-                                            if (v === undefined) return <td key={cIdx} className="p-0.5"></td>;
-                                            return (
-                                               <td key={cIdx} className="p-0.5">
-                                                 <div 
-                                                    title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${v} mV`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getVoltageColor(v)}`}
-                                                 >
-                                                     {v}
-                                                 </div>
-                                               </td>
-                                            );
-                                         }
-                                     })}
-                                 </tr>
-                             ))}
-                            </tbody>
-                         </table>
-                      </div>
-                      );
-                  })() : (
-                      <div className="flex-1 flex items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12">
-                          Granular BPC/cell-group matrix data not available from current local EMS source.
-                      </div>
-                  )}
-              </div>
-
-              {/* Temperature Matrix */}
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col">
-                  <div className="flex justify-between items-center mb-4">
-                     <h3 className="font-mono text-xs font-bold text-prizm-warning flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 uppercase tracking-wide">
-                         <div className="flex items-center gap-2"><Thermometer size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Temperature Matrix</div>
-                         <span className="text-[10px] text-prizm-text-muted normal-case font-normal">(Rows: BPCs | Columns: Cell Groups)</span>
-                     </h3>
-                     {hasTempMatrix && (
-                        <button onClick={() => downloadMatrixCsv(safeTemperatureMatrix, "Temperature_Matrix")} className="text-prizm-text-muted hover:text-prizm-text">
-                           <Download size={14} />
-                        </button>
-                     )}
-                  </div>
-                  
-                  {hasTempMatrix ? (() => {
-                      const cgCount = safeBpcs?.[0]?.cellGroups?.length || safeTemperatureMatrix?.[0]?.length || 30;
-                      const bpcList = hasBpcCellGroups ? safeBpcs : safeTemperatureMatrix;
-                      return (
-                      <div className="overflow-auto no-scrollbar pb-2 max-h-[600px]">
-                         <table className="w-full text-left font-mono text-[9px] border-collapse relative">
-                            <thead className="sticky top-0 bg-prizm-surface z-20 shadow-sm shadow-prizm-bg/50">
-                               <tr>
-                                  <th className="sticky left-0 bg-prizm-surface z-30 w-[44px] min-w-[44px] max-w-[44px] p-1 text-prizm-text-muted select-none font-bold text-center border-b border-prizm-border/40">BPC</th>
-                                  {Array.from({ length: cgCount }, (_, cIdx) => (
-                                      <th key={cIdx} className="min-w-[46px] w-[46px] p-1 text-center font-bold text-prizm-text-muted select-none border-b border-prizm-border/40">
-                                        CG{cIdx + 1}
-                                      </th>
-                                  ))}
-                               </tr>
-                            </thead>
-                            <tbody>
-                             {bpcList.map((bpc: any, bpcIdx: number) => (
-                                 <tr key={bpcIdx} className="group hover:bg-prizm-surface-strong border-b border-prizm-border/20 transition-colors duration-75">
-                                     <td className="sticky left-0 bg-prizm-surface p-1 w-[44px] min-w-[44px] max-w-[44px] text-prizm-text-muted font-bold z-10 group-hover:bg-prizm-surface-strong select-none text-center">
-                                        BPC{bpc.bpcNumber ?? (bpcIdx + 1)}
-                                     </td>
-                                     {Array.from({ length: cgCount }, (_, cIdx) => {
-                                         if (hasBpcCellGroups) {
-                                            const cellGroups = safeArray(bpc?.cellGroups);
-                                            const cg = cellGroups[cIdx];
-                                            if (!cg) return <td key={cIdx} className="p-0.5"></td>;
-                                            return (
-                                               <td key={cIdx} className="p-0.5">
-                                                  <div 
-                                                    title={`BPC ${bpc.bpcNumber ?? (bpcIdx + 1)} / Cell Group ${cg.cellGroupNumber ?? (cIdx + 1)}: ${cg.temperature} °C${cg.temperatureColor ? ` (source color: ${cg.temperatureColor})` : ''}`}
-                                                    className={`w-full min-w-[46px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent transition-colors ${getTempColor(cg.temperature)}`}
-                                                  >
-                                                      {cg.temperature}
-                                                  </div>
-                                               </td>
-                                            );
-                                         } else {
-                                            const t = bpc[cIdx];
-                                            if (t === undefined) return <td key={cIdx} className="p-0.5"></td>;
-                                            return (
-                                               <td key={cIdx} className="p-0.5">
-                                                 <div 
-                                                    title={`BPC ${bpcIdx + 1} / Cell Group ${cIdx + 1}: ${t}°C`}
-                                                    className={`w-full min-w-[42px] h-[22px] flex items-center justify-center rounded-sm cursor-help select-none border border-transparent ${getTempColor(t)}`}
-                                                 >
-                                                     {t}
-                                                 </div>
-                                               </td>
-                                            );
-                                         }
-                                     })}
-                                 </tr>
-                             ))}
-                            </tbody>
-                         </table>
-                      </div>
-                      );
-                  })() : (
-                      <div className="flex-1 flex items-center justify-center text-xs font-mono text-prizm-text-muted border border-dashed border-prizm-border/50 rounded bg-black/10 py-12">
-                          Granular BPC/cell-group matrix data not available from current local EMS source.
-                      </div>
-                  )}
-              </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">

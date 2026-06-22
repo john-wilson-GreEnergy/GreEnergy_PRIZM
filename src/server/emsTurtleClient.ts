@@ -1038,7 +1038,18 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     else { const wordMatch = stringKey.match(/\b(BHE\d{4})\b/i); if (wordMatch) { discovered = wordMatch[1]; source = 'strings.csv:StringKey'; } }
   }
 
-  if (discovered) { emsCache.discoveredStationCode = discovered; emsCache.siteCodeSource = source; }
+  if (discovered) {
+    emsCache.discoveredStationCode = discovered;
+    emsCache.siteCodeSource = source;
+    if (activeRef && activeRef.stationCode !== discovered) {
+      try {
+        ProfileStore.updateProfile(activeId, { stationCode: discovered });
+        console.log(`[EMS Poll] Successfully updated active profile station code from ${activeRef.stationCode} to ${discovered}`);
+      } catch (err: any) {
+        console.error(`[EMS Poll] Failed to update active profile station code dynamically:`, err.message);
+      }
+    }
+  }
 
   if (coreEndpointsSucceeded > 0 || criticalEndpointsFailed < 3) {
     emsCache.lastUpdated = cacheLastUpdatedAt;
