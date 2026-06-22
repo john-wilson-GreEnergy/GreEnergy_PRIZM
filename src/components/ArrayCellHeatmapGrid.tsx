@@ -2,6 +2,37 @@ import React, { useState, useMemo } from "react";
 import { Info, Layers } from "lucide-react";
 import { cToF } from "../lib/temperatureUnits";
 
+const normalizeValue = (value: number | null, min: number, max: number): number => {
+  if (value === null || value === undefined || Number.isNaN(value)) return 0.5;
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
+  if (max === min) return 0.5;
+  return Math.max(0, Math.min(1, (value - min) / (max - min)));
+};
+
+const getCellColorClass = (val: number | null, min: number, max: number, mode: "voltage" | "temperature") => {
+  if (val === null || val === undefined || Number.isNaN(val)) {
+    return "bg-white/5 border border-white/10";
+  }
+  
+  const t = normalizeValue(val, min, max);
+
+  if (mode === "temperature") {
+    // Temperature: cool/low distinct (sky/blue), normal green-ish, warm/high yellow/orange/red
+    if (t < 0.2) return "bg-sky-400 border border-sky-305";
+    if (t < 0.4) return "bg-cyan-400 border border-cyan-305";
+    if (t < 0.6) return "bg-emerald-400 border border-emerald-350";
+    if (t < 0.8) return "bg-amber-400 border border-amber-305";
+    return "bg-red-400 border border-red-500";
+  } else {
+    // Voltage: purple-ish, blue-ish, emerald/green, amber, red
+    if (t < 0.2) return "bg-purple-300 border border-purple-400";
+    if (t < 0.4) return "bg-blue-300 border border-blue-400";
+    if (t < 0.6) return "bg-emerald-400 border border-emerald-350";
+    if (t < 0.8) return "bg-amber-400 border border-amber-305";
+    return "bg-red-500 border border-red-600";
+  }
+};
+
 type ArrayCellHeatmapGridProps = {
   arrayDetailsByArray: Record<string, any>;
 };
@@ -59,41 +90,24 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
           let valDisp = "--";
           // Detailed physical label format: Array X - String Y - ES Z
           let titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nNo telemetry reported`;
-          let colorStyle: React.CSSProperties = { backgroundColor: "rgba(255,255,255,0.03)" };
 
-          if (displayVal !== null && displayVal !== undefined && !Number.isNaN(displayVal)) {
+          if (val !== null && val !== undefined && !Number.isNaN(val)) {
             if (mode === "voltage") {
-              const valNum = Number(displayVal);
-              valDisp = `${Math.round(valNum)} mV`;
+              valDisp = `${Math.round(val)} mV`;
               titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nVoltage: ${valDisp}`;
-              
-              let opacity = 0.25;
-              if (sMax > sMin) {
-                opacity = 0.15 + 0.85 * ((valNum - sMin) / (sMax - sMin));
-              }
-              colorStyle = { backgroundColor: `rgba(16, 185, 129, ${opacity})` };
             } else {
-              const valNum = Number(displayVal);
-              valDisp = `${valNum.toFixed(1)}°${tempUnit}`;
+              valDisp = `${(displayVal as number).toFixed(1)}°${tempUnit}`;
               titleStr = `Array ${arrayIndex} - String ${stringIndex} - ES ${rowNum}\nBPC ${bpc} Module ${moduleNum} Cell ${cell.cellNumber}\nTemp: ${valDisp}`;
-
-              const sMinDisp = tempUnit === "F" && sMin !== null ? cToF(sMin) : sMin;
-              const sMaxDisp = tempUnit === "F" && sMax !== null ? cToF(sMax) : sMax;
-
-              let opacity = 0.25;
-              if (sMaxDisp > sMinDisp) {
-                opacity = 0.15 + 0.85 * ((valNum - sMinDisp) / (sMaxDisp - sMinDisp));
-              }
-              colorStyle = { backgroundColor: `rgba(2, 132, 199, ${opacity})` };
             }
           }
+
+          const colorClass = getCellColorClass(val, sMin, sMax, mode);
 
           return (
             <div
               key={idx}
               title={titleStr}
-              style={colorStyle}
-              className="w-[7px] h-[7px] min-w-[7px] min-h-[7px] max-w-[7px] max-h-[7px] rounded-sm transition-transform duration-75 hover:scale-130 hover:border hover:border-white/35 cursor-crosshair"
+              className={`w-[7px] h-[7px] min-w-[7px] min-h-[7px] max-w-[7px] max-h-[7px] rounded-sm transition-transform duration-75 hover:scale-130 hover:border hover:border-white/35 cursor-crosshair ${colorClass}`}
             />
           );
         })}
@@ -239,18 +253,20 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
                         className="bg-[#0f172a] border border-slate-800 rounded-xl p-3.5 space-y-4 flex flex-col justify-between"
                       >
                         {/* Title block with Array, String, and Category */}
-                        <div className="flex justify-between items-start border-b border-slate-800 pb-2">
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                           <div>
-                            <span className="text-slate-100 text-[10px] font-bold uppercase tracking-wider block">
-                              {stringKey}
+                            <span className="text-slate-100 text-[11px] font-bold uppercase tracking-wider block">
+                              A{arr.arrayNumber}-S{stringIndex}
                             </span>
-                            <span className="text-slate-400 text-[8px] tracking-wider uppercase mt-0.5 block">
-                              Station {arr.stationCode || "BESS"} · Array {arr.arrayNumber}
+                            <span className="text-slate-400 text-[7.5px] tracking-wider uppercase mt-0.5 block">
+                              Station {arr.stationCode || "BESS"}
                             </span>
                           </div>
-                          <span className="bg-slate-800 text-slate-300 text-[6.5px] font-bold px-1.5 py-0.5 rounded border border-slate-700/50 uppercase tracking-widest leading-none">
-                            PHYSICAL
-                          </span>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="bg-slate-800 text-slate-300 text-[6.5px] font-bold px-1.5 py-0.5 rounded border border-slate-700/50 uppercase tracking-widest leading-none">
+                              {mode === "voltage" ? "VOLTAGE" : `TEMP (°${tempUnit})`}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Relative Ranges Bar (Slate style) */}

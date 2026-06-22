@@ -7,15 +7,22 @@ type PhysicalEnergySegmentHeatmapProps = {
   arrayNumber: number | string;
   stringNumber: number | string;
   defaultMode?: "temperature" | "voltage";
+  mode?: "temperature" | "voltage";
+  hideToggle?: boolean;
+  title?: string;
 };
 
 export default function PhysicalEnergySegmentHeatmap({
   slots,
   arrayNumber,
   stringNumber,
-  defaultMode = "temperature"
+  defaultMode = "temperature",
+  mode: propMode,
+  hideToggle = false,
+  title
 }: PhysicalEnergySegmentHeatmapProps) {
-  const [mode, setMode] = useState<"temperature" | "voltage">(defaultMode);
+  const [internalMode, setInternalMode] = useState<"temperature" | "voltage">(defaultMode);
+  const mode = propMode !== undefined ? propMode : internalMode;
 
   const { minTemp, maxTemp, avgTemp, deltaTemp, minVolt, maxVolt, avgVolt, deltaVolt } = useMemo(() => {
     const validTemps = slots.map(s => s.tempF).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
@@ -115,7 +122,7 @@ export default function PhysicalEnergySegmentHeatmap({
       <div className="flex justify-between items-start mb-1">
          <div className="flex flex-col">
             <span className="font-bold text-prizm-text tracking-wider uppercase text-[10px]">
-              PHYSICAL ENERGY SEGMENT LAYOUT
+              {title || "PHYSICAL ENERGY SEGMENT LAYOUT"}
             </span>
             <span className="text-prizm-text-muted text-[10px] uppercase mt-1">
               Mode: {mode === "temperature" ? "Temperature °F" : "Voltage mV"} &nbsp;|&nbsp; Source: String Viewer Monitor &nbsp;|&nbsp; {slots.length} cells
@@ -131,20 +138,22 @@ export default function PhysicalEnergySegmentHeatmap({
             )}
          </div>
          <div className="flex flex-col items-end gap-2">
-           <div className="flex border border-prizm-border/40 rounded overflow-hidden text-[9px] uppercase font-bold tracking-wider">
-             <button 
-               onClick={() => setMode("temperature")}
-               className={`px-3 py-1 ${mode === "temperature" ? "bg-prizm-primary text-prizm-bg" : "bg-black/20 text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
-             >
-               Temperature °F
-             </button>
-             <button 
-               onClick={() => setMode("voltage")}
-               className={`px-3 py-1 ${mode === "voltage" ? "bg-prizm-primary text-prizm-bg" : "bg-black/20 text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
-             >
-               Voltage mV
-             </button>
-           </div>
+           {!hideToggle && (
+             <div className="flex border border-prizm-border/40 rounded overflow-hidden text-[9px] uppercase font-bold tracking-wider">
+               <button 
+                 onClick={() => setInternalMode("temperature")}
+                 className={`px-3 py-1 ${mode === "temperature" ? "bg-prizm-primary text-prizm-bg" : "bg-black/20 text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
+               >
+                 Temperature °F
+               </button>
+               <button 
+                 onClick={() => setInternalMode("voltage")}
+                 className={`px-3 py-1 ${mode === "voltage" ? "bg-prizm-primary text-prizm-bg" : "bg-black/20 text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
+               >
+                 Voltage mV
+               </button>
+             </div>
+           )}
            
            <div className="flex items-center gap-1 text-[8px] text-prizm-text-muted uppercase font-bold">
              <span>Low</span>

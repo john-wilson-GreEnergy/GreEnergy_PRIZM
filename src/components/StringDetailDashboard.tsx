@@ -520,11 +520,24 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
 
           <div className="flex flex-col gap-6 mb-6 font-semibold">
               {physicalLayout.available ? (
-                  <PhysicalEnergySegmentHeatmap
-                    slots={physicalLayout.slots}
-                    arrayNumber={s.arrayNumber}
-                    stringNumber={s.stringNumber}
-                  />
+                  <div className="space-y-6">
+                    <PhysicalEnergySegmentHeatmap
+                      slots={physicalLayout.slots}
+                      arrayNumber={s.arrayNumber}
+                      stringNumber={s.stringNumber}
+                      mode="temperature"
+                      hideToggle={true}
+                      title="Temperature Physical Layout"
+                    />
+                    <PhysicalEnergySegmentHeatmap
+                      slots={physicalLayout.slots}
+                      arrayNumber={s.arrayNumber}
+                      stringNumber={s.stringNumber}
+                      mode="voltage"
+                      hideToggle={true}
+                      title="Voltage Physical Layout"
+                    />
+                  </div>
               ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-xs font-mono border border-dashed border-prizm-border/50 rounded bg-black/10 py-12 text-center text-prizm-text-muted">
                       <AlertTriangle className="mb-2 text-prizm-warning" size={24} />
