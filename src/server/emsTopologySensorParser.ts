@@ -31,6 +31,8 @@ export interface NormalizedTopologySensorPoint {
   allowFaultReset: boolean | null;
   childEntityKeys: unknown[];
   raw: unknown;
+  valueFieldUsed: string | null;
+  labelFromStatusMessage: string | null;
 }
 
 export interface NormalizedTopologySensorSummary {
@@ -59,11 +61,23 @@ export interface NormalizedTopologySensorSummary {
     sampleEntityKeys: string[];
     unknownEntities: unknown[];
     parserWarnings: string[];
+    parserMode: "localTopology";
+    topologyEntityCount: number;
+    openClosedDetectorCount: number;
+    humidityTemperatureSensorCount: number;
+    activePointCount: number;
+    unavailablePointCount: number;
+    unknownPointCount: number;
   };
 }
 
 // Parse active state from explicit state/value fields
-export function parseActiveState(entity: any): { activeState: boolean | null; activeStateSource: string | null; rawValue: any } {
+export function parseActiveState(entity: any): { 
+  activeState: boolean | null; 
+  activeStateSource: string | null; 
+  rawValue: any; 
+  valueFieldUsed: string | null;
+} {
   const fields = [
     "value",
     "statusValue",
@@ -77,31 +91,53 @@ export function parseActiveState(entity: any): { activeState: boolean | null; ac
     "isTripped",
     "isAlarmed",
     "alarm",
-    "fault"
+    "fault",
+    "status",
+    "state"
   ];
 
   for (const field of fields) {
     if (entity[field] !== undefined && entity[field] !== null) {
       const val = entity[field];
       if (typeof val === "boolean") {
-        return { activeState: val, activeStateSource: field, rawValue: val };
+        return { 
+          activeState: val, 
+          activeStateSource: field, 
+          rawValue: val, 
+          valueFieldUsed: field 
+        };
       }
       if (typeof val === "string") {
         const lowerVal = val.toLowerCase().trim();
         if (["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted"].includes(lowerVal)) {
-          return { activeState: true, activeStateSource: field, rawValue: val };
+          return { 
+            activeState: true, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
         }
         if (["false", "normal", "inactive", "untripped", "clear", "ok", "ready"].includes(lowerVal)) {
-          return { activeState: false, activeStateSource: field, rawValue: val };
+          return { 
+            activeState: false, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
         }
       }
       if (typeof val === "number") {
-        return { activeState: val !== 0, activeStateSource: field, rawValue: val };
+        return { 
+          activeState: val !== 0, 
+          activeStateSource: field, 
+          rawValue: val, 
+          valueFieldUsed: field 
+        };
       }
     }
   }
 
-  return { activeState: null, activeStateSource: null, rawValue: undefined };
+  return { activeState: null, activeStateSource: null, rawValue: null, valueFieldUsed: null };
 }
 
 // Map sensorCode and segmentKind for OpenClosedDetector
@@ -155,7 +191,7 @@ export function pointToCell(point: NormalizedTopologySensorPoint): NormalizedSen
   } else if (tripped === true) {
     displayValue = "TRIPPED";
   } else if (tripped === null) {
-    displayValue = "Available / State Unknown";
+    displayValue = "STATE UNKNOWN";
   }
 
   return {
@@ -183,7 +219,12 @@ export function pointToCell(point: NormalizedTopologySensorPoint): NormalizedSen
     unhealthyReasons: !healthy ? [point.availabilityStatus === "Available" ? "TRIPPED" : point.availabilityStatus] : [],
     allowFaultReset: point.allowFaultReset,
     sourcePath: point.sourcePath,
-    raw: point.raw
+    raw: point.raw,
+    // Debug fields
+    valueFieldUsed: point.valueFieldUsed,
+    rawValue: point.rawValue,
+    activeStateSource: point.activeStateSource,
+    labelFromStatusMessage: point.labelFromStatusMessage
   };
 }
 
@@ -203,7 +244,11 @@ function createEmptyCell(role: string): NormalizedSensorCell {
     openClosedDetectorType: null,
     sensorIndex: null,
     sensorTypeCode: null,
-    detectorIndex: null
+    detectorIndex: null,
+    valueFieldUsed: null,
+    rawValue: null,
+    activeStateSource: null,
+    labelFromStatusMessage: null
   };
 }
 
@@ -392,7 +437,7 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
     }
 
     // Active state from fields list
-    const { activeState, activeStateSource, rawValue } = parseActiveState(entity);
+    const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity);
 
     if (!pointAvailable) {
       unavailablePointCount++;
@@ -441,7 +486,9 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       severity,
       allowFaultReset: entity.allowFaultReset === true,
       childEntityKeys: Array.isArray(entity.childEntityKeys) ? entity.childEntityKeys : [],
-      raw: entity
+      raw: entity,
+      valueFieldUsed,
+      labelFromStatusMessage: statusMessage
     };
 
     points.push(point);
@@ -691,7 +738,14 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       booleanStateFieldsDiscovered: Array.from(booleanStateFieldsDiscovered),
       sampleEntityKeys,
       unknownEntities,
-      parserWarnings: debugWarnings
+      parserWarnings: debugWarnings,
+      parserMode: "localTopology",
+      topologyEntityCount,
+      openClosedDetectorCount,
+      humidityTemperatureSensorCount,
+      activePointCount,
+      unavailablePointCount,
+      unknownPointCount
     }
   };
 }

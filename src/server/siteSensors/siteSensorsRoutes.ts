@@ -13,7 +13,7 @@ import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
-import { parseEmsTopology } from "../emsTopologySensorParser";
+import { parseEmsTopology, parseActiveState } from "../emsTopologySensorParser";
 
 
 const router = Router();
@@ -1049,6 +1049,10 @@ export interface NormalizedSensorCell {
     derivedFrom?: string;
   };
   raw?: unknown;
+  valueFieldUsed?: string | null;
+  rawValue?: any;
+  activeStateSource?: string | null;
+  labelFromStatusMessage?: string | null;
 }
 
 export interface SourceHealth {
@@ -1640,46 +1644,29 @@ function parseTopologyEntityToCell(entity: any, roleName: string): NormalizedSen
   else if (!enabled) statusMessage = "Disabled";
   else if (!ready) statusMessage = "Not Ready";
 
-  let isTripped = false;
-  const isLatched = entity.latched === true;
-
-  const tripIndicators = [
-    entity.tripped,
-    entity.active,
-    entity.alarm,
-    entity.fault
-  ];
-
-  for (const field of tripIndicators) {
-    if (field === true || field === "true" || String(field || "").toLowerCase() === "tripped" || String(field || "").toLowerCase() === "alarm") {
-      isTripped = true;
-      healthy = false;
-      statusMessage = "TRIPPED";
-    }
-  }
-
-  if (entity.status && ["tripped", "alarm", "fault", "active"].some(word => String(entity.status).toLowerCase().includes(word))) {
-    isTripped = true;
+  const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity);
+  const isTripped = activeState === true;
+  if (isTripped) {
     healthy = false;
-    statusMessage = String(entity.status);
-  }
-  if (entity.state && ["tripped", "alarm", "fault", "active"].some(word => String(entity.state).toLowerCase().includes(word))) {
-    isTripped = true;
-    healthy = false;
-    statusMessage = String(entity.state);
+    statusMessage = "TRIPPED";
   }
 
   const sensorTypeCode = entity.sensorCode ?? null;
   const sensorIndex = entity.numericId ?? null;
 
+  let displayValue = healthy ? "OK" : (isTripped ? "TRIPPED" : statusMessage);
+  if (communicating && enabled && ready && activeState === null) {
+    displayValue = "STATE UNKNOWN";
+  }
+
   return {
     applicable: true,
     healthy,
-    tripped: isTripped,
-    latched: isLatched,
-    value: entity.value ?? null,
+    tripped: activeState,
+    latched: entity.latched === true,
+    value: rawValue ?? null,
     status: statusMessage,
-    displayValue: healthy ? "OK" : (isTripped ? "TRIPPED" : statusMessage),
+    displayValue,
     label: entity.displayKey || entity.entityKey || `${entity.entityType} ${sensorIndex}`,
     friendlyName: entity.displayKey || null,
     sensorRole: roleName,
@@ -1700,7 +1687,11 @@ function parseTopologyEntityToCell(entity: any, roleName: string): NormalizedSen
       parsedEnclosureIndex: entity.enclosureIndex,
       sensorIndexParentMismatch: false,
       derivedFrom: "localTopology"
-    }
+    },
+    valueFieldUsed,
+    rawValue,
+    activeStateSource,
+    labelFromStatusMessage: entity.statusMessage ?? null
   };
 }
 
