@@ -265,6 +265,16 @@ app.get("/api/local/ems/connection-status", (req, res) => {
   res.json(status);
 });
 
+// GET /api/local/ems/mode
+app.get("/api/local/ems/mode", (req, res) => {
+  res.json(getEmsMode());
+});
+
+// GET /api/local/ems/sources
+app.get("/api/local/ems/sources", (req, res) => {
+  res.json(getEmsSourcesDebugInfo());
+});
+
 // POST /api/local/ems/retry-connection
 app.post("/api/local/ems/retry-connection", async (req, res) => {
   await bootstrapEmsAndSeedCache();

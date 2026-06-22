@@ -1157,8 +1157,8 @@ export interface SiteSensorsBlockviewerResponse {
   cumulativeHealthy?: number | null;
   cumulativeTotal?: number | null;
   sourceHealth: SourceHealth[];
-  sidebarCounts: SensorSidebarCounts;
-  rows: BlockSensorMatrixRow[];
+  sidebarCounts?: SensorSidebarCounts;
+  rows?: BlockSensorMatrixRow[];
   topologyDevices?: any[];
   topologyDiscovery?: {
     activeProfileId: string | null;
@@ -1185,14 +1185,23 @@ export interface SiteSensorsBlockviewerResponse {
     confidence: "high" | "medium" | "low";
     warnings: string[];
   };
+  error?: string;
   debug?: {
-    totalElements: number;
-    totalSensors: number;
-    locationFallbackCount: number;
-    sensorParentMismatchCount: number;
-    unknownSensorCodeCount: number;
+    totalElements?: number;
+    totalSensors?: number;
+    locationFallbackCount?: number;
+    sensorParentMismatchCount?: number;
+    unknownSensorCodeCount?: number;
     fallbackGenerated: boolean;
     stationCodeSource: string | null;
+    topLevelKeys?: string[];
+    candidateElementPaths?: string[];
+    parserMode?: string;
+    topologyEntityCount?: number;
+    openClosedDetectorCount?: number;
+    humidityTemperatureSensorCount?: number;
+    groupedEnclosureCount?: number;
+    unknownSensors?: any[];
   };
 }
 
@@ -1493,6 +1502,228 @@ export function generateFallbackBlockviewerData(arrayCountOverride?: number) {
   };
 }
 
+// Helper to recursively find a nested array of enclosure-like elements in a successful blockData payload
+function findNestedElementArray(obj: any, currentPath = "root", visited = new Set<any>()): { elements: any[]; path: string } | null {
+  if (!obj || typeof obj !== "object") return null;
+  if (visited.has(obj)) return null;
+  visited.add(obj);
+
+  // If it is an array and contains objects that look like enclosures
+  if (Array.isArray(obj)) {
+    if (obj.length > 0) {
+      const looksLikeEnclosure = obj.some(item => 
+        item && typeof item === "object" && 
+        (item.enclosureIndex !== undefined || item.enclosureType !== undefined || item.locationInfo !== undefined || item.sensorsForEnclosure !== undefined)
+      );
+      if (looksLikeEnclosure) {
+        return { elements: obj, path: currentPath };
+      }
+    }
+  }
+
+  // Check known priority paths first
+  const keysToPrioritize = ["elementList", "topology", "data", "block", "blockView", "blockViewerData"];
+  for (const key of keysToPrioritize) {
+    if (obj[key] !== undefined) {
+      const subPath = `${currentPath}.${key}`;
+      const val = obj[key];
+      if (Array.isArray(val)) {
+        const looksLikeEnclosure = val.some(item => 
+          item && typeof item === "object" && 
+          (item.enclosureIndex !== undefined || item.enclosureType !== undefined || item.locationInfo !== undefined || item.sensorsForEnclosure !== undefined)
+        );
+        if (looksLikeEnclosure) {
+          return { elements: val, path: subPath };
+        }
+      } else if (val && typeof val === "object") {
+        const res = findNestedElementArray(val, subPath, visited);
+        if (res) return res;
+      }
+    }
+  }
+
+  // Check other keys recursively
+  for (const key of Object.keys(obj)) {
+    if (keysToPrioritize.includes(key)) continue;
+    const subPath = `${currentPath}.${key}`;
+    const val = obj[key];
+    if (Array.isArray(val)) {
+      const looksLikeEnclosure = val.some(item => 
+        item && typeof item === "object" && 
+        (item.enclosureIndex !== undefined || item.enclosureType !== undefined || item.locationInfo !== undefined || item.sensorsForEnclosure !== undefined)
+      );
+      if (looksLikeEnclosure) {
+        return { elements: val, path: subPath };
+      }
+    } else if (val && typeof val === "object") {
+      const res = findNestedElementArray(val, subPath, visited);
+      if (res) return res;
+    }
+  }
+
+  return null;
+}
+
+// Helper to recursively find any nested array under a specific key name
+function findNestedArrayByName(obj: any, targetName: string, visited = new Set<any>()): any[] | null {
+  if (!obj || typeof obj !== "object") return null;
+  if (visited.has(obj)) return null;
+  visited.add(obj);
+
+  if (obj[targetName] && Array.isArray(obj[targetName])) {
+    return obj[targetName];
+  }
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val && typeof val === "object") {
+      const res = findNestedArrayByName(val, targetName, visited);
+      if (res) return res;
+    }
+  }
+  return null;
+}
+
+// Check if a topology entity is sensor-like
+function isSensorEntity(entity: any): boolean {
+  if (!entity || typeof entity !== "object") return false;
+  const type = String(entity.entityType || "").toLowerCase();
+  const subType = String(entity.entitySubType || "").toLowerCase();
+
+  if (type === "opencloseddetector" || type === "humidity temperature sensor") {
+    return true;
+  }
+
+  const keywords = ["fss", "fire", "smoke", "heat", "hydrogen", "moisture", "door", "environmental", "humidity", "temperature", "detector"];
+  return keywords.some(kw => type.includes(kw) || subType.includes(kw));
+}
+
+// Extract numeric ID from displayKey or entityKey
+function extractNumericId(entity: any): number | null {
+  const dk = entity.displayKey || "";
+  const ek = entity.entityKey || "";
+
+  const dkParts = dk.split(/[:_\s]/);
+  for (let i = dkParts.length - 1; i >= 0; i--) {
+    const val = Number(dkParts[i]);
+    if (!isNaN(val) && dkParts[i] !== "" && val > 0) {
+      return val;
+    }
+  }
+
+  const ekParts = ek.split(/[:_\s]/);
+  for (let i = ekParts.length - 1; i >= 0; i--) {
+    const val = Number(ekParts[i]);
+    if (!isNaN(val) && ekParts[i] !== "" && val > 0) {
+      return val;
+    }
+  }
+
+  const regexMatch = dk.match(/(\d+)$/) || ek.match(/(\d+)$/);
+  if (regexMatch) {
+    return Number(regexMatch[1]);
+  }
+  return null;
+}
+
+// Parse a topology-format entity into our standard NormalizedSensorCell schema
+function parseTopologyEntityToCell(entity: any, roleName: string): NormalizedSensorCell {
+  const communicating = entity.communicating !== false;
+  const enabled = entity.enabled !== false;
+  const ready = entity.ready !== false;
+
+  let healthy = communicating && enabled && ready;
+  let statusMessage = "OK";
+  if (!communicating) statusMessage = "Offline";
+  else if (!enabled) statusMessage = "Disabled";
+  else if (!ready) statusMessage = "Not Ready";
+
+  let isTripped = false;
+  const isLatched = entity.latched === true;
+
+  const tripIndicators = [
+    entity.tripped,
+    entity.active,
+    entity.alarm,
+    entity.fault
+  ];
+
+  for (const field of tripIndicators) {
+    if (field === true || field === "true" || String(field || "").toLowerCase() === "tripped" || String(field || "").toLowerCase() === "alarm") {
+      isTripped = true;
+      healthy = false;
+      statusMessage = "TRIPPED";
+    }
+  }
+
+  if (entity.status && ["tripped", "alarm", "fault", "active"].some(word => String(entity.status).toLowerCase().includes(word))) {
+    isTripped = true;
+    healthy = false;
+    statusMessage = String(entity.status);
+  }
+  if (entity.state && ["tripped", "alarm", "fault", "active"].some(word => String(entity.state).toLowerCase().includes(word))) {
+    isTripped = true;
+    healthy = false;
+    statusMessage = String(entity.state);
+  }
+
+  const sensorTypeCode = entity.sensorCode ?? null;
+  const sensorIndex = entity.numericId ?? null;
+
+  return {
+    applicable: true,
+    healthy,
+    tripped: isTripped,
+    latched: isLatched,
+    value: entity.value ?? null,
+    status: statusMessage,
+    displayValue: healthy ? "OK" : (isTripped ? "TRIPPED" : statusMessage),
+    label: entity.displayKey || entity.entityKey || `${entity.entityType} ${sensorIndex}`,
+    friendlyName: entity.displayKey || null,
+    sensorRole: roleName,
+    openClosedDetectorType: entity.entityType || null,
+    sensorIndex,
+    sensorTypeCode,
+    detectorIndex: sensorIndex,
+    entityKey: entity.entityKey ?? null,
+    entitySubType: entity.entitySubType ?? null,
+    entityType: entity.entityType ?? null,
+    communicating,
+    enabled,
+    ready,
+    timestamp: entity.timestamp ?? new Date().toISOString(),
+    unhealthyReasons: !healthy ? [statusMessage] : [],
+    debug: {
+      expectedEnclosureIndex: entity.enclosureIndex,
+      parsedEnclosureIndex: entity.enclosureIndex,
+      sensorIndexParentMismatch: false,
+      derivedFrom: "localTopology"
+    }
+  };
+}
+
+// Helper to gather all visited array paths containing objects to return for debug.candidateElementPaths diagnostics
+function findAllArrayPathsContainingObjects(obj: any, currentPath = "root", visited = new Set<any>()): string[] {
+  if (!obj || typeof obj !== "object") return [];
+  if (visited.has(obj)) return [];
+  visited.add(obj);
+
+  let paths: string[] = [];
+  if (Array.isArray(obj)) {
+    if (obj.length > 0 && obj.some(item => item && typeof item === "object")) {
+      paths.push(`${currentPath} (length: ${obj.length})`);
+    }
+    obj.forEach((item, i) => {
+      paths = paths.concat(findAllArrayPathsContainingObjects(item, `${currentPath}[${i}]`, visited));
+    });
+  } else {
+    for (const key of Object.keys(obj)) {
+      paths = paths.concat(findAllArrayPathsContainingObjects(obj[key], `${currentPath}.${key}`, visited));
+    }
+  }
+  return paths;
+}
+
 // 5. Normalizer orchestrator function
 export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0): Promise<SiteSensorsBlockviewerResponse> {
   const sourceHealth: SourceHealth[] = [];
@@ -1571,59 +1802,158 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
   let energySegmentCount = 0;
   let stationCodeFromData: string | null = null;
 
-  // Let's inspect blockviewer elements if we have any
-  const elementsToParse = blockData?.elementList || blockData?.data?.elementList || [];
-  if (Array.isArray(elementsToParse) && elementsToParse.length > 0) {
-    for (const elem of elementsToParse) {
-      if (elem.stationCode && !stationCodeFromData) {
-        stationCodeFromData = elem.stationCode;
+  let parserMode: "elementList" | "localTopology" | "fallback" = "fallback";
+  let topologyEntities: any[] = [];
+  let elementsToParse: any[] = [];
+  let foundElementPath: string | null = null;
+  const demoActive = typeof isDemoActive === "function" ? isDemoActive() : (process.env.DEMO_MODE === "true");
+
+  if (blockData) {
+    if (Array.isArray(blockData.topology)) {
+      topologyEntities = blockData.topology;
+      parserMode = "localTopology";
+    } else if (blockData.data && Array.isArray(blockData.data.topology)) {
+      topologyEntities = blockData.data.topology;
+      parserMode = "localTopology";
+    } else {
+      const foundTopo = findNestedArrayByName(blockData, "topology");
+      if (foundTopo) {
+        topologyEntities = foundTopo;
+        parserMode = "localTopology";
       }
-      const isCS = elem.enclosureType === "CollectionSegment";
-      if (isCS) {
+    }
+
+    if (parserMode !== "localTopology") {
+      const searchRes = findNestedElementArray(blockData);
+      if (searchRes) {
+        elementsToParse = searchRes.elements;
+        foundElementPath = searchRes.path;
+        parserMode = "elementList";
+      }
+    }
+  }
+
+  // Fast-fail: If live payload is fetched successfully (or cached) but contains no enclosure elements and no topology
+  if (blockData && elementsToParse.length === 0 && topologyEntities.length === 0 && !demoActive) {
+    const stationCode = blockData?.stationCode || blockData?.data?.stationCode || stationCodeFromData || emsCache.discoveredStationCode || activeProfile?.stationCode || "BHE0020";
+    const stationCodeSource = blockData?.stationCode ? "blockData.stationCode" : (blockData?.data?.stationCode ? "blockData.data.stationCode" : (stationCodeFromData ? "elementList.stationCode" : (emsCache.discoveredStationCode ? "emsCache.discoveredStationCode" : (activeProfile?.stationCode ? "profile.stationCode" : "fallback.default"))));
+
+    return {
+      success: false,
+      timestamp: new Date().toISOString(),
+      source: "blockviewer",
+      stationCode,
+      blockIndex: blockData?.blockIndex || 1,
+      sourceHealth,
+      error: "Live blockviewer fetched but no enclosure element array or topology found",
+      debug: {
+        totalElements: 0,
+        totalSensors: 0,
+        locationFallbackCount: 0,
+        sensorParentMismatchCount: 0,
+        unknownSensorCodeCount: 0,
+        fallbackGenerated: false,
+        stationCodeSource,
+        topLevelKeys: Object.keys(blockData || {}),
+        candidateElementPaths: findAllArrayPathsContainingObjects(blockData)
+      }
+    };
+  }
+
+  const topologyEntitiesByEnclosure: Record<number, any[]> = {};
+  if (parserMode === "localTopology") {
+    for (const entity of topologyEntities) {
+      if (!isSensorEntity(entity)) continue;
+      const numericId = extractNumericId(entity);
+      if (numericId === null || isNaN(numericId)) continue;
+      
+      const enclosureIndex = Math.floor(numericId / 100);
+      const sensorCode = numericId % 100;
+      
+      const arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
+      const positionInArray = ((enclosureIndex - 1) % 21) + 1;
+      
+      discoveredArrays.add(arrayIndex);
+      if (positionInArray === 1) {
         collectionSegmentCount++;
       } else {
         energySegmentCount++;
+        const esNumber = positionInArray - 1;
+        if (!energySegmentsByArray[`A${arrayIndex}`]) {
+          energySegmentsByArray[`A${arrayIndex}`] = [];
+        }
+        if (!energySegmentsByArray[`A${arrayIndex}`].includes(esNumber)) {
+          energySegmentsByArray[`A${arrayIndex}`].push(esNumber);
+        }
       }
-
-      const loc = elem.locationInfo || {};
-      const arrs = loc.arrays || [];
-      const strs = loc.strings || [];
-
-      arrs.forEach((arr: any) => {
-        const val = arr.arrayIndex ?? arr.array ?? null;
-        if (val !== null && !isNaN(Number(val))) {
-          discoveredArrays.add(Number(val));
-        }
+      
+      if (!topologyEntitiesByEnclosure[enclosureIndex]) {
+        topologyEntitiesByEnclosure[enclosureIndex] = [];
+      }
+      topologyEntitiesByEnclosure[enclosureIndex].push({
+        ...entity,
+        numericId,
+        enclosureIndex,
+        sensorCode,
+        arrayIndex,
+        positionInArray
       });
+    }
+  }
 
-      strs.forEach((str: any) => {
-        const arrVal = str.arrayIndex ?? str.array ?? null;
-        const strVal = str.stringIndex ?? str.string ?? null;
-        if (arrVal !== null && !isNaN(Number(arrVal))) {
-          const arrNum = Number(arrVal);
-          discoveredArrays.add(arrNum);
-          if (strVal !== null && !isNaN(Number(strVal))) {
-            const strNum = Number(strVal);
-            if (!stringsByArray[`A${arrNum}`]) {
-              stringsByArray[`A${arrNum}`] = [];
-            }
-            if (!stringsByArray[`A${arrNum}`].includes(strNum)) {
-              stringsByArray[`A${arrNum}`].push(strNum);
+  if (parserMode === "elementList") {
+    if (Array.isArray(elementsToParse) && elementsToParse.length > 0) {
+      for (const elem of elementsToParse) {
+        if (elem.stationCode && !stationCodeFromData) {
+          stationCodeFromData = elem.stationCode;
+        }
+        const isCS = elem.enclosureType === "CollectionSegment";
+        if (isCS) {
+          collectionSegmentCount++;
+        } else {
+          energySegmentCount++;
+        }
+
+        const loc = elem.locationInfo || {};
+        const arrs = loc.layouts || loc.arrays || [];
+        const strs = loc.strings || [];
+
+        arrs.forEach((arr: any) => {
+          const val = arr.arrayIndex ?? arr.array ?? null;
+          if (val !== null && !isNaN(Number(val))) {
+            discoveredArrays.add(Number(val));
+          }
+        });
+
+        strs.forEach((str: any) => {
+          const arrVal = str.arrayIndex ?? str.array ?? null;
+          const strVal = str.stringIndex ?? str.string ?? null;
+          if (arrVal !== null && !isNaN(Number(arrVal))) {
+            const arrNum = Number(arrVal);
+            discoveredArrays.add(arrNum);
+            if (strVal !== null && !isNaN(Number(strVal))) {
+              const strNum = Number(strVal);
+              if (!stringsByArray[`A${arrNum}`]) {
+                stringsByArray[`A${arrNum}`] = [];
+              }
+              if (!stringsByArray[`A${arrNum}`].includes(strNum)) {
+                stringsByArray[`A${arrNum}`].push(strNum);
+              }
             }
           }
-        }
-      });
+        });
 
-      if (!isCS && elem.enclosureIndex !== undefined) {
-        let targetArray: number | null = null;
-        if (strs.length > 0) targetArray = Number(strs[0].arrayIndex ?? strs[0].array);
-        else if (arrs.length > 0) targetArray = Number(arrs[0].arrayIndex ?? arrs[0].array);
-        if (targetArray !== null && !isNaN(targetArray)) {
-          if (!energySegmentsByArray[`A${targetArray}`]) {
-            energySegmentsByArray[`A${targetArray}`] = [];
-          }
-          if (!energySegmentsByArray[`A${targetArray}`].includes(elem.enclosureIndex)) {
-            energySegmentsByArray[`A${targetArray}`].push(elem.enclosureIndex);
+        if (!isCS && elem.enclosureIndex !== undefined) {
+          let targetArray: number | null = null;
+          if (strs.length > 0) targetArray = Number(strs[0].arrayIndex ?? strs[0].array);
+          else if (arrs.length > 0) targetArray = Number(arrs[0].arrayIndex ?? arrs[0].array);
+          if (targetArray !== null && !isNaN(targetArray)) {
+            if (!energySegmentsByArray[`A${targetArray}`]) {
+              energySegmentsByArray[`A${targetArray}`] = [];
+            }
+            if (!energySegmentsByArray[`A${targetArray}`].includes(elem.enclosureIndex)) {
+              energySegmentsByArray[`A${targetArray}`].push(elem.enclosureIndex);
+            }
           }
         }
       }
@@ -1743,12 +2073,15 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     stationCodeSource = "fallback.default";
   }
 
-  if (!blockData || !blockData.elementList) {
+  if (elementsToParse.length === 0 && parserMode !== "localTopology") {
     source = "fallback_blockviewer";
-    blockData = generateFallbackBlockviewerData(arrayCount);
+    const generated = generateFallbackBlockviewerData(arrayCount);
+    elementsToParse = generated.elementList;
+    blockData = generated;
+    parserMode = "fallback";
   }
 
-  const elements = blockData.elementList || blockData.data?.elementList || [];
+  const elements = elementsToParse;
   const rows: BlockSensorMatrixRow[] = [];
 
   let totalElements = 0;
@@ -1777,7 +2110,257 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     stationWide: { label: "Station-Wide Estops", untripped: 0, total: 0, tripped: 0, healthy: true }
   };
 
-  for (const element of elements) {
+  if (parserMode === "localTopology") {
+    const sortedEnclosureIndexes = Object.keys(topologyEntitiesByEnclosure).map(Number).sort((a, b) => a - b);
+    for (const enclosureIndex of sortedEnclosureIndexes) {
+      totalElements++;
+      const entitiesForThisEnclosure = topologyEntitiesByEnclosure[enclosureIndex];
+      
+      const arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
+      const positionInArray = ((enclosureIndex - 1) % 21) + 1;
+      const isCS = positionInArray === 1;
+      const esNumber = isCS ? null : (positionInArray - 1);
+      
+      const strings = isCS ? [] : [
+        { arrayIndex, stringIndex: 2 * esNumber! - 1 },
+        { arrayIndex, stringIndex: 2 * esNumber! }
+      ];
+      
+      const virtualElement = {
+        enclosureIndex,
+        enclosureType: isCS ? "CollectionSegment" : "EnergySegment",
+        locationInfo: {
+          arrays: [{ arrayIndex }],
+          segmentPosition: esNumber,
+          strings
+        }
+      };
+      
+      const location = normalizeElementLocation(virtualElement);
+      if (location.locationDerivedFromFallback) {
+        locationFallbackCount++;
+      }
+      
+      const emergencySensors = {
+        moisture: createDefaultCell("moisture", !isCS, true)
+      };
+      const comStatus = {
+        io: createDefaultCell("io", true, true),
+        dataCommunications: createDefaultCell("dataUnavailable", true, true)
+      };
+      const doorSensors = {
+        acDoors: createDefaultCell("acDoors", isCS, true),
+        dcDoors: createDefaultCell("dcDoors", isCS, true),
+        topCapDoors: createDefaultCell("topCapDoors", true, true),
+        batteryDoors: createDefaultCell("batteryDoors", !isCS, true)
+      };
+      const otherSensors = {
+        modbusEStop: createDefaultCell("modbusEStop", true, true),
+        manualVentilation: createDefaultCell("manualVentilation", isCS, true),
+        envControllerVent: createDefaultCell("envControllerVent", !isCS, true),
+        envControllerLostComms: createDefaultCell("dataUnavailable", !isCS, true),
+        upsAlarm: createDefaultCell("upsAlarm", isCS, true),
+        smoke: createDefaultCell("smoke", true, true),
+        heat: createDefaultCell("heat", true, true),
+        fire: createDefaultCell("fire", isCS, true),
+        fireTrouble: createDefaultCell("fireTrouble", true, true),
+        hydrogen: createDefaultCell("hydrogen", !isCS, true),
+        hydrogenFault: createDefaultCell("hydrogenFault", !isCS, true)
+      };
+      
+      const upsAlarms: NormalizedSensorCell[] = [];
+      const unknownSensorsList: NormalizedSensorCell[] = [];
+      const thermalSensors: NormalizedSensorCell[] = [];
+      let internalTemperature: number | null = null;
+      let internalHumidity: number | null = null;
+      let ambientTemperature: number | null = null;
+      let ambientHumidity: number | null = null;
+
+      for (const entity of entitiesForThisEnclosure) {
+        totalSensors++;
+        const code = entity.sensorCode;
+        const isTempHumidity = String(entity.entityType || "").toLowerCase().includes("humidity") || String(entity.entityType || "").toLowerCase().includes("temperature");
+        
+        if (isTempHumidity) {
+          const cell = parseTopologyEntityToCell(entity, code === 1 ? "internalEnvironment" : "externalEnvironment");
+          thermalSensors.push(cell);
+          
+          if (code === 1) {
+            if (entity.temperature !== undefined) internalTemperature = Number(entity.temperature);
+            if (entity.humidity !== undefined) internalHumidity = Number(entity.humidity);
+            if (entity.value !== undefined && typeof entity.value === "number") internalTemperature = entity.value;
+          } else {
+            if (entity.temperature !== undefined) ambientTemperature = Number(entity.temperature);
+            if (entity.humidity !== undefined) ambientHumidity = Number(entity.humidity);
+            if (entity.value !== undefined && typeof entity.value === "number") ambientTemperature = entity.value;
+          }
+        } else {
+          // OpenClosedDetector
+          let mapped = false;
+          if (isCS) {
+            if (code === 1) { comStatus.dataCommunications = parseTopologyEntityToCell(entity, "dataUnavailable"); mapped = true; }
+            else if (code === 2) { doorSensors.acDoors = parseTopologyEntityToCell(entity, "acDoors"); mapped = true; }
+            else if (code === 3) { doorSensors.dcDoors = parseTopologyEntityToCell(entity, "dcDoors"); mapped = true; }
+            else if (code === 4) { doorSensors.topCapDoors = parseTopologyEntityToCell(entity, "topCapDoors"); mapped = true; }
+            else if (code === 5) { otherSensors.manualVentilation = parseTopologyEntityToCell(entity, "manualVentilation"); mapped = true; }
+            else if (code === 6) { otherSensors.smoke = parseTopologyEntityToCell(entity, "smoke"); mapped = true; }
+            else if (code === 7) { otherSensors.fireTrouble = parseTopologyEntityToCell(entity, "fireTrouble"); mapped = true; }
+            else if (code === 8) { otherSensors.fire = parseTopologyEntityToCell(entity, "fire"); mapped = true; }
+            else if (code === 9) { comStatus.io = parseTopologyEntityToCell(entity, "io"); mapped = true; }
+            else if (code === 10) { otherSensors.heat = parseTopologyEntityToCell(entity, "heat"); mapped = true; }
+            else if (code >= 31 && code <= 34) {
+              upsAlarms.push(parseTopologyEntityToCell(entity, "upsAlarm"));
+              mapped = true;
+            }
+          } else {
+            if (code === 1) { comStatus.dataCommunications = parseTopologyEntityToCell(entity, "dataUnavailable"); mapped = true; }
+            else if (code === 2) { doorSensors.batteryDoors = parseTopologyEntityToCell(entity, "batteryDoors"); mapped = true; }
+            else if (code === 3) { doorSensors.topCapDoors = parseTopologyEntityToCell(entity, "topCapDoors"); mapped = true; }
+            else if (code === 4) { otherSensors.envControllerVent = parseTopologyEntityToCell(entity, "envControllerVent"); mapped = true; }
+            else if (code === 5) { otherSensors.smoke = parseTopologyEntityToCell(entity, "smoke"); mapped = true; }
+            else if (code === 6) { otherSensors.hydrogenFault = parseTopologyEntityToCell(entity, "hydrogenFault"); mapped = true; }
+            else if (code === 7) { otherSensors.hydrogen = parseTopologyEntityToCell(entity, "hydrogen"); mapped = true; }
+            else if (code === 8) { comStatus.io = parseTopologyEntityToCell(entity, "io"); mapped = true; }
+            else if (code === 9) { otherSensors.heat = parseTopologyEntityToCell(entity, "heat"); mapped = true; }
+            else if (code === 10) { otherSensors.fireTrouble = parseTopologyEntityToCell(entity, "fireTrouble"); mapped = true; }
+            else if (code === 11) { emergencySensors.moisture = parseTopologyEntityToCell(entity, "moisture"); mapped = true; }
+          }
+          if (!mapped) {
+            unknownSensorCodeCount++;
+            unknownSensorsList.push(parseTopologyEntityToCell(entity, "unknown"));
+          }
+        }
+      }
+      
+      if (isCS && upsAlarms.length > 0) {
+        const allHealthy = upsAlarms.every(c => c.healthy);
+        const anyTripped = upsAlarms.some(c => c.tripped);
+        otherSensors.upsAlarm = {
+          applicable: true,
+          healthy: allHealthy,
+          tripped: anyTripped,
+          latched: upsAlarms.some(c => c.latched),
+          value: null,
+          status: allHealthy ? "Normal" : "Fault",
+          displayValue: allHealthy ? "OK" : "TRIPPED",
+          label: "UPS Alarm Aggregate",
+          friendlyName: `${upsAlarms.filter(c => !c.healthy).length} / ${upsAlarms.length} UPS Alarms Tripped`,
+          sensorRole: "upsAlarm",
+          openClosedDetectorType: "UPS",
+          sensorIndex: 31,
+          sensorTypeCode: 31,
+          detectorIndex: 31,
+          raw: upsAlarms
+        };
+      }
+      
+      const thermalData = (internalTemperature !== null || internalHumidity !== null) ? {
+        avgCellTemp: internalTemperature,
+        maxTemp: internalTemperature,
+        minTemp: internalTemperature,
+        humidity: internalHumidity,
+        ambientTemp: ambientTemperature,
+        ambientHumidity: ambientHumidity
+      } : null;
+      
+      const row: BlockSensorMatrixRow = {
+        id: `enclosure-${enclosureIndex}`,
+        location,
+        actionHealthy: true,
+        rowHealthy: true,
+        severity: "OK",
+        findings: [],
+        topology: {
+          enclosureType: isCS ? "CollectionSegment" : "EnergySegment",
+          enclosureIndex,
+          groupIndex: null,
+          segmentIndex: location.rawSegmentIndex ?? null,
+          segmentPosition: location.rawSegmentPosition ?? null,
+          lineupId: location.rawLineupId ?? null,
+          lineupIndex: location.rawLineupIndex ?? null,
+          arrays: [{ arrayIndex }],
+          strings
+        },
+        emergencySensors,
+        comStatus,
+        doorSensors,
+        otherSensors,
+        thermal: thermalData,
+        raw: entitiesForThisEnclosure,
+        unknownSensors: unknownSensorsList
+      };
+      
+      let rowHealthy = true;
+      let severity: "OK" | "Warning" | "Critical" = "OK";
+      const findings: string[] = [];
+      
+      function checkCell(cell: NormalizedSensorCell, label: string) {
+        if (!cell || !cell.applicable) return;
+        if (!cell.healthy || cell.tripped) {
+          rowHealthy = false;
+          severity = "Critical";
+          if (cell.tripped) {
+            findings.push(`${label} sensor tripped`);
+          } else {
+            findings.push(`${label} sensor reporting unhealthy status (${cell.status})`);
+          }
+        }
+      }
+      
+      checkCell(row.emergencySensors.moisture, "Moisture");
+      checkCell(row.comStatus.io, "IO Board");
+      checkCell(row.comStatus.dataCommunications, "Data Comms");
+      checkCell(row.doorSensors.acDoors, "AC doors");
+      checkCell(row.doorSensors.dcDoors, "DC doors");
+      checkCell(row.doorSensors.topCapDoors, "Top cap doors");
+      checkCell(row.doorSensors.batteryDoors, "Battery doors");
+      checkCell(row.otherSensors.manualVentilation, "Manual ventilation");
+      checkCell(row.otherSensors.envControllerVent, "Env Controller Vent");
+      checkCell(row.otherSensors.smoke, "Smoke");
+      checkCell(row.otherSensors.heat, "Heat");
+      checkCell(row.otherSensors.fireTrouble, "Fire Trouble");
+      checkCell(row.otherSensors.fire, "Fire");
+      checkCell(row.otherSensors.hydrogen, "Hydrogen");
+      checkCell(row.otherSensors.hydrogenFault, "Hydrogen Fault");
+      checkCell(row.otherSensors.modbusEStop, "E-Stop");
+      
+      if (isCS && upsAlarms.length > 0) {
+        upsAlarms.forEach((cell, idx) => {
+          checkCell(cell, `UPS Relay ${idx + 31}`);
+        });
+      }
+      
+      row.rowHealthy = rowHealthy;
+      row.actionHealthy = rowHealthy;
+      row.severity = severity;
+      row.findings = findings;
+      
+      addToSidebar("moisture", row.emergencySensors.moisture);
+      addToSidebar("io", row.comStatus.io);
+      addToSidebar("dataUnavailable", row.comStatus.dataCommunications);
+      addToSidebar("acDoors", row.doorSensors.acDoors);
+      addToSidebar("dcDoors", row.doorSensors.dcDoors);
+      addToSidebar("topCapDoors", row.doorSensors.topCapDoors);
+      addToSidebar("batteryDoors", row.doorSensors.batteryDoors);
+      addToSidebar("manualVentilation", row.otherSensors.manualVentilation);
+      addToSidebar("envControllerVent", row.otherSensors.envControllerVent);
+      addToSidebar("smoke", row.otherSensors.smoke);
+      addToSidebar("heat", row.otherSensors.heat);
+      addToSidebar("fireTrouble", row.otherSensors.fireTrouble);
+      addToSidebar("fire", row.otherSensors.fire);
+      addToSidebar("hydrogen", row.otherSensors.hydrogen);
+      addToSidebar("hydrogenFault", row.otherSensors.hydrogenFault);
+      addToSidebar("modbusEStop", row.otherSensors.modbusEStop);
+      if (isCS && upsAlarms.length > 0) {
+        upsAlarms.forEach(cell => {
+          addToSidebar("upsAlarm", cell);
+        });
+      }
+      
+      rows.push(row);
+    }
+  } else {
+    for (const element of elements) {
     totalElements++;
     const location = normalizeElementLocation(element);
     if (location.locationDerivedFromFallback) {
@@ -2015,6 +2598,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     }
 
     rows.push(row);
+    }
   }
 
   rows.sort((a, b) => {
@@ -2066,7 +2650,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     discovered: {
       arrayCount,
       arrays: sortedArrays,
-      enclosureCount: elements.length,
+      enclosureCount: parserMode === "localTopology" ? Object.keys(topologyEntitiesByEnclosure).length : elements.length,
       collectionSegmentCount,
       energySegmentCount,
       stringsByArray,
@@ -2088,8 +2672,8 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     source,
     stationCode,
     blockIndex: blockData?.blockIndex || 1,
-    cumulativeHealthy: blockData?.cumulativeHealthy ?? null,
-    cumulativeTotal: blockData?.cumulativeTotal ?? null,
+    cumulativeHealthy: parserMode === "localTopology" ? rows.filter(r => r.rowHealthy).length : (blockData?.cumulativeHealthy ?? null),
+    cumulativeTotal: parserMode === "localTopology" ? rows.length : (blockData?.cumulativeTotal ?? null),
     sourceHealth,
     sidebarCounts,
     rows,
@@ -2101,7 +2685,18 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       sensorParentMismatchCount,
       unknownSensorCodeCount,
       fallbackGenerated: source === "fallback_blockviewer",
-      stationCodeSource
+      stationCodeSource,
+      parserMode,
+      topologyEntityCount: topologyEntities.length,
+      openClosedDetectorCount: topologyEntities.filter(e => String(e.entityType || "").toLowerCase().includes("openclosed")).length,
+      humidityTemperatureSensorCount: topologyEntities.filter(e => {
+        const type = String(e.entityType || "").toLowerCase();
+        return type.includes("humidity") || type.includes("temperature");
+      }).length,
+      groupedEnclosureCount: Object.keys(topologyEntitiesByEnclosure).length,
+      unknownSensors: parserMode === "localTopology" 
+        ? rows.reduce<NormalizedSensorCell[]>((acc, row) => acc.concat(row.unknownSensors || []), []) 
+        : []
     }
   };
 
