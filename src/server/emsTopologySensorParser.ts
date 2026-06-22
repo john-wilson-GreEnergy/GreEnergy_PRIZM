@@ -68,7 +68,36 @@ export interface NormalizedTopologySensorSummary {
     activePointCount: number;
     unavailablePointCount: number;
     unknownPointCount: number;
+    numericIdParseFailedCount: number;
+    sampleNumericIdFailures: Array<{
+      entityKey: string | null;
+      displayKey: string | null;
+      statusMessage: string | null;
+      entityType: string | null;
+      entitySubType: string | null;
+    }>;
+    sampleParsedNumericIds: Array<{
+      entityKey: string | null;
+      displayKey: string | null;
+      numericId: number | null;
+      enclosureIndex: number | null;
+      sensorCode: number | null;
+      arrayIndex: number | null;
+      segmentKind: "CS" | "ES" | "UNKNOWN";
+      segmentNumber: number | null;
+      pointRole: string;
+    }>;
   };
+}
+
+// Extract the final numeric token from string
+export function extractFinalNumericToken(value: unknown): number | null {
+  const text = String(value ?? "");
+  const matches = text.match(/\d+/g);
+  if (!matches || matches.length === 0) return null;
+
+  const numericId = Number(matches[matches.length - 1]);
+  return Number.isFinite(numericId) ? numericId : null;
 }
 
 // Parse active state from explicit state/value fields
@@ -288,6 +317,28 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
   const sampleEntityKeys: string[] = [];
   const unknownEntities: any[] = [];
 
+  const sampleNumericIdFailures: Array<{
+    entityKey: string | null;
+    displayKey: string | null;
+    statusMessage: string | null;
+    entityType: string | null;
+    entitySubType: string | null;
+  }> = [];
+
+  const sampleParsedNumericIds: Array<{
+    entityKey: string | null;
+    displayKey: string | null;
+    numericId: number | null;
+    enclosureIndex: number | null;
+    sensorCode: number | null;
+    arrayIndex: number | null;
+    segmentKind: "CS" | "ES" | "UNKNOWN";
+    segmentNumber: number | null;
+    pointRole: string;
+  }> = [];
+
+  let numericIdParseFailedCount = 0;
+
   const fieldsToCheck = [
     "value",
     "statusValue",
@@ -352,10 +403,10 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
 
     // Parse Key & Numeric ID
     const key = entity.entityKey || "";
-    const parts = key.split(":");
-    const lastToken = parts[parts.length - 1] || "";
-    const numericIdVal = parseInt(lastToken, 10);
-    const numericId = isNaN(numericIdVal) ? null : numericIdVal;
+    const numericId =
+      extractFinalNumericToken(entity.entityKey) ??
+      extractFinalNumericToken(entity.displayKey) ??
+      extractFinalNumericToken(entity.statusMessage);
 
     let enclosureIndex: number | null = null;
     let sensorCode: number | null = null;
@@ -419,6 +470,34 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       pointLabel = mapping.pointLabel;
     }
 
+    // Gather debugging metrics for numeric IDs
+    if (numericId !== null) {
+      if (sampleParsedNumericIds.length < 10) {
+        sampleParsedNumericIds.push({
+          entityKey: key || null,
+          displayKey: entity.displayKey || null,
+          numericId,
+          enclosureIndex,
+          sensorCode,
+          arrayIndex,
+          segmentKind,
+          segmentNumber,
+          pointRole
+        });
+      }
+    } else {
+      numericIdParseFailedCount++;
+      if (sampleNumericIdFailures.length < 10) {
+        sampleNumericIdFailures.push({
+          entityKey: key || null,
+          displayKey: entity.displayKey || null,
+          statusMessage: entity.statusMessage || null,
+          entityType: entity.entityType || null,
+          entitySubType: entity.entitySubType || null
+        });
+      }
+    }
+
     // Availability state
     const communicating = entity.communicating === true;
     const enabled = entity.enabled === true;
@@ -443,7 +522,9 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       unavailablePointCount++;
     } else if (activeState === true) {
       activePointCount++;
-    } else if (activeState === null) {
+    }
+
+    if (pointRole === "unknown") {
       unknownPointCount++;
     }
 
@@ -745,7 +826,10 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       humidityTemperatureSensorCount,
       activePointCount,
       unavailablePointCount,
-      unknownPointCount
+      unknownPointCount,
+      numericIdParseFailedCount,
+      sampleNumericIdFailures,
+      sampleParsedNumericIds
     }
   };
 }
