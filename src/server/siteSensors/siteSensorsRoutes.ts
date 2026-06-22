@@ -5,7 +5,9 @@ import {
   getFirstResponderEndpointDebugInfo,
   getEmsCachedFirstResponder,
   getNormalizedBaseUrl,
-  emsCache
+  emsCache,
+  isDemoActive,
+  fetchAndRecord
 } from "../emsTurtleClient";
 import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
@@ -1143,6 +1145,7 @@ export interface BlockSensorMatrixRow {
   devicesWithLostComms?: unknown[];
   operationalState?: string | null;
   raw?: unknown;
+  unknownSensors?: NormalizedSensorCell[];
 }
 
 export interface SiteSensorsBlockviewerResponse {
@@ -1157,12 +1160,39 @@ export interface SiteSensorsBlockviewerResponse {
   sidebarCounts: SensorSidebarCounts;
   rows: BlockSensorMatrixRow[];
   topologyDevices?: any[];
+  topologyDiscovery?: {
+    activeProfileId: string | null;
+    activeProfileName: string | null;
+    emsBaseUrl: string | null;
+    stationCode: string | null;
+    blockIndex: number | null;
+    sourcePriority: string;
+    discovered: {
+      arrayCount: number;
+      arrays: number[];
+      enclosureCount: number;
+      collectionSegmentCount: number;
+      energySegmentCount: number;
+      stringsByArray: Record<string, number[]>;
+      energySegmentsByArray: Record<string, number[]>;
+    };
+    sourceHealth: {
+      blockviewer: string;
+      stringIPMap: string;
+      ipMap: string;
+      activeProfile: string;
+    };
+    confidence: "high" | "medium" | "low";
+    warnings: string[];
+  };
   debug?: {
     totalElements: number;
     totalSensors: number;
     locationFallbackCount: number;
     sensorParentMismatchCount: number;
     unknownSensorCodeCount: number;
+    fallbackGenerated: boolean;
+    stationCodeSource: string | null;
   };
 }
 
@@ -1323,6 +1353,7 @@ export function generateFallbackBlockviewerData(arrayCountOverride?: number) {
   const activeProfile = ProfileStore.getActiveProfile();
   const arrayCount = arrayCountOverride || activeProfile?.arrayCount || 8;
   const esCount = 20;
+  const demoActive = typeof isDemoActive === "function" ? isDemoActive() : (process.env.DEMO_MODE === "true");
 
   for (let A = 1; A <= arrayCount; A++) {
     const csEnclosureIndex = (A - 1) * 21 + 1;
@@ -1339,31 +1370,34 @@ export function generateFallbackBlockviewerData(arrayCountOverride?: number) {
       { sensorTypeCode: 10, role: "heat", friendlyName: "Thermal Runaway Heat Relay" },
       { sensorTypeCode: 31, role: "upsAlarm", friendlyName: "UPS AC Power Source Loss" },
       { sensorTypeCode: 32, role: "upsAlarm", friendlyName: "UPS Charger Failure" },
-      { sensorTypeCode: 33, role: "upsAlarm", friendlyName: "UPS Battery Temp High" },
+      { sensorTypeCode: 33, role: "upsAlarm", friendlyName: "UPS General Fault" },
       { sensorTypeCode: 34, role: "upsAlarm", friendlyName: "UPS General Fault" }
-    ].map(s => ({
-      sensorIndex: csEnclosureIndex * 100 + s.sensorTypeCode,
-      sensorRole: s.role,
-      friendlyName: `Array ${A} CS ${s.friendlyName}`,
-      openClosedDetectorType: s.role.toUpperCase(),
-      isTripped: s.sensorTypeCode === 5 && A === 1 ? true : false, 
-      isLatched: false,
-      isHealthy: true,
-      healthy: true,
-      status: s.sensorTypeCode === 5 && A === 1 ? "Active" : "Untripped",
-      timestamp: Date.now(),
-      unhealthyReasons: [],
-      sensorTopology: {
-        entityKey: { openClosedDetectorIndex: csEnclosureIndex * 100 + s.sensorTypeCode },
-        entitySubType: "PhoenixContact_DI",
-        entityType: "OpenClosedDetector",
-        statusMessage: "Device online",
-        communicating: true,
-        enabled: true,
-        ready: true,
-        allowFaultReset: true
-      }
-    }));
+    ].map(s => {
+      const isTripped = s.sensorTypeCode === 5 && A === 1 && demoActive;
+      return {
+        sensorIndex: csEnclosureIndex * 100 + s.sensorTypeCode,
+        sensorRole: s.role,
+        friendlyName: `Array ${A} CS ${s.friendlyName}`,
+        openClosedDetectorType: s.role.toUpperCase(),
+        isTripped: isTripped ? true : false, 
+        isLatched: false,
+        isHealthy: true,
+        healthy: true,
+        status: isTripped ? "Active" : "Untripped",
+        timestamp: Date.now(),
+        unhealthyReasons: [],
+        sensorTopology: {
+          entityKey: { openClosedDetectorIndex: csEnclosureIndex * 100 + s.sensorTypeCode },
+          entitySubType: "PhoenixContact_DI",
+          entityType: "OpenClosedDetector",
+          statusMessage: "Device online",
+          communicating: true,
+          enabled: true,
+          ready: true,
+          allowFaultReset: true
+        }
+      };
+    });
 
     elementList.push({
       enclosureType: "CollectionSegment",
@@ -1398,7 +1432,7 @@ export function generateFallbackBlockviewerData(arrayCountOverride?: number) {
         { sensorTypeCode: 10, role: "fireTrouble", friendlyName: "Extinguisher Signal Trouble" },
         { sensorTypeCode: 11, role: "moisture", friendlyName: "Enclosure Condensation Sensor" }
       ].map(s => {
-        const isTripped = (A === 1 && P === 6 && s.sensorTypeCode === 2) || (A === 1 && P === 1 && s.sensorTypeCode === 11);
+        const isTripped = demoActive && ((A === 1 && P === 6 && s.sensorTypeCode === 2) || (A === 1 && P === 1 && s.sensorTypeCode === 11));
         return {
           sensorIndex: esEnclosureIndex * 100 + s.sensorTypeCode,
           sensorRole: s.role,
@@ -1465,34 +1499,39 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
   let blockData: any = null;
   let fetchError: string | null = null;
   let source: "blockviewer" | "fallback_blockviewer" = "blockviewer";
-  const startFetch = Date.now();
 
   const baseUrl = getNormalizedBaseUrl();
   const endpoint = "/tools/monitor/ems/blockviewer/data";
-  const url = `${baseUrl}${endpoint}`;
 
-  if (refresh) {
+  let shouldFetch = refresh;
+  if (!shouldFetch && maxAgeMs !== undefined && maxAgeMs !== null) {
+    if (!emsCache.block || !emsCache.lastUpdated) {
+      shouldFetch = true;
+    } else {
+      const age = Date.now() - new Date(emsCache.lastUpdated).getTime();
+      if (age > maxAgeMs) {
+        shouldFetch = true;
+      }
+    }
+  }
+
+  if (shouldFetch) {
     try {
-      const controller = new AbortController();
-      const signal = controller.signal;
-      const timeoutId = setTimeout(() => controller.abort(), 4000); 
-      
-      const response = await fetch(url, { signal });
-      clearTimeout(timeoutId);
-
-      const durationMs = Date.now() - startFetch;
-      if (response.ok) {
-        blockData = await response.json();
+      const data = await fetchAndRecord(endpoint, 4000, "json");
+      if (data) {
+        blockData = data;
+        emsCache.block = data;
+        emsCache.lastUpdated = new Date().toISOString();
         sourceHealth.push({
           endpoint,
           success: true,
-          statusCode: response.status,
-          bytes: JSON.stringify(blockData).length,
+          statusCode: 200,
+          bytes: JSON.stringify(data).length,
           timestamp: new Date().toISOString(),
           parseSuccess: true
         });
       } else {
-        throw new Error(`HTTP Error Status: ${response.status} ${response.statusText}`);
+        throw new Error("No data returned from blockviewer fetch.");
       }
     } catch (err: any) {
       fetchError = err.message || String(err);
@@ -1508,13 +1547,13 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     }
   }
 
-  if (!blockData && !refresh) {
+  if (!blockData) {
     blockData = emsCache.block;
     if (blockData) {
       sourceHealth.push({
         endpoint,
         success: true,
-        timestamp: new Date().toISOString(),
+        timestamp: emsCache.lastUpdated || new Date().toISOString(),
         parseSuccess: true
       });
     }
@@ -1524,23 +1563,69 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
   const activeProfile = ProfileStore.getActiveProfile();
   const stringIPMap = emsCache.stringIPMap;
   const ipMap = emsCache.ipMap;
-  
-  let arrayIndexSet = new Set<number>();
+
+  const discoveredArrays = new Set<number>();
+  const stringsByArray: Record<string, number[]> = {};
+  const energySegmentsByArray: Record<string, number[]> = {};
+  let collectionSegmentCount = 0;
+  let energySegmentCount = 0;
   let stationCodeFromData: string | null = null;
 
-  // 1. Inspect blockviewer elements if we have any
-  const testElements = blockData?.elementList || blockData?.data?.elementList || [];
-  if (Array.isArray(testElements) && testElements.length > 0) {
-    for (const elem of testElements) {
+  // Let's inspect blockviewer elements if we have any
+  const elementsToParse = blockData?.elementList || blockData?.data?.elementList || [];
+  if (Array.isArray(elementsToParse) && elementsToParse.length > 0) {
+    for (const elem of elementsToParse) {
       if (elem.stationCode && !stationCodeFromData) {
         stationCodeFromData = elem.stationCode;
       }
+      const isCS = elem.enclosureType === "CollectionSegment";
+      if (isCS) {
+        collectionSegmentCount++;
+      } else {
+        energySegmentCount++;
+      }
+
       const loc = elem.locationInfo || {};
-      let arrIdx: number | null = null;
-      if (loc.arrays && loc.arrays[0]) arrIdx = Number(loc.arrays[0].arrayIndex);
-      if ((arrIdx === null || isNaN(arrIdx)) && loc.strings && loc.strings[0]) arrIdx = Number(loc.strings[0].arrayIndex);
-      if (arrIdx !== null && !isNaN(arrIdx) && arrIdx > 0 && arrIdx <= 32) {
-        arrayIndexSet.add(arrIdx);
+      const arrs = loc.arrays || [];
+      const strs = loc.strings || [];
+
+      arrs.forEach((arr: any) => {
+        const val = arr.arrayIndex ?? arr.array ?? null;
+        if (val !== null && !isNaN(Number(val))) {
+          discoveredArrays.add(Number(val));
+        }
+      });
+
+      strs.forEach((str: any) => {
+        const arrVal = str.arrayIndex ?? str.array ?? null;
+        const strVal = str.stringIndex ?? str.string ?? null;
+        if (arrVal !== null && !isNaN(Number(arrVal))) {
+          const arrNum = Number(arrVal);
+          discoveredArrays.add(arrNum);
+          if (strVal !== null && !isNaN(Number(strVal))) {
+            const strNum = Number(strVal);
+            if (!stringsByArray[`A${arrNum}`]) {
+              stringsByArray[`A${arrNum}`] = [];
+            }
+            if (!stringsByArray[`A${arrNum}`].includes(strNum)) {
+              stringsByArray[`A${arrNum}`].push(strNum);
+            }
+          }
+        }
+      });
+
+      if (!isCS && elem.enclosureIndex !== undefined) {
+        let targetArray: number | null = null;
+        if (strs.length > 0) targetArray = Number(strs[0].arrayIndex ?? strs[0].array);
+        else if (arrs.length > 0) targetArray = Number(arrs[0].arrayIndex ?? arrs[0].array);
+        if (targetArray !== null && !isNaN(targetArray)) {
+          if (!energySegmentsByArray[`A${targetArray}`]) {
+            energySegmentsByArray[`A${targetArray}`] = [];
+          }
+          if (!energySegmentsByArray[`A${targetArray}`].includes(elem.enclosureIndex)) {
+            energySegmentsByArray[`A${targetArray}`].push(elem.enclosureIndex);
+          }
+        }
       }
     }
   }
@@ -1550,14 +1635,44 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     try {
       if (Array.isArray(stringIPMap)) {
         stringIPMap.forEach((entry: any) => {
-          if (entry.arrayIndex && !isNaN(Number(entry.arrayIndex))) {
-            arrayIndexSet.add(Number(entry.arrayIndex));
+          const arrVal = entry.arrayIndex ?? entry.array ?? null;
+          const strVal = entry.stringIndex ?? entry.string ?? null;
+          if (arrVal !== null && !isNaN(Number(arrVal))) {
+            const arrNum = Number(arrVal);
+            discoveredArrays.add(arrNum);
+            if (strVal !== null && !isNaN(Number(strVal))) {
+              const strNum = Number(strVal);
+              if (!stringsByArray[`A${arrNum}`]) {
+                stringsByArray[`A${arrNum}`] = [];
+              }
+              if (!stringsByArray[`A${arrNum}`].includes(strNum)) {
+                stringsByArray[`A${arrNum}`].push(strNum);
+              }
+            }
           }
         });
       } else if (typeof stringIPMap === "object") {
         Object.keys(stringIPMap).forEach((k) => {
           const match = k.match(/A(\d+)/i) || k.match(/array\D*(\d+)/i);
-          if (match) arrayIndexSet.add(Number(match[1]));
+          if (match) {
+            const arrNum = Number(match[1]);
+            discoveredArrays.add(arrNum);
+            const val = (stringIPMap as any)[k];
+            if (Array.isArray(val)) {
+              val.forEach((entry: any) => {
+                const strVal = entry.stringIndex ?? entry.string ?? null;
+                if (strVal !== null && !isNaN(Number(strVal))) {
+                  const strNum = Number(strVal);
+                  if (!stringsByArray[`A${arrNum}`]) {
+                    stringsByArray[`A${arrNum}`] = [];
+                  }
+                  if (!stringsByArray[`A${arrNum}`].includes(strNum)) {
+                    stringsByArray[`A${arrNum}`].push(strNum);
+                  }
+                }
+              });
+            }
+          }
         });
       }
     } catch (e) {}
@@ -1568,23 +1683,32 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     try {
       if (Array.isArray(ipMap)) {
         ipMap.forEach((entry: any) => {
-          if (entry.arrayIndex && !isNaN(Number(entry.arrayIndex))) {
-            arrayIndexSet.add(Number(entry.arrayIndex));
+          const arrVal = entry.arrayIndex ?? entry.array ?? null;
+          if (arrVal !== null && !isNaN(Number(arrVal))) {
+            discoveredArrays.add(Number(arrVal));
           }
         });
       } else if (typeof ipMap === "object") {
         Object.keys(ipMap).forEach((k) => {
           const match = k.match(/A(\d+)/i) || k.match(/array\D*(\d+)/i);
-          if (match) arrayIndexSet.add(Number(match[1]));
+          if (match) discoveredArrays.add(Number(match[1]));
         });
       }
     } catch (e) {}
   }
 
-  // 4. Default / Fallback from profile/topology
+  // Sort and finalize arrays and collections
+  const sortedArrays = Array.from(discoveredArrays).sort((a, b) => a - b);
+  Object.keys(stringsByArray).forEach((k) => {
+    stringsByArray[k].sort((a, b) => a - b);
+  });
+  Object.keys(energySegmentsByArray).forEach((k) => {
+    energySegmentsByArray[k].sort((a, b) => a - b);
+  });
+
   let arrayCount = activeProfile?.arrayCount || 8;
-  if (arrayIndexSet.size > 0) {
-    arrayCount = Math.max(...Array.from(arrayIndexSet));
+  if (sortedArrays.length > 0) {
+    arrayCount = Math.max(...sortedArrays);
   } else if (activeProfile?.topologyModel) {
     const topo = activeProfile.topologyModel;
     if (topo.arrayEnd && !isNaN(Number(topo.arrayEnd))) {
@@ -1595,7 +1719,31 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     arrayCount = activeProfile?.arrayCount || 8;
   }
 
-  if (!blockData) {
+  // --- Station Code Selection and Priority Matrix ---
+  let stationCode: string | null = null;
+  let stationCodeSource = "none";
+
+  if (blockData?.stationCode) {
+    stationCode = blockData.stationCode;
+    stationCodeSource = "blockData.stationCode";
+  } else if (blockData?.data?.stationCode) {
+    stationCode = blockData.data.stationCode;
+    stationCodeSource = "blockData.data.stationCode";
+  } else if (stationCodeFromData) {
+    stationCode = stationCodeFromData;
+    stationCodeSource = "elementList.stationCode";
+  } else if (emsCache.discoveredStationCode) {
+    stationCode = emsCache.discoveredStationCode;
+    stationCodeSource = "emsCache.discoveredStationCode";
+  } else if (activeProfile?.stationCode) {
+    stationCode = activeProfile.stationCode;
+    stationCodeSource = "profile.stationCode";
+  } else {
+    stationCode = "BHE0020";
+    stationCodeSource = "fallback.default";
+  }
+
+  if (!blockData || !blockData.elementList) {
     source = "fallback_blockviewer";
     blockData = generateFallbackBlockviewerData(arrayCount);
   }
@@ -1668,6 +1816,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
 
     const rawSensors = element.sensorsForEnclosure || [];
     const upsAlarms: NormalizedSensorCell[] = [];
+    const unknownSensorsList: NormalizedSensorCell[] = [];
 
     for (const rawSens of rawSensors) {
       totalSensors++;
@@ -1723,6 +1872,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
 
       if (!mapped) {
         unknownSensorCodeCount++;
+        unknownSensorsList.push(cell);
       }
     }
 
@@ -1775,7 +1925,8 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       deviceHealth: element.deviceHealth || null,
       devicesWithLostComms: element.devicesWithLostComms || [],
       operationalState: element.operationalState || null,
-      raw: element
+      raw: element,
+      unknownSensors: unknownSensorsList
     };
 
     let rowHealthy = true;
@@ -1870,23 +2021,87 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     return (a.location.sortKey || "ZZZ").localeCompare(b.location.sortKey || "ZZZ");
   });
 
+  const blockviewerHealth = source === "fallback_blockviewer" 
+    ? "fallback" 
+    : (fetchError ? "degraded" : "nominal");
+
+  const stringIPMapHealth = (emsCache.stringIPMap && Array.isArray(emsCache.stringIPMap) && emsCache.stringIPMap.length > 0)
+    ? "nominal"
+    : "fallback";
+
+  const ipMapHealth = (emsCache.ipMap && Array.isArray(emsCache.ipMap) && emsCache.ipMap.length > 0)
+    ? "nominal"
+    : "fallback";
+
+  const activeProfileHealth = activeProfile ? "nominal" : "unreachable";
+
+  let confidence: "high" | "medium" | "low" = "high";
+  if (source === "fallback_blockviewer") {
+    confidence = "low";
+  } else if (stringIPMapHealth === "fallback" || ipMapHealth === "fallback") {
+    confidence = "medium";
+  }
+
+  const warnings: string[] = [];
+  if (source === "fallback_blockviewer") {
+    warnings.push("No live blockviewer data available; generating dynamic grid fallback.");
+  }
+  if (stringIPMapHealth === "fallback") {
+    warnings.push("stringIPMap is empty or failing; using profile-derived fallback map.");
+  }
+  if (ipMapHealth === "fallback") {
+    warnings.push("ipMap is empty or failing; using profile-derived fallback map.");
+  }
+  if (fetchError) {
+    warnings.push(`EMS fetch error on blockviewer: ${fetchError}`);
+  }
+
+  const topologyDiscovery = {
+    activeProfileId: activeProfile ? activeProfile.id : null,
+    activeProfileName: activeProfile ? activeProfile.profileName : null,
+    emsBaseUrl: baseUrl || null,
+    stationCode,
+    blockIndex: blockData?.blockIndex || 1,
+    sourcePriority: stationCodeSource,
+    discovered: {
+      arrayCount,
+      arrays: sortedArrays,
+      enclosureCount: elements.length,
+      collectionSegmentCount,
+      energySegmentCount,
+      stringsByArray,
+      energySegmentsByArray
+    },
+    sourceHealth: {
+      blockviewer: blockviewerHealth,
+      stringIPMap: stringIPMapHealth,
+      ipMap: ipMapHealth,
+      activeProfile: activeProfileHealth
+    },
+    confidence,
+    warnings
+  };
+
   return {
     success: true,
     timestamp: new Date().toISOString(),
     source,
-    stationCode: blockData.stationCode || null,
-    blockIndex: blockData.blockIndex || 1,
-    cumulativeHealthy: blockData.cumulativeHealthy ?? null,
-    cumulativeTotal: blockData.cumulativeTotal ?? null,
+    stationCode,
+    blockIndex: blockData?.blockIndex || 1,
+    cumulativeHealthy: blockData?.cumulativeHealthy ?? null,
+    cumulativeTotal: blockData?.cumulativeTotal ?? null,
     sourceHealth,
     sidebarCounts,
     rows,
+    topologyDiscovery,
     debug: {
       totalElements,
       totalSensors,
       locationFallbackCount,
       sensorParentMismatchCount,
-      unknownSensorCodeCount
+      unknownSensorCodeCount,
+      fallbackGenerated: source === "fallback_blockviewer",
+      stationCodeSource
     }
   };
 
@@ -1927,8 +2142,9 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
 // 6. Router implementation for blockviewer
 router.get("/blockviewer", async (req, res) => {
   const refresh = req.query.refresh === "true";
+  const maxAgeMs = req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 0;
   try {
-    const data = await buildBlockviewerSensorMatrix(refresh);
+    const data = await buildBlockviewerSensorMatrix(refresh, maxAgeMs);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || String(error) });
@@ -1938,8 +2154,9 @@ router.get("/blockviewer", async (req, res) => {
 // Alias for general telemetry maps compatibility
 router.get("/blockviewer/sensors", async (req, res) => {
   const refresh = req.query.refresh === "true";
+  const maxAgeMs = req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 0;
   try {
-    const data = await buildBlockviewerSensorMatrix(refresh);
+    const data = await buildBlockviewerSensorMatrix(refresh, maxAgeMs);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || String(error) });

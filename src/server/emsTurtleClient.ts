@@ -374,7 +374,7 @@ const endpointDebugMap: Record<string, EndpointDebugInfo> = {
 };
 
 // Execute a fetch with absolute timeout wrapping and trace diagnostics
-async function fetchAndRecord(endpoint: string, customTimeoutMs?: number, returnType: 'response' | 'json' | 'text' = 'response'): Promise<any> {
+export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number, returnType: 'response' | 'json' | 'text' = 'response'): Promise<any> {
   const baseUrl = getNormalizedBaseUrl();
   const url = `${baseUrl}${endpoint}`;
   const controller = new AbortController();
@@ -577,7 +577,7 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
   const activeRef = ProfileStore.getActiveProfile();
   const activeProfileId = activeRef ? activeRef.id : "default-local-ems";
   const activeProfileName = activeRef ? activeRef.profileName : (process.env.EMS_PROFILE_NAME || "PRIZM Core Hardware Bess Profile");
-  const stationCode = activeRef ? activeRef.stationCode : "BHE0020";
+  const stationCode = emsCache.discoveredStationCode || (activeRef ? activeRef.stationCode : "BHE0020");
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
   // Verify Cache Ownership matching constraints
@@ -1067,7 +1067,7 @@ export function getEmsConnectionStatus() {
   const activeRef = ProfileStore.getActiveProfile();
   const activeProfileId = activeRef ? activeRef.id : "default-local-ems";
   const activeProfileName = activeRef ? activeRef.profileName : (process.env.EMS_PROFILE_NAME || "PRIZM Core Hardware Bess Profile");
-  const stationCode = activeRef ? activeRef.stationCode : "BHE0020";
+  const stationCode = emsCache.discoveredStationCode || (activeRef ? activeRef.stationCode : "BHE0020");
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
   const cacheMatches = isDemo || (cacheProfileId === activeProfileId && cacheEmsBaseUrl === rawUrl);
