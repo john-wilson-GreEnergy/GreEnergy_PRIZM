@@ -13,6 +13,7 @@ import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
+import { parseEmsTopology } from "../emsTopologySensorParser";
 
 
 const router = Router();
@@ -1160,6 +1161,7 @@ export interface SiteSensorsBlockviewerResponse {
   sidebarCounts?: SensorSidebarCounts;
   rows?: BlockSensorMatrixRow[];
   topologyDevices?: any[];
+  topologySummary?: any;
   topologyDiscovery?: {
     activeProfileId: string | null;
     activeProfileName: string | null;
@@ -1787,6 +1789,13 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
         timestamp: emsCache.lastUpdated || new Date().toISOString(),
         parseSuccess: true
       });
+    }
+  }
+
+  if (blockData) {
+    const summary = parseEmsTopology(blockData);
+    if (summary && summary.success) {
+      emsCache.topologySensorSummary = summary;
     }
   }
 
@@ -2678,6 +2687,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     sidebarCounts,
     rows,
     topologyDiscovery,
+    topologySummary: emsCache.topologySensorSummary,
     debug: {
       totalElements,
       totalSensors,
@@ -2733,6 +2743,56 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     }
   }
 }
+
+// GET /api/local/site-sensors/topology
+router.get("/topology", async (req, res) => {
+  const refresh = req.query.refresh === "true";
+  const maxAgeMs = req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 0;
+  
+  try {
+    let blockData = emsCache.block;
+    let shouldFetch = refresh || !blockData;
+    
+    if (!shouldFetch && maxAgeMs > 0 && emsCache.lastUpdated) {
+      const age = Date.now() - new Date(emsCache.lastUpdated).getTime();
+      if (age > maxAgeMs) {
+        shouldFetch = true;
+      }
+    }
+    
+    if (shouldFetch) {
+      const endpoint = "/tools/monitor/ems/blockviewer/data";
+      const data = await fetchAndRecord(endpoint, 4000, "json");
+      if (data) {
+        blockData = data;
+        emsCache.block = data;
+        emsCache.lastUpdated = new Date().toISOString();
+      }
+    }
+    
+    if (!blockData) {
+      blockData = emsCache.block;
+    }
+    
+    const summary = parseEmsTopology(blockData);
+    
+    if (summary.success) {
+      emsCache.topologySensorSummary = summary;
+      res.json(summary);
+    } else {
+      res.status(400).json({
+        success: false,
+        error: "topology[] is missing in blockviewer payload",
+        topLevelKeys: summary.debug.topLevelKeys
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || String(error)
+    });
+  }
+});
 
 // 6. Router implementation for blockviewer
 router.get("/blockviewer", async (req, res) => {

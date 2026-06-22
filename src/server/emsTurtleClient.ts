@@ -64,6 +64,7 @@ interface EmsCache {
   siteCodeSource: string | null;
   arrayPcsReports: any;
   arrayReports: any;
+  topologySensorSummary?: any;
 }
 
 // Strict Real-Time Cache for Actual LAN Ethernet Polling
@@ -97,7 +98,8 @@ export const emsCache: EmsCache = {
   discoveredStationCode: null,
   siteCodeSource: null,
   arrayPcsReports: {},
-  arrayReports: {}
+  arrayReports: {},
+  topologySensorSummary: null
 };
 
 // High-fidelity pre-filled simulation template (Only served when Demo Mode is explicitly active)
