@@ -31,6 +31,7 @@ import {
   FileCheck
 } from "lucide-react";
 import { BessDevice, ReportConfig } from "../types";
+import SiteSensorsMatrix from "./SiteSensorsMatrix";
 
 interface ReportingProps {
   devices: BessDevice[];
@@ -51,6 +52,8 @@ export default function Reporting({
 }: ReportingProps) {
   // Report Catalog Template items
   const [catalog, setCatalog] = useState<any[]>([]);
+  // Sub-tabs navigation for matrix vs reports
+  const [activeSubTab, setActiveSubTab] = useState<"archives" | "sensors">("sensors");
   // Recent exports list
   const [recentReports, setRecentReports] = useState<any[]>([]);
   // Selected builder template state
@@ -507,6 +510,35 @@ export default function Reporting({
           </div>
         </div>
       )}
+
+      {/* SUB-TABS NAVIGATION */}
+      <div className="flex border-b border-prizm-border pb-0.5 gap-2" id="prizm-reporting-subtabs">
+        <button
+          onClick={() => setActiveSubTab("sensors")}
+          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 cursor-pointer transition-all ${
+            activeSubTab === "sensors"
+              ? "border-prizm-primary text-prizm-primary font-sans"
+              : "border-transparent text-prizm-text-muted hover:text-white"
+          }`}
+        >
+          Environmental Sensors Matrix
+        </button>
+        <button
+          onClick={() => setActiveSubTab("archives")}
+          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 cursor-pointer transition-all ${
+            activeSubTab === "archives"
+              ? "border-prizm-primary text-prizm-primary font-sans"
+              : "border-transparent text-prizm-text-muted hover:text-white"
+          }`}
+        >
+          Diagnostic Journals & Exports
+        </button>
+      </div>
+
+      {activeSubTab === "sensors" ? (
+        <SiteSensorsMatrix />
+      ) : (
+        <>
 
       {/* CORE DIAGNOSTIC CAPTURE PANEL */}
       {diagnosticSession && diagnosticSession.active ? (
@@ -1187,6 +1219,8 @@ export default function Reporting({
         </div>
 
       </div>
+      </>
+      )}
 
     </div>
   );

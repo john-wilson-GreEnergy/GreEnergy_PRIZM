@@ -3,7 +3,9 @@ import {
   getLiveFirstResponderV2, 
   getLiveFirstResponderV1, 
   getFirstResponderEndpointDebugInfo,
-  getEmsCachedFirstResponder
+  getEmsCachedFirstResponder,
+  getNormalizedBaseUrl,
+  emsCache
 } from "../emsTurtleClient";
 import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
@@ -982,6 +984,892 @@ export function buildSiteSensorSummary(): any {
     rows
   };
 }
+
+// -----------------------------------------------------------------------------
+// BLOCKVIEWER ALL SENSORS MATRIX TYPES & NORMALIZATION ENGINE
+// -----------------------------------------------------------------------------
+
+export interface NormalizedContainerLocation {
+  arrayIndex: number | null;
+  arrayLabel: string;
+  segmentKind: "CS" | "ES" | "UNKNOWN";
+  segmentNumber: number | null;
+  segmentLabel: string;
+  displayName: string;
+  sortKey: string;
+  locationDerivedFromFallback?: boolean;
+
+  rawLineupId?: number | null;
+  rawLineupIndex?: number | null;
+  rawSegmentIndex?: number | null;
+  rawEnclosureIndex?: number | null;
+  rawSegmentPosition?: number | string | null;
+  rawGroupIndex?: number | null;
+
+  strings?: { arrayIndex: number; stringIndex: number; acPvBatteryIndex?: number | null }[];
+  ipAddress?: string | null;
+}
+
+export interface NormalizedSensorCell {
+  applicable: boolean;
+  healthy: boolean;
+  tripped: boolean | null;
+  latched: boolean | null;
+  value: boolean | string | number | null;
+  status: string | null;
+  displayValue: string;
+  label: string;
+  friendlyName: string | null;
+  sensorRole: string | null;
+  openClosedDetectorType: string | null;
+  sensorIndex: number | null;
+  sensorTypeCode: number | null;
+  detectorIndex: number | null;
+  entityKey?: unknown;
+  entitySubType?: string | null;
+  entityType?: string | null;
+  statusMessage?: string | null;
+  communicating?: boolean | null;
+  enabled?: boolean | null;
+  ready?: boolean | null;
+  timestamp?: number | string | null;
+  unhealthyReasons?: string[];
+  estopActive?: boolean | null;
+  estopCountdown?: number | null;
+  allowFaultReset?: boolean | null;
+  sourcePath?: string;
+  debug?: {
+    expectedEnclosureIndex?: number | null;
+    parsedEnclosureIndex?: number | null;
+    sensorIndexParentMismatch?: boolean;
+    roleCodeMismatch?: boolean;
+    derivedFrom?: string;
+  };
+  raw?: unknown;
+}
+
+export interface SourceHealth {
+  endpoint: string;
+  success: boolean;
+  statusCode?: number;
+  bytes?: number;
+  timestamp: string;
+  parseSuccess: boolean;
+  error?: string | null;
+}
+
+export interface SensorCount {
+  label: string;
+  untripped: number;
+  total: number;
+  tripped: number;
+  healthy: boolean;
+}
+
+export interface SensorSidebarCounts {
+  fire: SensorCount;
+  fireTrouble: SensorCount;
+  smoke: SensorCount;
+  heat: SensorCount;
+  hydrogen: SensorCount;
+  hydrogenFault: SensorCount;
+  dataCommunications: SensorCount;
+  ioCommunications: SensorCount;
+  acDoors: SensorCount;
+  dcDoors: SensorCount;
+  topCapDoor: SensorCount;
+  batteryDoors: SensorCount;
+  manualVentilation: SensorCount;
+  envCtrl: SensorCount;
+  upsAlarm: SensorCount;
+  moisture: SensorCount;
+  stationWide: SensorCount;
+}
+
+export interface BlockSensorMatrixRow {
+  id: string;
+  location: NormalizedContainerLocation;
+
+  actionHealthy: boolean;
+  rowHealthy: boolean;
+  severity: "OK" | "Warning" | "Critical";
+  findings: string[];
+
+  topology: {
+    enclosureType: "CollectionSegment" | "EnergySegment" | "UNKNOWN";
+    enclosureIndex: number | null;
+    groupIndex: number | null;
+    segmentIndex: number | null;
+    segmentPosition: number | string | null;
+    lineupId: number | null;
+    lineupIndex: number | null;
+    arrays: { arrayIndex: number; acPvBatteryIndex?: number | null; pvPcsIndex?: number | null }[];
+    strings: { arrayIndex: number; stringIndex: number; acPvBatteryIndex?: number | null }[];
+  };
+
+  emergencySensors: {
+    moisture: NormalizedSensorCell;
+  };
+
+  comStatus: {
+    io: NormalizedSensorCell;
+    dataCommunications: NormalizedSensorCell;
+  };
+
+  doorSensors: {
+    acDoors: NormalizedSensorCell;
+    dcDoors: NormalizedSensorCell;
+    topCapDoors: NormalizedSensorCell;
+    batteryDoors: NormalizedSensorCell;
+  };
+
+  otherSensors: {
+    modbusEStop: NormalizedSensorCell;
+    manualVentilation: NormalizedSensorCell;
+    envControllerVent: NormalizedSensorCell;
+    envControllerLostComms: NormalizedSensorCell;
+    upsAlarm: NormalizedSensorCell | NormalizedSensorCell[];
+    smoke: NormalizedSensorCell;
+    heat: NormalizedSensorCell;
+    fire: NormalizedSensorCell;
+    fireTrouble: NormalizedSensorCell;
+    hydrogen: NormalizedSensorCell;
+    hydrogenFault: NormalizedSensorCell;
+  };
+
+  thermal?: any;
+  controller?: any;
+  deviceHealth?: any;
+  devicesWithLostComms?: unknown[];
+  operationalState?: string | null;
+  raw?: unknown;
+}
+
+export interface SiteSensorsBlockviewerResponse {
+  success: boolean;
+  timestamp: string;
+  source: "blockviewer" | "fallback_blockviewer";
+  stationCode: string | null;
+  blockIndex: number | null;
+  cumulativeHealthy?: number | null;
+  cumulativeTotal?: number | null;
+  sourceHealth: SourceHealth[];
+  sidebarCounts: SensorSidebarCounts;
+  rows: BlockSensorMatrixRow[];
+  topologyDevices?: any[];
+  debug?: {
+    totalElements: number;
+    totalSensors: number;
+    locationFallbackCount: number;
+    sensorParentMismatchCount: number;
+    unknownSensorCodeCount: number;
+  };
+}
+
+// 1. Create a default, empty or non-applicable cell
+function createDefaultCell(role: string, applicable: boolean, isMissing = false): NormalizedSensorCell {
+  return {
+    applicable,
+    healthy: true,
+    tripped: false,
+    latched: false,
+    value: null,
+    status: applicable ? (isMissing ? null : "Normal") : "N/A",
+    displayValue: applicable ? (isMissing ? "—" : "OK") : "N/A",
+    label: role,
+    friendlyName: applicable ? (isMissing ? "Missing" : "Normal") : "N/A",
+    sensorRole: role,
+    openClosedDetectorType: null,
+    sensorIndex: null,
+    sensorTypeCode: null,
+    detectorIndex: null,
+    sourcePath: ""
+  };
+}
+
+// 2. Parser for raw sensor elements to NormalizedSensorCell
+function parseSensorCell(rawSensor: any, parentEnclosureIndex: number): NormalizedSensorCell {
+  const sensorIndex = rawSensor.sensorIndex ?? rawSensor.sensorTopology?.entityKey?.openClosedDetectorIndex ?? null;
+  const sensorRole = rawSensor.sensorRole ?? rawSensor.openClosedDetectorType ?? null;
+  const friendlyName = rawSensor.friendlyName ?? null;
+  const openClosedDetectorType = rawSensor.openClosedDetectorType ?? null;
+  const isTripped = rawSensor.isTripped === true || 
+    String(rawSensor.status || "").toLowerCase().includes("tripped") || 
+    String(rawSensor.status || "").toLowerCase().includes("alarm") || 
+    String(rawSensor.status || "").toLowerCase().includes("fault") || 
+    String(rawSensor.status || "").toLowerCase().includes("active");
+  const isLatched = rawSensor.isLatched === true;
+  
+  let healthy = true;
+  if (rawSensor.healthy === false || rawSensor.isHealthy === false) healthy = false;
+  if (isTripped) healthy = false;
+  if (rawSensor.communicating === false || rawSensor.sensorTopology?.communicating === false) healthy = false;
+  if (rawSensor.enabled === false || rawSensor.sensorTopology?.enabled === false) healthy = false;
+  if (rawSensor.ready === false || rawSensor.sensorTopology?.ready === false) healthy = false;
+
+  const status = rawSensor.status ?? (healthy ? "Normal" : "Fault");
+  const displayValue = healthy ? "OK" : (isTripped ? "TRIPPED" : "UNHEALTHY");
+
+  const sensorTypeCode = sensorIndex !== null ? (sensorIndex % 100) : null;
+  const parsedEnclosureIndex = sensorIndex !== null ? Math.floor(sensorIndex / 100) : null;
+  const sensorIndexParentMismatch = sensorIndex !== null && parsedEnclosureIndex !== parentEnclosureIndex;
+
+  return {
+    applicable: true,
+    healthy,
+    tripped: isTripped,
+    latched: isLatched,
+    value: rawSensor.value ?? null,
+    status,
+    displayValue,
+    label: rawSensor.label ?? sensorRole ?? `Sensor ${sensorIndex}`,
+    friendlyName,
+    sensorRole,
+    openClosedDetectorType,
+    sensorIndex,
+    sensorTypeCode,
+    detectorIndex: sensorIndex,
+    entityKey: rawSensor.sensorTopology?.entityKey ?? null,
+    entitySubType: rawSensor.sensorTopology?.entitySubType ?? null,
+    entityType: rawSensor.sensorTopology?.entityType ?? null,
+    statusMessage: rawSensor.sensorTopology?.statusMessage ?? null,
+    communicating: rawSensor.sensorTopology?.communicating !== undefined ? rawSensor.sensorTopology?.communicating : null,
+    enabled: rawSensor.sensorTopology?.enabled !== undefined ? rawSensor.sensorTopology?.enabled : null,
+    ready: rawSensor.sensorTopology?.ready !== undefined ? rawSensor.sensorTopology?.ready : null,
+    timestamp: rawSensor.timestamp ?? null,
+    unhealthyReasons: rawSensor.unhealthyReasons ?? [],
+    estopActive: rawSensor.estopActive ?? null,
+    estopCountdown: rawSensor.estopCountdown ?? null,
+    allowFaultReset: rawSensor.sensorTopology?.allowFaultReset ?? null,
+    sourcePath: rawSensor.sourcePath ?? "",
+    debug: {
+      expectedEnclosureIndex: parentEnclosureIndex,
+      parsedEnclosureIndex,
+      sensorIndexParentMismatch,
+      derivedFrom: String(rawSensor.sourcePath || "blockviewer")
+    },
+    raw: rawSensor
+  };
+}
+
+// 3. Normalize Location info for elements
+function normalizeElementLocation(element: any): NormalizedContainerLocation & { locationDerivedFromFallback?: boolean } {
+  const loc = element.locationInfo || {};
+  let arrayIndex: number | null = null;
+  if (loc.arrays && loc.arrays[0]) {
+    arrayIndex = loc.arrays[0].arrayIndex ?? null;
+  }
+  if (arrayIndex === null && loc.strings && loc.strings[0]) {
+    arrayIndex = loc.strings[0].arrayIndex ?? null;
+  }
+  
+  let locationDerivedFromFallback = false;
+  let segmentKind: "CS" | "ES" | "UNKNOWN" = "UNKNOWN";
+  let segmentNumber: number | null = null;
+  let segmentLabel = "UNKNOWN";
+  let displayName = "Unknown Enclosure";
+  let sortKey = "ZZZ";
+
+  if (element.enclosureType === "CollectionSegment") {
+    segmentKind = "CS";
+    segmentNumber = null;
+    segmentLabel = "CS";
+    const arrayPart = arrayIndex !== null ? `Array ${arrayIndex}` : "Unknown Array";
+    displayName = `${arrayPart} - CS`;
+    const arrPad = arrayIndex !== null ? String(arrayIndex).padStart(2, "0") : "99";
+    sortKey = `A${arrPad}-CS`;
+  } else if (element.enclosureType === "EnergySegment") {
+    segmentKind = "ES";
+    let pos = loc.segmentPosition !== undefined ? Number(loc.segmentPosition) : null;
+    if (pos === null && loc.strings && loc.strings.length > 0) {
+      const minStringIndex = Math.min(...loc.strings.map((str: any) => Number(str.stringIndex || 999)));
+      if (minStringIndex < 999) {
+        pos = Math.ceil(minStringIndex / 2);
+        locationDerivedFromFallback = true;
+      }
+    }
+    segmentNumber = pos;
+    segmentLabel = pos !== null ? `ES${pos}` : "ES?";
+    const arrayPart = arrayIndex !== null ? `Array ${arrayIndex}` : "Unknown Array";
+    displayName = `${arrayPart} - ${segmentLabel}`;
+    
+    const arrPad = arrayIndex !== null ? String(arrayIndex).padStart(2, "0") : "99";
+    const posPad = pos !== null ? String(pos).padStart(2, "0") : "99";
+    sortKey = `A${arrPad}-ES${posPad}`;
+  }
+
+  return {
+    arrayIndex,
+    arrayLabel: arrayIndex !== null ? `Array ${arrayIndex}` : "Unknown",
+    segmentKind,
+    segmentNumber,
+    segmentLabel,
+    displayName,
+    sortKey,
+    locationDerivedFromFallback,
+    rawLineupId: loc.lineupId ?? null,
+    rawLineupIndex: loc.lineupIndex ?? null,
+    rawSegmentIndex: loc.segmentIndex ?? null,
+    rawEnclosureIndex: element.enclosureIndex ?? null,
+    rawSegmentPosition: loc.segmentPosition ?? null,
+    rawGroupIndex: element.groupIndex ?? null,
+    strings: loc.strings || []
+  };
+}
+
+// 4. Fallback Blockviewer Generator
+export function generateFallbackBlockviewerData() {
+  const elementList: any[] = [];
+  const activeProfile = ProfileStore.getActiveProfile();
+  const arrayCount = activeProfile?.arrayCount || 8;
+  const esCount = 20;
+
+  for (let A = 1; A <= arrayCount; A++) {
+    const csEnclosureIndex = (A - 1) * 21 + 1;
+    const csSensors = [
+      { sensorTypeCode: 1, role: "dataUnavailable", friendlyName: "EMS Controller Comms" },
+      { sensorTypeCode: 2, role: "acDoors", friendlyName: "AC Cabinet Doors" },
+      { sensorTypeCode: 3, role: "dcDoors", friendlyName: "DC Cabinet Doors" },
+      { sensorTypeCode: 4, role: "topCapDoors", friendlyName: "Top Cap Doors" },
+      { sensorTypeCode: 5, role: "manualVentilation", friendlyName: "Manual Ventilation" },
+      { sensorTypeCode: 6, role: "smoke", friendlyName: "Smoke Detector" },
+      { sensorTypeCode: 7, role: "fireTrouble", friendlyName: "FSS Trouble Signal" },
+      { sensorTypeCode: 8, role: "fire", friendlyName: "Fire Suppression Active" },
+      { sensorTypeCode: 9, role: "io", friendlyName: "IO Board Communications" },
+      { sensorTypeCode: 10, role: "heat", friendlyName: "Thermal Runaway Heat Relay" },
+      { sensorTypeCode: 31, role: "upsAlarm", friendlyName: "UPS AC Power Source Loss" },
+      { sensorTypeCode: 32, role: "upsAlarm", friendlyName: "UPS Charger Failure" },
+      { sensorTypeCode: 33, role: "upsAlarm", friendlyName: "UPS Battery Temp High" },
+      { sensorTypeCode: 34, role: "upsAlarm", friendlyName: "UPS General Fault" }
+    ].map(s => ({
+      sensorIndex: csEnclosureIndex * 100 + s.sensorTypeCode,
+      sensorRole: s.role,
+      friendlyName: `Array ${A} CS ${s.friendlyName}`,
+      openClosedDetectorType: s.role.toUpperCase(),
+      isTripped: s.sensorTypeCode === 5 && A === 1 ? true : false, 
+      isLatched: false,
+      isHealthy: true,
+      healthy: true,
+      status: s.sensorTypeCode === 5 && A === 1 ? "Active" : "Untripped",
+      timestamp: Date.now(),
+      unhealthyReasons: [],
+      sensorTopology: {
+        entityKey: { openClosedDetectorIndex: csEnclosureIndex * 100 + s.sensorTypeCode },
+        entitySubType: "PhoenixContact_DI",
+        entityType: "OpenClosedDetector",
+        statusMessage: "Device online",
+        communicating: true,
+        enabled: true,
+        ready: true,
+        allowFaultReset: true
+      }
+    }));
+
+    elementList.push({
+      enclosureType: "CollectionSegment",
+      enclosureIndex: csEnclosureIndex,
+      groupIndex: 1,
+      healthy: true,
+      deviceHealth: { isHealthy: true, unhealthyReasons: [], hasAlarms: false },
+      locationInfo: {
+        arrays: [{ arrayIndex: A }],
+        segmentIndex: 1,
+        lineupId: 140 + A,
+        lineupIndex: 1,
+        strings: []
+      },
+      sensorsForEnclosure: csSensors,
+      timestamp: Date.now(),
+      valid: true
+    });
+
+    for (let P = 1; P <= esCount; P++) {
+      const esEnclosureIndex = (A - 1) * 21 + 1 + P;
+      const esSensors = [
+        { sensorTypeCode: 1, role: "dataUnavailable", friendlyName: "String Controller Outage" },
+        { sensorTypeCode: 2, role: "batteryDoors", friendlyName: "Battery Cluster Doors" },
+        { sensorTypeCode: 3, role: "topCapDoors", friendlyName: "Lower Top Cap Doors" },
+        { sensorTypeCode: 4, role: "envControllerVent", friendlyName: "HVAC Vent Active" },
+        { sensorTypeCode: 5, role: "smoke", friendlyName: "Smoke Sensor" },
+        { sensorTypeCode: 6, role: "hydrogenFault", friendlyName: "H2 Fault Circuit" },
+        { sensorTypeCode: 7, role: "hydrogen", friendlyName: "H2 Alarm Level" },
+        { sensorTypeCode: 8, role: "io", friendlyName: "String IO Link" },
+        { sensorTypeCode: 9, role: "heat", friendlyName: "Heat Thermistor Relay" },
+        { sensorTypeCode: 10, role: "fireTrouble", friendlyName: "Extinguisher Signal Trouble" },
+        { sensorTypeCode: 11, role: "moisture", friendlyName: "Enclosure Condensation Sensor" }
+      ].map(s => {
+        const isTripped = (A === 1 && P === 6 && s.sensorTypeCode === 2) || (A === 1 && P === 1 && s.sensorTypeCode === 11);
+        return {
+          sensorIndex: esEnclosureIndex * 100 + s.sensorTypeCode,
+          sensorRole: s.role,
+          friendlyName: `Array ${A} ES${P} ${s.friendlyName}`,
+          openClosedDetectorType: s.role.toUpperCase(),
+          isTripped,
+          isLatched: false,
+          isHealthy: !isTripped,
+          healthy: !isTripped,
+          status: isTripped ? "Active/Tripped" : "Untripped",
+          timestamp: Date.now(),
+          unhealthyReasons: isTripped ? ["Physical threshold violated"] : [],
+          sensorTopology: {
+            entityKey: { openClosedDetectorIndex: esEnclosureIndex * 100 + s.sensorTypeCode },
+            entitySubType: "PhoenixContact_DI",
+            entityType: "OpenClosedDetector",
+            statusMessage: isTripped ? "Fault state active" : "Device normal",
+            communicating: true,
+            enabled: true,
+            ready: true,
+            allowFaultReset: true
+          }
+        };
+      });
+
+      const s1 = (P - 1) * 2 + 1;
+      const s2 = (P - 1) * 2 + 2;
+
+      elementList.push({
+        enclosureType: "EnergySegment",
+        enclosureIndex: esEnclosureIndex,
+        groupIndex: 1,
+        healthy: true,
+        deviceHealth: { isHealthy: true, unhealthyReasons: [], hasAlarms: false },
+        locationInfo: {
+          arrays: [{ arrayIndex: A }],
+          segmentIndex: P + 1,
+          segmentPosition: P,
+          lineupId: 140 + A,
+          lineupIndex: 1,
+          strings: [
+            { arrayIndex: A, stringIndex: s1 },
+            { arrayIndex: A, stringIndex: s2 }
+          ]
+        },
+        sensorsForEnclosure: esSensors,
+        timestamp: Date.now(),
+        valid: true
+      });
+    }
+  }
+
+  return {
+    blockIndex: 1,
+    cumulativeHealthy: elementList.length - 2,
+    cumulativeTotal: elementList.length,
+    elementList
+  };
+}
+
+// 5. Normalizer orchestrator function
+export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0): Promise<SiteSensorsBlockviewerResponse> {
+  const sourceHealth: SourceHealth[] = [];
+  let blockData: any = null;
+  let fetchError: string | null = null;
+  let source: "blockviewer" | "fallback_blockviewer" = "blockviewer";
+  const startFetch = Date.now();
+
+  const baseUrl = getNormalizedBaseUrl();
+  const endpoint = "/tools/monitor/ems/blockviewer/data";
+  const url = `${baseUrl}${endpoint}`;
+
+  if (refresh) {
+    try {
+      const controller = new AbortController();
+      const signal = controller.signal;
+      const timeoutId = setTimeout(() => controller.abort(), 4000); 
+      
+      const response = await fetch(url, { signal });
+      clearTimeout(timeoutId);
+
+      const durationMs = Date.now() - startFetch;
+      if (response.ok) {
+        blockData = await response.json();
+        sourceHealth.push({
+          endpoint,
+          success: true,
+          statusCode: response.status,
+          bytes: JSON.stringify(blockData).length,
+          timestamp: new Date().toISOString(),
+          parseSuccess: true
+        });
+      } else {
+        throw new Error(`HTTP Error Status: ${response.status} ${response.statusText}`);
+      }
+    } catch (err: any) {
+      fetchError = err.message || String(err);
+      sourceHealth.push({
+        endpoint,
+        success: false,
+        statusCode: err.name === "AbortError" ? 408 : 500,
+        bytes: 0,
+        timestamp: new Date().toISOString(),
+        parseSuccess: false,
+        error: fetchError
+      });
+    }
+  }
+
+  if (!blockData && !refresh) {
+    blockData = emsCache.block;
+    if (blockData) {
+      sourceHealth.push({
+        endpoint,
+        success: true,
+        timestamp: new Date().toISOString(),
+        parseSuccess: true
+      });
+    }
+  }
+
+  if (!blockData) {
+    source = "fallback_blockviewer";
+    blockData = generateFallbackBlockviewerData();
+  }
+
+  const elements = blockData.elementList || blockData.data?.elementList || [];
+  const rows: BlockSensorMatrixRow[] = [];
+
+  let totalElements = 0;
+  let totalSensors = 0;
+  let locationFallbackCount = 0;
+  let sensorParentMismatchCount = 0;
+  let unknownSensorCodeCount = 0;
+
+  const sidebarCounts: SensorSidebarCounts = {
+    fire: { label: "Fire Alarms", untripped: 0, total: 0, tripped: 0, healthy: true },
+    fireTrouble: { label: "Fire Troubles", untripped: 0, total: 0, tripped: 0, healthy: true },
+    smoke: { label: "Smoke", untripped: 0, total: 0, tripped: 0, healthy: true },
+    heat: { label: "Heat / Thermal Runaway", untripped: 0, total: 0, tripped: 0, healthy: true },
+    hydrogen: { label: "Hydrogen Gas", untripped: 0, total: 0, tripped: 0, healthy: true },
+    hydrogenFault: { label: "Hydrogen Faults", untripped: 0, total: 0, tripped: 0, healthy: true },
+    dataCommunications: { label: "Data Comms", untripped: 0, total: 0, tripped: 0, healthy: true },
+    ioCommunications: { label: "IO Board Link", untripped: 0, total: 0, tripped: 0, healthy: true },
+    acDoors: { label: "AC Doors", untripped: 0, total: 0, tripped: 0, healthy: true },
+    dcDoors: { label: "DC Doors", untripped: 0, total: 0, tripped: 0, healthy: true },
+    topCapDoor: { label: "Top Cap Doors", untripped: 0, total: 0, tripped: 0, healthy: true },
+    batteryDoors: { label: "Battery Doors", untripped: 0, total: 0, tripped: 0, healthy: true },
+    manualVentilation: { label: "Manual Ventilation", untripped: 0, total: 0, tripped: 0, healthy: true },
+    envCtrl: { label: "HVAC Vent/Ctrl", untripped: 0, total: 0, tripped: 0, healthy: true },
+    upsAlarm: { label: "UPS Station Alarms", untripped: 0, total: 0, tripped: 0, healthy: true },
+    moisture: { label: "Moisture / Condensation", untripped: 0, total: 0, tripped: 0, healthy: true },
+    stationWide: { label: "Station-Wide Estops", untripped: 0, total: 0, tripped: 0, healthy: true }
+  };
+
+  for (const element of elements) {
+    totalElements++;
+    const location = normalizeElementLocation(element);
+    if (location.locationDerivedFromFallback) {
+      locationFallbackCount++;
+    }
+
+    const type = element.enclosureType === "CollectionSegment" ? "CollectionSegment" : "EnergySegment";
+    const isCS = type === "CollectionSegment";
+    
+    const emergencySensors = {
+      moisture: createDefaultCell("moisture", !isCS, true)
+    };
+    const comStatus = {
+      io: createDefaultCell("io", true, true),
+      dataCommunications: createDefaultCell("dataUnavailable", true, true)
+    };
+    const doorSensors = {
+      acDoors: createDefaultCell("acDoors", isCS, true),
+      dcDoors: createDefaultCell("dcDoors", isCS, true),
+      topCapDoors: createDefaultCell("topCapDoors", true, true),
+      batteryDoors: createDefaultCell("batteryDoors", !isCS, true)
+    };
+    const otherSensors = {
+      modbusEStop: createDefaultCell("modbusEStop", true, true),
+      manualVentilation: createDefaultCell("manualVentilation", isCS, true),
+      envControllerVent: createDefaultCell("envControllerVent", !isCS, true),
+      envControllerLostComms: createDefaultCell("dataUnavailable", !isCS, true),
+      upsAlarm: createDefaultCell("upsAlarm", isCS, true),
+      smoke: createDefaultCell("smoke", true, true),
+      heat: createDefaultCell("heat", true, true),
+      fire: createDefaultCell("fire", isCS, true),
+      fireTrouble: createDefaultCell("fireTrouble", true, true),
+      hydrogen: createDefaultCell("hydrogen", !isCS, true),
+      hydrogenFault: createDefaultCell("hydrogenFault", !isCS, true)
+    };
+
+    const rawSensors = element.sensorsForEnclosure || [];
+    const upsAlarms: NormalizedSensorCell[] = [];
+
+    for (const rawSens of rawSensors) {
+      totalSensors++;
+      const cell = parseSensorCell(rawSens, element.enclosureIndex);
+      if (cell.debug?.sensorIndexParentMismatch) {
+        sensorParentMismatchCount++;
+      }
+
+      const code = cell.sensorTypeCode;
+      let mapped = false;
+
+      if (isCS) {
+        if (code === 1) { comStatus.dataCommunications = cell; mapped = true; }
+        else if (code === 2) { doorSensors.acDoors = cell; mapped = true; }
+        else if (code === 3) { doorSensors.dcDoors = cell; mapped = true; }
+        else if (code === 4) { doorSensors.topCapDoors = cell; mapped = true; }
+        else if (code === 5) { otherSensors.manualVentilation = cell; mapped = true; }
+        else if (code === 6) { otherSensors.smoke = cell; mapped = true; }
+        else if (code === 7) { otherSensors.fireTrouble = cell; mapped = true; }
+        else if (code === 8) { otherSensors.fire = cell; mapped = true; }
+        else if (code === 9) { comStatus.io = cell; mapped = true; }
+        else if (code === 10) { otherSensors.heat = cell; mapped = true; }
+        else if (code && code >= 31 && code <= 34) {
+          upsAlarms.push(cell);
+          mapped = true;
+        }
+      } else {
+        if (code === 1) { comStatus.dataCommunications = cell; mapped = true; }
+        else if (code === 2) { doorSensors.batteryDoors = cell; mapped = true; }
+        else if (code === 3) { doorSensors.topCapDoors = cell; mapped = true; }
+        else if (code === 4) { otherSensors.envControllerVent = cell; mapped = true; }
+        else if (code === 5) { otherSensors.smoke = cell; mapped = true; }
+        else if (code === 6) { otherSensors.hydrogenFault = cell; mapped = true; }
+        else if (code === 7) { otherSensors.hydrogen = cell; mapped = true; }
+        else if (code === 8) { comStatus.io = cell; mapped = true; }
+        else if (code === 9) { otherSensors.heat = cell; mapped = true; }
+        else if (code === 10) { otherSensors.fireTrouble = cell; mapped = true; }
+        else if (code === 11) { emergencySensors.moisture = cell; mapped = true; }
+      }
+
+      if (!mapped && cell.sensorRole) {
+        const r = cell.sensorRole.toLowerCase();
+        if (r.includes("moisture")) { emergencySensors.moisture = cell; mapped = true; }
+        else if (r.includes("io")) { comStatus.io = cell; mapped = true; }
+        else if (r.includes("smoke")) { otherSensors.smoke = cell; mapped = true; }
+        else if (r.includes("heat")) { otherSensors.heat = cell; mapped = true; }
+        else if (r.includes("firetrouble")) { otherSensors.fireTrouble = cell; mapped = true; }
+        else if (r.includes("fire")) { otherSensors.fire = cell; mapped = true; }
+        else if (r.includes("hydrogenfault")) { otherSensors.hydrogenFault = cell; mapped = true; }
+        else if (r.includes("hydrogen")) { otherSensors.hydrogen = cell; mapped = true; }
+        else if (r.includes("estop")) { otherSensors.modbusEStop = cell; mapped = true; }
+      }
+
+      if (!mapped) {
+        unknownSensorCodeCount++;
+      }
+    }
+
+    if (isCS && upsAlarms.length > 0) {
+      const allHealthy = upsAlarms.every(c => c.healthy);
+      const anyTripped = upsAlarms.some(c => c.tripped);
+      otherSensors.upsAlarm = {
+        applicable: true,
+        healthy: allHealthy,
+        tripped: anyTripped,
+        latched: upsAlarms.some(c => c.latched),
+        value: null,
+        status: allHealthy ? "Normal" : "Fault",
+        displayValue: allHealthy ? "OK" : "TRIPPED",
+        label: "UPS Alarm Aggregate",
+        friendlyName: `${upsAlarms.filter(c => !c.healthy).length} / ${upsAlarms.length} UPS Alarms Tripped`,
+        sensorRole: "upsAlarm",
+        openClosedDetectorType: "UPS",
+        sensorIndex: 31,
+        sensorTypeCode: 31,
+        detectorIndex: 31,
+        raw: upsAlarms
+      };
+    }
+
+    const row: BlockSensorMatrixRow = {
+      id: `enclosure-${element.enclosureIndex || Math.random().toString(36).substring(2, 6)}`,
+      location,
+      actionHealthy: true,
+      rowHealthy: true,
+      severity: "OK",
+      findings: [],
+      topology: {
+        enclosureType: type,
+        enclosureIndex: element.enclosureIndex ?? null,
+        groupIndex: element.groupIndex ?? null,
+        segmentIndex: location.rawSegmentIndex ?? null,
+        segmentPosition: location.rawSegmentPosition ?? null,
+        lineupId: location.rawLineupId ?? null,
+        lineupIndex: location.rawLineupIndex ?? null,
+        arrays: location.arrayIndex !== null ? [{ arrayIndex: location.arrayIndex }] : [],
+        strings: location.strings || []
+      },
+      emergencySensors,
+      comStatus,
+      doorSensors,
+      otherSensors,
+      thermal: element.thermalData || element.hvacControls || null,
+      controller: element.controllerSettings || element.controllerStatisticsData || null,
+      deviceHealth: element.deviceHealth || null,
+      devicesWithLostComms: element.devicesWithLostComms || [],
+      operationalState: element.operationalState || null,
+      raw: element
+    };
+
+    let rowHealthy = true;
+    let severity: "OK" | "Warning" | "Critical" = "OK";
+    const findings: string[] = [];
+
+    if (element.deviceHealth?.isHealthy === false) {
+      rowHealthy = false;
+      severity = "Critical";
+      if (element.deviceHealth.unhealthyReasons && element.deviceHealth.unhealthyReasons.length > 0) {
+        findings.push(...element.deviceHealth.unhealthyReasons);
+      } else {
+        findings.push("Device health state reported unhealthy");
+      }
+    }
+    if (element.deviceHealth?.hasAlarms === true) {
+      severity = "Critical";
+      findings.push("Device has active alarms");
+    }
+
+    function checkCell(cell: NormalizedSensorCell, label: string) {
+      if (!cell || !cell.applicable) return;
+      if (!cell.healthy || cell.tripped) {
+        rowHealthy = false;
+        severity = "Critical";
+        if (cell.tripped) {
+          findings.push(`${label} sensor tripped`);
+        } else {
+          findings.push(`${label} sensor reporting unhealthy status`);
+        }
+      }
+      if (cell.debug?.sensorIndexParentMismatch) {
+        if (severity !== "Critical") severity = "Warning";
+        findings.push(`Sensor index ${cell.sensorIndex} parent mismatch: expected enclosure ${cell.debug.expectedEnclosureIndex}, parsed ${cell.debug.parsedEnclosureIndex}`);
+      }
+    }
+
+    checkCell(row.emergencySensors.moisture, "Moisture");
+    checkCell(row.comStatus.io, "IO Board");
+    checkCell(row.comStatus.dataCommunications, "Data Comms");
+    checkCell(row.doorSensors.acDoors, "AC doors");
+    checkCell(row.doorSensors.dcDoors, "DC doors");
+    checkCell(row.doorSensors.topCapDoors, "Top cap doors");
+    checkCell(row.doorSensors.batteryDoors, "Battery doors");
+    checkCell(row.otherSensors.manualVentilation, "Manual ventilation");
+    checkCell(row.otherSensors.envControllerVent, "Env Controller Vent");
+    checkCell(row.otherSensors.smoke, "Smoke");
+    checkCell(row.otherSensors.heat, "Heat");
+    checkCell(row.otherSensors.fireTrouble, "Fire Trouble");
+    checkCell(row.otherSensors.fire, "Fire");
+    checkCell(row.otherSensors.hydrogen, "Hydrogen");
+    checkCell(row.otherSensors.hydrogenFault, "Hydrogen Fault");
+    checkCell(row.otherSensors.modbusEStop, "E-Stop");
+
+    if (isCS && upsAlarms.length > 0) {
+      upsAlarms.forEach((cell, idx) => {
+        checkCell(cell, `UPS Relay ${idx + 31}`);
+      });
+    }
+
+    row.rowHealthy = rowHealthy;
+    row.actionHealthy = rowHealthy;
+    row.severity = severity;
+    row.findings = findings;
+
+    addToSidebar("moisture", row.emergencySensors.moisture);
+    addToSidebar("io", row.comStatus.io);
+    addToSidebar("dataUnavailable", row.comStatus.dataCommunications);
+    addToSidebar("acDoors", row.doorSensors.acDoors);
+    addToSidebar("dcDoors", row.doorSensors.dcDoors);
+    addToSidebar("topCapDoors", row.doorSensors.topCapDoors);
+    addToSidebar("batteryDoors", row.doorSensors.batteryDoors);
+    addToSidebar("manualVentilation", row.otherSensors.manualVentilation);
+    addToSidebar("envControllerVent", row.otherSensors.envControllerVent);
+    addToSidebar("smoke", row.otherSensors.smoke);
+    addToSidebar("heat", row.otherSensors.heat);
+    addToSidebar("fireTrouble", row.otherSensors.fireTrouble);
+    addToSidebar("fire", row.otherSensors.fire);
+    addToSidebar("hydrogen", row.otherSensors.hydrogen);
+    addToSidebar("hydrogenFault", row.otherSensors.hydrogenFault);
+    addToSidebar("modbusEStop", row.otherSensors.modbusEStop);
+    if (isCS && upsAlarms.length > 0) {
+      upsAlarms.forEach(cell => {
+        addToSidebar("upsAlarm", cell);
+      });
+    }
+
+    rows.push(row);
+  }
+
+  rows.sort((a, b) => {
+    return (a.location.sortKey || "ZZZ").localeCompare(b.location.sortKey || "ZZZ");
+  });
+
+  return {
+    success: true,
+    timestamp: new Date().toISOString(),
+    source,
+    stationCode: blockData.stationCode || null,
+    blockIndex: blockData.blockIndex || 1,
+    cumulativeHealthy: blockData.cumulativeHealthy ?? null,
+    cumulativeTotal: blockData.cumulativeTotal ?? null,
+    sourceHealth,
+    sidebarCounts,
+    rows,
+    debug: {
+      totalElements,
+      totalSensors,
+      locationFallbackCount,
+      sensorParentMismatchCount,
+      unknownSensorCodeCount
+    }
+  };
+
+  function addToSidebar(role: string, cell: NormalizedSensorCell) {
+    if (!cell || !cell.applicable) return;
+    let categoryKey: keyof SensorSidebarCounts | null = null;
+    if (role === "fire") categoryKey = "fire";
+    else if (role === "fireTrouble") categoryKey = "fireTrouble";
+    else if (role === "smoke") categoryKey = "smoke";
+    else if (role === "heat") categoryKey = "heat";
+    else if (role === "hydrogen") categoryKey = "hydrogen";
+    else if (role === "hydrogenFault") categoryKey = "hydrogenFault";
+    else if (role === "dataUnavailable" || role === "envControllerLostComms") categoryKey = "dataCommunications";
+    else if (role === "io") categoryKey = "ioCommunications";
+    else if (role === "acDoors") categoryKey = "acDoors";
+    else if (role === "dcDoors") categoryKey = "dcDoors";
+    else if (role === "topCapDoors" || role === "topCapDoor") categoryKey = "topCapDoor";
+    else if (role === "batteryDoors") categoryKey = "batteryDoors";
+    else if (role === "manualVentilation") categoryKey = "manualVentilation";
+    else if (role === "envControllerVent") categoryKey = "envCtrl";
+    else if (role === "upsAlarm") categoryKey = "upsAlarm";
+    else if (role === "moisture") categoryKey = "moisture";
+    else if (role === "modbusEStop") categoryKey = "stationWide";
+
+    if (categoryKey && sidebarCounts[categoryKey]) {
+      const cat = sidebarCounts[categoryKey];
+      cat.total++;
+      if (cell.tripped || !cell.healthy) {
+        cat.tripped++;
+      } else {
+        cat.untripped++;
+      }
+      cat.healthy = cat.tripped === 0;
+    }
+  }
+}
+
+// 6. Router implementation for blockviewer
+router.get("/blockviewer", async (req, res) => {
+  const refresh = req.query.refresh === "true";
+  try {
+    const data = await buildBlockviewerSensorMatrix(refresh);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || String(error) });
+  }
+});
+
+// Alias for general telemetry maps compatibility
+router.get("/blockviewer/sensors", async (req, res) => {
+  const refresh = req.query.refresh === "true";
+  try {
+    const data = await buildBlockviewerSensorMatrix(refresh);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || String(error) });
+  }
+});
 
 // 1. GET /api/local/site-sensors/summary - poller canonical endpoint
 router.get("/summary", async (req, res) => {
