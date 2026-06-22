@@ -12,7 +12,7 @@ export interface NormalizedTopologySensorPoint {
   enclosureIndex: number | null;
   sensorCode: number | null;
   arrayIndex: number | null;
-  segmentKind: "CS" | "ES" | "UNKNOWN";
+  segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN";
   segmentNumber: number | null;
   displayName: string;
   pointRole: string;
@@ -83,9 +83,19 @@ export interface NormalizedTopologySensorSummary {
       enclosureIndex: number | null;
       sensorCode: number | null;
       arrayIndex: number | null;
-      segmentKind: "CS" | "ES" | "UNKNOWN";
+      segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN";
       segmentNumber: number | null;
       pointRole: string;
+    }>;
+    globalPointCount: number;
+    sampleGlobalPoints: Array<{
+      entityKey: string | null;
+      displayKey: string | null;
+      numericId: number | null;
+      entityType: string | null;
+      entitySubType: string | null;
+      pointRole: string;
+      displayName: string;
     }>;
   };
 }
@@ -332,10 +342,22 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
     enclosureIndex: number | null;
     sensorCode: number | null;
     arrayIndex: number | null;
-    segmentKind: "CS" | "ES" | "UNKNOWN";
+    segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN";
     segmentNumber: number | null;
     pointRole: string;
   }> = [];
+
+  const sampleGlobalPoints: Array<{
+    entityKey: string | null;
+    displayKey: string | null;
+    numericId: number | null;
+    entityType: string | null;
+    entitySubType: string | null;
+    pointRole: string;
+    displayName: string;
+  }> = [];
+
+  let globalPointCount = 0;
 
   let numericIdParseFailedCount = 0;
 
@@ -411,26 +433,35 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
     let enclosureIndex: number | null = null;
     let sensorCode: number | null = null;
     let arrayIndex: number | null = null;
-    let segmentKind: "CS" | "ES" | "UNKNOWN" = "UNKNOWN";
+    let segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN" = "UNKNOWN";
     let segmentNumber: number | null = null;
     let displayName = "Unknown Enclosure";
 
     if (numericId !== null) {
-      enclosureIndex = Math.floor(numericId / 100);
-      sensorCode = numericId % 100;
-
-      // enclosuresPerArray = 21
-      arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
-      const positionInArray = ((enclosureIndex - 1) % 21) + 1;
-
-      if (positionInArray === 1) {
-        segmentKind = "CS";
+      if (numericId < 100) {
+        enclosureIndex = null;
+        sensorCode = numericId;
+        arrayIndex = null;
+        segmentKind = "GLOBAL";
         segmentNumber = null;
-        displayName = `Array ${arrayIndex} - CS`;
+        displayName = `Block ${stationCode}:${blockIndex}`;
       } else {
-        segmentKind = "ES";
-        segmentNumber = positionInArray - 1;
-        displayName = `Array ${arrayIndex} - ES${segmentNumber}`;
+        enclosureIndex = Math.floor(numericId / 100);
+        sensorCode = numericId % 100;
+
+        // enclosuresPerArray = 21
+        arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
+        const positionInArray = ((enclosureIndex - 1) % 21) + 1;
+
+        if (positionInArray === 1) {
+          segmentKind = "CS";
+          segmentNumber = null;
+          displayName = `Array ${arrayIndex} - CS`;
+        } else {
+          segmentKind = "ES";
+          segmentNumber = positionInArray - 1;
+          displayName = `Array ${arrayIndex} - ES${segmentNumber}`;
+        }
       }
     } else {
       debugWarnings.push(`Could not parse numeric id from entityKey: "${key}" at index ${index}`);
@@ -453,7 +484,15 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
     let pointRole = "unknown";
     let pointLabel = "Unknown Sensor";
 
-    if (isTempHum) {
+    if (numericId !== null && numericId < 100) {
+      if (entityType === "OpenClosedDetector" && sensorCode === 1) {
+        pointRole = "blockReadiness";
+        pointLabel = "AcBatteryBlock Readiness";
+      } else {
+        pointRole = "globalTopologyPoint";
+        pointLabel = entity.entitySubType || entity.entityType || "Global Topology Point";
+      }
+    } else if (isTempHum) {
       if (sensorCode === 1) {
         pointRole = "internalEnvironment";
         pointLabel = "Internal Env Sensor";
@@ -472,18 +511,33 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
 
     // Gather debugging metrics for numeric IDs
     if (numericId !== null) {
-      if (sampleParsedNumericIds.length < 10) {
-        sampleParsedNumericIds.push({
-          entityKey: key || null,
-          displayKey: entity.displayKey || null,
-          numericId,
-          enclosureIndex,
-          sensorCode,
-          arrayIndex,
-          segmentKind,
-          segmentNumber,
-          pointRole
-        });
+      if (numericId < 100) {
+        globalPointCount++;
+        if (sampleGlobalPoints.length < 10) {
+          sampleGlobalPoints.push({
+            entityKey: key || null,
+            displayKey: entity.displayKey || null,
+            numericId,
+            entityType: entity.entityType || null,
+            entitySubType: entity.entitySubType || null,
+            pointRole,
+            displayName
+          });
+        }
+      } else {
+        if (sampleParsedNumericIds.length < 10) {
+          sampleParsedNumericIds.push({
+            entityKey: key || null,
+            displayKey: entity.displayKey || null,
+            numericId,
+            enclosureIndex,
+            sensorCode,
+            arrayIndex,
+            segmentKind,
+            segmentNumber,
+            pointRole
+          });
+        }
       }
     } else {
       numericIdParseFailedCount++;
@@ -829,7 +883,9 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       unknownPointCount,
       numericIdParseFailedCount,
       sampleNumericIdFailures,
-      sampleParsedNumericIds
+      sampleParsedNumericIds,
+      globalPointCount,
+      sampleGlobalPoints
     }
   };
 }
