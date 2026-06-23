@@ -20,14 +20,16 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
   const [selectedArray, setSelectedArray] = useState<string | "all">("all");
 
   const arrayKeys = useMemo(() => {
-    return Object.keys(arrayDetailsByArray).sort((a, b) => Number(a) - Number(b));
+    const details = arrayDetailsByArray || {};
+    return Object.keys(details).sort((a, b) => Number(a) - Number(b));
   }, [arrayDetailsByArray]);
 
   const arraysToRender = useMemo(() => {
+    const details = arrayDetailsByArray || {};
     if (selectedArray === "all") {
-      return arrayKeys.map((k) => arrayDetailsByArray[k]).filter(Boolean);
+      return arrayKeys.map((k) => details[k]).filter(Boolean);
     }
-    return [arrayDetailsByArray[selectedArray]].filter(Boolean);
+    return [details[selectedArray]].filter(Boolean);
   }, [selectedArray, arrayKeys, arrayDetailsByArray]);
 
   return (
