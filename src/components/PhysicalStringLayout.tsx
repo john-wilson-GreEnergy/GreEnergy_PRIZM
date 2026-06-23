@@ -277,7 +277,10 @@ export default function PhysicalStringLayout({
 
       <div className={`mt-2 ${isTileMode ? 'min-w-[400px]' : 'min-w-[700px]'}`}>
         {/* Visual Headers */}
-        <div className={`grid grid-cols-[1fr_1fr_1fr_24px_1fr_1fr_1fr] ${isTileMode ? 'gap-1' : 'gap-2'} mb-1 text-center font-bold text-prizm-text-muted leading-tight`}>
+        <div className={`grid grid-cols-[24px_1fr_1fr_1fr_24px_1fr_1fr_1fr_24px] ${isTileMode ? 'gap-1' : 'gap-2'} mb-1 text-center font-bold text-prizm-text-muted leading-tight`}>
+           <div className={`flex flex-col justify-end text-prizm-text-muted font-extrabold ${isTileMode ? 'text-[6px]' : 'text-[8.5px]'}`}>
+             BPC
+           </div>
            <div className={isTileMode ? 'text-[6.5px]' : 'text-[9px]'}>
              {compactLabels ? 'L.OUT' : 'LEFT OUTER'}<br/><span className={isTileMode ? 'text-[5.5px]' : 'text-[7px]'}>Cells 1-10</span>
            </div>
@@ -299,6 +302,9 @@ export default function PhysicalStringLayout({
            <div className={isTileMode ? 'text-[6.5px]' : 'text-[9px]'}>
              {compactLabels ? 'R.OUT' : 'RIGHT OUTER'}<br/><span className={isTileMode ? 'text-[5.5px]' : 'text-[7px]'}>Cells 21-30</span>
            </div>
+           <div className={`flex flex-col justify-end text-prizm-text-muted font-extrabold ${isTileMode ? 'text-[6px]' : 'text-[8.5px]'}`}>
+             BPC
+           </div>
         </div>
 
         {/* Rows */}
@@ -314,7 +320,14 @@ export default function PhysicalStringLayout({
             const rightOuter = slots.filter(s => s.bpcNumber === rightBpc && s.physicalColumnGroup === "rightOuter").sort((a,b) => a.cellNumber - b.cellNumber);
 
             return (
-              <div key={`row-${row}`} className={`grid grid-cols-[1fr_1fr_1fr_24px_1fr_1fr_1fr] ${isTileMode ? 'gap-1' : 'gap-2'}`}>
+              <div key={`row-${row}`} className={`grid grid-cols-[24px_1fr_1fr_1fr_24px_1fr_1fr_1fr_24px] ${isTileMode ? 'gap-1' : 'gap-2'}`}>
+                 {/* Left BPC index label 1-7 */}
+                 <div className={`flex flex-col items-center justify-center text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 font-bold rounded-sm ${
+                   isTileMode ? 'text-[7px]' : 'text-[9.5px]'
+                 }`}>
+                    {leftBpc}
+                 </div>
+
                  {renderModule(leftBpc, "OUTER", leftOuter)}
                  {renderModule(leftBpc, "MID", leftMid)}
                  {renderModule(leftBpc, "INNER", leftInner)}
@@ -323,15 +336,20 @@ export default function PhysicalStringLayout({
                    isTileMode ? 'py-0 text-[5.5px]' : 'py-1 text-[9px]'
                  }`}>
                      <div className="leading-none">↑</div>
-                     <div className={`w-px bg-blue-500/20 my-0.5 ${isTileMode ? 'h-2' : 'h-5'}`}></div>
-                     <span className={`leading-none font-extrabold ${isTileMode ? 'text-[7px]' : 'text-[9.5px]'}`}>{row}</span>
-                     <div className={`w-px bg-blue-500/20 my-0.5 ${isTileMode ? 'h-2' : 'h-5'}`}></div>
+                     <div className={`w-px bg-blue-500/20 my-0.5 ${isTileMode ? 'h-3' : 'h-8'}`}></div>
                      <div className="leading-none">↓</div>
                  </div>
 
                  {renderModule(rightBpc, "INNER", rightInner)}
                  {renderModule(rightBpc, "MID", rightMid)}
                  {renderModule(rightBpc, "OUTER", rightOuter)}
+
+                 {/* Right BPC index label 14-8 */}
+                 <div className={`flex flex-col items-center justify-center text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 font-bold rounded-sm ${
+                   isTileMode ? 'text-[7px]' : 'text-[9.5px]'
+                 }`}>
+                    {rightBpc}
+                 </div>
               </div>
             );
           })}

@@ -1,52 +1,14 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Info, Layers } from "lucide-react";
-import { cToF } from "../lib/temperatureUnits";
 import {
   PhysicalCellSlot,
   getPhysicalBpcPosition,
   getModuleNumberForCell,
-  getModuleLabelAndHvacProximity
+  getModuleLabelAndHvacProximity,
+  buildPhysicalSlotsFromRichDetail
 } from "../lib/physicalEnergySegmentLayout";
 import PhysicalStringLayout from "./PhysicalStringLayout";
-
-function convertVectorsToSlots(volts: number[], temps: number[]): PhysicalCellSlot[] {
-  const slots: PhysicalCellSlot[] = [];
-  for (let bpc = 1; bpc <= 14; bpc++) {
-    const position = getPhysicalBpcPosition(bpc);
-    if (!position) continue;
-    for (let cg = 1; cg <= 30; cg++) {
-      const idx = (bpc - 1) * 30 + (cg - 1);
-      const voltageMv = volts[idx] !== undefined && volts[idx] !== null && Number.isFinite(volts[idx]) ? Number(volts[idx]) : null;
-      const tempC = temps[idx] !== undefined && temps[idx] !== null && Number.isFinite(temps[idx]) ? Number(temps[idx]) : null;
-      const tempF = tempC !== null ? tempC * 1.8 + 32 : null;
-      
-      const moduleNumber = getModuleNumberForCell(cg);
-      if (!moduleNumber) continue;
-      const { moduleLabel, hvacProximity, physicalColumnGroup } = getModuleLabelAndHvacProximity(position.side, moduleNumber);
-
-      slots.push({
-        bpcNumber: bpc,
-        cellNumber: cg,
-        cellGroupNumber: cg,
-        moduleNumber,
-        moduleLabel,
-        side: position.side,
-        physicalRow: position.physicalRow,
-        physicalColumnGroup,
-        hvacProximity,
-        voltageMv,
-        tempRaw: tempC,
-        tempC,
-        tempF,
-        tempSourceKind: "compact",
-        timestampAge: null,
-        balancing: null,
-        source: "stringviewer-monitor"
-      });
-    }
-  }
-  return slots;
-}
+import { resolvePhysicalCellMetricValue } from "../utils/cellValueResolver";
 
 type ArrayCellHeatmapGridProps = {
   arrayDetailsByArray: Record<string, any>;
@@ -173,26 +135,16 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
                   {sortedStrings.map((str) => {
                     const stringIndex = str.stringNumber ?? str.stringIndex ?? 1;
                     const stringKey = str.id || `Array ${arr.arrayNumber} - String ${stringIndex}`;
-                    const volts = Array.isArray(str.millivolts) ? str.millivolts : [];
-                    const temps = Array.isArray(str.temperatures) ? str.temperatures : [];
-                    const slots = convertVectorsToSlots(volts, temps);
-
-                    const title = `Station ${arr.stationCode || "BESS"} · Array ${arr.arrayNumber} · String ${stringIndex}`;
 
                     return (
                       <div key={stringKey} className="w-full">
-                        <PhysicalStringLayout
-                          slots={slots}
+                        <HeatmapTile
                           arrayNumber={arr.arrayNumber}
                           stringNumber={stringIndex}
-                          metric={mode}
-                          mode="tile"
-                          showValues={true}
-                          compactLabels={true}
+                          stringKey={stringKey}
+                          stationCode={arr.stationCode || "BESS"}
+                          mode={mode}
                           tempUnit={tempUnit}
-                          title={title}
-                          showMinMaxHeader={true}
-                          stringData={str}
                         />
                       </div>
                     );
@@ -204,5 +156,177 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
         })}
       </div>
     </div>
+  );
+}
+
+interface HeatmapTileProps {
+  arrayNumber: number | string;
+  stringNumber: number | string;
+  stringKey: string;
+  stationCode: string;
+  mode: "voltage" | "temperature";
+  tempUnit: "C" | "F";
+}
+
+function HeatmapTile({
+  arrayNumber,
+  stringNumber,
+  stringKey,
+  stationCode,
+  mode,
+  tempUnit
+}: HeatmapTileProps) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let unmounted = false;
+    const fetchDetail = async () => {
+      try {
+        const res = await fetch(`/api/local/strings/dashboard/${arrayNumber}/${stringNumber}/detail?captureHistory=true`);
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error("Server is restarting or unreachable");
+        }
+        const json = await res.json();
+        if (!unmounted) {
+          setData(json);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        console.error(`Failed to fetch string detail for A${arrayNumber}-S${stringNumber}`, err);
+        if (!unmounted) {
+          setError(err.message || "Failed to load");
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchDetail();
+    const interval = window.setInterval(fetchDetail, 15000);
+    return () => {
+      unmounted = true;
+      window.clearInterval(interval);
+    };
+  }, [arrayNumber, stringNumber]);
+
+  const physicalLayout = useMemo(() => {
+    return buildPhysicalSlotsFromRichDetail(data);
+  }, [data]);
+
+  // Temporary debug check requested by the user
+  useEffect(() => {
+    if (data && physicalLayout.available) {
+      const validTemps: number[] = [];
+      const validVolts: number[] = [];
+
+      physicalLayout.slots.forEach(s => {
+        const bpcIndex = s.bpcNumber;
+        const cellIndex = s.cellNumber;
+        const physicalIndex = (bpcIndex - 1) * 30 + (cellIndex - 1);
+
+        const tempC = resolvePhysicalCellMetricValue({
+          stringData: data,
+          metric: "temperature",
+          bpcIndex,
+          cellIndex,
+          physicalIndex,
+          sourceUnit: "C"
+        });
+        const voltageMv = resolvePhysicalCellMetricValue({
+          stringData: data,
+          metric: "voltage",
+          bpcIndex,
+          cellIndex,
+          physicalIndex,
+          sourceUnit: "C"
+        });
+
+        if (tempC !== null && typeof tempC === "number" && Number.isFinite(tempC)) {
+          validTemps.push(tempC);
+        }
+        if (voltageMv !== null && typeof voltageMv === "number" && Number.isFinite(voltageMv)) {
+          validVolts.push(voltageMv);
+        }
+      });
+
+      const tempSample = validTemps.length > 0 ? (validTemps[0] * 1.8 + 32) : null;
+      const voltageSample = validVolts.length > 0 ? validVolts[0] : null;
+
+      const tempMin = validTemps.length > 0 ? (Math.min(...validTemps) * 1.8 + 32) : null;
+      const tempMax = validTemps.length > 0 ? (Math.max(...validTemps) * 1.8 + 32) : null;
+
+      const voltageMin = validVolts.length > 0 ? Math.min(...validVolts) : null;
+      const voltageMax = validVolts.length > 0 ? Math.max(...validVolts) : null;
+
+      console.debug("[SiteHealthHeatmap resolved string detail source]", {
+        arrayNumber,
+        stringNumber,
+        source: "string-detail",
+        tempCount: validTemps.length,
+        voltageCount: validVolts.length,
+        tempSample,
+        voltageSample,
+        tempMin,
+        tempMax,
+        voltageMin,
+        voltageMax
+      });
+    }
+  }, [data, physicalLayout, arrayNumber, stringNumber]);
+
+  const title = `Station ${stationCode || "BESS"} · Array ${arrayNumber} · String ${stringNumber}`;
+
+  if (loading) {
+    return (
+      <div className="bg-prizm-surface border border-prizm-border/40 rounded-lg p-6 flex flex-col items-center justify-center min-h-[220px] text-center font-mono space-y-3">
+        <div className="w-6 h-6 border-2 border-prizm-primary border-t-transparent rounded-full animate-spin"></div>
+        <div className="text-[10px] text-prizm-text-muted font-bold uppercase tracking-wider">
+          Loading detailed cell telemetry...
+        </div>
+        <div className="text-[8px] text-prizm-text-muted">
+          Array {arrayNumber} / String {stringNumber}
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !physicalLayout.available) {
+    const errorReason = error || physicalLayout.reason || "No rich battery pack reports returned for this string.";
+    return (
+      <div className="bg-prizm-surface border border-prizm-border/40 rounded-lg p-6 flex flex-col items-center justify-center min-h-[220px] text-center font-mono space-y-2">
+        <div className="text-amber-500 font-extrabold text-[12px]">⚠️</div>
+        <div className="text-[10px] text-prizm-text font-bold uppercase tracking-wider">
+          Telemetry Unavailable
+        </div>
+        <div className="text-[8.5px] text-prizm-text-muted uppercase max-w-xs leading-normal">
+          {errorReason}
+        </div>
+        <div className="text-[8px] text-[#ef4444] font-bold uppercase mt-1">
+          A{arrayNumber}-S{stringNumber} rich details not loaded
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PhysicalStringLayout
+      slots={physicalLayout.slots}
+      arrayNumber={arrayNumber}
+      stringNumber={stringNumber}
+      metric={mode}
+      mode="tile"
+      showValues={true}
+      compactLabels={true}
+      tempUnit={tempUnit}
+      title={title}
+      showMinMaxHeader={true}
+      stringData={data}
+    />
   );
 }
