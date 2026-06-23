@@ -102,18 +102,20 @@ export default function App() {
   // Configured navbar tabs list setting
   const [tabsOrder, setTabsOrder] = useState<TabItem[]>(() => {
     try {
-      const saved = localStorage.getItem("prizm_tabs_config_v2");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const keys = parsed.map(t => t.id);
-          const merged = [...parsed];
-          DEFAULT_TABS_ORDER.forEach(id => {
-            if (!keys.includes(id)) {
-              merged.push({ id, visible: true });
-            }
-          });
-          return merged.filter(t => DEFAULT_TABS_ORDER.includes(t.id));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const saved = localStorage.getItem("prizm_tabs_config_v2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const keys = parsed.map(t => t.id);
+            const merged = [...parsed];
+            DEFAULT_TABS_ORDER.forEach(id => {
+              if (!keys.includes(id)) {
+                merged.push({ id, visible: true });
+              }
+            });
+            return merged.filter(t => DEFAULT_TABS_ORDER.includes(t.id));
+          }
         }
       }
     } catch (e) {
@@ -127,7 +129,9 @@ export default function App() {
   // Save configurations layout changes to secure local client storage
   useEffect(() => {
     try {
-      localStorage.setItem("prizm_tabs_config_v2", JSON.stringify(tabsOrder));
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem("prizm_tabs_config_v2", JSON.stringify(tabsOrder));
+      }
     } catch (e) {
       console.warn("Failed to write navigation settings to localStorage:", e);
     }
