@@ -5,6 +5,12 @@ import {
   getTemperatureColorStyle,
   normalizeTemperatureToFahrenheit
 } from "../utils/temperatureScale";
+import {
+  formatCellVoltage,
+  getCellVoltageColorStyle,
+  getCellVoltageColorToken,
+  normalizeCellVoltageToMv
+} from "../utils/voltageScale";
 import { resolvePhysicalCellMetricValue } from "../utils/cellValueResolver";
 
 type PhysicalStringLayoutProps = {
@@ -66,6 +72,8 @@ export default function PhysicalStringLayout({
           sourceUnit: "C"
         });
       }
+
+      voltageMv = normalizeCellVoltageToMv(voltageMv, "mV");
 
       if (tempC !== null && typeof tempC === "number" && Number.isFinite(tempC)) {
         validTemps.push(tempC);
@@ -153,6 +161,8 @@ export default function PhysicalStringLayout({
                });
              }
 
+             voltageMv = normalizeCellVoltageToMv(voltageMv, "mV");
+
              const tempDisplay = tempC !== null && tempC !== undefined && Number.isFinite(tempC)
                ? formatTemperatureF(tempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                : "—";
@@ -164,7 +174,7 @@ export default function PhysicalStringLayout({
                `Module: ${cell.moduleLabel}`,
                `HVAC: ${cell.hvacProximity.charAt(0).toUpperCase() + cell.hvacProximity.slice(1)}`,
                `Temperature: ${tempDisplay}`,
-               `Voltage: ${voltageMv !== null && voltageMv !== undefined ? voltageMv : "--"} mV`,
+               `Voltage: ${voltageMv !== null && voltageMv !== undefined ? `${Math.round(voltageMv)} mV` : "—"}`,
                `Timestamp age: ${cell.timestampAge ?? "--"}`,
                `Balancing: ${cell.balancing ?? "--"}`,
                `Source: ${cell.source}`
@@ -179,8 +189,9 @@ export default function PhysicalStringLayout({
                 customStyle = getTemperatureColorStyle(tempC, "C");
                 colorClass = "";
              } else if (metric === "voltage" && voltageMv !== null && voltageMv !== undefined && Number.isFinite(voltageMv)) {
-                colorClass = getVoltGradientClass(normalizeValue(voltageMv, minVolt, maxVolt));
-                valueLabel = Math.round(voltageMv).toString();
+                customStyle = getCellVoltageColorStyle(voltageMv, "mV");
+                valueLabel = formatCellVoltage(voltageMv, "mV", { decimals: 0, showUnit: false });
+                colorClass = "";
              }
 
              return (
@@ -259,16 +270,32 @@ export default function PhysicalStringLayout({
                  </div>
                </div>
              ) : (
-               <div className="flex items-center gap-1 text-[7.5px] text-prizm-text-muted uppercase font-bold">
-                 <span>Low</span>
-                 <div className="flex gap-[1px]">
-                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0)}`}></div>
-                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.3)}`}></div>
-                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.5)}`}></div>
-                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.7)}`}></div>
-                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(1)}`}></div>
+               <div className="flex flex-col items-end gap-0.5 text-prizm-text-muted">
+                 <div className="flex items-center gap-1 sm:gap-1.5 font-bold text-[7.5px]">
+                   <span className="text-[#f97316] font-bold">CRIT LOW &lt;2700 mV</span>
+                   <span className="text-[#facc15] font-bold">LOW 2700-3000 mV</span>
+                   <span className="text-[#22c55e] font-bold">NORM 3000-3500 mV</span>
+                   <span className="text-[#84cc16] font-bold">ELEV 3500-3700 mV</span>
+                   <span className="text-[#ef4444] font-bold">CRIT HIGH &gt;3700 mV</span>
                  </div>
-                 <span>High</span>
+                 <div className="flex items-center gap-1 font-bold">
+                   <span className="text-[6.5px]">2500</span>
+                   <div className="flex gap-[1px]">
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(2500, "mV")} title="2500 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(2700, "mV")} title="2700 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(2900, "mV")} title="2900 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3000, "mV")} title="3000 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3200, "mV")} title="3200 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3300, "mV")} title="3300 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3400, "mV")} title="3400 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3500, "mV")} title="3500 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3600, "mV")} title="3600 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3700, "mV")} title="3700 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(3800, "mV")} title="3800 mV"></div>
+                     <div className="w-4 h-1.5 rounded-[1px] border" style={getCellVoltageColorStyle(4000, "mV")} title="4000 mV"></div>
+                   </div>
+                   <span className="text-[6.5px]">4000 mV</span>
+                 </div>
                </div>
              )}
            </div>
