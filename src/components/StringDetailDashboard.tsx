@@ -7,6 +7,7 @@ import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 import PhysicalEnergySegmentHeatmap from "./PhysicalEnergySegmentHeatmap";
 import { buildPhysicalSlotsFromRichDetail } from "../lib/physicalEnergySegmentLayout";
 import { cToF } from "../lib/temperatureUnits";
+import { formatTemperatureF } from "../utils/temperatureScale";
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const { snapshot } = useSiteData();
@@ -239,14 +240,16 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const formatTemp = (value: any): string => {
     const n = finite(value);
     if (n === null) return "--";
-    return Number.isInteger(n) ? `${n}°C` : `${n.toFixed(1)}°C`;
+    return formatTemperatureF(n, { decimals: 1, showUnit: true, sourceUnit: "C" });
   };
   const formatTempF = (valueF: number | null, valueC: number | null): string => {
-    if (valueF === null) {
-        if (valueC === null) return "--";
-        return Number.isInteger(valueC) ? `${valueC}°C` : `${valueC.toFixed(1)}°C`;
+    if (valueC !== null) {
+      return formatTemperatureF(valueC, { decimals: 1, showUnit: true, sourceUnit: "C" });
     }
-    return Number.isInteger(valueF) ? `${valueF}°F` : `${valueF.toFixed(1)}°F`;
+    if (valueF !== null) {
+      return formatTemperatureF(valueF, { decimals: 1, showUnit: true, sourceUnit: "F" });
+    }
+    return "--";
   };
   const formatDeltaMv = (value: any): string => {
     const n = finite(value);
@@ -255,14 +258,16 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const formatDeltaTemp = (value: any): string => {
     const n = finite(value);
     if (n === null) return "Δ --";
-    return Number.isInteger(n) ? `Δ ${n}°C` : `Δ ${n.toFixed(1)}°C`;
+    return `Δ ${(n * 1.8).toFixed(1)}°F`;
   };
   const formatDeltaTempF = (valueF: number | null, valueC: number | null): string => {
-    if (valueF === null) {
-      if (valueC === null) return "Δ --";
-      return Number.isInteger(valueC) ? `Δ ${valueC}°C` : `Δ ${valueC.toFixed(1)}°C`;
+    if (valueC !== null) {
+      return `Δ ${(valueC * 1.8).toFixed(1)}°F`;
     }
-    return Number.isInteger(valueF) ? `Δ ${valueF}°F` : `Δ ${valueF.toFixed(1)}°F`;
+    if (valueF !== null) {
+      return `Δ ${valueF.toFixed(1)}°F`;
+    }
+    return "Δ --";
   };
 
   const downloadMatrixCsv = (matrix: any, name: string) => {

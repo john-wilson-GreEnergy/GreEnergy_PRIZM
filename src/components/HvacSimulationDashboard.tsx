@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
 import { 
   Activity, 
   AlertTriangle, 
@@ -62,7 +63,7 @@ const formatTimestampWithUtc = (isoStr: string) => {
 
 const SIM_MODES = [
   { id: "cooling", label: "Cooling Sim", desc: "HVAC High Fan + Compressor override", threshold: "≥12 A load response", expected: "Compressors active, verify thermal logic stages" },
-  { id: "heating", label: "Heating Sim", desc: "Bypasses standard climate to call active heaters", threshold: "SpaceTemp preset = 5°C", expected: "Stage-1/2 electric heating coils active" },
+  { id: "heating", label: "Heating Sim", desc: "Bypasses standard climate to call active heaters", threshold: "SpaceTemp preset = 41°F", expected: "Stage-1/2 electric heating coils active" },
   { id: "dehumidification", label: "Dehumidification", desc: "Injects wet bulb/RH limits into telemetry", threshold: "Relative Humidities @ 99%", expected: "Coils condenser cycle to extract condensation" },
   { id: "lowerTopCap", label: "Lower Top Cap", desc: "Manipulates top state feedback registers", threshold: "Toggle simulated shut limiters", expected: "Telemetry reports LowerTopcapClosed state" },
   { id: "leakAlarm", label: "Leak Alarm", desc: "Dispatches mock safety containment breach calls", threshold: "Inject positive hydrogen levels", expected: "System flags active leak state triggers" },
@@ -262,9 +263,9 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
                 time: tick,
                 hvac1Current: h1.currentA ?? 0,
                 hvac2Current: h2.currentA ?? 0,
-                spaceTemp: metrics.spaceTempC ?? 0,
-                supplyTemp: metrics.supplyAirTempC ?? 0,
-                cellTemp: metrics.avgCellTempC ?? 0,
+                spaceTemp: metrics.spaceTempC != null ? (metrics.spaceTempC * 1.8 + 32) : 0,
+                supplyTemp: metrics.supplyAirTempC != null ? (metrics.supplyAirTempC * 1.8 + 32) : 0,
+                cellTemp: metrics.avgCellTempC != null ? (metrics.avgCellTempC * 1.8 + 32) : 0,
                 spaceHumidity: metrics.spaceHumidityPct ?? 0,
                 outsideHumidity: metrics.outsideHumidityPct ?? 0,
                 remainingMinutes: row.simulationRemainingMinutes ?? 0
@@ -1722,7 +1723,7 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
                     {/* Temp Trends */}
                     <div className="bg-black/15 p-2 rounded border border-prizm-border/45 space-y-1">
                       <span className="block text-[9px] font-mono font-bold text-cyan-300 uppercase">
-                        Internal space temperature Trends (°C)
+                        Internal space temperature Trends (°F)
                       </span>
                       <div className="h-[125px] w-full block">
                         <ResponsiveContainer width="100%" height="100%">
@@ -2153,9 +2154,9 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
                     <div className="p-3 border border-prizm-border rounded space-y-1.5 bg-prizm-bg">
                       <span className="text-cyan-600 font-black block uppercase border-b border-prizm-border/20 pb-1">Climate sensor package readings</span>
                       <div className="grid grid-cols-2 gap-2 text-[11px] text-prizm-text">
-                        <div>Space Climate Temp: <strong className="text-prizm-text-strong font-black">{sMetrics.spaceTempC ?? " - "}°C</strong></div>
-                        <div>Discharge Climate Temp: <strong className="text-prizm-text-strong font-black">{sMetrics.supplyAirTempC ?? " - "}°C</strong></div>
-                        <div>Cell Thermal Average: <strong className="text-prizm-text-strong font-black">{sMetrics.avgCellTempC ?? " - "}°C</strong></div>
+                        <div>Space Climate Temp: <strong className="text-prizm-text-strong font-black">{formatTemperatureF(sMetrics.spaceTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })}</strong></div>
+                        <div>Discharge Climate Temp: <strong className="text-prizm-text-strong font-black">{formatTemperatureF(sMetrics.supplyAirTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })}</strong></div>
+                        <div>Cell Thermal Average: <strong className="text-prizm-text-strong font-black">{formatTemperatureF(sMetrics.avgCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })}</strong></div>
                         <div>Discharging humidity: <strong className="text-prizm-text-strong font-black">{sMetrics.spaceHumidityPct ?? " - "}% RH</strong></div>
                       </div>
                     </div>

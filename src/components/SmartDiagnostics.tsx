@@ -14,6 +14,7 @@ import {
   TrendingDown
 } from "lucide-react";
 import { BessDevice, BessLog, SmartDiagnosticResponse } from "../types";
+import { formatTemperatureF } from "../utils/temperatureScale";
 
 interface SmartDiagnosticsProps {
   devices: BessDevice[];
@@ -203,7 +204,9 @@ export default function SmartDiagnostics({ devices, logs, onClearLogs, selectedD
                     </div>
                     <div>
                       <span className="text-white/30 block text-[9px] uppercase">Temp</span>
-                      <span className={`font-bold ${activeDevice.temperature > 45 ? 'text-rose-400' : 'text-emerald-400'}`}>{activeDevice.temperature}°C</span>
+                      <span className={`font-bold ${activeDevice.temperature > 45 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {formatTemperatureF(activeDevice.temperature, { decimals: 1, showUnit: true, sourceUnit: "C" })}
+                      </span>
                     </div>
                   </div>
                 </div>

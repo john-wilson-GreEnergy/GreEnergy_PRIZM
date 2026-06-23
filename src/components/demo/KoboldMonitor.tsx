@@ -206,6 +206,34 @@ const renderJsonHighlight = (obj: any) => {
   );
 };
 
+const safeGetItem = (key: string): string | null => {
+  try {
+    return typeof window !== "undefined" && window.localStorage ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string): void => {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // ignore
+  }
+};
+
+const safeRemoveItem = (key: string): void => {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+};
+
 export default function KoboldMonitor({ initialDevices }: { initialDevices: any[] }) {
   // --- REAL-TIME LOCAL EMS TURTLE CLIENT POLLING STATES ---
   const [emsConnection, setEmsConnection] = useState<any>(null);
@@ -217,15 +245,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   // --- COMMISSIONING / UPLOAD STATES ---
   const [isCommissioned, setIsCommissioned] = useState<boolean>(() => {
-    return localStorage.getItem("bess_kobold_commissioned") === "true";
+    return safeGetItem("bess_kobold_commissioned") === "true";
   });
   
   const [csvFileName, setCsvFileName] = useState<string>(() => {
-    return localStorage.getItem("bess_kobold_csv_name") || "";
+    return safeGetItem("bess_kobold_csv_name") || "";
   });
 
   const [uploadedRecordsCount, setUploadedRecordsCount] = useState<number>(() => {
-    return parseInt(localStorage.getItem("bess_kobold_csv_count") || "0", 10);
+    return parseInt(safeGetItem("bess_kobold_csv_count") || "0", 10);
   });
 
   const [activeRegisters, setActiveRegisters] = useState<ModbusRegister[]>([]);
@@ -1257,9 +1285,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       const linesCount = csvContent.split("\n").filter(Boolean).length - 1;
       setUploadedRecordsCount(linesCount);
       
-      localStorage.setItem("bess_kobold_commissioned", "true");
-      localStorage.setItem("bess_kobold_csv_name", fileName);
-      localStorage.setItem("bess_kobold_csv_count", String(linesCount));
+      safeSetItem("bess_kobold_commissioned", "true");
+      safeSetItem("bess_kobold_csv_name", fileName);
+      safeSetItem("bess_kobold_csv_count", String(linesCount));
 
       // Append success log
       setNotifications(prev => [
@@ -1321,9 +1349,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     setActiveRegisters(INITIAL_REGISTERS);
     setIsCommissioned(true);
 
-    localStorage.setItem("bess_kobold_commissioned", "true");
-    localStorage.setItem("bess_kobold_csv_name", "standard_powin_modbus_map.csv");
-    localStorage.setItem("bess_kobold_csv_count", String(INITIAL_REGISTERS.length));
+    safeSetItem("bess_kobold_commissioned", "true");
+    safeSetItem("bess_kobold_csv_name", "standard_powin_modbus_map.csv");
+    safeSetItem("bess_kobold_csv_count", String(INITIAL_REGISTERS.length));
 
     setNotifications(prev => [
       { 
@@ -1341,9 +1369,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       setIsCommissioned(false);
       setCsvFileName("");
       setUploadedRecordsCount(0);
-      localStorage.removeItem("bess_kobold_commissioned");
-      localStorage.removeItem("bess_kobold_csv_name");
-      localStorage.removeItem("bess_kobold_csv_count");
+      safeRemoveItem("bess_kobold_commissioned");
+      safeRemoveItem("bess_kobold_csv_name");
+      safeRemoveItem("bess_kobold_csv_count");
     }
   };
 

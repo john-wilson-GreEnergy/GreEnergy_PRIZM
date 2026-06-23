@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
 import { getDashboardConnectionStatus } from "../utils/statusDisplay";
 import {
   Activity,
@@ -757,7 +758,7 @@ export default function SiteOperationsDashboard({
                 </span>
                 <div className="text-sm font-bold text-prizm-text font-mono">
                   {sum?.bessFleetSummary?.avgCellTempC != null
-                    ? `${sum.bessFleetSummary.avgCellTempC.toFixed(1)} °C`
+                    ? formatTemperatureF(sum.bessFleetSummary.avgCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                     : "--"}
                 </div>
               </div>
@@ -767,7 +768,7 @@ export default function SiteOperationsDashboard({
                 </span>
                 <div className="text-sm font-bold text-prizm-text font-mono">
                   {sum?.bessFleetSummary?.maxCellTempDeltaC != null
-                    ? `Δ ${sum.bessFleetSummary.maxCellTempDeltaC.toFixed(1)} °C`
+                    ? `Δ ${(sum.bessFleetSummary.maxCellTempDeltaC * 1.8).toFixed(1)}°F`
                     : "--"}
                 </div>
               </div>
@@ -780,9 +781,9 @@ export default function SiteOperationsDashboard({
                     const valA = sum?.bessFleetSummary?.maxCellTempC;
                     const valB = sum?.featherSummary?.maxCellTempC;
                     if (valA != null && valB != null)
-                      return `${Math.max(valA, valB).toFixed(1)} °C`;
-                    if (valA != null) return `${valA.toFixed(1)} °C`;
-                    if (valB != null) return `${valB.toFixed(1)} °C`;
+                      return formatTemperatureF(Math.max(valA, valB), { decimals: 1, showUnit: true, sourceUnit: "C" });
+                    if (valA != null) return formatTemperatureF(valA, { decimals: 1, showUnit: true, sourceUnit: "C" });
+                    if (valB != null) return formatTemperatureF(valB, { decimals: 1, showUnit: true, sourceUnit: "C" });
                     return "--";
                   })()}
                 </div>
@@ -1082,24 +1083,37 @@ export default function SiteOperationsDashboard({
                           field: string,
                           suffix = "",
                           toFixed = 1,
-                        ) => (
-                          <tr className="hover:bg-prizm-surface transition-colors">
-                            <td className="py-1 px-2 text-prizm-text-muted">
-                              {label}
-                            </td>
-                            {buckets.map((b, i) => {
-                              let val = sum.stringSummary.rollups?.[b]?.[field];
-                              return (
-                                <td
-                                  key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                                >
-                                  {formatVal(val, suffix, toFixed)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
+                        ) => {
+                          const isTemp = field.endsWith("TempC") || field.endsWith("TemperatureC");
+                          const isTempDelta = field.endsWith("TempDeltaC") || field.endsWith("TemperatureDeltaC");
+                          const displaySuffix = (isTemp || isTempDelta) ? "°F" : suffix;
+
+                          return (
+                            <tr className="hover:bg-prizm-surface transition-colors">
+                              <td className="py-1 px-2 text-prizm-text-muted">
+                                {label}
+                              </td>
+                              {buckets.map((b, i) => {
+                                let val = sum.stringSummary.rollups?.[b]?.[field];
+                                if (val !== null && val !== undefined && !isNaN(Number(val))) {
+                                  if (isTemp) {
+                                    val = Number(val) * 1.8 + 32;
+                                  } else if (isTempDelta) {
+                                    val = Number(val) * 1.8;
+                                  }
+                                }
+                                return (
+                                  <td
+                                    key={i}
+                                    className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                                  >
+                                    {formatVal(val, displaySuffix, toFixed)}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        };
 
                         const renderSocRow = () => (
                           <tr className="hover:bg-prizm-surface transition-colors">
@@ -1205,27 +1219,27 @@ export default function SiteOperationsDashboard({
                               0,
                             )}
                             {renderRow(
-                              "High Cell Temp (°C)",
+                              "High Cell Temp (°F)",
                               "highCellTempC",
-                              "°C",
+                              "°F",
                               1,
                             )}
                             {renderRow(
-                              "Average Cell Temp (°C)",
+                              "Average Cell Temp (°F)",
                               "avgCellTempC",
-                              "°C",
+                              "°F",
                               1,
                             )}
                             {renderRow(
-                              "Low Cell Temp (°C)",
+                              "Low Cell Temp (°F)",
                               "lowCellTempC",
-                              "°C",
+                              "°F",
                               1,
                             )}
                             {renderRow(
-                              "Max Cell Temp Delta (°C)",
+                              "Max Cell Temp Delta (°F)",
                               "maxCellTempDeltaC",
-                              "°C",
+                              "°F",
                               1,
                             )}
                           </>
@@ -1873,13 +1887,13 @@ export default function SiteOperationsDashboard({
                         <td className="py-1 px-2 text-cyan-400 font-bold text-center">
                           {item.temperatureC !== undefined &&
                           item.temperatureC !== null
-                            ? `${Number(item.temperatureC).toFixed(1)}°C`
+                            ? formatTemperatureF(item.temperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                             : "--"}
                         </td>
                         <td className="py-1 px-2 text-sky-400/80 text-center">
                           {item.supplyAirTempC !== undefined &&
                           item.supplyAirTempC !== null
-                            ? `${Number(item.supplyAirTempC).toFixed(1)}°C`
+                            ? formatTemperatureF(item.supplyAirTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                             : "--"}
                         </td>
                         <td className="py-1 px-2 text-center font-semibold">
@@ -1888,7 +1902,7 @@ export default function SiteOperationsDashboard({
                           ) : item.cellTemperatureC !== undefined &&
                             item.cellTemperatureC !== null ? (
                             <span className="text-pink-400">
-                              `${Number(item.cellTemperatureC).toFixed(1)}°C`
+                              {formatTemperatureF(item.cellTemperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })}
                             </span>
                           ) : (
                             <span className="text-prizm-text-muted">--</span>
@@ -1897,13 +1911,13 @@ export default function SiteOperationsDashboard({
                         <td className="py-1 px-2 text-amber-400 font-semibold text-center">
                           {item.coolingSetpointC !== undefined &&
                           item.coolingSetpointC !== null
-                            ? `${Number(item.coolingSetpointC).toFixed(1)}°C`
+                            ? formatTemperatureF(item.coolingSetpointC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                             : "--"}
                         </td>
                         <td className="py-1 px-2 text-orange-400 font-semibold text-center">
                           {item.heatingSetpointC !== undefined &&
                           item.heatingSetpointC !== null
-                            ? `${Number(item.heatingSetpointC).toFixed(1)}°C`
+                            ? formatTemperatureF(item.heatingSetpointC, { decimals: 1, showUnit: true, sourceUnit: "C" })
                             : "--"}
                         </td>
                         <td className="py-1 px-2 text-emerald-400 font-bold text-center">

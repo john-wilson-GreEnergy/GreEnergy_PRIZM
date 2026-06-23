@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
+import { formatTemperatureF } from "../utils/temperatureScale";
 
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import RotationModal, { RotationTarget } from './RotationModal';
@@ -475,9 +476,9 @@ const handleManualRefresh = async () => {
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Temp / Max &Delta;</span>
           <span className="text-[11px] font-bold text-prizm-text mt-0.5">
-            {fleetAvgCellTemp !== null ? fleetAvgCellTemp.toFixed(1) + "°C" : "--"}
+            {fleetAvgCellTemp != null ? formatTemperatureF(fleetAvgCellTemp, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"}
             <span className="text-prizm-text-muted mx-1">|</span>
-            {fleetMaxCellTempDelta !== null ? "\u0394" + fleetMaxCellTempDelta.toFixed(1) + "°C" : "--"}
+            {fleetMaxCellTempDelta != null ? "\u0394" + (fleetMaxCellTempDelta * 1.8).toFixed(1) + "°F" : "--"}
           </span>
         </div>
       </div>
@@ -592,9 +593,9 @@ const handleManualRefresh = async () => {
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Min Cell V</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Cell V</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Cell V</th>
-                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Min Temp</th>
-                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Temp</th>
-                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Temp</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Min Temp (°F)</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Temp (°F)</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Temp (°F)</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL CT</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL MODE</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Location</th>
@@ -843,9 +844,9 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature !== null ? s.minCellTemperature : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature !== null ? s.maxCellTemperature : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta !== null ? s.cellTemperatureDelta : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature != null ? formatTemperatureF(s.minCellTemperature, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature != null ? formatTemperatureF(s.maxCellTemperature, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta != null ? (s.cellTemperatureDelta * 1.8).toFixed(1) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted cursor-help" title={balanceTooltip}>{balCountToShow}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text truncate max-w-[100px] cursor-help" title={balanceTooltip}>{balModeToShow}</td>
                     <td className="px-1.5 py-0.5 font-bold text-prizm-text-muted text-xs">

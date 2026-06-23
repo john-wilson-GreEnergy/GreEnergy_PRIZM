@@ -109,27 +109,8 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
 
           {/* Temperature Unit Toggle */}
           {mode === "temperature" && (
-            <div className="flex bg-prizm-surface p-0.5 rounded border border-prizm-border/40">
-              <button
-                onClick={() => setTempUnit("C")}
-                className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-colors ${
-                  tempUnit === "C"
-                    ? "bg-sky-500/20 text-sky-450 border border-sky-500/30"
-                    : "text-prizm-text-muted hover:text-white"
-                }`}
-              >
-                °C
-              </button>
-              <button
-                onClick={() => setTempUnit("F")}
-                className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-colors ${
-                  tempUnit === "F"
-                    ? "bg-sky-500/20 text-sky-450 border border-sky-500/30"
-                    : "text-prizm-text-muted hover:text-white"
-                }`}
-              >
-                °F
-              </button>
+            <div className="flex bg-prizm-surface px-2.5 py-1 rounded border border-prizm-border/40 text-[#10b981] font-bold text-[8.5px] uppercase tracking-wider">
+              Fixed: °F
             </div>
           )}
 

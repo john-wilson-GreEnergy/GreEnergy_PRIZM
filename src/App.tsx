@@ -101,9 +101,9 @@ export default function App() {
 
   // Configured navbar tabs list setting
   const [tabsOrder, setTabsOrder] = useState<TabItem[]>(() => {
-    const saved = localStorage.getItem("prizm_tabs_config_v2");
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem("prizm_tabs_config_v2");
+      if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const keys = parsed.map(t => t.id);
@@ -115,9 +115,9 @@ export default function App() {
           });
           return merged.filter(t => DEFAULT_TABS_ORDER.includes(t.id));
         }
-      } catch (e) {
-        console.error("Failed to parse navigation settings key:", e);
       }
+    } catch (e) {
+      console.warn("Failed to retrieve or parse navigation settings key from localStorage:", e);
     }
     return DEFAULT_TABS_ORDER.map(id => ({ id, visible: true }));
   });
@@ -126,7 +126,11 @@ export default function App() {
 
   // Save configurations layout changes to secure local client storage
   useEffect(() => {
-    localStorage.setItem("prizm_tabs_config_v2", JSON.stringify(tabsOrder));
+    try {
+      localStorage.setItem("prizm_tabs_config_v2", JSON.stringify(tabsOrder));
+    } catch (e) {
+      console.warn("Failed to write navigation settings to localStorage:", e);
+    }
   }, [tabsOrder]);
 
   // If the focus tab gets disabled or hidden, auto-select the next visible tab to preserve render viewport

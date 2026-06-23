@@ -21,6 +21,7 @@ import {
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import { useSiteData } from "../context/SiteDataContext";
 import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
+import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -460,7 +461,9 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     });
 
     return sorted.map((row, index) => {
-      const value = activeTab === "voltage" ? row.voltage : row.temperature;
+      const value = activeTab === "voltage"
+        ? row.voltage
+        : (row.temperature !== undefined && row.temperature !== null ? celsiusToFahrenheit(row.temperature) : null);
       return {
         ...row,
         stackVoltage: row.voltage, // mapped for tooltip
@@ -500,11 +503,11 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           <div className="pt-1 grid grid-cols-2 gap-2 text-[10.5px]">
             <div>
               <span className="text-slate-400 block font-sans">Max Cell Temp:</span>
-              <span className="text-orange-400 font-bold text-xs">{d.maxCellTempC !== undefined && d.maxCellTempC !== null ? `${d.maxCellTempC}°C` : "N/A"}</span>
+              <span className="text-orange-400 font-bold text-xs">{d.maxCellTempC !== undefined && d.maxCellTempC !== null ? formatTemperatureF(d.maxCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
             </div>
             <div>
               <span className="text-slate-400 block font-sans">Avg Cell Temp:</span>
-              <span className="text-yellow-400 font-bold text-xs">{d.avgCellTempC !== undefined && d.avgCellTempC !== null ? `${d.avgCellTempC}°C` : "N/A"}</span>
+              <span className="text-yellow-400 font-bold text-xs">{d.avgCellTempC !== undefined && d.avgCellTempC !== null ? formatTemperatureF(d.avgCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
             </div>
           </div>
 
@@ -664,7 +667,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               <div className="flex justify-between">
                 <span>TEMP:</span>
                 <span className="text-orange-600 font-extrabold">
-                  {data?.rollups?.temperatureMin ?? "0"}-{data?.rollups?.temperatureMax ?? "0"} °C
+                  {data?.rollups?.temperatureMin !== undefined && data?.rollups?.temperatureMin !== null ? formatTemperatureF(data.rollups.temperatureMin, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"} - {data?.rollups?.temperatureMax !== undefined && data?.rollups?.temperatureMax !== null ? formatTemperatureF(data.rollups.temperatureMax, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"}
                 </span>
               </div>
             </div>
@@ -759,8 +762,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 onChange={e => setTempMetric(e.target.value as "max" | "avg")}
                 className="w-full bg-prizm-surface border border-prizm-border text-prizm-text text-[11px] rounded p-1.5"
               >
-                <option value="max">Max Cell Temperature C</option>
-                <option value="avg">Average Cell Temperature C</option>
+                <option value="max">Max Cell Temperature (°F)</option>
+                <option value="avg">Average Cell Temperature (°F)</option>
               </select>
             </div>
           )}
@@ -862,10 +865,10 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             
             {activeTab === "temperature" ? (
               <div className="space-y-2.5 text-[10px]">
-                <div>
+                 <div>
                   <div className="flex justify-between font-bold mb-1">
                     <span>Alarm high temp:</span>
-                    <span className="text-prizm-danger">{alarmTemp} °C</span>
+                    <span className="text-prizm-danger">{formatTemperatureF(alarmTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
                   </div>
                   <input
                     type="range"
@@ -880,7 +883,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 <div>
                   <div className="flex justify-between font-bold mb-1">
                     <span>Warning high temp:</span>
-                    <span className="text-prizm-warning">{warningTemp} °C</span>
+                    <span className="text-prizm-warning">{formatTemperatureF(warningTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
                   </div>
                   <input
                     type="range"
@@ -895,7 +898,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 <div>
                   <div className="flex justify-between font-bold mb-1">
                     <span>Low threshold temp:</span>
-                    <span className="text-prizm-info">{lowTemp} °C</span>
+                    <span className="text-prizm-info">{formatTemperatureF(lowTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
                   </div>
                   <input
                     type="range"
@@ -968,7 +971,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 {activeTab === "voltage" ? "Stack Voltage Site Spread Map" : "Stack Temperature Site Spread Map"}
               </span>
               <span className="text-[10px] bg-prizm-surface-strong px-2 py-0.5 rounded border border-prizm-border text-prizm-text-muted">
-                METRIC: <span className="font-extrabold text-prizm-primary">{activeTab === "voltage" ? "Stack Voltage Vdc" : (tempMetric === "max" ? "Max Cell Temperature C" : "Average Cell Temperature C")}</span>
+                METRIC: <span className="font-extrabold text-prizm-primary">{activeTab === "voltage" ? "Stack Voltage Vdc" : (tempMetric === "max" ? "Max Cell Temperature (°F)" : "Average Cell Temperature (°F)")}</span>
               </span>
             </div>
 
@@ -1101,20 +1104,20 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                         type="number" 
                         dataKey="metricVal" 
                         name="Temperature" 
-                        unit="°C"
+                        unit="°F"
                         domain={[
                           (dataMin: number) => {
-                            const minVal = typeof dataMin === 'number' && Number.isFinite(dataMin) ? dataMin : 20;
-                            return Math.floor(Math.min(minVal, lowTemp) - 5);
+                            const minVal = typeof dataMin === 'number' && Number.isFinite(dataMin) ? dataMin : 68;
+                            return Math.floor(Math.min(minVal, celsiusToFahrenheit(lowTemp)) - 5);
                           },
                           (dataMax: number) => {
-                            const maxVal = typeof dataMax === 'number' && Number.isFinite(dataMax) ? dataMax : 45;
-                            return Math.ceil(Math.max(maxVal, alarmTemp) + 5);
+                            const maxVal = typeof dataMax === 'number' && Number.isFinite(dataMax) ? dataMax : 113;
+                            return Math.ceil(Math.max(maxVal, celsiusToFahrenheit(alarmTemp)) + 5);
                           }
                         ]}
                         stroke="#475569"
                         fontSize={10}
-                        label={{ value: 'Temperature (°C)', angle: -90, position: 'insideLeft', offset: -5, fontSize: 10, fill: '#64748b' }}
+                        label={{ value: 'Temperature (°F)', angle: -90, position: 'insideLeft', offset: -5, fontSize: 10, fill: '#64748b' }}
                       />
                     ) : (
                       <YAxis 
@@ -1146,25 +1149,25 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                     {activeTab === "temperature" ? (
                       <>
                         <ReferenceLine 
-                          y={alarmTemp} 
+                          y={celsiusToFahrenheit(alarmTemp)} 
                           stroke="#EF4444" 
                           strokeDasharray="5 5" 
                           strokeWidth={1.5} 
-                          label={{ value: `HIGH ALARM (${alarmTemp}°C)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `HIGH ALARM (${formatTemperatureF(alarmTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
-                          y={warningTemp} 
+                          y={celsiusToFahrenheit(warningTemp)} 
                           stroke="#F59E0B" 
                           strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `HIGH WARNING (${warningTemp}°C)`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `HIGH WARNING (${formatTemperatureF(warningTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
-                          y={lowTemp} 
+                          y={celsiusToFahrenheit(lowTemp)} 
                           stroke="#0284C7" 
                           strokeDasharray="4 4" 
                           strokeWidth={1} 
-                          label={{ value: `LOW CRITICAL (${lowTemp}°C)`, fill: "#0284C7", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                          label={{ value: `LOW CRITICAL (${formatTemperatureF(lowTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#0284C7", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
                         />
                       </>
                     ) : (
@@ -1224,8 +1227,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                     <th className="p-2 border-r border-prizm-border">String</th>
                     <th className="p-2 border-r border-prizm-border">Label</th>
                     <th className="p-2 border-r border-prizm-border text-right">Voltage</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Max Cell Temp</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Avg Cell Temp</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Max Cell Temp (°F)</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Avg Cell Temp (°F)</th>
                     <th className="p-2 border-r border-prizm-border">Controller IP</th>
                     <th className="p-2 border-r border-prizm-border">Status Category</th>
                     <th className="p-2">Data Source File</th>
@@ -1245,10 +1248,10 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                       const tempV = getMetricValue(s, "temperature", "max");
                       const voltV = getMetricValue(s, "voltage");
                       
-                      const isHighTemp = tempV !== undefined && tempV >= warningTemp;
-                      const isLowTemp = tempV !== undefined && tempV <= lowTemp;
-                      const isHighVolt = voltV !== undefined && voltV >= warningVolt;
-                      const isLowVolt = voltV !== undefined && voltV <= lowVolt;
+                      const isHighTemp = tempV !== undefined && tempV !== null && tempV >= warningTemp;
+                      const isLowTemp = tempV !== undefined && tempV !== null && tempV <= lowTemp;
+                      const isHighVolt = voltV !== undefined && voltV !== null && voltV >= warningVolt;
+                      const isLowVolt = voltV !== undefined && voltV !== null && voltV <= lowVolt;
 
                       return (
                         <tr key={idx} className="bg-prizm-surface hover:bg-prizm-surface-strong divide-x divide-prizm-border/30 transition">
@@ -1259,10 +1262,10 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                             {s.stackVoltage !== undefined && s.stackVoltage !== null ? `${s.stackVoltage} V` : "--"}
                           </td>
                           <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-500'}`}>
-                            {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? `${s.maxCellTempC} °C` : "--"}
+                            {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? formatTemperatureF(s.maxCellTempC, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}
                           </td>
                           <td className="p-2 text-right text-prizm-text-muted">
-                            {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? `${s.avgCellTempC} °C` : "--"}
+                            {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? formatTemperatureF(s.avgCellTempC, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}
                           </td>
                           <td className="p-2 text-prizm-text truncate" title={s.ip}>{s.ip || "Unknown"}</td>
                           <td className="p-2">

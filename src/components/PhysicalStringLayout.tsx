@@ -1,6 +1,10 @@
 import React, { useMemo } from "react";
-import { formatCelsius, formatFahrenheit } from "../lib/temperatureUnits";
 import { PhysicalCellSlot } from "../lib/physicalEnergySegmentLayout";
+import {
+  formatTemperatureF,
+  getTemperatureColorStyle,
+  normalizeTemperatureToFahrenheit
+} from "../utils/temperatureScale";
 
 type PhysicalStringLayoutProps = {
   slots: PhysicalCellSlot[];
@@ -30,46 +34,37 @@ export default function PhysicalStringLayout({
 
   const { minTemp, maxTemp, avgTemp, deltaTemp, minVolt, maxVolt, avgVolt, deltaVolt } = useMemo(() => {
     const validTemps = slots.map(s => s.tempC).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
-    const validTempsF = slots.map(s => s.tempF).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
     const validVolts = slots.map(s => s.voltageMv).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
     
     // Default values if empty
-    const minC = validTemps.length > 0 ? Math.min(...validTemps) : 0;
-    const maxC = validTemps.length > 0 ? Math.max(...validTemps) : 0;
-    const avgC = validTemps.length > 0 ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length : 0;
+    const minC = validTemps.length > 0 ? Math.min(...validTemps) : 25;
+    const maxC = validTemps.length > 0 ? Math.max(...validTemps) : 25;
+    const avgC = validTemps.length > 0 ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length : 25;
 
-    const minF = validTempsF.length > 0 ? Math.min(...validTempsF) : 32;
-    const maxF = validTempsF.length > 0 ? Math.max(...validTempsF) : 32;
-    const avgF = validTempsF.length > 0 ? validTempsF.reduce((a, b) => a + b, 0) / validTempsF.length : 32;
+    const minF = normalizeTemperatureToFahrenheit(minC, "C") ?? 77;
+    const maxF = normalizeTemperatureToFahrenheit(maxC, "C") ?? 77;
+    const avgF = normalizeTemperatureToFahrenheit(avgC, "C") ?? 77;
     
     const minVolt = validVolts.length > 0 ? Math.min(...validVolts) : 0;
     const maxVolt = validVolts.length > 0 ? Math.max(...validVolts) : 0;
     const avgVolt = validVolts.length > 0 ? validVolts.reduce((a, b) => a + b, 0) / validVolts.length : 0;
     
     return {
-      minTemp: tempUnit === "F" ? minF : minC,
-      maxTemp: tempUnit === "F" ? maxF : maxC,
-      avgTemp: tempUnit === "F" ? avgF : avgC,
-      deltaTemp: (tempUnit === "F" ? maxF - minF : maxC - minC),
+      minTemp: minF,
+      maxTemp: maxF,
+      avgTemp: avgF,
+      deltaTemp: maxF - minF,
       minVolt,
       maxVolt,
       avgVolt,
       deltaVolt: maxVolt - minVolt,
     };
-  }, [slots, tempUnit]);
+  }, [slots]);
 
   const normalizeValue = (value: number, min: number, max: number): number => {
     if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
     if (max === min) return 0.5;
     return Math.max(0, Math.min(1, (value - min) / (max - min)));
-  };
-
-  const getTempGradientClass = (t: number): string => {
-    if (t < 0.2) return "bg-sky-200 text-slate-900 border-sky-300";
-    if (t < 0.4) return "bg-cyan-200 text-slate-900 border-cyan-300";
-    if (t < 0.6) return "bg-emerald-200 text-slate-900 border-emerald-300";
-    if (t < 0.8) return "bg-amber-200 text-slate-900 border-amber-300";
-    return "bg-red-300 text-slate-950 border-red-400";
   };
 
   const getVoltGradientClass = (t: number): string => {
@@ -93,13 +88,17 @@ export default function PhysicalStringLayout({
          </div>
          <div className="grid grid-cols-5 gap-0.5">
            {moduleCells.map((cell, idx) => {
+             const tempDisplay = cell.tempC !== null && cell.tempC !== undefined && Number.isFinite(cell.tempC)
+               ? formatTemperatureF(cell.tempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
+               : "broken";
+
              const tooltip = [
                `Array ${arrayNumber} / String ${stringNumber}`,
                `BPC ${cell.bpcNumber} / Cell Group ${cell.cellNumber}`,
                `Side: ${cell.side.charAt(0).toUpperCase() + cell.side.slice(1)}`,
                `Module: ${cell.moduleLabel}`,
                `HVAC: ${cell.hvacProximity.charAt(0).toUpperCase() + cell.hvacProximity.slice(1)}`,
-               `Temperature: ${formatFahrenheit(cell.tempF)} / ${formatCelsius(cell.tempC)}`,
+               `Temperature: ${tempDisplay}`,
                `Voltage: ${cell.voltageMv ?? "--"} mV`,
                `Timestamp age: ${cell.timestampAge ?? "--"}`,
                `Balancing: ${cell.balancing ?? "--"}`,
@@ -108,13 +107,12 @@ export default function PhysicalStringLayout({
 
              let colorClass = "bg-white/5 border-white/10 text-white/40";
              let valueLabel = "--";
+             let customStyle: React.CSSProperties | undefined = undefined;
 
-             const currentTemp = tempUnit === "F" ? cell.tempF : cell.tempC;
-
-             if (metric === "temperature" && currentTemp !== null && Number.isFinite(currentTemp)) {
-                colorClass = getTempGradientClass(normalizeValue(currentTemp, minTemp, maxTemp));
-                const digits = currentTemp < 100 && currentTemp > -10 ? 1 : 0;
-                valueLabel = currentTemp.toFixed(digits);
+             if (metric === "temperature" && cell.tempC !== null && cell.tempC !== undefined && Number.isFinite(cell.tempC)) {
+                valueLabel = formatTemperatureF(cell.tempC, { decimals: 1, showUnit: false, sourceUnit: "C" });
+                customStyle = getTemperatureColorStyle(cell.tempC, "C");
+                colorClass = "";
              } else if (metric === "voltage" && cell.voltageMv !== null && Number.isFinite(cell.voltageMv)) {
                 colorClass = getVoltGradientClass(normalizeValue(cell.voltageMv, minVolt, maxVolt));
                 valueLabel = Math.round(cell.voltageMv).toString();
@@ -127,6 +125,7 @@ export default function PhysicalStringLayout({
                  className={`rounded-[2px] border leading-none flex items-center justify-center font-mono font-bold cursor-help transition-all hover:scale-110 ${
                    isL ? 'h-3.5 text-[6.5px]' : 'h-6 text-[9.5px]'
                  } ${colorClass}`}
+                 style={customStyle}
                >
                  {showValues ? valueLabel : ""}
                </div>
@@ -157,44 +156,56 @@ export default function PhysicalStringLayout({
               }`}>
                 {title || `A${arrayNumber}-S${stringNumber} PHYSICAL LAYOUT`}
               </span>
-              <span className="text-prizm-text-muted text-[8.5px] uppercase mt-0.5 truncate">
-                Mode: {metric === "temperature" ? `Temperature °${tempUnit}` : "Voltage mV"} &nbsp;|&nbsp; {slots.length} cells
+              <span className="text-prizm-text-muted text-[8.5px] uppercase mt-0.5 truncate font-bold">
+                Mode: {metric === "temperature" ? `Temperature °F` : "Voltage mV"} &nbsp;|&nbsp; {slots.length} cells
               </span>
               {metric === "temperature" ? (
-                  <span className="text-prizm-text-muted text-[8px] mt-0.5 truncate font-semibold">
-                    Min {minTemp.toFixed(1)}°{tempUnit} &nbsp;|&nbsp; Avg {avgTemp.toFixed(1)}°{tempUnit} &nbsp;|&nbsp; Max {maxTemp.toFixed(1)}°{tempUnit} &nbsp;|&nbsp; Δ {deltaTemp.toFixed(1)}°{tempUnit}
+                  <span className="text-[#10b981] text-[8px] mt-0.5 truncate font-bold animate-fade-in">
+                    Min {minTemp.toFixed(1)}°F &nbsp;|&nbsp; Avg {avgTemp.toFixed(1)}°F &nbsp;|&nbsp; Max {maxTemp.toFixed(1)}°F &nbsp;|&nbsp; Δ {deltaTemp.toFixed(1)}°F
                   </span>
               ) : (
-                  <span className="text-prizm-text-muted text-[8px] mt-0.5 truncate font-semibold">
+                  <span className="text-[#a855f7] text-[8px] mt-0.5 truncate font-bold">
                     Min {Math.round(minVolt)} mV &nbsp;|&nbsp; Avg {Math.round(avgVolt)} mV &nbsp;|&nbsp; Max {Math.round(maxVolt)} mV &nbsp;|&nbsp; Δ {Math.round(deltaVolt)} mV
                   </span>
               )}
            </div>
            
-           <div className="flex flex-col items-end gap-1 shrink-0">
-             <div className="flex items-center gap-1 text-[7.5px] text-prizm-text-muted uppercase font-bold">
-               <span>Low</span>
-               <div className="flex gap-[1px]">
-                 {metric === "temperature" ? (
-                   <>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getTempGradientClass(0)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getTempGradientClass(0.3)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getTempGradientClass(0.5)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getTempGradientClass(0.7)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getTempGradientClass(1)}`}></div>
-                   </>
-                 ) : (
-                   <>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.3)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.5)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.7)}`}></div>
-                     <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(1)}`}></div>
-                   </>
-                 )}
+           <div className="flex flex-col items-end gap-1 shrink-0 font-mono text-[7px]">
+             {metric === "temperature" ? (
+               <div className="flex flex-col items-end gap-0.5 text-prizm-text-muted">
+                 <div className="flex items-center gap-1 sm:gap-1.5 font-bold">
+                   <span className="text-sky-400 font-bold">COLD ≤77°F</span>
+                   <span className="text-emerald-400 font-bold">NORM 77-86°F</span>
+                   <span className="text-yellow-400 font-bold">ELEV 86-104°F</span>
+                   <span className="text-orange-400 font-bold">HOT 104-122°F</span>
+                   <span className="text-red-500 font-bold">CRIT 122-131°F+</span>
+                 </div>
+                 <div className="flex gap-[1px]">
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(5, "C")} title="5°C / 41°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(15, "C")} title="15°C / 59°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(24.9, "C")} title="24.9°C / 76.8°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(25, "C")} title="25°C / 77°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(30, "C")} title="30°C / 86°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(35, "C")} title="35°C / 95°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(40, "C")} title="40°C / 104°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(45, "C")} title="45°C / 113°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(50, "C")} title="50°C / 122°F"></div>
+                   <div className="w-4 h-1.5 rounded-[1px] border" style={getTemperatureColorStyle(55, "C")} title="55°C / 131°F"></div>
+                 </div>
                </div>
-               <span>High</span>
-             </div>
+             ) : (
+               <div className="flex items-center gap-1 text-[7.5px] text-prizm-text-muted uppercase font-bold">
+                 <span>Low</span>
+                 <div className="flex gap-[1px]">
+                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0)}`}></div>
+                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.3)}`}></div>
+                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.5)}`}></div>
+                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(0.7)}`}></div>
+                   <div className={`w-2.5 h-1.5 rounded-[1px] ${getVoltGradientClass(1)}`}></div>
+                 </div>
+                 <span>High</span>
+               </div>
+             )}
            </div>
         </div>
       )}

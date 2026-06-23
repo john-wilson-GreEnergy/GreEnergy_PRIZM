@@ -69,13 +69,15 @@ export default function TerminalToolbox({ devices }: { devices: any[] }) {
   // ------------------------- STATE DEFINITIONS -------------------------
   // Topology state (loaded from localStorage or defaults)
   const [topology, setTopology] = useState<TopologyMapping[]>(() => {
-    const saved = localStorage.getItem("bess_ip_topology");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return DEFAULT_TOPOLOGY;
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        const saved = localStorage.getItem("bess_ip_topology");
+        if (saved) {
+          return JSON.parse(saved);
+        }
       }
+    } catch (e) {
+      // ignore
     }
     return DEFAULT_TOPOLOGY;
   });
@@ -284,7 +286,13 @@ export default function TerminalToolbox({ devices }: { devices: any[] }) {
 
   // Save topology mapping modifications
   useEffect(() => {
-    localStorage.setItem("bess_ip_topology", JSON.stringify(topology));
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem("bess_ip_topology", JSON.stringify(topology));
+      }
+    } catch (e) {
+      // ignore
+    }
   }, [topology]);
 
   // ------------------------- POLLING LOG ENGINE -------------------------

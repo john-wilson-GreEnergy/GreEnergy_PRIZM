@@ -1,4 +1,9 @@
 const getSummary = async () => {
+    const resSnap = await fetch("http://localhost:3000/api/local/site-data/snapshot");
+    const snapJson = await resSnap.json();
+    console.log("Snapshot Status:", resSnap.status);
+    console.log("Snapshot Warming state:", snapJson.warming);
+    
     const res = await fetch("http://localhost:3000/api/local/site-operations/summary?noCache=true");
     const json = await res.json();
     console.log(JSON.stringify({

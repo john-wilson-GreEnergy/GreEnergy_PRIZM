@@ -428,7 +428,7 @@ export default function SafetyAdvancedDashboard() {
                       name: "HVAC Thermal Simulation Overdrive", 
                       icon: Cpu, 
                       desc: "Allows technician to override physical thermistor registers & force immediate cooling fan cooling routines.",
-                      action: () => setHvacSimulatorMsg("Command issued: HVAC bypass registered. Simulated thermocouple feedback bound to 15.4°C. Verified normal stack transition.")
+                      action: () => setHvacSimulatorMsg("Command issued: HVAC bypass registered. Simulated thermocouple feedback bound to 59.7°F. Verified normal stack transition.")
                     },
                     { 
                       name: "Active Cell balancing routine override", 

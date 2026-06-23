@@ -25,6 +25,7 @@ import { ManualScanConfig } from "../server/feather/featherTypes";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { sortByIPv4 } from "../lib/ipUtils";
 import { useSiteData } from '../context/SiteDataContext';
+import { formatTemperatureF } from "../utils/temperatureScale";
 
 export default function FeatherDashboard({ active = true }: { active?: boolean }) {
   const { snapshot, isInitialLoading, refreshNow } = useSiteData();
@@ -787,16 +788,16 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
                                 <Thermometer size={10} className="shrink-0" />
                                 <div className="overflow-hidden text-ellipsis whitespace-nowrap flex gap-x-2 text-prizm-text-muted">
                                   {d.spaceTemperatureC !== undefined && d.spaceTemperatureC !== null && (
-                                    <span>Space {d.spaceTemperatureC.toFixed(1)}°C {d.spaceHumidityPct !== undefined && d.spaceHumidityPct !== null ? `/ RH ${d.spaceHumidityPct.toFixed(1)}%` : ""} <span className="text-white/20 mx-1">|</span></span>
+                                    <span>Space {formatTemperatureF(d.spaceTemperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })} {d.spaceHumidityPct !== undefined && d.spaceHumidityPct !== null ? `/ RH ${d.spaceHumidityPct.toFixed(1)}%` : ""} <span className="text-white/20 mx-1">|</span></span>
                                   )}
                                   {d.avgCellTemperatureC !== undefined && d.avgCellTemperatureC !== null && (
-                                    <span>Cell {d.avgCellTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                    <span>Cell {formatTemperatureF(d.avgCellTemperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })} <span className="text-white/20 mx-1">|</span></span>
                                   )}
                                   {d.supplyAirTempC !== undefined && d.supplyAirTempC !== null && (
-                                    <span>Supply {d.supplyAirTempC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                    <span>Supply {formatTemperatureF(d.supplyAirTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })} <span className="text-white/20 mx-1">|</span></span>
                                   )}
                                   {d.outsideTemperatureC !== undefined && d.outsideTemperatureC !== null && (
-                                    <span>Outside {d.outsideTemperatureC.toFixed(1)}°C <span className="text-white/20 mx-1">|</span></span>
+                                    <span>Outside {formatTemperatureF(d.outsideTemperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })} <span className="text-white/20 mx-1">|</span></span>
                                   )}
                                   {d.hydrogen1PPM !== undefined && d.hydrogen1PPM !== null && (
                                     <span>H2 {d.hydrogen1PPM.toFixed(1)} ppm</span>
@@ -982,11 +983,11 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
                         {selectedDevice.hvacSummary && <div className="text-prizm-primary font-bold mb-1">{selectedDevice.hvacSummary}</div>}
                         <div className="flex justify-between">
                             <span className="text-prizm-text-muted">Space Temp (Supply):</span>
-                            <span className="text-prizm-text font-bold">{selectedDevice.temperatureSupplyC !== undefined ? `${selectedDevice.temperatureSupplyC}°C` : "N/A"}</span>
+                            <span className="text-prizm-text font-bold">{selectedDevice.temperatureSupplyC !== undefined && selectedDevice.temperatureSupplyC !== null ? formatTemperatureF(selectedDevice.temperatureSupplyC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-prizm-text-muted">Cell Temp:</span>
-                            <span className="text-prizm-text font-bold">{selectedDevice.temperatureCellC !== undefined ? `${selectedDevice.temperatureCellC}°C` : "N/A"}</span>
+                            <span className="text-prizm-text font-bold">{selectedDevice.temperatureCellC !== undefined && selectedDevice.temperatureCellC !== null ? formatTemperatureF(selectedDevice.temperatureCellC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-prizm-text-muted">HVAC Mode/Stage:</span>

@@ -355,7 +355,7 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
                                 />
                               </div>
                               <div>
-                                <label className="text-white/40 block">Temp Register (°C)</label>
+                                <label className="text-white/40 block">Temp Register Address</label>
                                 <input 
                                   type="number" 
                                   value={editTempReg} 
