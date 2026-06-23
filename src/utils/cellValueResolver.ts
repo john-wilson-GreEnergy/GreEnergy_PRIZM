@@ -47,7 +47,8 @@ export function resolvePhysicalCellMetricValue({
     }
 
     // It must not return BPC index, layout index, row index, cell position index, or placeholder values.
-    if (num === bpcIndex || num === cellIndex || num === physicalIndex) {
+    // However, normal operating temperatures between 15°C and 45°C should not be rejected.
+    if ((num < 15 || num > 45) && (num === bpcIndex || num === cellIndex || num === physicalIndex)) {
       logDebug(`Rejected index-matching placeholder temperature (BPC:${bpcIndex}, Cell:${cellIndex}, FlatIdx:${physicalIndex}): ${num}`);
       return true;
     }
@@ -118,18 +119,30 @@ export function resolvePhysicalCellMetricValue({
     if (Array.isArray(stringData.temperatureMatrix)) {
       const row = stringData.temperatureMatrix[bpcIndex - 1];
       if (row) {
-        const t = row[cellIndex - 1];
-        if (!isInvalidTemp(t)) {
-          return Number(t);
+        const rawVal = row[cellIndex - 1];
+        if (rawVal !== undefined && rawVal !== null && rawVal !== "" && rawVal !== "---") {
+          const n = Number(rawVal);
+          if (Number.isFinite(n)) {
+            const tC = Math.abs(n) > 100 ? n / 10 : n;
+            if (!isInvalidTemp(tC)) {
+              return tC;
+            }
+          }
         }
       }
     }
 
     // 2. Try to fetch from flat temperatures array
     if (Array.isArray(stringData.temperatures)) {
-      const t = stringData.temperatures[physicalIndex];
-      if (!isInvalidTemp(t)) {
-        return Number(t);
+      const rawVal = stringData.temperatures[physicalIndex];
+      if (rawVal !== undefined && rawVal !== null && rawVal !== "" && rawVal !== "---") {
+        const n = Number(rawVal);
+        if (Number.isFinite(n)) {
+          const tC = Math.abs(n) > 100 ? n / 10 : n;
+          if (!isInvalidTemp(tC)) {
+            return tC;
+          }
+        }
       }
     }
 
@@ -150,9 +163,15 @@ export function resolvePhysicalCellMetricValue({
           }) || cgs[cellIndex - 1];
 
           if (cg) {
-            const t = cg.temperature ?? cg.temp ?? cg.cellTemperature ?? cg.cellGroupTemp ?? cg.cellGroupTemperature;
-            if (!isInvalidTemp(t)) {
-              return Number(t);
+            const rawT = cg.temperature ?? cg.temp ?? cg.cellTemperature ?? cg.cellGroupTemp ?? cg.cellGroupTemperature;
+            if (rawT !== undefined && rawT !== null && rawT !== "" && rawT !== "---") {
+              const n = Number(rawT);
+              if (Number.isFinite(n)) {
+                const tC = Math.abs(n) > 100 ? n / 10 : n;
+                if (!isInvalidTemp(tC)) {
+                  return tC;
+                }
+              }
             }
           }
         }
