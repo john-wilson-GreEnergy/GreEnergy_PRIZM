@@ -34,6 +34,7 @@ const REQUEST_TIMEOUT_MS = Number(process.env.EMS_REQUEST_TIMEOUT_MS) || 30000;
 
 // Dynamic Demo Mode Toggle state
 let isDemoModeActive = process.env.DEMO_MODE === "true";
+let isEmsOffline = process.env.EMS_OFFLINE === "true" || false;
 
 // Cache ownership metadata tracking
 export let cacheProfileId: string | null = null;
@@ -103,7 +104,7 @@ export const emsCache: EmsCache = {
 };
 
 // High-fidelity pre-filled simulation template (Only served when Demo Mode is explicitly active)
-const DEMO_TEMPLATES = {
+export const DEMO_TEMPLATES = {
   status: {
     timestamp: new Date().toISOString(),
     status: "NORMAL",
@@ -276,7 +277,7 @@ const DEMO_TEMPLATES = {
 };
 
 // Strict Offline fallback structures
-const OFFLINE_TEMPLATES = {
+export const OFFLINE_TEMPLATES = {
   status: null,
   block: null,
   lastCall: null,
@@ -378,7 +379,13 @@ const endpointDebugMap: Record<string, EndpointDebugInfo> = {
 // Execute a fetch with absolute timeout wrapping and trace diagnostics
 export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number, returnType: 'response' | 'json' | 'text' = 'response'): Promise<any> {
   const baseUrl = getNormalizedBaseUrl();
-  const url = `${baseUrl}${endpoint}`;
+  let url = `${baseUrl}${endpoint}`;
+  
+  if (isEmsOffline && (url.includes("10.0.0.3") || url.includes("10.0.0."))) {
+    const urlObj = new URL(url);
+    url = `http://127.0.0.1:3000${urlObj.pathname}`;
+  }
+
   const controller = new AbortController();
   const timeoutMs = customTimeoutMs || Math.max(REQUEST_TIMEOUT_MS, 30000); 
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -405,6 +412,9 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
     try {
       response = await fetch(url, { signal: controller.signal });
       if (!response.ok && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+        if (url.includes("10.0.0.3") || url.includes("10.0.0.")) {
+          isEmsOffline = true;
+        }
         fallbackAttempted = true;
         const urlObj = new URL(url);
         const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
@@ -413,6 +423,9 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
       }
     } catch (e: any) {
       if (!fallbackAttempted && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+        if (url.includes("10.0.0.3") || url.includes("10.0.0.")) {
+          isEmsOffline = true;
+        }
         const urlObj = new URL(url);
         const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
         console.log(`[emsTurtleClient] Endpoint ${endpoint} offline or slow (${e.message}). Using local mock.`);
@@ -927,6 +940,22 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   let overallError: string | null = null;
   let criticalEndpointsFailed = 0;
   let coreEndpointsSucceeded = 0;
+
+  const baseUrl = getNormalizedBaseUrl();
+  // Fast probe on first run if not already declared offline to prevent 5 parallel slow timeouts
+  if (!isEmsOffline && (baseUrl.includes("10.0.0.3") || baseUrl.includes("10.0.0."))) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 350);
+      const probeRes = await fetch(`${baseUrl}/status`, { signal: controller.signal });
+      clearTimeout(id);
+      if (!probeRes.ok) {
+        isEmsOffline = true;
+      }
+    } catch (e) {
+      isEmsOffline = true;
+    }
+  }
 
   const criticalFetches = Promise.allSettled([
     fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 

@@ -492,11 +492,11 @@ export default function App() {
          <div className="text-xs bg-prizm-bg p-2 rounded mb-6 font-mono text-cyan-400 border border-white/5">{bootStatus.phase.toUpperCase()}</div>
          
          <div className="text-left space-y-2 font-mono text-xs mb-8">
-            <div className="flex justify-between"><span>Site Operations:</span> <span className={bootStatus.preloadStatus.siteOperations ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.siteOperations ? "READY" : "WAITING"}</span></div>
-            <div className="flex justify-between"><span>Topology:</span> <span className={bootStatus.preloadStatus.topology ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.topology ? "READY" : "WAITING"}</span></div>
-            <div className="flex justify-between"><span>Strings:</span> <span className={bootStatus.preloadStatus.stringsDashboard ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.stringsDashboard ? "READY" : "WAITING"}</span></div>
-            <div className="flex justify-between"><span>Feather/HVAC:</span> <span className={bootStatus.preloadStatus.featherDevices ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.featherDevices ? "READY" : "WAITING"}</span></div>
-            <div className="flex justify-between"><span>Modbus Setup:</span> <span className={bootStatus.preloadStatus.modbusProfile ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus.preloadStatus.modbusProfile ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Site Operations:</span> <span className={bootStatus?.preloadStatus?.siteOperations ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus?.preloadStatus?.siteOperations ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Topology:</span> <span className={bootStatus?.preloadStatus?.topology ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus?.preloadStatus?.topology ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Strings:</span> <span className={bootStatus?.preloadStatus?.stringsDashboard ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus?.preloadStatus?.stringsDashboard ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Feather/HVAC:</span> <span className={bootStatus?.preloadStatus?.featherDevices ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus?.preloadStatus?.featherDevices ? "READY" : "WAITING"}</span></div>
+            <div className="flex justify-between"><span>Modbus Setup:</span> <span className={bootStatus?.preloadStatus?.modbusProfile ? "text-emerald-400" : "text-prizm-text-muted"}>{bootStatus?.preloadStatus?.modbusProfile ? "READY" : "WAITING"}</span></div>
          </div>
       </div>
    </div>

@@ -442,7 +442,7 @@ export default function SiteOperationsDashboard({
           stringBuckets.notCommunicating || 0,
     };
 
-  const activeIssues = sum?.activeIssueGroups || [];
+  const activeIssues = sum?.activeIssueGroups ? [...sum.activeIssueGroups] : [];
   activeIssues.sort((a: any, b: any) => {
     const severityRank: Record<string, number> = {
       ALARM: 1,
@@ -980,7 +980,7 @@ export default function SiteOperationsDashboard({
                                     </div>
                                   ) : (
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 py-0.5 max-h-[120px] overflow-y-auto no-scrollbar">
-                                      {issue.occurrences.map(
+                                      {(issue.occurrences || []).map(
                                         (occ: any, oIdx: number) => {
                                           const label =
                                             occ.enclosureLabel ||

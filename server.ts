@@ -18,7 +18,7 @@ import storageRouter from "./src/server/storage/storageRoutes";
 import { initLocalStorageMaintenance } from "./src/server/storage/storageMaintenance";
 import { siteDataRouter } from "./src/server/siteDataRoutes";
 
-import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus } from "./src/server/emsTurtleClient";
+import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus, DEMO_TEMPLATES, OFFLINE_TEMPLATES } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
 import express from "express";
 import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
@@ -2051,6 +2051,69 @@ Make your diagnostics practical, actionable, and detailed. Provide actual low-le
 
 // ==================== EMULATED EMS TURTLE & FEATHER API GATEWAY ====================
 // These endpoints unify the exact register status reports and curl calls targeted by the bash utility scripts.
+
+// 0. Compatibility Fallback endpoints for offline simulation
+app.get("/turtle/status", (req, res) => {
+  res.setHeader("Content-Type", "text/plain");
+  res.send("OK");
+});
+
+app.get("/turtle/tools/monitor/ems/blockviewer/data", (req, res) => {
+  res.json(DEMO_TEMPLATES.block);
+});
+
+app.get("/turtle/firstresponder/data", (req, res) => {
+  res.json(DEMO_TEMPLATES.firstResponder.v1);
+});
+
+app.get("/turtle/v2/firstresponder/data", (req, res) => {
+  res.json(DEMO_TEMPLATES.firstResponder.v2);
+});
+
+app.get("/turtle/tools/report/ems/array/:arrayId/pcs/:pcsId/report.json", (req, res) => {
+  const arrayId = Number(req.params.arrayId) || 1;
+  const pcsId = Number(req.params.pcsId) || 1;
+  res.json({
+    timeStamp: String(Date.now()),
+    arrayPcsData: {
+      state: "Stop",
+      dcVoltageVolt: 1375 + pcsId,
+      dcCurrentAmp: -3,
+      acVoltageVoltDeprecated: 0,
+      acCurrentAmpDeprecated: 0,
+      acCmdRealPowerKW: 0,
+      acCmdReactivePowerKVAR: 0,
+      acRealPowerSettingKW: 0,
+      acReactivePowerSettingKVAR: 0,
+      acRealPowerKW: 0,
+      acReactivePowerKVAR: 0,
+      acFrequencyHz: 60.0,
+      arrayPcsPhaseData: [
+        {
+          arrayPcsPhase: "PHASE_A",
+          acCurrentAmp: 0,
+          acVoltageVolt: 692,
+          acRealPowerKW: 0,
+          acReactivePowerKVAR: 0
+        },
+        {
+          arrayPcsPhase: "PHASE_B",
+          acCurrentAmp: 0,
+          acVoltageVolt: 689,
+          acRealPowerKW: 0,
+          acReactivePowerKVAR: 0
+        },
+        {
+          arrayPcsPhase: "PHASE_C",
+          acCurrentAmp: 0,
+          acVoltageVolt: 691,
+          acRealPowerKW: 0,
+          acReactivePowerKVAR: 0
+        }
+      ]
+    }
+  });
+});
 
 // 1. Turtle Status
 app.get("/turtle/tools/report/ems/status.json", (req, res) => {

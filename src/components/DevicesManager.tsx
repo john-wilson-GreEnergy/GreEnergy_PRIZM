@@ -97,7 +97,7 @@ export default function DevicesManager({ devices, onAddDevice, onEditDevice, onD
     setIsScanning(true);
     setScanResults(null);
     try {
-      const res = await fetch("/api/scan", { method: "POST" });
+      const res = await fetch("/api/feather/scan", { method: "POST" });
       const data = await res.json();
       setScanResults(data);
     } catch (err) {
