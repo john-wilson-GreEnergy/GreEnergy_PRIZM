@@ -10,6 +10,7 @@ type PhysicalEnergySegmentHeatmapProps = {
   mode?: "temperature" | "voltage";
   hideToggle?: boolean;
   title?: string;
+  stringData?: any;
 };
 
 export default function PhysicalEnergySegmentHeatmap({
@@ -19,7 +20,8 @@ export default function PhysicalEnergySegmentHeatmap({
   defaultMode = "temperature",
   mode: propMode,
   hideToggle = false,
-  title
+  title,
+  stringData,
 }: PhysicalEnergySegmentHeatmapProps) {
   const [internalMode, setInternalMode] = useState<"temperature" | "voltage">(defaultMode);
   const mode = propMode !== undefined ? propMode : internalMode;
@@ -55,6 +57,7 @@ export default function PhysicalEnergySegmentHeatmap({
         tempUnit="F"
         title={title}
         showMinMaxHeader={true}
+        stringData={stringData}
       />
     </div>
   );

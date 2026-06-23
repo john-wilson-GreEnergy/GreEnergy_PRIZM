@@ -533,6 +533,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                       mode="temperature"
                       hideToggle={true}
                       title="Temperature Physical Layout"
+                      stringData={data}
                     />
                     <PhysicalEnergySegmentHeatmap
                       slots={physicalLayout.slots}
@@ -541,6 +542,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                       mode="voltage"
                       hideToggle={true}
                       title="Voltage Physical Layout"
+                      stringData={data}
                     />
                   </div>
               ) : (

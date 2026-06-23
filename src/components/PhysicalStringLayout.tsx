@@ -5,6 +5,7 @@ import {
   getTemperatureColorStyle,
   normalizeTemperatureToFahrenheit
 } from "../utils/temperatureScale";
+import { resolvePhysicalCellMetricValue } from "../utils/cellValueResolver";
 
 type PhysicalStringLayoutProps = {
   slots: PhysicalCellSlot[];
@@ -17,6 +18,7 @@ type PhysicalStringLayoutProps = {
   tempUnit?: "C" | "F";
   title?: string;
   showMinMaxHeader?: boolean;
+  stringData?: any;
 };
 
 export default function PhysicalStringLayout({
@@ -30,12 +32,49 @@ export default function PhysicalStringLayout({
   tempUnit = "F",
   title,
   showMinMaxHeader = true,
+  stringData,
 }: PhysicalStringLayoutProps) {
 
   const { minTemp, maxTemp, avgTemp, deltaTemp, minVolt, maxVolt, avgVolt, deltaVolt } = useMemo(() => {
-    const validTemps = slots.map(s => s.tempC).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
-    const validVolts = slots.map(s => s.voltageMv).filter(v => typeof v === 'number' && Number.isFinite(v)) as number[];
-    
+    const validTemps: number[] = [];
+    const validVolts: number[] = [];
+
+    slots.forEach(s => {
+      const bpcIndex = s.bpcNumber;
+      const cellIndex = s.cellNumber;
+      const physicalIndex = (bpcIndex - 1) * 30 + (cellIndex - 1);
+
+      // If stringData is provided, resolve using our custom robust resolver. Otherwise, fallback to the slot values.
+      let tempC = s.tempC;
+      let voltageMv = s.voltageMv;
+
+      if (stringData) {
+        tempC = resolvePhysicalCellMetricValue({
+          stringData,
+          metric: "temperature",
+          bpcIndex,
+          cellIndex,
+          physicalIndex,
+          sourceUnit: "C"
+        });
+        voltageMv = resolvePhysicalCellMetricValue({
+          stringData,
+          metric: "voltage",
+          bpcIndex,
+          cellIndex,
+          physicalIndex,
+          sourceUnit: "C"
+        });
+      }
+
+      if (tempC !== null && typeof tempC === "number" && Number.isFinite(tempC)) {
+        validTemps.push(tempC);
+      }
+      if (voltageMv !== null && typeof voltageMv === "number" && Number.isFinite(voltageMv)) {
+        validVolts.push(voltageMv);
+      }
+    });
+
     // Default values if empty
     const minC = validTemps.length > 0 ? Math.min(...validTemps) : 25;
     const maxC = validTemps.length > 0 ? Math.max(...validTemps) : 25;
@@ -59,7 +98,7 @@ export default function PhysicalStringLayout({
       avgVolt,
       deltaVolt: maxVolt - minVolt,
     };
-  }, [slots]);
+  }, [slots, stringData]);
 
   const normalizeValue = (value: number, min: number, max: number): number => {
     if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
@@ -88,9 +127,35 @@ export default function PhysicalStringLayout({
          </div>
          <div className="grid grid-cols-5 gap-0.5">
            {moduleCells.map((cell, idx) => {
-             const tempDisplay = cell.tempC !== null && cell.tempC !== undefined && Number.isFinite(cell.tempC)
-               ? formatTemperatureF(cell.tempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-               : "broken";
+             const bpcIndex = cell.bpcNumber;
+             const cellIndex = cell.cellNumber;
+             const physicalIndex = (bpcIndex - 1) * 30 + (cellIndex - 1);
+
+             let tempC = cell.tempC;
+             let voltageMv = cell.voltageMv;
+
+             if (stringData) {
+               tempC = resolvePhysicalCellMetricValue({
+                 stringData,
+                 metric: "temperature",
+                 bpcIndex,
+                 cellIndex,
+                 physicalIndex,
+                 sourceUnit: "C"
+               });
+               voltageMv = resolvePhysicalCellMetricValue({
+                 stringData,
+                 metric: "voltage",
+                 bpcIndex,
+                 cellIndex,
+                 physicalIndex,
+                 sourceUnit: "C"
+               });
+             }
+
+             const tempDisplay = tempC !== null && tempC !== undefined && Number.isFinite(tempC)
+               ? formatTemperatureF(tempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
+               : "—";
 
              const tooltip = [
                `Array ${arrayNumber} / String ${stringNumber}`,
@@ -99,23 +164,23 @@ export default function PhysicalStringLayout({
                `Module: ${cell.moduleLabel}`,
                `HVAC: ${cell.hvacProximity.charAt(0).toUpperCase() + cell.hvacProximity.slice(1)}`,
                `Temperature: ${tempDisplay}`,
-               `Voltage: ${cell.voltageMv ?? "--"} mV`,
+               `Voltage: ${voltageMv !== null && voltageMv !== undefined ? voltageMv : "--"} mV`,
                `Timestamp age: ${cell.timestampAge ?? "--"}`,
                `Balancing: ${cell.balancing ?? "--"}`,
                `Source: ${cell.source}`
              ].join("\n");
 
              let colorClass = "bg-white/5 border-white/10 text-white/40";
-             let valueLabel = "--";
+             let valueLabel = "—";
              let customStyle: React.CSSProperties | undefined = undefined;
 
-             if (metric === "temperature" && cell.tempC !== null && cell.tempC !== undefined && Number.isFinite(cell.tempC)) {
-                valueLabel = formatTemperatureF(cell.tempC, { decimals: 1, showUnit: false, sourceUnit: "C" });
-                customStyle = getTemperatureColorStyle(cell.tempC, "C");
+             if (metric === "temperature" && tempC !== null && tempC !== undefined && Number.isFinite(tempC)) {
+                valueLabel = formatTemperatureF(tempC, { decimals: 1, showUnit: false, sourceUnit: "C" });
+                customStyle = getTemperatureColorStyle(tempC, "C");
                 colorClass = "";
-             } else if (metric === "voltage" && cell.voltageMv !== null && Number.isFinite(cell.voltageMv)) {
-                colorClass = getVoltGradientClass(normalizeValue(cell.voltageMv, minVolt, maxVolt));
-                valueLabel = Math.round(cell.voltageMv).toString();
+             } else if (metric === "voltage" && voltageMv !== null && voltageMv !== undefined && Number.isFinite(voltageMv)) {
+                colorClass = getVoltGradientClass(normalizeValue(voltageMv, minVolt, maxVolt));
+                valueLabel = Math.round(voltageMv).toString();
              }
 
              return (

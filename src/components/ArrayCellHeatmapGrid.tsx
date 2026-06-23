@@ -192,6 +192,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
                           tempUnit={tempUnit}
                           title={title}
                           showMinMaxHeader={true}
+                          stringData={str}
                         />
                       </div>
                     );

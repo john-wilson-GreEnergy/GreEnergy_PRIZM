@@ -1,7 +1,7 @@
 export function markPerf(label: string, startedAt: number, metadata?: Record<string, any>) {
   const durationMs = Math.round(performance.now() - startedAt);
   try {
-    if (localStorage.getItem("prizm_perf_debug") === "true") {
+    if (typeof window !== "undefined" && window.localStorage && localStorage.getItem("prizm_perf_debug") === "true") {
       console.info(`[PRIZM PERF] ${label}: ${durationMs}ms`, metadata || {});
     }
   } catch {
