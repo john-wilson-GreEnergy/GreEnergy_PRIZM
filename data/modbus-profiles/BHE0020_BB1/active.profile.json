@@ -1,0 +1,11 @@
+{
+  "id": "BHE0020_B1",
+  "stationCode": "BHE0020",
+  "blockCode": "B1",
+  "mapHash": "feb17e2e6f3d2c5d2a0721103c087e112a391c72bccc0a1fe33dab6dd7aa823a",
+  "createdAt": "2026-06-23T18:42:12.822Z",
+  "updatedAt": "2026-06-23T18:42:12.822Z",
+  "isStale": false,
+  "registers": [],
+  "semanticMappings": {}
+}

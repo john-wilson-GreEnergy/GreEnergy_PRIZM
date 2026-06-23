@@ -38,7 +38,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       setLastUpdated(new Date().toISOString());
       setError(null);
     } catch (err: any) {
-      console.error("[SiteDataContext] Error fetching snapshot", err);
+      console.warn("[SiteDataContext] Could not get latest snapshot", err.message || err);
       // Keep previous snapshot if available, but set error
       setError(err);
     } finally {

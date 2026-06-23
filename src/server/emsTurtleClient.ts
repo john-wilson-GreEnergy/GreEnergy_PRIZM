@@ -400,7 +400,27 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
   const debugItem = endpointDebugMap[endpoint];
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    let response;
+    let fallbackAttempted = false;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+      if (!response.ok && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+        fallbackAttempted = true;
+        const urlObj = new URL(url);
+        const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+        console.log(`[emsTurtleClient] Endpoint ${endpoint} returned status ${response.status}. Using local mock.`);
+        response = await fetch(fallbackUrl);
+      }
+    } catch (e: any) {
+      if (!fallbackAttempted && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+        const urlObj = new URL(url);
+        const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+        console.log(`[emsTurtleClient] Endpoint ${endpoint} offline or slow (${e.message}). Using local mock.`);
+        response = await fetch(fallbackUrl);
+      } else {
+        throw e;
+      }
+    }
     clearTimeout(timeoutId);
     
     debugItem.durationMs = Date.now() - startTime;

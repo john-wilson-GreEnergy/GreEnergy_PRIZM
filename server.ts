@@ -2355,7 +2355,15 @@ app.post("/api/upload-modbus-map", (req, res) => {
 
 app.get("/turtle/tools/report/ems/strings.csv", (req, res) => {
   res.setHeader("Content-Type", "text/csv");
-  res.send("Array,String,Status,SoC\r\n1,1,ONLINE,42.5\r\n3,1,FAULTED,18.4\r\n");
+  let csv = "Array,String,Status,SoC\r\n";
+  for (let a = 1; a <= 8; a++) {
+    for (let s = 1; s <= 3; s++) {
+      const status = (a === 3 && s === 1) ? "FAULTED" : "ONLINE";
+      const soc = (a === 3 && s === 1) ? "18.4" : (40 + (a * 5) + (s * 2)).toFixed(1);
+      csv += `${a},${s},${status},${soc}\r\n`;
+    }
+  }
+  res.send(csv);
 });
 
 // 10. Emulated controllers digital HVAC / MIO diagnostics

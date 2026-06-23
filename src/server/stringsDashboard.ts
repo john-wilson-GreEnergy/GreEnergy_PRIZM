@@ -1601,7 +1601,21 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                         try {
                             const controller = new AbortController();
                             const timeoutId = setTimeout(() => controller.abort(), 2000);
-                            const r = await fetch(reportUrl, { signal: controller.signal });
+                            let r;
+                            let fallbackAttempted = false;
+                            try {
+                                r = await fetch(reportUrl, { signal: controller.signal });
+                                if (!r.ok && !reportUrl.includes("127.0.0.1:3000") && !reportUrl.includes("localhost:3000")) {
+                                    fallbackAttempted = true;
+                                    r = await fetch(`http://127.0.0.1:3000${reportEndpoint}`);
+                                }
+                            } catch (err: any) {
+                                if (!fallbackAttempted && !reportUrl.includes("127.0.0.1:3000") && !reportUrl.includes("localhost:3000")) {
+                                    r = await fetch(`http://127.0.0.1:3000${reportEndpoint}`);
+                                } else {
+                                    throw err;
+                                }
+                            }
                             clearTimeout(timeoutId);
                             reportSourceHealth.httpStatus = r.status;
                             reportSourceHealth.ok = r.ok;
@@ -1618,7 +1632,21 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                         try {
                             const controller = new AbortController();
                             const timeoutId = setTimeout(() => controller.abort(), 2000);
-                            const r = await fetch(monitorUrl, { signal: controller.signal });
+                            let r;
+                            let fallbackAttempted = false;
+                            try {
+                                r = await fetch(monitorUrl, { signal: controller.signal });
+                                if (!r.ok && !monitorUrl.includes("127.0.0.1:3000") && !monitorUrl.includes("localhost:3000")) {
+                                    fallbackAttempted = true;
+                                    r = await fetch(`http://127.0.0.1:3000${monitorEndpoint}`);
+                                }
+                            } catch (err: any) {
+                                if (!fallbackAttempted && !monitorUrl.includes("127.0.0.1:3000") && !monitorUrl.includes("localhost:3000")) {
+                                    r = await fetch(`http://127.0.0.1:3000${monitorEndpoint}`);
+                                } else {
+                                    throw err;
+                                }
+                            }
                             clearTimeout(timeoutId);
                             monitorSourceHealth.httpStatus = r.status;
                             monitorSourceHealth.ok = r.ok;
