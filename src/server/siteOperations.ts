@@ -1628,20 +1628,50 @@ export async function buildSiteOperationsSummaryFromCache() {
                  const targetIp = aff.ip;
                  const resolvedTarget = normalizeIpToEquipmentCallout(targetIp || aff.label, activeProfile, liveDevices);
                  
-                 const stringNumber = aff.stringIndex ?? resolvedTarget.stringIndex ?? aff.segmentIndex;
+                 let stringNumber: number | null = null;
+                 let isExplicitStringLevel = false;
+
+                 if (aff.stringIndex !== undefined && aff.stringIndex !== null) {
+                     stringNumber = aff.stringIndex;
+                     isExplicitStringLevel = true;
+                 } else if (resolvedTarget.stringIndex !== undefined && resolvedTarget.stringIndex !== null) {
+                     stringNumber = resolvedTarget.stringIndex;
+                     isExplicitStringLevel = true;
+                 } else if (aff.segmentIndex !== undefined && aff.segmentIndex !== null) {
+                     // Do not use aff.segmentIndex as stringNumber unless the affected target source explicitly identifies it as a string-level target
+                     const isExplicitString = !!(
+                         (aff.label && /string/i.test(aff.label)) ||
+                         (aff.rawFault && /string/i.test(aff.rawFault)) ||
+                         (aff.source === "ems" && /string/i.test(aff.label || ""))
+                     );
+                     if (isExplicitString) {
+                         stringNumber = aff.segmentIndex;
+                         isExplicitStringLevel = true;
+                     }
+                 }
+
                  const arrayNumber = aff.arrayIndex ?? resolvedTarget.arrayIndex ?? 1;
                  const blockIndex = aff.blockIndex ?? (resolvedTarget as any).blockIndex ?? 1;
 
                  let label = resolvedTarget.mapped ? resolvedTarget.label : (aff.label || resolvedTarget.label);
                  let displayLabel = resolvedTarget.mapped 
                      ? `${resolvedTarget.label} — ${targetIp}` 
-                     : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel);
+                      : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel);
 
-                 if (stringNumber && stringNumber > 0) {
+                 if (isExplicitStringLevel && stringNumber && stringNumber > 0) {
                      label = formatStringEsLabel({
                          blockIndex,
                          arrayNumber,
                          stringNumber,
+                         includeBlock: true
+                     });
+                     displayLabel = targetIp ? `${label} — ${targetIp}` : label;
+                 } else if (aff.segmentIndex !== undefined && aff.segmentIndex !== null) {
+                     // If segmentIndex exists, but it's not a string-level target, format as segment-level (ES) target
+                     label = formatStringEsLabel({
+                         blockIndex,
+                         arrayNumber,
+                         energySegmentNumber: aff.segmentIndex,
                          includeBlock: true
                      });
                      displayLabel = targetIp ? `${label} — ${targetIp}` : label;
@@ -1656,7 +1686,7 @@ export async function buildSiteOperationsSummaryFromCache() {
                      arrayIndex: arrayNumber,
                      stringIndex: stringNumber,
                      stringNumber,
-                     enclosureIndex: resolvedTarget.enclosureIndex ?? stringNumber,
+                     enclosureIndex: resolvedTarget.enclosureIndex ?? aff.segmentIndex ?? stringNumber,
                      hostOctet: resolvedTarget.hostOctet,
                      ip: targetIp || undefined,
                      source: aff.source,
