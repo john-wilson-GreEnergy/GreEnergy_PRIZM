@@ -1,5 +1,7 @@
 import { ProfileStore } from "../profiles/profileStore";
 import { FanControlAudit } from "./fanControlAudit";
+import * as fs from "fs";
+import * as path from "path";
 import {
   FanControlCapabilities,
   FanControlHoldRequest,
@@ -92,8 +94,6 @@ export class FanControlService {
       rejectionReason = "repeatIntervalSeconds required, must be between 5 and 120 seconds";
     } else if (req.repeatIntervalSeconds >= req.durationSeconds) {
       rejectionReason = "repeatIntervalSeconds must be less than durationSeconds";
-    } else if (!req.confirmationPhrase || req.confirmationPhrase !== "HOLD FAN SPEED") {
-      rejectionReason = "confirmationPhrase must equal HOLD FAN SPEED";
     } else {
       // Validate each target
       for (const t of targets) {
@@ -471,6 +471,12 @@ export class FanControlService {
 
     await Promise.all(stopPromises);
 
+    try {
+      await this.saveHoldRun(holdId, "STOPPED", req.operator);
+    } catch (e) {
+      console.error("[FanControlService] Failed to auto-save stopped hold run:", e);
+    }
+
     // Parent stop log
     FanControlAudit.write({
       timestamp: new Date().toISOString(),
@@ -563,6 +569,12 @@ export class FanControlService {
       });
 
       await Promise.all(stopPromises);
+
+      try {
+        await this.saveHoldRun(holdId, "COMPLETED", operator);
+      } catch (e) {
+        console.error("[FanControlService] Failed to auto-save completed hold run:", e);
+      }
 
       // Parent complete
       const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
@@ -920,5 +932,71 @@ export class FanControlService {
         url
       };
     }
+  }
+
+  private static RUNS_CACHE_FILE = path.join(process.cwd(), "data", "cache", "fan_runs.json");
+
+  private static loadSavedRuns(): any[] {
+    try {
+      if (fs.existsSync(this.RUNS_CACHE_FILE)) {
+        const content = fs.readFileSync(this.RUNS_CACHE_FILE, "utf-8");
+        return JSON.parse(content) || [];
+      }
+    } catch (err) {
+      console.error("[FanControlService] Failed to load saved runs:", err);
+    }
+    return [];
+  }
+
+  private static saveRunsToCache(runs: any[]): void {
+    try {
+      fs.mkdirSync(path.dirname(this.RUNS_CACHE_FILE), { recursive: true });
+      fs.writeFileSync(this.RUNS_CACHE_FILE, JSON.stringify(runs, null, 2), "utf-8");
+    } catch (err) {
+      console.error("[FanControlService] Failed to save runs to cache:", err);
+    }
+  }
+
+  public static getSavedRuns(): any[] {
+    return this.loadSavedRuns();
+  }
+
+  public static async saveHoldRun(holdId: string, customState?: string, operator?: string): Promise<any | null> {
+    const hold = this.activeHolds.get(holdId);
+    if (!hold) return null;
+
+    const verificationRows = await this.getVerification(holdId);
+    const duration = Math.round((new Date(hold.expiresAt).getTime() - new Date(hold.startedAt).getTime()) / 1000);
+
+    const run = {
+      runId: holdId + "-" + Date.now(),
+      holdId: hold.holdId,
+      timestamp: new Date().toISOString(),
+      fanSpeedPercent: hold.fanSpeedPercent,
+      durationSeconds: duration,
+      operator: operator || "PRIZM Operator",
+      targetsCount: hold.targets.length,
+      state: customState || hold.state,
+      verificationResults: verificationRows
+    };
+
+    const runs = this.loadSavedRuns();
+    runs.unshift(run);
+    this.saveRunsToCache(runs);
+    return run;
+  }
+
+  public static deleteSavedRun(runId: string): boolean {
+    const runs = this.loadSavedRuns();
+    const filtered = runs.filter((r: any) => r.runId !== runId);
+    if (filtered.length !== runs.length) {
+      this.saveRunsToCache(filtered);
+      return true;
+    }
+    return false;
+  }
+
+  public static clearSavedRuns(): void {
+    this.saveRunsToCache([]);
   }
 }

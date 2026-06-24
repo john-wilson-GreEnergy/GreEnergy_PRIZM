@@ -195,8 +195,6 @@ export class BalancerTestService {
       rejectionReason = "arrays must be between 1 and 8";
     } else if (req.direction !== "charge" && req.direction !== "discharge") {
       rejectionReason = "direction must be charge or discharge";
-    } else if (!req.confirmationToken || req.confirmationToken !== "START BALANCER TEST") {
-      rejectionReason = "missing or invalid confirmation phrase";
     }
 
     if (rejectionReason) {

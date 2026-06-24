@@ -8,7 +8,8 @@ import {
   getEmsCachedLastCall,
   getEmsIpMap,
   getEmsStringIpMap,
-  getEmsSourcesDebugInfo
+  getEmsSourcesDebugInfo,
+  getEmsCachedArrayReports
 } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
 
@@ -16,7 +17,7 @@ import * as prizmCache from "./cache/prizmCache";
 import * as prizmHistory from "./history/prizmHistory";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } from "../lib/bessStatusCodes";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
-import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
+import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
 const router = Router();
 
@@ -375,6 +376,10 @@ function startStringDetailWarmup(rows: any[]) {
 }
 
 export async function buildNormalizedStringsData(enrich = false, targetArray: number | null = null): Promise<any> {
+    const finiteVal = (v: any): number | null => {
+        const num = Number(v);
+        return Number.isFinite(num) ? num : null;
+    };
     const profile = ProfileStore.getActiveProfile();
     const baseUrl = profile ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "unknown";
 
@@ -417,18 +422,6 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         bessStatusCodes: getSourceHealth("/tools/report/ems/bessStatusCodes.json")
     };
 
-    // Determine base string list. Prefer strings.csv, fallback to blockviewer
-    let stringsData: any[] = [];
-    let sourceCoverageStringsCsv = false;
-    let sourceCoverageBlockviewer = false;
-    if (rawStringsWrapper.data && Array.isArray(rawStringsWrapper.data) && rawStringsWrapper.data.length > 0) {
-        stringsData = rawStringsWrapper.data;
-        sourceCoverageStringsCsv = true;
-    } else if (blockWrapper.data && Array.isArray(blockWrapper.data.strings) && blockWrapper.data.strings.length > 0) {
-        stringsData = blockWrapper.data.strings;
-        sourceCoverageBlockviewer = true;
-    }
-
     const stringIpMap = (stringIpMapWrapper.data && Array.isArray(stringIpMapWrapper.data)) ? stringIpMapWrapper.data : [];
     const ipMap = (ipMapWrapper.data && Array.isArray(ipMapWrapper.data)) ? ipMapWrapper.data : [];
 
@@ -438,6 +431,8 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         if (Array.isArray(lastCallWrapper.data.strings)) lastCallStrings = lastCallWrapper.data.strings;
         if (Array.isArray(lastCallWrapper.data.arrays)) lastCallArrays = lastCallWrapper.data.arrays;
     }
+
+    const arrayReports = getEmsCachedArrayReports() || {};
 
     const strings: any[] = [];
     
@@ -468,710 +463,676 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
     let gWarnCount = 0;
     let gAlarmCount = 0;
 
-    stringsData.forEach(row => {
-        const normalizedObject: Record<string, any> = {};
-        for (const [k, v] of Object.entries(row)) {
-            normalizedObject[normalizeHeader(k)] = v;
+    function findRichValueForPackList(detailStringData: any, blockStrBase: any, lcStrBase: any, stringsCsvRow: any, arrayNumber: number, stringNumber: number, lastCallWrapper: any, blockWrapper: any): any[] | null {
+        if (detailStringData) {
+            if (Array.isArray(detailStringData.batteryPackReportList)) return detailStringData.batteryPackReportList;
+            if (Array.isArray(detailStringData.batteryPacks)) return detailStringData.batteryPacks;
+            if (Array.isArray(detailStringData.packs)) return detailStringData.packs;
+            if (Array.isArray(detailStringData.bpcs)) return detailStringData.bpcs;
         }
-
-        const hasStringData = row && (row.stringData !== undefined || row.StringData !== undefined);
-        const stringData = hasStringData ? (row.stringData || row.StringData) : null;
-
-        const arrayNumber = hasStringData ? Number(row.arrayIndex) : pN(tryGetField(row, normalizedObject, ["array", "arrayindex", "arr"]));
-        const stringNumber = hasStringData ? Number(row.stringIndex) : pN(tryGetField(row, normalizedObject, ["string", "stringindex", "str"]));
-        
-        if (arrayNumber === null || stringNumber === null) {
-            require('fs').appendFileSync('skips.log', JSON.stringify({ arrayNumber, stringNumber, row }) + "\n");
-            return;
+        if (blockStrBase) {
+            if (Array.isArray(blockStrBase.batteryPackReportList)) return blockStrBase.batteryPackReportList;
+            if (Array.isArray(blockStrBase.batteryPacks)) return blockStrBase.batteryPacks;
+            if (Array.isArray(blockStrBase.packs)) return blockStrBase.packs;
+            if (Array.isArray(blockStrBase.bpcs)) return blockStrBase.bpcs;
         }
-        totalStrings++;
-
-        const id = `A${arrayNumber}-S${stringNumber}`;
-
-        // Merge Map Info
-        const sIpInfo = stringIpMap.find(m => pN(m.array) === arrayNumber && pN(m.string) === stringNumber);
-        
-        // Merge Blockviewer telemetry if not primary
-        let blockStrBase: any = null;
-        if (!sourceCoverageBlockviewer && blockWrapper.data?.strings) {
-            blockStrBase = blockWrapper.data.strings.find((s:any) => pN(s.array) === arrayNumber && pN(s.string) === stringNumber) || null;
+        if (lcStrBase) {
+            if (Array.isArray(lcStrBase.batteryPackReportList)) return lcStrBase.batteryPackReportList;
+            if (Array.isArray(lcStrBase.batteryPacks)) return lcStrBase.batteryPacks;
+            if (Array.isArray(lcStrBase.packs)) return lcStrBase.packs;
+            if (Array.isArray(lcStrBase.bpcs)) return lcStrBase.bpcs;
         }
-
-        // Merge Last Call
-        let lcStrBase = lastCallStrings.find(s => pN(s.array) === arrayNumber && pN(s.string) === stringNumber);
-        // sometimes it's nested in array
-        if (!lcStrBase) {
-             const lcA = lastCallArrays.find(a => pN(a.index || a.arrayIndex) === arrayNumber);
-             if (lcA && Array.isArray(lcA.strings)) {
-                 lcStrBase = lcA.strings.find((s:any) => pN(s.index || s.stringIndex) === stringNumber);
-             }
+        if (stringsCsvRow) {
+            if (Array.isArray(stringsCsvRow.batteryPackReportList)) return stringsCsvRow.batteryPackReportList;
+            if (Array.isArray(stringsCsvRow.batteryPacks)) return stringsCsvRow.batteryPacks;
+            if (Array.isArray(stringsCsvRow.packs)) return stringsCsvRow.packs;
+            if (Array.isArray(stringsCsvRow.bpcs)) return stringsCsvRow.bpcs;
         }
+        return findBatteryPackList(stringsCsvRow, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper);
+    }
 
-        // Identify Connection State
-        let isOnline: boolean | null = null;
-        if (hasStringData) {
-            const scState = stringData.stringConnectionState;
-            isOnline = scState === "ONLINE" || scState === "Online" || scState === "NORMAL" || scState === true;
-        } else {
-            let conn = tryGetField(row, normalizedObject, ["connectionstate", "contact", "communicating"]);
-            if (conn === undefined && blockStrBase) conn = blockStrBase.communicating;
-            if (conn === undefined && lcStrBase) {
-                 conn = lcStrBase.communicating ?? lcStrBase.connectionState;
+    for (let a = 1; a <= 8; a++) {
+        const arrayRep = arrayReports[a]?.data;
+        for (let s = 1; s <= 40; s++) {
+            const id = `A${a}-S${s}`;
+            totalStrings++;
+
+            // 1. Existing string detail cache/report data, if already available and fresh
+            const detail = getCachedStringDetail(a, s);
+            const detailStringData = detail?.data?.stringData ?? detail?.data ?? null;
+
+            // 2. Block Viewer string data
+            const blockStrBase = blockWrapper.data?.strings?.find((str: any) => pN(str.array) === a && pN(str.string) === s) || null;
+
+            // 3. lastCall string data
+            let lcStrBase = lastCallStrings?.find(str => pN(str.array) === a && pN(str.string) === s) || null;
+            if (!lcStrBase && lastCallArrays) {
+                const lcA = lastCallArrays.find(arr => pN(arr.index || arr.arrayIndex) === a);
+                if (lcA && Array.isArray(lcA.strings)) {
+                    lcStrBase = lcA.strings.find((str: any) => pN(str.index || str.stringIndex) === s) || null;
+                }
             }
-            if (conn === true || conn === "true" || conn === "Online" || conn === "ONLINE") isOnline = true;
-            else if (conn === false || conn === "false" || conn === "Offline" || conn === "OFFLINE" || row.StringConnectionState === "OFFLINE") isOnline = false;
-        }
-        
-        const contactorsCloseExpected = hasStringData 
-            ? parseBoolean(stringData.contactorsCloseExpected) 
-            : parseBoolean(tryGetField(row, normalizedObject, ["contactorscloseexpected", "closeexpected"]));
-            
-        const positiveContactorClosed = hasStringData 
-            ? parseBoolean(stringData.positiveContactorClosed) 
-            : parseBoolean(tryGetField(row, normalizedObject, ["positivecontactorclosed", "positive_contactor_closed"]));
-            
-        const negativeContactorClosed = hasStringData 
-            ? parseBoolean(stringData.negativeContactorClosed) 
-            : parseBoolean(tryGetField(row, normalizedObject, ["negativecontactorclosed", "negative_contactor_closed"]));
-            
-        const contactorClosed = positiveContactorClosed && negativeContactorClosed;
-        const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
-        const recloseCount = hasStringData 
-            ? pN(stringData.recloseCount) 
-            : pN(tryGetField(row, normalizedObject, ["reclosecount"]));
-        
-        const outRotation = hasStringData 
-            ? parseBoolean(stringData.outRotation) 
-            : parseBoolean(tryGetField(row, normalizedObject, ["outrotation", "out_rotation", "rotation"]));
-            
-        const rotationStatus = outRotation ? "OUT" : "IN";
-        const rotationEnabled = !outRotation;
 
-        const measuredVoltage = hasStringData 
-            ? pN(stringData.measuredStringVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
-            
-        const calculatedVoltage = hasStringData 
-            ? pN(stringData.calculatedStringVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
-            
-        const preciseCalculatedVoltage = hasStringData 
-            ? pN(stringData.preciseCalculatedStringVoltage) 
-            : calculatedVoltage;
+            // 4. strings.csv fallbacks
+            const stringsCsvRow = (rawStringsWrapper.data && Array.isArray(rawStringsWrapper.data)) ? rawStringsWrapper.data.find((r: any) => {
+                const normObj: Record<string, any> = {};
+                for (const [k, v] of Object.entries(r)) { normObj[normalizeHeader(k)] = v; }
+                const arrNum = pN(tryGetField(r, normObj, ["array", "arrayindex", "arr"]));
+                const strNum = pN(tryGetField(r, normObj, ["string", "stringindex", "str"]));
+                return arrNum === a && strNum === s;
+            }) : null;
 
-        const busVoltage = hasStringData 
-            ? pN(stringData.dcBusVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
-            
-        let voltageDelta = null;
-        if (measuredVoltage !== null && calculatedVoltage !== null) {
-            voltageDelta = Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2));
-        }
+            // 5. Topology/IP Map
+            const sIpInfo = stringIpMap.find(m => pN(m.array) === a && pN(m.string) === s);
 
-        const amps = hasStringData 
-            ? pN(stringData.stringCurrent) 
-            : pN(tryGetField(row, normalizedObject, ["current", "stringcurrent", "string_current"]));
-            
-        const kw = hasStringData 
-            ? pN(stringData.kW) 
-            : pN(tryGetField(row, normalizedObject, ["kw", "powerkw", "measuredkw", "power_kw"]));
-            
-        const socPct = hasStringData 
-            ? pN(stringData.soc) 
-            : pN(tryGetField(row, normalizedObject, ["soc", "powersoc"]));
-            
-        const ah = hasStringData 
-            ? pN(stringData.ah) 
-            : pN(tryGetField(row, normalizedObject, ["ah", "capacityah"]));
-            
-        const kwh = hasStringData 
-            ? pN(stringData.kWh) 
-            : pN(tryGetField(row, normalizedObject, ["kwh", "powerkwh"]));
+            // Helper to fetch the first non-null, non-undefined, non-empty value in priority order
+            const getMetricValue = (keys: string[], parser?: (v: any) => any) => {
+                const candidates = [];
+                if (detailStringData) candidates.push(detailStringData);
+                if (blockStrBase) candidates.push(blockStrBase);
+                if (lcStrBase) candidates.push(lcStrBase);
+                if (stringsCsvRow) candidates.push(stringsCsvRow);
+                if (sIpInfo) candidates.push(sIpInfo);
 
-        const minCellVoltage = hasStringData 
-            ? pN(stringData.minCellGroupVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["mincellvoltage", "cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage"]));
-            
-        const maxCellVoltage = hasStringData 
-            ? pN(stringData.maxCellGroupVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["maxcellvoltage", "cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage"]));
-            
-        const avgCellVoltage = hasStringData 
-            ? pN(stringData.avgCellGroupVoltage) 
-            : pN(tryGetField(row, normalizedObject, ["avgcellvoltage", "cellgroupvoltageavg", "avgcellgroupvoltage"]));
-            
-        let cellVoltageDelta = null;
-        if (maxCellVoltage !== null && minCellVoltage !== null) {
-            cellVoltageDelta = Number((maxCellVoltage - minCellVoltage).toFixed(3));
-        }
-
-        let minCellTemperature = null;
-        if (hasStringData) {
-            const rawMinT = pN(stringData.minCellGroupTemp);
-            minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
-        } else {
-            const rawMinT = pN(tryGetField(row, normalizedObject, ["mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp"]));
-            minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
-        }
-
-        let maxCellTemperature = null;
-        if (hasStringData) {
-            const rawMaxT = pN(stringData.maxCellGroupTemp);
-            maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
-        } else {
-            const rawMaxT = pN(tryGetField(row, normalizedObject, ["maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp"]));
-            maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
-        }
-
-        let avgCellTemperature = null;
-        if (hasStringData) {
-            const rawAvgT = pN(stringData.avgCellGroupTemp);
-            avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
-        } else {
-            const rawAvgT = pN(tryGetField(row, normalizedObject, ["avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp"]));
-            avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
-        }
-
-        let cellTemperatureDelta = null;
-        if (maxCellTemperature !== null && minCellTemperature !== null) {
-            cellTemperatureDelta = Number((maxCellTemperature - minCellTemperature).toFixed(1));
-        }
-
-        // Locate battery packs / reports
-        const packList = (hasStringData && Array.isArray(row.batteryPackReportList))
-            ? row.batteryPackReportList
-            : (hasStringData && Array.isArray(stringData?.batteryPackReportList)
-                ? stringData.batteryPackReportList
-                : findBatteryPackList(row, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper));
-
-        let balanceTelemetryAvailable = false;
-        let balanceCount: number | null = null;
-        let balanceMode = "--";
-        let balanceModeRaw: string | null = null;
-        let balanceProvidedVoltageTarget: number | null = null;
-        let balanceDetails: any[] = [];
-
-        if (packList && packList.length > 0) {
-            balanceTelemetryAvailable = true;
-            balanceCount = 0;
-            const modesList: string[] = [];
-            packList.forEach((item: any, pIdx: number) => {
-                const bpcDetail = extractBpcBalancing(item, pIdx);
-                balanceDetails.push({
-                    bpIndex: bpcDetail.bpIndex,
-                    mode: bpcDetail.mode,
-                    modeRaw: bpcDetail.modeRaw,
-                    providedVoltageTarget: bpcDetail.providedVoltageTarget,
-                    state: bpcDetail.state,
-                    stateRaw: bpcDetail.stateRaw,
-                    balancingCellGroup: bpcDetail.balancingCellGroup,
-                    chargeBalancing: bpcDetail.chargeBalancing,
-                    dischargeBalancing: bpcDetail.dischargeBalancing,
-                    balanceTelemetryPresent: bpcDetail.balanceTelemetryPresent,
-                    chargeBalancingPermitted: bpcDetail.chargeBalancingPermitted,
-                    dischargeBalancingPermitted: bpcDetail.dischargeBalancingPermitted,
-                    chargeDeadband: bpcDetail.chargeDeadband,
-                    dischargeDeadband: bpcDetail.dischargeDeadband,
-                    commandTimeToLive: bpcDetail.commandTimeToLive,
-                    balancingSource: bpcDetail.balancingSource,
-                    isActive: bpcDetail.isActive
-                });
-                if (bpcDetail.isActive) {
-                    balanceCount!++;
+                for (const cand of candidates) {
+                    const normCand: Record<string, any> = {};
+                    for (const [k, v] of Object.entries(cand)) {
+                        normCand[normalizeHeader(k)] = v;
+                    }
+                    const val = tryGetField(cand, normCand, keys);
+                    if (val !== undefined && val !== null && val !== "") {
+                        return parser ? parser(val) : val;
+                    }
                 }
-                if (bpcDetail.mode && bpcDetail.mode !== "--") {
-                    modesList.push(bpcDetail.mode);
-                    if (!balanceModeRaw && bpcDetail.modeRaw) balanceModeRaw = bpcDetail.modeRaw;
-                    if (!balanceProvidedVoltageTarget && bpcDetail.providedVoltageTarget) balanceProvidedVoltageTarget = bpcDetail.providedVoltageTarget;
-                }
+                return null;
+            };
+
+            let isOnline = getMetricValue(["connectionstate", "contact", "communicating", "stringconnectionstate"], (v) => {
+                if (typeof v === "boolean") return v;
+                const sStr = String(v).toUpperCase();
+                return sStr === "ONLINE" || sStr === "NORMAL" || sStr === "TRUE" || sStr === "1";
             });
-
-            if (modesList.length > 0) {
-                const uniqueModes = Array.from(new Set(modesList));
-                if (uniqueModes.length === 1) {
-                    balanceMode = uniqueModes[0];
-                } else {
-                    balanceMode = "Mixed";
-                }
-            } else {
-                balanceMode = "--";
+            if (isOnline === null) {
+                isOnline = false;
             }
-        } else {
-            // Fallback to legacy balance fields
-            const legacyBalCount = pN(tryGetField(row, normalizedObject, ["balancecount", "balancingcount"]));
-            const legacyBalMode = String(tryGetField(row, normalizedObject, ["balancemode", "balancingmode"]) || "");
-            const balanceRaw = String(tryGetField(row, normalizedObject, ["balanceraw", "balancingraw", "balance", "balancing"]) || "");
+
+            const contactorsCloseExpected = parseBoolean(getMetricValue(["contactorscloseexpected", "closeexpected"]));
+            const positiveContactorClosed = parseBoolean(getMetricValue(["positivecontactorclosed", "positive_contactor_closed"]));
+            const negativeContactorClosed = parseBoolean(getMetricValue(["negativecontactorclosed", "negative_contactor_closed"]));
+            const contactorClosed = positiveContactorClosed && negativeContactorClosed;
+            const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
+            const recloseCount = pN(getMetricValue(["reclosecount"]));
+
+            const outRotation = parseBoolean(getMetricValue(["outrotation", "out_rotation", "rotation"]));
+            const rotationStatus = outRotation ? "OUT" : "IN";
+            const rotationEnabled = !outRotation;
+
+            const measuredVoltage = pN(getMetricValue(["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
+            const calculatedVoltage = pN(getMetricValue(["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
+            const preciseCalculatedVoltage = pN(getMetricValue(["precisecalculatedstringvoltage", "precisecalculatedvoltage", "calculatedstringvoltage", "calculatedvoltage"])) ?? calculatedVoltage;
+            const busVoltage = pN(getMetricValue(["busvoltage", "voltagedcbus", "voltagebus", "voltage_bus", "dcbusvoltage"]));
             
-            if (legacyBalCount !== null || (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") || (balanceRaw && balanceRaw !== "undefined" && balanceRaw !== "")) {
+            let voltageDelta = null;
+            if (measuredVoltage !== null && calculatedVoltage !== null) {
+                voltageDelta = Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2));
+            }
+
+            const amps = pN(getMetricValue(["current", "stringcurrent", "string_current"]));
+            const kw = pN(getMetricValue(["kw", "powerkw", "measuredkw", "power_kw"]));
+            const socPct = pN(getMetricValue(["soc", "powersoc", "socpct", "soc_pct"]));
+            const ah = pN(getMetricValue(["ah", "capacityah", "capacity_ah"]));
+            const kwh = pN(getMetricValue(["kwh", "powerkwh", "power_kwh"]));
+
+            const minCellVoltage = pN(getMetricValue(["mincellvoltage", "cellgroupvoltagemin", "cellvoltsmin", "mincellgroupvoltage"]));
+            const maxCellVoltage = pN(getMetricValue(["maxcellvoltage", "cellgroupvoltagemax", "cellvoltsmax", "maxcellgroupvoltage"]));
+            const avgCellVoltage = pN(getMetricValue(["avgcellvoltage", "cellgroupvoltageavg", "avgcellgroupvoltage"]));
+            let cellVoltageDelta = null;
+            if (maxCellVoltage !== null && minCellVoltage !== null) {
+                cellVoltageDelta = Number((maxCellVoltage - minCellVoltage).toFixed(3));
+            }
+
+            const rawMinT = pN(getMetricValue(["mincelltemperature", "mincelltemp", "cellgrouptempmin", "celltempmin", "mincellgrouptemp"]));
+            const minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
+
+            const rawMaxT = pN(getMetricValue(["maxcelltemperature", "maxcelltemp", "cellgrouptempmax", "celltempmax", "maxcellgrouptemp"]));
+            const maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
+
+            const rawAvgT = pN(getMetricValue(["avgcelltemperature", "avgcelltemp", "cellgrouptempavg", "avgcellgrouptemp"]));
+            const avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
+
+            let cellTemperatureDelta = null;
+            if (maxCellTemperature !== null && minCellTemperature !== null) {
+                cellTemperatureDelta = Number((maxCellTemperature - minCellTemperature).toFixed(1));
+            }
+
+            const packList = findRichValueForPackList(detailStringData, blockStrBase, lcStrBase, stringsCsvRow, a, s, lastCallWrapper, blockWrapper);
+
+            let balanceTelemetryAvailable = false;
+            let balanceCount: number | null = null;
+            let balanceMode = "--";
+            let balanceModeRaw: string | null = null;
+            let balanceProvidedVoltageTarget: number | null = null;
+            let balanceDetails: any[] = [];
+
+            if (packList && packList.length > 0) {
                 balanceTelemetryAvailable = true;
-                balanceCount = legacyBalCount ?? 0;
-                if (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") {
-                    balanceMode = legacyBalMode;
-                } else {
-                    if (balanceRaw.includes("Provided") || legacyBalMode.includes("Provided")) {
-                        balanceMode = "Provided";
-                    } else if (balanceRaw && balanceRaw.includes("-")) {
-                        balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+                balanceCount = 0;
+                const modesList: string[] = [];
+                packList.forEach((item: any, pIdx: number) => {
+                    const bpcDetail = extractBpcBalancing(item, pIdx);
+                    balanceDetails.push({
+                        bpIndex: bpcDetail.bpIndex,
+                        mode: bpcDetail.mode,
+                        modeRaw: bpcDetail.modeRaw,
+                        providedVoltageTarget: bpcDetail.providedVoltageTarget,
+                        state: bpcDetail.state,
+                        stateRaw: bpcDetail.stateRaw,
+                        balancingCellGroup: bpcDetail.balancingCellGroup,
+                        chargeBalancing: bpcDetail.chargeBalancing,
+                        dischargeBalancing: bpcDetail.dischargeBalancing,
+                        balanceTelemetryPresent: bpcDetail.balanceTelemetryPresent,
+                        chargeBalancingPermitted: bpcDetail.chargeBalancingPermitted,
+                        dischargeBalancingPermitted: bpcDetail.dischargeBalancingPermitted,
+                        chargeDeadband: bpcDetail.chargeDeadband,
+                        dischargeDeadband: bpcDetail.dischargeDeadband,
+                        commandTimeToLive: bpcDetail.commandTimeToLive,
+                        balancingSource: bpcDetail.balancingSource,
+                        isActive: bpcDetail.isActive
+                    });
+                    if (bpcDetail.isActive) {
+                        balanceCount!++;
                     }
+                    if (bpcDetail.mode && bpcDetail.mode !== "--") {
+                        modesList.push(bpcDetail.mode);
+                        if (!balanceModeRaw && bpcDetail.modeRaw) balanceModeRaw = bpcDetail.modeRaw;
+                        if (!balanceProvidedVoltageTarget && bpcDetail.providedVoltageTarget) balanceProvidedVoltageTarget = bpcDetail.providedVoltageTarget;
+                    }
+                });
+
+                if (modesList.length > 0) {
+                    const uniqueModes = Array.from(new Set(modesList));
+                    if (uniqueModes.length === 1) {
+                        balanceMode = uniqueModes[0];
+                    } else {
+                        balanceMode = "Mixed";
+                    }
+                } else {
+                    balanceMode = "--";
                 }
             } else {
-                balanceTelemetryAvailable = false;
-                balanceCount = null;
+                // Fallback to legacy balance fields
+                const legacyBalCount = pN(getMetricValue(["balancecount", "balancingcount"]));
+                const legacyBalMode = String(getMetricValue(["balancemode", "balancingmode"]) || "");
+                const balanceRaw = String(getMetricValue(["balanceraw", "balancingraw", "balance", "balancing"]) || "");
+                
+                if (legacyBalCount !== null || (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") || (balanceRaw && balanceRaw !== "undefined" && balanceRaw !== "")) {
+                    balanceTelemetryAvailable = true;
+                    balanceCount = legacyBalCount ?? 0;
+                    if (legacyBalMode && legacyBalMode !== "undefined" && legacyBalMode !== "") {
+                        balanceMode = legacyBalMode;
+                    } else {
+                        if (balanceRaw.includes("Provided") || legacyBalMode.includes("Provided")) {
+                            balanceMode = "Provided";
+                        } else if (balanceRaw && balanceRaw.includes("-")) {
+                            balanceMode = balanceRaw.split("-")[1]?.trim() || balanceMode;
+                        }
+                    }
+                } else {
+                    balanceTelemetryAvailable = false;
+                    balanceCount = null;
+                    balanceMode = "--";
+                }
+            }
+
+            const normalizedBalanceDetails = normalizeBalanceDetailsToExpectedBpcs(balanceDetails, 14);
+            balanceDetails = normalizedBalanceDetails;
+            balanceCount = normalizedBalanceDetails.filter(d => d.isActive === true).length;
+            balanceTelemetryAvailable = normalizedBalanceDetails.some(d => d.balanceTelemetryPresent === true);
+            if (!balanceTelemetryAvailable) {
                 balanceMode = "--";
-            }
-        }
-
-        const normalizedBalanceDetails = normalizeBalanceDetailsToExpectedBpcs(balanceDetails, 14);
-        balanceDetails = normalizedBalanceDetails;
-        balanceCount = normalizedBalanceDetails.filter(d => d.isActive === true).length;
-        balanceTelemetryAvailable = normalizedBalanceDetails.some(d => d.balanceTelemetryPresent === true);
-        if (!balanceTelemetryAvailable) {
-          balanceMode = "--";
-        } else if (balanceCount === 0) {
-          balanceMode = "Off";
-        }
-
-        const container = hasStringData 
-            ? String(row.enclosureIndex || "") 
-            : String(tryGetField(row, normalizedObject, ["container", "enclosure"]) || "");
-            
-        const location = hasStringData 
-            ? String(row.enclosureLocation || "") 
-            : String(tryGetField(row, normalizedObject, ["location"]) || "");
-        
-        // Resolve Fan fields
-        let fanCommandRpm: number | null = null;
-        let fanSettingRpm: number | null = null;
-        let fanCommandPercent: number | null = null;
-        let fanSettingPercent: number | null = null;
-        let fanStatusPercent: number | null = null;
-        let fanRatedRpm: number = 7500;
-        let fanStatusRpmValues: number[] = [];
-        let fanStatusAvgRpm: number | null = null;
-        let fanCount: number = 1;
-        let fanState: "no-command" | "unknown" | "match" | "mismatch" = "no-command";
-        let fanLastCommandTime: any = null;
-
-        const detail = getCachedStringDetail(arrayNumber, stringNumber);
-        const detailStringData = detail?.data?.stringData ?? detail?.data ?? null;
-
-        const fanReport =
-            detailStringData?.stringFanReport ??
-            stringData?.stringFanReport ??
-            row?.stringFanReport ??
-            row?.stringData?.stringFanReport;
-            
-        const lastFanCommandValue =
-            detailStringData?.lastFanCommand ??
-            stringData?.lastFanCommand ??
-            row?.lastFanCommand ??
-            row?.stringData?.lastFanCommand ??
-            null;
-            
-        const lastFanCommandTimeValue =
-            detailStringData?.lastFanCommandTime ??
-            stringData?.lastFanCommandTime ??
-            row?.lastFanCommandTime ??
-            row?.stringData?.lastFanCommandTime ??
-            null;
-
-        if (fanReport) {
-            const FAN_MATCH_TOLERANCE_PERCENT = 5;
-            const finite = (v: any): number | null => {
-              const n = Number(v);
-              return Number.isFinite(n) ? n : null;
-            };
-            const avg = (values: any[]): number | null => {
-              const nums = values.map(finite).filter((n): n is number => n !== null);
-              if (!nums.length) return null;
-              return nums.reduce((a, b) => a + b, 0) / nums.length;
-            };
-            const clampPercent = (v: number): number =>
-              Math.max(0, Math.min(100, Math.round(v)));
-              
-            fanRatedRpm = finite(fanReport.fanRatedRPM) ?? finite(fanReport.fanRatedRpm) ?? 7500;
-            fanCommandPercent = finite(fanReport.fanCommand);
-            fanSettingPercent = finite(fanReport.fanSetting);
-            fanStatusRpmValues = Array.isArray(fanReport.fanStatusRPM) 
-              ? fanReport.fanStatusRPM.map(finite).filter((n): n is number => n !== null) 
-              : (Array.isArray(fanReport.fanStatusRpm) ? fanReport.fanStatusRpm.map(finite).filter((n): n is number => n !== null) : []);
-            
-            fanStatusAvgRpm = fanStatusRpmValues.length ? avg(fanStatusRpmValues) : null;
-            
-            fanStatusPercent =
-              fanStatusAvgRpm !== null && fanRatedRpm > 0
-                ? clampPercent((fanStatusAvgRpm / fanRatedRpm) * 100)
-                : fanSettingPercent;
-            
-            if (fanStatusPercent !== null) {
-              fanStatusPercent = clampPercent(fanStatusPercent);
+            } else if (balanceCount === 0) {
+                balanceMode = "Off";
             }
 
-            fanCount = Number(fanReport.fanCount) || fanStatusRpmValues.length || 1;
-            fanLastCommandTime = lastFanCommandTimeValue;
+            const container = String(detailStringData?.enclosureIndex ?? blockStrBase?.enclosureIndex ?? lcStrBase?.enclosureIndex ?? stringsCsvRow?.enclosureIndex ?? sIpInfo?.container ?? tryGetField(stringsCsvRow || {}, {}, ["container", "enclosure"]) ?? "");
+            const location = String(detailStringData?.enclosureLocation ?? blockStrBase?.enclosureLocation ?? lcStrBase?.enclosureLocation ?? stringsCsvRow?.enclosureLocation ?? sIpInfo?.location ?? tryGetField(stringsCsvRow || {}, {}, ["location"]) ?? "");
 
-            const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
-            const hasStatus = fanStatusPercent !== null;
-            if (!hasCommand) fanState = "no-command";
-            else if (!hasStatus) fanState = "unknown";
-            else if (Math.abs(fanCommandPercent - fanStatusPercent) <= FAN_MATCH_TOLERANCE_PERCENT) fanState = "match";
-            else fanState = "mismatch";
-        } else {
-            const fanCommandCandidates = [
-                row?.fanCommand,
-                row?.stringFanReport?.fanCommand,
-                blockStrBase?.fanCommand,
-                blockStrBase?.stringFanReport?.fanCommand,
-                lcStrBase?.fanCommand,
-                lcStrBase?.stringFanReport?.fanCommand,
-                row?.raw?.blockviewer?.fanCommand,
-                row?.raw?.stringDetail?.fanCommand,
-                row?.raw?.stringsCsv?.fanCommand,
-                row?.fanRequested,
-                blockStrBase?.fanRequested,
-                lcStrBase?.fanRequested,
-            ];
-            for (const val of fanCommandCandidates) {
-                if (val !== undefined && val !== null && typeof val !== 'boolean') {
-                    const n = Number(val);
-                    if (!isNaN(n)) {
-                        fanCommandRpm = n;
+            // Resolve Fan fields
+            let fanCommandRpm: number | null = null;
+            let fanSettingRpm: number | null = null;
+            let fanCommandPercent: number | null = null;
+            let fanSettingPercent: number | null = null;
+            let fanStatusPercent: number | null = null;
+            let fanRatedRpm: number = 7500;
+            let fanStatusRpmValues: number[] = [];
+            let fanStatusAvgRpm: number | null = null;
+            let fanCount: number = 1;
+            let fanState: "no-command" | "unknown" | "match" | "mismatch" = "no-command";
+            let fanLastCommandTime: any = null;
+
+            const fanReport =
+                detailStringData?.stringFanReport ??
+                blockStrBase?.stringFanReport ??
+                lcStrBase?.stringFanReport ??
+                stringsCsvRow?.stringFanReport ??
+                stringsCsvRow?.stringData?.stringFanReport;
+                
+            const lastFanCommandValue =
+                detailStringData?.lastFanCommand ??
+                blockStrBase?.lastFanCommand ??
+                lcStrBase?.lastFanCommand ??
+                stringsCsvRow?.lastFanCommand ??
+                stringsCsvRow?.stringData?.lastFanCommand ??
+                null;
+                
+            const lastFanCommandTimeValue =
+                detailStringData?.lastFanCommandTime ??
+                blockStrBase?.lastFanCommandTime ??
+                lcStrBase?.lastFanCommandTime ??
+                stringsCsvRow?.lastFanCommandTime ??
+                stringsCsvRow?.stringData?.lastFanCommandTime ??
+                null;
+
+            if (fanReport) {
+                const FAN_MATCH_TOLERANCE_PERCENT = 5;
+                const finiteVal = (v: any): number | null => {
+                    const num = Number(v);
+                    return Number.isFinite(num) ? num : null;
+                };
+                const avg = (values: any[]): number | null => {
+                    const nums = values.map(finiteVal).filter((num): num is number => num !== null);
+                    if (!nums.length) return null;
+                    return nums.reduce((a, b) => a + b, 0) / nums.length;
+                };
+                const clampPercent = (v: number): number =>
+                    Math.max(0, Math.min(100, Math.round(v)));
+                  
+                fanRatedRpm = finiteVal(fanReport.fanRatedRPM) ?? finiteVal(fanReport.fanRatedRpm) ?? 7500;
+                fanCommandPercent = finiteVal(fanReport.fanCommand);
+                fanSettingPercent = finiteVal(fanReport.fanSetting);
+                fanStatusRpmValues = Array.isArray(fanReport.fanStatusRPM) 
+                    ? fanReport.fanStatusRPM.map(finiteVal).filter((num): num is number => num !== null) 
+                    : (Array.isArray(fanReport.fanStatusRpm) ? fanReport.fanStatusRpm.map(finiteVal).filter((num): num is number => num !== null) : []);
+                
+                fanStatusAvgRpm = fanStatusRpmValues.length ? avg(fanStatusRpmValues) : null;
+                
+                fanStatusPercent =
+                    fanStatusAvgRpm !== null && fanRatedRpm > 0
+                        ? clampPercent((fanStatusAvgRpm / fanRatedRpm) * 100)
+                        : fanSettingPercent;
+                
+                if (fanStatusPercent !== null) {
+                    fanStatusPercent = clampPercent(fanStatusPercent);
+                }
+
+                fanCount = Number(fanReport.fanCount) || fanStatusRpmValues.length || 1;
+                fanLastCommandTime = lastFanCommandTimeValue;
+
+                const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
+                const hasStatus = fanStatusPercent !== null;
+                if (!hasCommand) fanState = "no-command";
+                else if (!hasStatus) fanState = "unknown";
+                else if (Math.abs(fanCommandPercent - fanStatusPercent) <= FAN_MATCH_TOLERANCE_PERCENT) fanState = "match";
+                else fanState = "mismatch";
+            } else {
+                const fanCommandCandidates = [
+                    detailStringData?.fanCommand,
+                    detailStringData?.stringFanReport?.fanCommand,
+                    blockStrBase?.fanCommand,
+                    blockStrBase?.stringFanReport?.fanCommand,
+                    lcStrBase?.fanCommand,
+                    lcStrBase?.stringFanReport?.fanCommand,
+                    stringsCsvRow?.fanCommand,
+                    stringsCsvRow?.stringFanReport?.fanCommand,
+                    stringsCsvRow?.fanRequested,
+                    blockStrBase?.fanRequested,
+                    lcStrBase?.fanRequested,
+                ];
+                for (const val of fanCommandCandidates) {
+                    if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                        const num = Number(val);
+                        if (!isNaN(num)) {
+                            fanCommandRpm = num;
+                            break;
+                        }
+                    }
+                }
+
+                const fanSettingCandidates = [
+                    detailStringData?.fanSetting,
+                    detailStringData?.stringFanReport?.fanSetting,
+                    blockStrBase?.fanSetting,
+                    blockStrBase?.stringFanReport?.fanSetting,
+                    lcStrBase?.fanSetting,
+                    lcStrBase?.stringFanReport?.fanSetting,
+                    stringsCsvRow?.fanSetting,
+                    stringsCsvRow?.stringFanReport?.fanSetting,
+                    stringsCsvRow?.fanActual,
+                    blockStrBase?.fanActual,
+                    lcStrBase?.fanActual,
+                ];
+                for (const val of fanSettingCandidates) {
+                    if (val !== undefined && val !== null && typeof val !== 'boolean') {
+                        const num = Number(val);
+                        if (!isNaN(num)) {
+                            fanSettingRpm = num;
+                            break;
+                        }
+                    }
+                }
+
+                const lastFanCommandTimeCandidates = [
+                    detailStringData?.lastFanCommandTime,
+                    blockStrBase?.lastFanCommandTime,
+                    lcStrBase?.lastFanCommandTime,
+                    stringsCsvRow?.lastFanCommandTime,
+                    stringsCsvRow?.LastFanCommandTime,
+                ];
+                for (const val of lastFanCommandTimeCandidates) {
+                    if (val !== undefined && val !== null) {
+                        fanLastCommandTime = val;
                         break;
                     }
                 }
+
+                const MAX_FAN_RPM = 7500;
+                const toFanPercent = (rpm: any): number | null => {
+                    const num = Number(rpm);
+                    if (!Number.isFinite(num) || isNaN(num)) return null;
+                    return Math.max(0, Math.min(100, Math.round((num / MAX_FAN_RPM) * 100)));
+                };
+
+                fanCommandPercent = null;
+                fanSettingPercent = null;
+
+                if (fanCommandRpm !== null) {
+                    if (fanCommandRpm <= 100) fanCommandPercent = fanCommandRpm;
+                    else fanCommandPercent = toFanPercent(fanCommandRpm);
+                }
+                if (fanSettingRpm !== null) {
+                    if (fanSettingRpm <= 100) fanStatusPercent = fanSettingRpm;
+                    else fanStatusPercent = toFanPercent(fanSettingRpm);
+                    fanSettingPercent = fanStatusPercent;
+                }
+                fanRatedRpm = MAX_FAN_RPM;
+                fanStatusRpmValues = fanSettingRpm !== null ? [fanSettingRpm] : [];
+                fanStatusAvgRpm = fanSettingRpm;
+                fanCount = 1;
+                
+                const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
+                const hasStatus = fanStatusPercent !== null;
+                if (!hasCommand) fanState = "no-command";
+                else if (!hasStatus) fanState = "unknown";
+                else if (Math.abs(fanCommandPercent - fanStatusPercent) <= 5) fanState = "match";
+                else fanState = "mismatch";
             }
 
-            const fanSettingCandidates = [
-                row?.fanSetting,
-                row?.stringFanReport?.fanSetting,
-                blockStrBase?.fanSetting,
-                blockStrBase?.stringFanReport?.fanSetting,
-                lcStrBase?.fanSetting,
-                lcStrBase?.stringFanReport?.fanSetting,
-                row?.raw?.blockviewer?.fanSetting,
-                row?.raw?.stringDetail?.fanSetting,
-                row?.raw?.stringsCsv?.fanSetting,
-                row?.fanActual,
-                blockStrBase?.fanActual,
-                lcStrBase?.fanActual,
-            ];
-            for (const val of fanSettingCandidates) {
-                if (val !== undefined && val !== null && typeof val !== 'boolean') {
-                    const n = Number(val);
-                    if (!isNaN(n)) {
-                        fanSettingRpm = n;
-                        break;
+            const lastFanCommand = lastFanCommandValue !== null ? parseBoolean(lastFanCommandValue) : parseBoolean(getMetricValue(["lastfancommand"]));
+            const lastFanCommandTime = fanLastCommandTime || lastFanCommandTimeValue || getMetricValue(["lastfancommandtime"]);
+            const fanCommandRequested = lastFanCommand;
+            const fanHealthy = true;
+
+            function safeParseDate(val: any): string {
+                if (!val) return new Date().toISOString();
+                const ts = new Date(val);
+                if (isNaN(ts.getTime())) {
+                    if (typeof val === 'string' && val.includes('/')) {
+                        const parts = val.split(/[\s/:]+/);
+                        if (parts.length >= 3) {
+                            const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T${parts[3]||'00'}:${parts[4]||'00'}:${parts[5]||'00'}Z`);
+                            if (!isNaN(d.getTime())) return d.toISOString();
+                        }
                     }
+                    return new Date().toISOString();
                 }
+                return ts.toISOString();
             }
 
-            const lastFanCommandTimeCandidates = [
-                row?.lastFanCommandTime,
-                row?.LastFanCommandTime,
-                row?.raw?.stringsCsv?.LastFanCommandTime,
-                blockStrBase?.lastFanCommandTime,
-                lcStrBase?.lastFanCommandTime,
-                blockStrBase?.stringFanReport?.lastFanCommandTime,
-                lcStrBase?.stringFanReport?.lastFanCommandTime,
-            ];
-            for (const val of lastFanCommandTimeCandidates) {
-                if (val !== undefined && val !== null) {
-                    fanLastCommandTime = val;
-                    break;
+            const timestampUtc = safeParseDate(getMetricValue(["timestamp", "datetime"]));
+
+            const warningCount = pN(getMetricValue(["warningcount", "warncount", "warnings"]), 0) || 0;
+            const alarmCount = pN(getMetricValue(["alarmcount", "alarms"]), 0) || 0;
+            
+            gWarnCount += warningCount;
+            gAlarmCount += alarmCount;
+            
+            let warnings: string[] = getMetricValue(["warns", "warningslist"]) || [];
+            let alarms: string[] = getMetricValue(["alarmslist"]) || [];
+            
+            if (typeof warnings === "string") warnings = (warnings as string).split(",").map(v=>v.trim()).filter(Boolean);
+            if (typeof alarms === "string") alarms = (alarms as string).split(",").map(v=>v.trim()).filter(Boolean);
+            
+            if (Array.isArray(warnings)) warnings = warnings.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+            if (Array.isArray(alarms)) alarms = alarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
+
+            // Extract BPC data
+            let bpcs: any[] = [];
+            const rawSources: any = { stringsCsv: stringsCsvRow, lastCall: lcStrBase, stringIpMap: sIpInfo, blockviewer: blockStrBase };
+
+            let bpcSourceData: any[] = [];
+            if (lcStrBase && Array.isArray(lcStrBase.packs)) bpcSourceData = lcStrBase.packs;
+            else if (lcStrBase && Array.isArray(lcStrBase.bpcs)) bpcSourceData = lcStrBase.bpcs;
+
+            const bpcFirmwares = new Set<string>();
+
+            bpcSourceData.forEach((bpcBase: any, bpcIdx: number) => {
+                const bpcNum = pN(bpcBase.index || bpcBase.bpcIndex, bpcIdx + 1) || (bpcIdx + 1);
+                
+                let bpcIp = null;
+                const bpcIpMatch = ipMap.find(m => pN(m.array) === a && pN(m.string) === s && pN(m.pack || m.bpc) === bpcNum);
+                if (bpcIpMatch) bpcIp = bpcIpMatch.ip;
+
+                const cgs: any[] = [];
+                let bpcWarns = bpcBase.warnings || bpcBase.warningList || [];
+                let bpcAlarms = bpcBase.alarms || bpcBase.alarmList || [];
+                
+                if (typeof bpcWarns === "string") bpcWarns = (bpcWarns as string).split(",").map(v=>v.trim()).filter(Boolean);
+                if (typeof bpcAlarms === "string") bpcAlarms = (bpcAlarms as string).split(",").map(v=>v.trim()).filter(Boolean);
+                if (Array.isArray(bpcWarns)) bpcWarns = bpcWarns.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
+                if (Array.isArray(bpcAlarms)) bpcAlarms = bpcAlarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
+                
+                if (bpcBase.firmwareVersion) bpcFirmwares.add(String(bpcBase.firmwareVersion));
+
+                let cellVolts = Array.isArray(bpcBase.cellVoltages) ? bpcBase.cellVoltages : [];
+                let cellTemps = Array.isArray(bpcBase.cellTemperatures) ? bpcBase.cellTemperatures : [];
+                let cellNotes = Array.isArray(bpcBase.notifications || bpcBase.cgStatus) ? (bpcBase.notifications || bpcBase.cgStatus) : [];
+                let balData = Array.isArray(bpcBase.balancing) ? bpcBase.balancing : [];
+
+                const maxCgCount = Math.max(cellVolts.length, cellTemps.length, cellNotes.length, balData.length);
+                for (let cgi = 0; cgi < maxCgCount; cgi++) {
+                     const cv = typeof cellVolts[cgi] === 'number' ? cellVolts[cgi] : undefined;
+                     const cgT = typeof cellTemps[cgi] === 'number' ? cellTemps[cgi] : undefined;
+                     const cN = typeof cellNotes[cgi] === 'string' ? cellNotes[cgi] : (typeof cellNotes[cgi] === 'object' ? cellNotes[cgi].level : undefined);
+                     const cBal = typeof balData[cgi] === 'boolean' ? balData[cgi] : (typeof balData[cgi] === 'object' ? balData[cgi].active : undefined);
+                     
+                     cgs.push({
+                         id: `A${a}-S${s}-B${bpcNum}-C${cgi + 1}`,
+                         arrayNumber: a, stringNumber: s, bpcNumber: bpcNum, cellGroupNumber: cgi + 1,
+                         voltage: cv,
+                         temperature: cgT,
+                         notificationLevel: cN,
+                         balancingActive: cBal
+                     });
                 }
-            }
 
-            const MAX_FAN_RPM = 7500;
-            const toFanPercent = (rpm: any): number | null => {
-                const n = Number(rpm);
-                if (!Number.isFinite(n) || isNaN(n)) return null;
-                return Math.max(0, Math.min(100, Math.round((n / MAX_FAN_RPM) * 100)));
-            };
+                bpcs.push({
+                    id: `A${a}-S${s}-B${bpcNum}`,
+                    arrayNumber: a, stringNumber: s, bpcNumber: bpcNum,
+                    bpcIp,
+                    firmwareVersion: bpcBase.firmwareVersion,
+                    minCellVoltage: pN(bpcBase.minCellVoltage),
+                    maxCellVoltage: pN(bpcBase.maxCellVoltage),
+                    avgCellVoltage: pN(bpcBase.avgCellVoltage),
+                    minCellTemperature: pN(bpcBase.minCellTemp || bpcBase.minCellTemperature),
+                    maxCellTemperature: pN(bpcBase.maxCellTemp || bpcBase.maxCellTemperature),
+                    avgCellTemperature: pN(bpcBase.avgCellTemp || bpcBase.avgCellTemperature),
+                    warningCount: bpcWarns.length,
+                    alarmCount: bpcAlarms.length,
+                    warnings: bpcWarns,
+                    alarms: bpcAlarms,
+                    cellGroups: cgs,
+                    raw: bpcBase
+                });
 
-            fanCommandPercent = null;
-            fanSettingPercent = null;
-
-            if (fanCommandRpm !== null) {
-                if (fanCommandRpm <= 100) fanCommandPercent = fanCommandRpm;
-                else fanCommandPercent = toFanPercent(fanCommandRpm);
-            }
-            if (fanSettingRpm !== null) {
-                if (fanSettingRpm <= 100) fanStatusPercent = fanSettingRpm;
-                else fanStatusPercent = toFanPercent(fanSettingRpm);
-                fanSettingPercent = fanStatusPercent;
-            }
-            fanRatedRpm = MAX_FAN_RPM;
-            fanStatusRpmValues = fanSettingRpm !== null ? [fanSettingRpm] : [];
-            fanStatusAvgRpm = fanSettingRpm;
-            fanCount = 1;
-            
-            const hasCommand = fanCommandPercent !== null && fanCommandPercent > 0;
-            const hasStatus = fanStatusPercent !== null;
-            if (!hasCommand) fanState = "no-command";
-            else if (!hasStatus) fanState = "unknown";
-            else if (Math.abs(fanCommandPercent - fanStatusPercent) <= 5) fanState = "match";
-            else fanState = "mismatch";
-        }
-
-        const lastFanCommand = lastFanCommandValue !== null ? parseBoolean(lastFanCommandValue) : parseBoolean(tryGetField(row, normalizedObject, ["lastfancommand"]));
-        const lastFanCommandTime = fanLastCommandTime || lastFanCommandTimeValue || tryGetField(row, normalizedObject, ["lastfancommandtime"]);
-        const fanCommandRequested = lastFanCommand;
-        const fanHealthy = true;
-
-        function safeParseDate(val: any): string {
-            if (!val) return new Date().toISOString();
-            const ts = new Date(val);
-            if (isNaN(ts.getTime())) {
-                if (typeof val === 'string' && val.includes('/')) {
-                    // Attempt to parse some known bad formats if needed, e.g. DD/MM/YYYY
-                    const parts = val.split(/[\s/:]+/);
-                    if (parts.length >= 3) {
-                        const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T${parts[3]||'00'}:${parts[4]||'00'}:${parts[5]||'00'}Z`);
-                        if (!isNaN(d.getTime())) return d.toISOString();
-                    }
-                }
-                return new Date().toISOString();
-            }
-            return ts.toISOString();
-        }
-
-        const timestampUtc = safeParseDate(tryGetField(row, normalizedObject, ["timestamp", "datetime"]));
-
-        const warningCount = pN(tryGetField(row, normalizedObject, ["warningcount", "warncount", "warnings"]), 0) || 0;
-        const alarmCount = pN(tryGetField(row, normalizedObject, ["alarmcount", "alarms"]), 0) || 0;
-        
-        gWarnCount += warningCount;
-        gAlarmCount += alarmCount;
-        
-        let warnings: string[] = tryGetField(row, normalizedObject, ["warns", "warningslist"]) || [];
-        let alarms: string[] = tryGetField(row, normalizedObject, ["alarmslist"]) || [];
-        
-        if (typeof warnings === "string") warnings = (warnings as string).split(",").map(v=>v.trim()).filter(Boolean);
-        if (typeof alarms === "string") alarms = (alarms as string).split(",").map(v=>v.trim()).filter(Boolean);
-        
-        if (Array.isArray(warnings)) warnings = warnings.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
-        if (Array.isArray(alarms)) alarms = alarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
-
-        // Extract BPC data
-        let bpcs: any[] = [];
-        const rawSources: any = { stringsCsv: row, lastCall: lcStrBase, stringIpMap: sIpInfo, blockviewer: blockStrBase };
-
-        let bpcSourceData: any[] = [];
-        if (lcStrBase && Array.isArray(lcStrBase.packs)) bpcSourceData = lcStrBase.packs;
-        else if (lcStrBase && Array.isArray(lcStrBase.bpcs)) bpcSourceData = lcStrBase.bpcs;
-
-        const bpcFirmwares = new Set<string>();
-
-        bpcSourceData.forEach((bpcBase: any, bpcIdx: number) => {
-            const bpcNum = pN(bpcBase.index || bpcBase.bpcIndex, bpcIdx + 1) || (bpcIdx + 1);
-            
-            let bpcIp = null;
-            // find bpc in ipMap
-            const bpcIpMatch = ipMap.find(m => pN(m.array) === arrayNumber && pN(m.string) === stringNumber && pN(m.pack || m.bpc) === bpcNum);
-            if (bpcIpMatch) bpcIp = bpcIpMatch.ip;
-
-            const cgs: any[] = [];
-            let bpcWarns = bpcBase.warnings || bpcBase.warningList || [];
-            let bpcAlarms = bpcBase.alarms || bpcBase.alarmList || [];
-            
-            if (typeof bpcWarns === "string") bpcWarns = (bpcWarns as string).split(",").map(v=>v.trim()).filter(Boolean);
-            if (typeof bpcAlarms === "string") bpcAlarms = (bpcAlarms as string).split(",").map(v=>v.trim()).filter(Boolean);
-            if (Array.isArray(bpcWarns)) bpcWarns = bpcWarns.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
-            if (Array.isArray(bpcAlarms)) bpcAlarms = bpcAlarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
-            
-            if (bpcBase.firmwareVersion) bpcFirmwares.add(String(bpcBase.firmwareVersion));
-
-            let cellVolts = Array.isArray(bpcBase.cellVoltages) ? bpcBase.cellVoltages : [];
-            let cellTemps = Array.isArray(bpcBase.cellTemperatures) ? bpcBase.cellTemperatures : [];
-            let cellNotes = Array.isArray(bpcBase.notifications || bpcBase.cgStatus) ? (bpcBase.notifications || bpcBase.cgStatus) : [];
-            let balData = Array.isArray(bpcBase.balancing) ? bpcBase.balancing : [];
-
-            const maxCgCount = Math.max(cellVolts.length, cellTemps.length, cellNotes.length, balData.length);
-            for (let cgi = 0; cgi < maxCgCount; cgi++) {
-                 const cv = typeof cellVolts[cgi] === 'number' ? cellVolts[cgi] : undefined;
-                 const cgT = typeof cellTemps[cgi] === 'number' ? cellTemps[cgi] : undefined;
-                 const cN = typeof cellNotes[cgi] === 'string' ? cellNotes[cgi] : (typeof cellNotes[cgi] === 'object' ? cellNotes[cgi].level : undefined);
-                 const cBal = typeof balData[cgi] === 'boolean' ? balData[cgi] : (typeof balData[cgi] === 'object' ? balData[cgi].active : undefined);
-                 
-                 cgs.push({
-                     id: `A${arrayNumber}-S${stringNumber}-B${bpcNum}-C${cgi + 1}`,
-                     arrayNumber, stringNumber, bpcNumber: bpcNum, cellGroupNumber: cgi + 1,
-                     voltage: cv,
-                     temperature: cgT,
-                     notificationLevel: cN,
-                     balancingActive: cBal
-                 });
-            }
-
-            bpcs.push({
-                id: `A${arrayNumber}-S${stringNumber}-B${bpcNum}`,
-                arrayNumber, stringNumber, bpcNumber: bpcNum,
-                bpcIp,
-                firmwareVersion: bpcBase.firmwareVersion,
-                minCellVoltage: pN(bpcBase.minCellVoltage),
-                maxCellVoltage: pN(bpcBase.maxCellVoltage),
-                avgCellVoltage: pN(bpcBase.avgCellVoltage),
-                minCellTemperature: pN(bpcBase.minCellTemp || bpcBase.minCellTemperature),
-                maxCellTemperature: pN(bpcBase.maxCellTemp || bpcBase.maxCellTemperature),
-                avgCellTemperature: pN(bpcBase.avgCellTemp || bpcBase.avgCellTemperature),
-                warningCount: bpcWarns.length,
-                alarmCount: bpcAlarms.length,
-                warnings: bpcWarns,
-                alarms: bpcAlarms,
-                cellGroups: cgs,
-                raw: bpcBase
+                totalBpcs++;
+                if (bpcAlarms.length > 0) alarmBpcs++;
+                else if (bpcWarns.length > 0) warningBpcs++;
             });
 
-            totalBpcs++;
-            if (bpcAlarms.length > 0) alarmBpcs++;
-            else if (bpcWarns.length > 0) warningBpcs++;
-        });
+            let bpcCount = pN(getMetricValue(["bpccount", "packcount"]));
+            if (bpcSourceData.length > 0) bpcCount = bpcSourceData.length;
+            if (bpcCount !== null) knownBpcCount += bpcCount;
 
-        let bpcCount = pN(tryGetField(row, normalizedObject, ["bpccount", "packcount"]));
-        if (bpcSourceData.length > 0) bpcCount = bpcSourceData.length;
-        if (bpcCount !== null) knownBpcCount += bpcCount;
+            let bpcFirmwareSummary = "Unknown";
+            if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
+            else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
 
-        let bpcFirmwareSummary = "Unknown";
-        if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
-        else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
+            const mockRowForClassifier = {
+                stringConnectionState: isOnline ? "ONLINE" : "OFFLINE",
+                outRotation,
+                positiveContactorClosed,
+                negativeContactorClosed,
+                communicating: isOnline,
+                connectionState: isOnline ? "ONLINE" : "OFFLINE"
+            };
+            const classification = classifyStringOperationalState(mockRowForClassifier);
+            let operationalState = "OFFLINE";
+            if (classification.state === "online") {
+                if (alarmCount > 0) operationalState = "ALARM";
+                else if (warningCount > 0) operationalState = "WARNING";
+                else operationalState = "NORMAL";
+            } else if (classification.state === "nearline") {
+                if (alarmCount > 0) operationalState = "ALARM";
+                else if (warningCount > 0) operationalState = "WARNING";
+                else operationalState = "NEARLINE";
+            } else {
+                operationalState = "OFFLINE";
+            }
+            
+            if (operationalState === "NORMAL") normalStrings++;
+            if (operationalState === "WARNING") warningStrings++;
+            if (operationalState === "ALARM") alarmStrings++;
+            if (operationalState === "OFFLINE") offlineStrings++;
+            if (operationalState === "NEARLINE") nearlineStrings++;
 
-        const classification = classifyStringOperationalState(row);
-        let operationalState = "OFFLINE";
-        if (classification.state === "online") {
-            if (alarmCount > 0) operationalState = "ALARM";
-            else if (warningCount > 0) operationalState = "WARNING";
-            else operationalState = "NORMAL";
-        } else if (classification.state === "nearline") {
-            if (alarmCount > 0) operationalState = "ALARM";
-            else if (warningCount > 0) operationalState = "WARNING";
-            else operationalState = "NEARLINE";
-        } else {
-            operationalState = "OFFLINE";
+            if (minCellVoltage !== null) {
+                if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
+            }
+            if (maxCellVoltage !== null) {
+                if (gMaxV === null || maxCellVoltage > gMaxV) gMaxV = maxCellVoltage;
+            }
+            if (avgCellVoltage !== null) {
+                gSumV += avgCellVoltage; gCountV++;
+            }
+            if (cellVoltageDelta !== null) {
+                if (gMaxVDelta === null || cellVoltageDelta > gMaxVDelta) gMaxVDelta = cellVoltageDelta;
+            }
+            if (minCellTemperature !== null) {
+                if (gMinT === null || minCellTemperature < gMinT) gMinT = minCellTemperature;
+            }
+            if (maxCellTemperature !== null) {
+                if (gMaxT === null || maxCellTemperature > gMaxT) gMaxT = maxCellTemperature;
+            }
+            if (avgCellTemperature !== null) {
+                gSumT += avgCellTemperature; gCountT++;
+            }
+            if (cellTemperatureDelta !== null) {
+                if (gMaxTDelta === null || cellTemperatureDelta > gMaxTDelta) gMaxTDelta = cellTemperatureDelta;
+            }
+
+            const stringNumValue = pN(s);
+            const energySegmentNumber = stringNumberToEnergySegment(stringNumValue);
+            const containerNumber = energySegmentNumber;
+            const containerLabel = energySegmentNumber !== null ? `ES ${energySegmentNumber}` : "--";
+
+            const measuredStringVoltage = measuredVoltage;
+            const calculatedStringVoltage = calculatedVoltage;
+
+            const cellVoltageMin = minCellVoltage;
+            const cellVoltageMax = maxCellVoltage;
+            const cellVoltageAvg = avgCellVoltage;
+
+            const cellTempMin = minCellTemperature;
+            const cellTempMax = maxCellTemperature;
+            const cellTempAvg = avgCellTemperature;
+            const cellTempDelta = cellTemperatureDelta;
+
+            const computedBpcCount = finiteVal(bpcCount) ?? (Array.isArray(bpcs) ? bpcs.length : null);
+
+            strings.push({
+                id, arrayNumber: a, stringNumber: s,
+                stringKey: `A${a}-S${s}`,
+                stringControllerIp: ipMap.find(m => pN(m.array) === a && pN(m.string) === s)?.ip || sIpInfo?.ip || tryGetField(stringsCsvRow || {}, {}, ["ip", "ipaddress"]),
+                stringControllerEntityKey: sIpInfo?.entityKey,
+                stringControllerEntityKeyToken: sIpInfo?.entityKeyToken,
+                contactorStatus,
+                contactorClosed,
+                contactorsCloseExpected,
+                positiveContactorClosed,
+                negativeContactorClosed,
+                recloseCount,
+                rotationStatus,
+                outRotation,
+                rotationEnabled,
+                measuredVoltage, calculatedVoltage, busVoltage, voltageDelta,
+                measuredStringVoltage, calculatedStringVoltage, preciseCalculatedStringVoltage: preciseCalculatedVoltage,
+                amps, kw, socPct, ah, kwh,
+                minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
+                cellVoltageMin, cellVoltageMax, cellVoltageAvg,
+                minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
+                cellTempMin, cellTempMax, cellTempAvg, cellTempDelta,
+                balanceTelemetryAvailable,
+                balanceCount,
+                balanceMode,
+                balanceModeRaw,
+                balanceProvidedVoltageTarget,
+                balanceDetails,
+                fanCommandRpm,
+                fanSettingRpm,
+                fanCommandPercent,
+                fanSettingPercent,
+                fanStatusPercent,
+                fanRatedRpm,
+                fanStatusRpmValues,
+                fanStatusAvgRpm,
+                fanCount,
+                fanLastCommandTime: fanLastCommandTime || lastFanCommandTime,
+                container, location,
+                fanCommandRequested,
+                lastFanCommandTime,
+                fanHealthy,
+                fanState,
+                fanSourceAvailable: !!fanReport,
+                fanSourceEndpoint: detail?.endpoint || null,
+                fanSourceUrl: detail?.url || null,
+                fanSourceHttpStatus: detail?.httpStatus || null,
+                fanSourceKeys: fanReport ? Object.keys(fanReport) : [],
+                rawFanReport: fanReport,
+                rawStringDataFanReport: detailStringData?.stringFanReport ?? null,
+                timestampUtc,
+                lastUpdatedUtc: new Date().toISOString(),
+                stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(stringsCsvRow || {}, {}, ["firmware", "firmwareversion"]),
+                bpcCount: computedBpcCount,
+                energySegmentNumber,
+                containerNumber,
+                containerLabel,
+                bpcFirmwareSummary,
+                bpcs,
+                operationalState,
+                warningCount, alarmCount, warnings, alarms,
+                sourceCoverage: {
+                    stringsCsv: !!stringsCsvRow,
+                    lastCall: !!lcStrBase,
+                    stringIpMap: !!sIpInfo,
+                    ipMap: !!ipMapWrapper.data,
+                    blockviewer: !!blockStrBase,
+                    controllerStatistics: false,
+                    bessStatusCodes: false,
+                },
+                raw: rawSources
+            });
         }
-        
-        if (operationalState === "NORMAL") normalStrings++;
-        if (operationalState === "WARNING") warningStrings++;
-        if (operationalState === "ALARM") alarmStrings++;
-        if (operationalState === "OFFLINE") offlineStrings++;
-        if (operationalState === "NEARLINE") nearlineStrings++;
-
-         if (minCellVoltage !== null) {
-             if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
-         }
-         if (maxCellVoltage !== null) {
-             if (gMaxV === null || maxCellVoltage > gMaxV) gMaxV = maxCellVoltage;
-         }
-         if (avgCellVoltage !== null) {
-             gSumV += avgCellVoltage; gCountV++;
-         }
-         if (cellVoltageDelta !== null) {
-             if (gMaxVDelta === null || cellVoltageDelta > gMaxVDelta) gMaxVDelta = cellVoltageDelta;
-         }
-         if (minCellTemperature !== null) {
-             if (gMinT === null || minCellTemperature < gMinT) gMinT = minCellTemperature;
-         }
-         if (maxCellTemperature !== null) {
-             if (gMaxT === null || maxCellTemperature > gMaxT) gMaxT = maxCellTemperature;
-         }
-         if (avgCellTemperature !== null) {
-             gSumT += avgCellTemperature; gCountT++;
-         }
-         if (cellTemperatureDelta !== null) {
-             if (gMaxTDelta === null || cellTemperatureDelta > gMaxTDelta) gMaxTDelta = cellTemperatureDelta;
-         }
-
-        const stringNumValue = pN(stringNumber);
-        const energySegmentNumber = stringNumberToEnergySegment(stringNumValue);
-        const containerNumber = energySegmentNumber;
-        const containerLabel = energySegmentNumber !== null ? `ES ${energySegmentNumber}` : "--";
-
-        const measuredStringVoltage = measuredVoltage;
-        const calculatedStringVoltage = calculatedVoltage;
-
-        const cellVoltageMin = minCellVoltage;
-        const cellVoltageMax = maxCellVoltage;
-        const cellVoltageAvg = avgCellVoltage;
-
-        const cellTempMin = minCellTemperature;
-        const cellTempMax = maxCellTemperature;
-        const cellTempAvg = avgCellTemperature;
-        const cellTempDelta = cellTemperatureDelta;
-
-        const computedBpcCount = finite(bpcCount) ?? (Array.isArray(bpcs) ? bpcs.length : null);
-
-        strings.push({
-            id, arrayNumber, stringNumber,
-            stringKey: `A${arrayNumber}-S${stringNumber}`,
-            stringControllerIp: sIpInfo?.ip || tryGetField(row, normalizedObject, ["ip", "ipaddress"]),
-            stringControllerEntityKey: sIpInfo?.entityKey,
-            stringControllerEntityKeyToken: sIpInfo?.entityKeyToken,
-            contactorStatus,
-            contactorClosed,
-            contactorsCloseExpected,
-            positiveContactorClosed,
-            negativeContactorClosed,
-            recloseCount,
-            rotationStatus,
-            outRotation,
-            rotationEnabled,
-            measuredVoltage, calculatedVoltage, busVoltage, voltageDelta,
-            measuredStringVoltage, calculatedStringVoltage, preciseCalculatedStringVoltage: preciseCalculatedVoltage,
-            amps, kw, socPct, ah, kwh,
-            minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
-            cellVoltageMin, cellVoltageMax, cellVoltageAvg,
-            minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
-            cellTempMin, cellTempMax, cellTempAvg, cellTempDelta,
-            balanceTelemetryAvailable,
-            balanceCount,
-            balanceMode,
-            balanceModeRaw,
-            balanceProvidedVoltageTarget,
-            balanceDetails,
-            fanCommandRpm,
-            fanSettingRpm,
-            fanCommandPercent,
-            fanSettingPercent,
-            fanStatusPercent,
-            fanRatedRpm,
-            fanStatusRpmValues,
-            fanStatusAvgRpm,
-            fanCount,
-            fanLastCommandTime: fanLastCommandTime || lastFanCommandTime,
-            container, location,
-            fanCommandRequested,
-            lastFanCommandTime,
-            fanHealthy,
-            fanState,
-            fanSourceAvailable: !!fanReport,
-            fanSourceEndpoint: detail?.endpoint || null,
-            fanSourceUrl: detail?.url || null,
-            fanSourceHttpStatus: detail?.httpStatus || null,
-            fanSourceKeys: fanReport ? Object.keys(fanReport) : [],
-            rawFanReport: fanReport,
-            rawStringDataFanReport: detailStringData?.stringFanReport ?? null,
-            timestampUtc,
-            lastUpdatedUtc: new Date().toISOString(),
-            stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(row, normalizedObject, ["firmware", "firmwareversion"]),
-            bpcCount: computedBpcCount,
-            energySegmentNumber,
-            containerNumber,
-            containerLabel,
-            bpcFirmwareSummary,
-            bpcs,
-            operationalState,
-            warningCount, alarmCount, warnings, alarms,
-            sourceCoverage: {
-                stringsCsv: sourceCoverageStringsCsv,
-                lastCall: !!lcStrBase,
-                stringIpMap: !!sIpInfo,
-                ipMap: !!ipMapWrapper.data,
-                blockviewer: !!blockStrBase, // or true if used directly
-                controllerStatistics: false,
-                bessStatusCodes: false,
-            },
-            raw: rawSources
-        });
-    });
+    }
 
     if (enrich) {
         const arrayFilter = targetArray;

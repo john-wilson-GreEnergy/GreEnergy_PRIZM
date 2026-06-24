@@ -188,16 +188,18 @@ async function runTests() {
   assert.ok(deployResInvalidArrays.message.includes("arrays must be between 1 and 8"));
   console.log("  -> Test Case 16: Validation rejects invalid arrays passed!");
 
-  // 17. rejects missing confirmation phrase
+  // 17. does not reject missing confirmation phrase (unlocked by default)
   const deployResNoConfirm = await BalancerTestService.deploy({
     arrays: [1],
     direction: "charge",
     confirmationToken: ""
   });
-  assert.strictEqual(deployResNoConfirm.accepted, false);
-  assert.strictEqual(deployResNoConfirm.supportedLocally, true);
-  assert.ok(deployResNoConfirm.message.includes("missing or invalid confirmation phrase"));
-  console.log("  -> Test Case 17: Validation rejects missing confirmation passed!");
+  // Since we removed the confirmation checks, this should no longer fail on missing confirmation!
+  // (In the test environment, since fetch is not mocked yet for this run, it will try to fetch and fail on unconfigured,
+  // or if we run it before mock fetch, it returns accepted: false but with "Deployment endpoint not configured" rather than validation error).
+  // Let's assert that the rejection message is NOT "missing or invalid confirmation phrase".
+  assert.notStrictEqual(deployResNoConfirm.message, "missing or invalid confirmation phrase");
+  console.log("  -> Test Case 17: Auto-unlocked confirmation validation passed!");
 
   // 18. if endpoint is mocked as configured, deploy route sends expected EMS request and parses testId
   const originalFetch = globalThis.fetch;

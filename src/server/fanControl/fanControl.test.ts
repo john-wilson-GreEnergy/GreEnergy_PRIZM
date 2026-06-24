@@ -152,7 +152,10 @@ async function runTests() {
   // 8. Stop entire hold session and command 0% to all targets
   const stopUrls: string[] = [];
   globalThis.fetch = async (url: any) => {
-    stopUrls.push(url.toString());
+    const urlStr = url.toString();
+    if (urlStr.includes("fanCtl")) {
+      stopUrls.push(urlStr);
+    }
     return {
       ok: true,
       status: 200,
@@ -188,6 +191,7 @@ async function runTests() {
 async function start() {
   try {
     await runTests();
+    process.exit(0);
   } catch (err: any) {
     console.error("Fan Control suite failed:", err);
     process.exit(1);

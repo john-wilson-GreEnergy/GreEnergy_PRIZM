@@ -48,7 +48,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
   const [deployArrays, setDeployArrays] = useState<number[]>([]);
   const [deployDirection, setDeployDirection] = useState<"charge" | "discharge">("charge");
   const [deployTotalCellGroups, setDeployTotalCellGroups] = useState(30);
-  const [deployConfirmation, setDeployConfirmation] = useState("");
+  const [deployConfirmation, setDeployConfirmation] = useState("START BALANCER TEST");
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<{
     accepted: boolean;
@@ -104,7 +104,6 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
     e.preventDefault();
     if (!capabilities?.deploySupported) return;
     if (deployArrays.length === 0) return;
-    if (deployConfirmation !== "START BALANCER TEST") return;
 
     setDeploying(true);
     setDeployResult(null);
@@ -423,17 +422,13 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
             {/* Column 3: Confirmation and Submit (Right side) */}
             <div className="md:col-span-3 space-y-3 flex flex-col justify-between">
               <div>
-                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text mb-1">
-                  Phrase Authorization
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-emerald-500 font-extrabold mb-1">
+                  Authorization Status
                 </label>
-                <input
-                  type="text"
-                  placeholder='Type "START BALANCER TEST"'
-                  value={deployConfirmation}
-                  disabled={!capabilities?.deploySupported || deploying}
-                  onChange={(e) => setDeployConfirmation(e.target.value)}
-                  className="w-full font-mono text-xs p-2 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-amber-500 placeholder:text-prizm-text-muted/50"
-                />
+                <div className="text-xs font-mono p-2 rounded border border-emerald-500/20 bg-emerald-500/5 text-emerald-600 font-bold flex items-center gap-1.5">
+                  <CheckCircle size={13} className="shrink-0" />
+                  Unlocked (Auto-Auth)
+                </div>
               </div>
 
               <div>
@@ -442,13 +437,12 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                   disabled={
                     !capabilities?.deploySupported ||
                     deployArrays.length === 0 ||
-                    deployConfirmation !== "START BALANCER TEST" ||
                     deploying
                   }
                   className={`w-full font-mono text-xs py-2.5 px-4 uppercase font-bold tracking-wider rounded transition-all flex items-center justify-center gap-2 border cursor-pointer ${
                     deploying
                       ? "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border cursor-wait"
-                      : deployArrays.length > 0 && deployConfirmation === "START BALANCER TEST" && capabilities?.deploySupported
+                      : deployArrays.length > 0 && capabilities?.deploySupported
                         ? "bg-amber-500 text-black font-black hover:bg-amber-600 border-amber-500 hover:border-amber-600 shadow-md"
                         : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border opacity-50 cursor-not-allowed"
                   }`}

@@ -129,7 +129,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const [customDuration, setCustomDuration] = useState(300);
   const [repeatIntervalSeconds, setRepeatIntervalSeconds] = useState(30);
   const [sendStopAtEnd, setSendStopAtEnd] = useState(true);
-  const [confirmationPhrase, setConfirmationPhrase] = useState("");
+  const [confirmationPhrase, setConfirmationPhrase] = useState("HOLD FAN SPEED");
   
   // UI Expandable Holds State
   const [expandedHolds, setExpandedHolds] = useState<Record<string, boolean>>({});
@@ -140,6 +140,11 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const [verifyWarmup, setVerifyWarmup] = useState<number>(30);
   const [verifyTolerance, setVerifyTolerance] = useState<number>(15);
   const [verifyRequireAllRunning, setVerifyRequireAllRunning] = useState<boolean>(false);
+
+  // Saved Runs state
+  const [savedRuns, setSavedRuns] = useState<any[]>([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   // Actions State
   const [submitting, setSubmitting] = useState(false);
@@ -184,17 +189,170 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     }
   }, [verifyWarmup, verifyTolerance, verifyRequireAllRunning]);
 
+  const fetchSavedRuns = useCallback(async () => {
+    setLoadingRuns(true);
+    try {
+      const res = await fetch("/api/local/fan-control/runs");
+      if (res.ok) {
+        const data = await res.json();
+        setSavedRuns(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch saved runs:", err);
+    } finally {
+      setLoadingRuns(false);
+    }
+  }, []);
+
+  const handleDeleteRun = async (runId: string) => {
+    try {
+      const res = await fetch(`/api/local/fan-control/runs/${runId}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        await fetchSavedRuns();
+      } else {
+        alert("Failed to delete saved run.");
+      }
+    } catch (err) {
+      console.error("Error deleting run:", err);
+    }
+  };
+
+  const handleClearAllRuns = async () => {
+    if (!window.confirm("Are you sure you want to clear all saved fan test runs?")) return;
+    try {
+      const res = await fetch("/api/local/fan-control/runs/clear", {
+        method: "POST"
+      });
+      if (res.ok) {
+        await fetchSavedRuns();
+      } else {
+        alert("Failed to clear saved runs.");
+      }
+    } catch (err) {
+      console.error("Error clearing runs:", err);
+    }
+  };
+
+  const handleExportPDF = (run: any) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to export PDF reports.");
+      return;
+    }
+    const htmlContent = `
+      <html>
+        <head>
+          <title>GreEnergy PRIZM - Fan Hold Test Report</title>
+          <style>
+            body { font-family: 'Inter', system-ui, sans-serif; color: #1e293b; padding: 40px; margin: 0; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+            .logo { font-size: 24px; font-weight: 800; color: #f59e0b; letter-spacing: -0.05em; }
+            .title { font-size: 14px; font-weight: 600; text-transform: uppercase; color: #64748b; letter-spacing: 0.1em; }
+            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px; }
+            .meta-item { border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; }
+            .meta-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+            .meta-value { font-size: 14px; font-weight: 600; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 11px; }
+            th { background: #f8fafc; border-bottom: 1px solid #cbd5e1; padding: 10px; text-align: left; font-weight: 700; text-transform: uppercase; color: #475569; }
+            td { border-bottom: 1px solid #e2e8f0; padding: 10px; }
+            .pass { background-color: #f0fdf4; color: #166534; font-weight: 700; }
+            .warn { background-color: #fffbeb; color: #92400e; font-weight: 700; }
+            .fail { background-color: #fef2f2; color: #991b1b; font-weight: 700; }
+            .badge { padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="logo">GreEnergy <span style="color: #475569;">PRIZM</span></div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Dynamic Fan Verification Audit</div>
+            </div>
+            <div style="text-align: right;">
+              <div class="title">FAN HOLD RUN REPORT</div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Run ID: ${run.runId}</div>
+            </div>
+          </div>
+          
+          <div class="meta-grid">
+            <div class="meta-item">
+              <div class="meta-label">Timestamp</div>
+              <div class="meta-value">${new Date(run.timestamp).toLocaleString()}</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-label">Operator</div>
+              <div class="meta-value">${run.operator}</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-label">Commanded Fan Speed</div>
+              <div class="meta-value">${run.fanSpeedPercent}%</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-label">Test Duration / Status</div>
+              <div class="meta-value">${run.durationSeconds}s (${run.state})</div>
+            </div>
+          </div>
+
+          <h3>Verification Results Summary (${run.targetsCount} Targets)</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>Commanded</th>
+                <th>Actual State</th>
+                <th>Actual speed / RPM</th>
+                <th>Telemetry Age</th>
+                <th>Result</th>
+                <th>Diagnostic Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(run.verificationResults || []).map((row: any) => {
+                const badgeClass = row.result === "PASS" ? "pass" : row.result.startsWith("WARN") ? "warn" : "fail";
+                return `
+                  <tr>
+                    <td><strong>${row.controller.toUpperCase()} ${row.label}</strong></td>
+                    <td>${row.commandedSpeedPercent}% (${row.commandedState})</td>
+                    <td>${row.actualFanState || "UNKNOWN"}</td>
+                    <td>${row.actualFanSpeedPercent !== null ? row.actualFanSpeedPercent + '%' : '--'} ${row.actualFanRpm ? '(' + row.actualFanRpm + ' RPM)' : ''}</td>
+                    <td>${row.telemetryAgeMs !== null ? Math.round(row.telemetryAgeMs / 1000) + 's ago' : 'No feedback'}</td>
+                    <td><span class="badge ${badgeClass}">${row.result}</span></td>
+                    <td>${row.notes.join("; ")}</td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+          
+          <div style="margin-top: 50px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px;">
+            Confidential Report Generated by GreEnergy PRIZM Control System on ${new Date().toISOString()}
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   // Initial load and fast polling loop
   useEffect(() => {
     if (!active) return;
     fetchHoldsAndVerification();
+    fetchSavedRuns();
 
     const interval = setInterval(() => {
       fetchHoldsAndVerification();
+      fetchSavedRuns();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [active, fetchHoldsAndVerification]);
+  }, [active, fetchHoldsAndVerification, fetchSavedRuns]);
 
   // Fast countdown timer loop (runs every 1 second)
   useEffect(() => {
@@ -264,7 +422,6 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   // Handle Deploy Trigger
   const handleStartHold = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (confirmationPhrase !== "HOLD FAN SPEED") return;
     if (resolvedTargets.length === 0) {
       alert("Error: Resolved targets list cannot be empty.");
       return;
@@ -298,11 +455,11 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
           holdId: data.holdId,
           auditId: data.auditId
         });
-        setConfirmationPhrase("");
         if (data.holdId) {
           setExpandedHolds(prev => ({ ...prev, [data.holdId]: true }));
         }
         await fetchHoldsAndVerification();
+        await fetchSavedRuns();
       } else {
         setActionResult({
           success: false,
@@ -335,6 +492,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       });
       if (res.ok) {
         await fetchHoldsAndVerification();
+        await fetchSavedRuns();
       } else {
         const errData = await res.json();
         alert(`Stop action rejected: ${errData.message}`);
@@ -394,6 +552,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     }
     alert(`Emergency Terminate: successfully stopped ${successCount} of ${running.length} active fan hold loops.`);
     await fetchHoldsAndVerification();
+    await fetchSavedRuns();
   };
 
   // Toggle expandable hold rows
@@ -828,25 +987,22 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
 
               {/* Confirmation phrase */}
               <div className="border-t border-prizm-border/40 pt-3">
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-prizm-danger font-bold mb-1">
-                  Confirmation Authorization Phrase
+                <label className="block text-[10px] font-mono uppercase tracking-wider text-emerald-500 font-extrabold mb-1">
+                  Authorization Status
                 </label>
-                <input
-                  type="text"
-                  placeholder='Type "HOLD FAN SPEED" to unlock'
-                  value={confirmationPhrase}
-                  onChange={(e) => setConfirmationPhrase(e.target.value)}
-                  className="w-full text-xs font-mono p-2 rounded border border-prizm-border bg-prizm-surface text-prizm-text placeholder:text-prizm-text-muted/30 focus:outline-none focus:border-prizm-primary"
-                />
+                <div className="text-xs font-mono p-2 rounded border border-emerald-500/20 bg-emerald-500/5 text-emerald-600 font-bold flex items-center gap-1.5">
+                  <CheckCircle size={13} className="shrink-0" />
+                  Unlocked (Auto-Auth)
+                </div>
               </div>
 
               {/* Trigger buttons */}
               <div className="space-y-2 pt-1.5">
                 <button
                   type="submit"
-                  disabled={confirmationPhrase !== "HOLD FAN SPEED" || submitting || resolvedTargets.length === 0}
+                  disabled={submitting || resolvedTargets.length === 0}
                   className={`w-full font-mono text-xs font-extrabold py-2 px-4 rounded transition-all flex items-center justify-center gap-2 border uppercase cursor-pointer ${
-                    confirmationPhrase === "HOLD FAN SPEED" && !submitting && resolvedTargets.length > 0
+                    !submitting && resolvedTargets.length > 0
                       ? "bg-prizm-primary text-white border-prizm-primary hover:bg-prizm-primary-strong hover:border-prizm-primary-strong shadow-sm"
                       : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border opacity-50 cursor-not-allowed"
                   }`}
@@ -1122,6 +1278,26 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
               <Download size={11} />
               JSON
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                const mockRun = {
+                  runId: "live-snapshot-" + Date.now(),
+                  timestamp: new Date().toISOString(),
+                  fanSpeedPercent: fanSpeedPercent,
+                  durationSeconds: getSelectedDuration(),
+                  operator: "PRIZM Dashboard Operator",
+                  targetsCount: filteredVerification.length,
+                  state: "ACTIVE SNAPSHOT",
+                  verificationResults: filteredVerification
+                };
+                handleExportPDF(mockRun);
+              }}
+              className="px-2.5 py-1 text-[10px] font-mono uppercase bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+            >
+              <Download size={11} />
+              PDF Report
+            </button>
           </div>
         </div>
 
@@ -1292,6 +1468,154 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* SAVED RUNS HISTORY SECTION */}
+      <div className="bg-prizm-surface border border-prizm-border rounded-md shadow-sm overflow-hidden mt-4">
+        <div className="bg-prizm-surface-strong px-4 py-3 border-b border-prizm-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <History size={14} className="text-prizm-primary" />
+            <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-prizm-text">
+              Saved Fan Speed Test Runs ({savedRuns.length})
+            </span>
+          </div>
+          {savedRuns.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAllRuns}
+              className="px-2.5 py-1 text-[9px] font-mono uppercase bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded transition-all cursor-pointer flex items-center gap-1"
+            >
+              <Trash2 size={11} />
+              Clear All Runs
+            </button>
+          )}
+        </div>
+
+        <div className="divide-y divide-prizm-border max-h-[600px] overflow-y-auto no-scrollbar">
+          {savedRuns.length === 0 ? (
+            <div className="p-8 text-center text-prizm-text-muted font-mono text-xs">
+              <History size={24} className="mx-auto text-prizm-border mb-2 stroke-[1.5]" />
+              No saved fan test runs found in cache file.
+            </div>
+          ) : (
+            savedRuns.map((run) => {
+              const isExpanded = expandedRunId === run.runId;
+              const timestampLocal = new Date(run.timestamp).toLocaleString();
+              
+              const statusClass = {
+                COMPLETED: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                STOPPED: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                FAILED: "bg-rose-500/10 text-rose-400 border-rose-500/20"
+              }[run.state] || "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border/40";
+
+              return (
+                <div key={run.runId} className="p-4 space-y-3 hover:bg-prizm-surface-strong/20 transition-all font-mono text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${statusClass}`}>
+                          {run.state}
+                        </span>
+                        <span className="font-bold text-prizm-text text-[11px]">
+                          Speed: {run.fanSpeedPercent}% | Duration: {run.durationSeconds}s | Targets: {run.targetsCount}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-prizm-text-muted">
+                        Executed: {timestampLocal} | Operator: {run.operator}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRunId(isExpanded ? null : run.runId)}
+                        className="px-2 py-1 text-[10px] font-mono bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        {isExpanded ? "Hide Details" : "Show Details"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportPDF(run)}
+                        className="px-2 py-1 text-[10px] font-mono bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        <Download size={11} />
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(run, null, 2));
+                          const link = document.createElement("a");
+                          link.setAttribute("href", dataStr);
+                          link.setAttribute("download", `fan_run_${run.runId}.json`);
+                          link.click();
+                        }}
+                        className="px-2 py-1 text-[10px] font-mono bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRun(run.runId)}
+                        className="p-1.5 text-rose-400 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-all cursor-pointer"
+                        title="Delete Run"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded detail table */}
+                  {isExpanded && (
+                    <div className="border border-prizm-border/60 bg-prizm-surface-strong/20 rounded overflow-hidden mt-2">
+                      <table className="w-full text-left text-[9px] border-collapse">
+                        <thead className="bg-prizm-surface-strong/60 border-b border-prizm-border text-prizm-text-muted uppercase">
+                          <tr>
+                            <th className="p-1.5 text-center w-12">Result</th>
+                            <th className="p-1.5">Target</th>
+                            <th className="p-1.5 text-center w-16">Commanded</th>
+                            <th className="p-1.5 text-center w-20">Actual Speed</th>
+                            <th className="p-1.5">Diagnostic Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-prizm-border/40">
+                          {(run.verificationResults || []).map((row: any, rIdx: number) => {
+                            const badge = row.result === "PASS" 
+                              ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" 
+                              : row.result.startsWith("WARN") 
+                                ? "text-amber-500 bg-amber-500/10 border-amber-500/20" 
+                                : "text-rose-500 bg-rose-500/10 border-rose-500/20";
+                            return (
+                              <tr key={rIdx} className="hover:bg-prizm-surface-strong/40">
+                                <td className="p-1.5 text-center">
+                                  <span className={`px-1 py-0.5 rounded text-[8px] font-bold uppercase border ${badge}`}>
+                                    {row.result}
+                                  </span>
+                                </td>
+                                <td className="p-1.5 font-bold text-prizm-text">
+                                  {row.controller.toUpperCase()} {row.label}
+                                </td>
+                                <td className="p-1.5 text-center text-prizm-text">
+                                  {row.commandedSpeedPercent}%
+                                </td>
+                                <td className="p-1.5 text-center font-bold text-prizm-text">
+                                  {row.actualFanSpeedPercent !== null ? `${row.actualFanSpeedPercent}%` : "--"}
+                                </td>
+                                <td className="p-1.5 text-prizm-text-muted text-[8px]">
+                                  {row.notes.join("; ")}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
