@@ -244,6 +244,30 @@ const handleManualRefresh = async () => {
     summary?.maxCellTemperatureDelta ??
     null;
 
+  // Voltage Normalization Helpers
+  const normalizeVoltage = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const num = Number(v);
+    if (isNaN(num)) return null;
+    if (num >= 2 && num <= 5) {
+      return num * 1000;
+    }
+    if (num >= 1500 && num <= 4500) {
+      return num;
+    }
+    return null; // treat as invalid/unavailable
+  };
+
+  const normalizeDeltaVoltage = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const num = Number(v);
+    if (isNaN(num)) return null;
+    if (num > 0 && num < 1.5) {
+      return num * 1000;
+    }
+    return num;
+  };
+
   const sourceHealthRows = useMemo(() => {
     if (!data?.sourceHealth) return [];
     if (Array.isArray(data.sourceHealth)) {
@@ -468,9 +492,13 @@ const handleManualRefresh = async () => {
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
           <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Cell / V Delta</span>
           <span className="text-[11px] font-bold text-prizm-text mt-0.5">
-            {fleetAvgCellVoltage !== null ? (fleetAvgCellVoltage > 100 ? (fleetAvgCellVoltage / 1000).toFixed(3) + "V" : fleetAvgCellVoltage.toFixed(3) + "V") : "--"}
+            {fleetAvgCellVoltage !== null && normalizeVoltage(fleetAvgCellVoltage) !== null
+              ? `${normalizeVoltage(fleetAvgCellVoltage)!.toFixed(1)} mV`
+              : "--"}
             <span className="text-prizm-text-muted mx-1">|</span>
-            {fleetMaxCellVoltageDelta !== null ? "\u0394" + (fleetMaxCellVoltageDelta > 10 ? fleetMaxCellVoltageDelta.toFixed(0) + "mV" : fleetMaxCellVoltageDelta.toFixed(3) + "V") : "--"}
+            {fleetMaxCellVoltageDelta !== null && normalizeDeltaVoltage(fleetMaxCellVoltageDelta) !== null
+              ? `\u0394 ${normalizeDeltaVoltage(fleetMaxCellVoltageDelta)!.toFixed(0)} mV`
+              : "--"}
           </span>
         </div>
         <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
@@ -841,9 +869,9 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{formatNumber(s.ah, 2)}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null ? s.minCellVoltage : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null ? s.maxCellVoltage : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null ? s.cellVoltageDelta : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null && normalizeVoltage(s.minCellVoltage) !== null ? normalizeVoltage(s.minCellVoltage) : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null && normalizeVoltage(s.maxCellVoltage) !== null ? normalizeVoltage(s.maxCellVoltage) : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellVoltageDelta !== null && normalizeDeltaVoltage(s.cellVoltageDelta) !== null ? normalizeDeltaVoltage(s.cellVoltageDelta) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellTemperature != null ? formatTemperatureF(s.minCellTemperature, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature != null ? formatTemperatureF(s.maxCellTemperature, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta != null ? (s.cellTemperatureDelta * 1.8).toFixed(1) : "--"}</td>

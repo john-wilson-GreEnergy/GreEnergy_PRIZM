@@ -415,7 +415,6 @@ export default function SiteOperationsDashboard({
   const htsData = sum?.humidityTemperatureSensors || [];
   const featherSummary = sum?.featherSummary || {};
 
-  const arraySummaryData = sum?.arraySummary || [];
   const stringBuckets = sum?.stringSummary?.buckets || {
     online: 0,
     nearline: 0,
@@ -442,6 +441,105 @@ export default function SiteOperationsDashboard({
           stringBuckets.offline +
           stringBuckets.notCommunicating || 0,
     };
+
+  // Voltage Normalization Helpers
+  const normalizeVoltage = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const num = Number(v);
+    if (isNaN(num)) return null;
+    if (num >= 2 && num <= 5) {
+      return num * 1000;
+    }
+    if (num >= 1500 && num <= 4500) {
+      return num;
+    }
+    return null; // treat as invalid/unavailable
+  };
+
+  const normalizeDeltaVoltage = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const num = Number(v);
+    if (isNaN(num)) return null;
+    if (num > 0 && num < 1.5) {
+      return num * 1000;
+    }
+    return num;
+  };
+
+  const getSystemSocAndSource = () => {
+    let soc: number | null = null;
+    let source = "";
+
+    if (sum?.bessFleetSummary?.systemSocPct != null && !isNaN(Number(sum.bessFleetSummary.systemSocPct))) {
+      soc = Number(sum.bessFleetSummary.systemSocPct);
+      source = "native block";
+    }
+
+    if ((soc === null || isNaN(soc)) && sum?.arraySummary?.length > 0) {
+      const validSocs = sum.arraySummary
+        .map((arr: any) => arr.onlineSOC ?? arr.nearlineSOC ?? arr.socPct ?? arr.averageSoc)
+        .filter((v: any) => v !== null && v !== undefined && !isNaN(Number(v)));
+      if (validSocs.length > 0) {
+        soc = validSocs.reduce((acc: number, val: any) => acc + Number(val), 0) / validSocs.length;
+        source = "array average";
+      }
+    }
+
+    if (soc === null || isNaN(soc)) {
+      const stringSoc = rollups?.averageSoc ?? rollups?.socPctAvg ?? sum?.stringSummary?.rollups?.online?.socPctAvg;
+      if (stringSoc != null && !isNaN(Number(stringSoc))) {
+        soc = Number(stringSoc);
+        source = "string average";
+      }
+    }
+
+    if (soc !== null && !isNaN(soc)) {
+      if (soc < 1 && soc > 0) soc = soc * 100;
+      soc = Math.max(0, Math.min(100, soc));
+      return { soc, source };
+    }
+
+    return { soc: null, source: "unavailable" };
+  };
+
+  const { soc: systemSoc, source: socSource } = getSystemSocAndSource();
+
+  // Filter and normalize array summary data
+  const arraySummaryData = (sum?.arraySummary || [])
+    .filter((arr: any) => {
+      let arrNum = arr.arrayNumber ?? arr.arrayIndex;
+      if (arrNum === undefined || arrNum === null) {
+        const key = arr.key || arr.friendlyString || "";
+        const match = key.match(/Array\s*(\d+)/i) || key.match(/:(\d+)(:\d+)?$/);
+        if (match) {
+          arrNum = parseInt(match[1], 10);
+        }
+      }
+      if (arrNum === 0 || arrNum === "0") {
+        return false; // Skip Array 0
+      }
+      if (arrNum === null || arrNum === undefined) {
+        return false; // Skip invalid
+      }
+      return true;
+    })
+    .map((arr: any) => {
+      let arrNum = arr.arrayNumber ?? arr.arrayIndex;
+      if (arrNum === undefined || arrNum === null) {
+        const key = arr.key || arr.friendlyString || "";
+        const match = key.match(/Array\s*(\d+)/i) || key.match(/:(\d+)(:\d+)?$/);
+        if (match) {
+          arrNum = parseInt(match[1], 10);
+        }
+      }
+      return {
+        ...arr,
+        arrayNumber: arrNum,
+        arrayIndex: arrNum,
+        friendlyString: arr.friendlyString && !arr.friendlyString.includes("Array 0") ? arr.friendlyString : `Array ${arrNum}`
+      };
+    })
+    .sort((a, b) => (a.arrayNumber || 0) - (b.arrayNumber || 0));
 
   const activeIssues = sum?.activeIssueGroups ? [...sum.activeIssueGroups] : [];
   activeIssues.sort((a: any, b: any) => {
@@ -534,11 +632,11 @@ export default function SiteOperationsDashboard({
               <Battery size={14} className="text-prizm-primary" /> System State
               of Charge
             </h3>
-            <div className="flex items-end gap-2 mt-4">
+            <div className="flex items-end gap-2 mt-4" title={`Source: ${socSource}`}>
               <div className="text-3xl font-bold text-prizm-text font-mono">
-                {sum?.bessFleetSummary?.systemSocPct != null
-                  ? sum.bessFleetSummary.systemSocPct.toFixed(1)
-                  : rollups?.averageSoc?.toFixed(1) || "--"}
+                {systemSoc !== null
+                  ? systemSoc.toFixed(1)
+                  : "--"}
                 <span className="text-lg text-prizm-text-muted">%</span>
               </div>
             </div>
@@ -566,13 +664,22 @@ export default function SiteOperationsDashboard({
             {/* Hover Tooltip Popup panel */}
             {(() => {
               const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-              const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
+              const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "Unavailable";
+              
+              const fieldsChecked = [
+                "sum.fleetCapacity.installedCapacityKWh",
+                "sum.stringSummary.rollups.fleetCapacity.installedCapacityKWh",
+                "arraySummary[].raw.strings[].wattHourCapacity",
+                "arraySummary[].raw.strings[].ampHourCapacity",
+                "config/profile/snapshot properties"
+              ];
+
               return (
-                <div className="absolute hidden group-hover:block bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-50 text-[11px] font-mono space-y-2">
-                  <div className="font-bold border-b border-slate-700 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                <div className="absolute hidden group-hover:block bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-50 text-[11px] font-mono space-y-2 font-sans">
+                  <div className="font-bold border-b border-slate-700 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
                     Installed Capacity (MWh)
                   </div>
-                  <div className="grid grid-cols-2 gap-y-1">
+                  <div className="grid grid-cols-2 gap-y-1 font-mono">
                     <span>Total:</span>
                     <span className="text-right font-bold">{formatVal(fc?.installedCapacityKWh)}</span>
                     <span className="text-emerald-400">● Online:</span>
@@ -582,10 +689,10 @@ export default function SiteOperationsDashboard({
                     <span className="text-rose-400">● Offline/Unavail:</span>
                     <span className="text-right">{formatVal(fc?.unavailableInstalledKWh)}</span>
                   </div>
-                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
                     Stored Energy (MWh)
                   </div>
-                  <div className="grid grid-cols-2 gap-y-1">
+                  <div className="grid grid-cols-2 gap-y-1 font-mono">
                     <span>Available:</span>
                     <span className="text-right font-bold">{formatVal(fc?.availableStoredKWh)}</span>
                     <span className="text-emerald-400">Online:</span>
@@ -596,6 +703,12 @@ export default function SiteOperationsDashboard({
                     <span className="text-right">{formatVal(fc?.offlineStoredKWh)}</span>
                     <span className="text-rose-400">No Comm:</span>
                     <span className="text-right">{formatVal(fc?.notCommunicatingStoredKWh)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800 font-mono">
+                    <div className="text-[9px] text-slate-400 font-bold uppercase mb-1">Checked Fields:</div>
+                    <ul className="list-disc list-inside text-[8px] text-slate-400 space-y-0.5">
+                      {fieldsChecked.map((f, i) => <li key={i}>{f}</li>)}
+                    </ul>
                   </div>
                   {fc?.installedCapacityKWh == null && (
                     <div className="text-[9px] text-amber-300 pt-1 border-t border-slate-800 text-center font-sans italic">
@@ -609,22 +722,55 @@ export default function SiteOperationsDashboard({
             <div className="flex flex-col mt-4">
               {(() => {
                 const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-                const headlineKWh = fc?.installedCapacityKWh ?? rollups?.onlineAvailableKWh;
                 const formatMWh = (v: number | null | undefined): string => {
-                  if (v == null) return "--";
+                  if (v == null) return "Unavailable";
                   return (v / 1000).toFixed(2);
                 };
+
+                const hasSoc = systemSoc !== null;
+                const hasCapacity = fc?.installedCapacityKWh != null;
+
                 return (
                   <>
-                    <div className="text-2xl font-bold text-prizm-text font-mono">
-                      {formatMWh(headlineKWh)}
-                      <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
-                    </div>
-                    {fc?.installedCapacityKWh == null && (
-                      <div className="text-[10px] text-amber-500 font-sans italic mt-1">
-                        Installed capacity not mapped
+                    {hasCapacity ? (
+                      <div className="text-2xl font-bold text-prizm-text font-mono">
+                        {formatMWh(fc.installedCapacityKWh)}
+                        <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                      </div>
+                    ) : (
+                      <div className="text-xl font-bold text-amber-500 font-mono">
+                        Unavailable
                       </div>
                     )}
+
+                    <div className="mt-2 space-y-1 text-[10px] font-sans">
+                      <div className="flex justify-between items-center">
+                        <span className="text-prizm-text-muted">SOC Status:</span>
+                        <span className={`font-mono font-bold ${hasSoc ? 'text-prizm-data-green' : 'text-prizm-text-muted'}`}>
+                          {hasSoc ? `${systemSoc!.toFixed(1)}%` : "Unavailable"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-prizm-text-muted">Installed Capacity:</span>
+                        <span className="font-mono font-bold text-prizm-text-muted">
+                          {hasCapacity ? `${formatMWh(fc?.installedCapacityKWh)} MWh` : "Unavailable"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-prizm-text-muted">Stored MWh:</span>
+                        <span className="font-mono font-bold text-prizm-text-muted text-right">
+                          {hasCapacity && fc?.availableStoredKWh != null ? (
+                            `${formatMWh(fc.availableStoredKWh)} MWh`
+                          ) : hasSoc ? (
+                            <span className="text-amber-500/80 text-[9px] italic">
+                              Unavailable (Capacity mapping missing)
+                            </span>
+                          ) : (
+                            "Unavailable"
+                          )}
+                        </span>
+                      </div>
+                    </div>
                   </>
                 );
               })()}
@@ -727,8 +873,8 @@ export default function SiteOperationsDashboard({
                   Voltage
                 </span>
                 <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.avgCellVoltageMv != null
-                    ? `${sum.bessFleetSummary.avgCellVoltageMv.toFixed(1)} mV`
+                  {sum?.bessFleetSummary?.avgCellVoltageMv != null && normalizeVoltage(sum.bessFleetSummary.avgCellVoltageMv) !== null
+                    ? `${normalizeVoltage(sum.bessFleetSummary.avgCellVoltageMv)!.toFixed(1)} mV`
                     : "--"}
                 </div>
               </div>
@@ -737,8 +883,8 @@ export default function SiteOperationsDashboard({
                   Max Δ
                 </span>
                 <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null
-                    ? `Δ ${sum.bessFleetSummary.maxCellVoltageDeltaMv.toFixed(0)} mV`
+                  {sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null && normalizeDeltaVoltage(sum.bessFleetSummary.maxCellVoltageDeltaMv) !== null
+                    ? `Δ ${normalizeDeltaVoltage(sum.bessFleetSummary.maxCellVoltageDeltaMv)!.toFixed(0)} mV`
                     : "--"}
                 </div>
               </div>
@@ -1090,6 +1236,8 @@ export default function SiteOperationsDashboard({
                         ) => {
                           const isTemp = field.endsWith("TempC") || field.endsWith("TemperatureC");
                           const isTempDelta = field.endsWith("TempDeltaC") || field.endsWith("TemperatureDeltaC");
+                          const isVoltage = field.toLowerCase().includes("voltage") || field.toLowerCase().includes("volt");
+                          const isVoltageDelta = isVoltage && field.toLowerCase().includes("delta");
                           const displaySuffix = (isTemp || isTempDelta) ? "°F" : suffix;
 
                           return (
@@ -1104,6 +1252,10 @@ export default function SiteOperationsDashboard({
                                     val = Number(val) * 1.8 + 32;
                                   } else if (isTempDelta) {
                                     val = Number(val) * 1.8;
+                                  } else if (isVoltageDelta) {
+                                    val = normalizeDeltaVoltage(Number(val));
+                                  } else if (isVoltage) {
+                                    val = normalizeVoltage(Number(val));
                                   }
                                 }
                                 return (
