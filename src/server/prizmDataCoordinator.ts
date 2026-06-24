@@ -428,7 +428,11 @@ async function doBackgroundPoll() {
           rollups: {
               stringSummary: stringsResult ? {
                   tableRows: stringsResult.strings,
-                  rollups: stringsResult.rollups,
+                  rollups: {
+                      ...parsed.stringSummary?.rollups,
+                      ...stringsResult.rollups
+                  },
+                  buckets: parsed.stringSummary?.buckets || {},
                   summary: stringsResult.summary,
                   cards: stringsResult.cards
               } : (parsed.stringSummary || {}),

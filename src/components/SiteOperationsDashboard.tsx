@@ -945,10 +945,14 @@ export default function SiteOperationsDashboard({
                                                     "N/A"}
                                                 </td>
                                                 <td className="py-1 px-2 text-prizm-text">
-                                                  ES
-                                                  {aff.stringIndex ??
-                                                    aff.stringNumber ??
-                                                    "N/A"}
+                                                  {(() => {
+                                                    const sNum = aff.stringNumber ?? aff.stringIndex;
+                                                    if (sNum && sNum > 0) {
+                                                      const esNum = Math.ceil(sNum / 2);
+                                                      return `ES${esNum} - String ${sNum}`;
+                                                    }
+                                                    return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
+                                                  })()}
                                                 </td>
                                                 <td className="py-1 px-2 text-prizm-primary font-semibold">
                                                   {aff.displayLabel || aff.ip || "N/A"}

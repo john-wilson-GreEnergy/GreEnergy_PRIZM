@@ -1627,23 +1627,37 @@ export async function buildSiteOperationsSummaryFromCache() {
                  const targetIp = aff.ip;
                  const resolvedTarget = normalizeIpToEquipmentCallout(targetIp || aff.label, activeProfile, liveDevices);
                  
+                 const stringNumber = aff.stringIndex ?? resolvedTarget.stringIndex ?? aff.segmentIndex;
+                 const arrayNumber = aff.arrayIndex ?? resolvedTarget.arrayIndex ?? 1;
+                 const blockIndex = aff.blockIndex ?? (resolvedTarget as any).blockIndex ?? 1;
+
+                 let label = resolvedTarget.mapped ? resolvedTarget.label : (aff.label || resolvedTarget.label);
+                 let displayLabel = resolvedTarget.mapped 
+                     ? `${resolvedTarget.label} — ${targetIp}` 
+                     : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel);
+
+                 if (stringNumber && stringNumber > 0) {
+                     const esNum = Math.ceil(stringNumber / 2);
+                     label = `Block ${blockIndex} / Array ${arrayNumber} / ES${esNum} - String ${stringNumber}`;
+                     displayLabel = targetIp ? `${label} — ${targetIp}` : label;
+                 }
+
                  return {
                      raw: targetIp || aff.label,
-                     label: resolvedTarget.mapped ? resolvedTarget.label : (aff.label || resolvedTarget.label),
-                     displayLabel: resolvedTarget.mapped 
-                         ? `${resolvedTarget.label} — ${targetIp}` 
-                         : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel),
+                     label,
+                     displayLabel,
                      mapped: resolvedTarget.mapped,
                      type: resolvedTarget.type,
-                     arrayIndex: resolvedTarget.arrayIndex ?? aff.arrayIndex,
-                     stringIndex: resolvedTarget.stringIndex ?? aff.stringIndex ?? aff.segmentIndex,
-                     enclosureIndex: resolvedTarget.enclosureIndex ?? aff.stringIndex ?? aff.segmentIndex,
+                     arrayIndex: arrayNumber,
+                     stringIndex: stringNumber,
+                     stringNumber,
+                     enclosureIndex: resolvedTarget.enclosureIndex ?? stringNumber,
                      hostOctet: resolvedTarget.hostOctet,
                      ip: targetIp || undefined,
                      source: aff.source,
                      rawFault: aff.rawFault || act.faultLabel,
                      rawCode: aff.rawCode || act.faultCode,
-                     blockIndex: aff.blockIndex
+                     blockIndex: blockIndex
                  };
              });
 
