@@ -1,9 +1,12 @@
 import assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
 import { parseStatusPayload, parseReportPayload } from "./balancerTestParser";
 import { analyzeReports } from "./balancerTestAnalyzer";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
+import { BalancerTestService } from "./balancerTestService";
 
-function runTests() {
+async function runTests() {
   console.log("Running Balancer Test parser and analyzer unit tests...");
 
   // 1. Status parser handles JSON lines separated by tags
@@ -136,12 +139,115 @@ function runTests() {
   assert.strictEqual(combinedAnalysis.summary.confirmedBalances, 4);
   console.log("  -> Test Case 11: Combined multi-test analysis merges rows passed!");
 
+  // 12. capability endpoint returns deploySupported false when no endpoint configured
+  process.env.MOCK_DEPLOY_UNCONFIGURED = "true";
+  const capsUnconfigured = BalancerTestService.getCapabilities();
+  assert.strictEqual(capsUnconfigured.deploySupported, false);
+  assert.strictEqual(capsUnconfigured.deployEndpointConfigured, false);
+  console.log("  -> Test Case 12: Capabilities unconfigured branch passed!");
+
+  // 13. returns 501 if endpoint not configured
+  const deployResUnconfigured = await BalancerTestService.deploy({
+    arrays: [1],
+    direction: "charge",
+    confirmationToken: "START BALANCER TEST"
+  });
+  assert.strictEqual(deployResUnconfigured.accepted, false);
+  assert.strictEqual(deployResUnconfigured.supportedLocally, false);
+  console.log("  -> Test Case 13: Deploy returns 501/supportedLocally false passed!");
+
+  // 14. audit object is created for rejected request
+  const auditPath = path.join(process.cwd(), "data", "audit", "balancer_test_audit.jsonl");
+  assert.ok(fs.existsSync(auditPath));
+  const auditContent = fs.readFileSync(auditPath, "utf8");
+  assert.ok(auditContent.includes("Deployment endpoint not configured"));
+  console.log("  -> Test Case 14: Audit file created for unconfigured rejection passed!");
+
+  // Reset unconfigured to allow configured testing
+  delete process.env.MOCK_DEPLOY_UNCONFIGURED;
+
+  // 15. deploy request validation rejects no arrays
+  const deployResNoArrays = await BalancerTestService.deploy({
+    arrays: [],
+    direction: "charge",
+    confirmationToken: "START BALANCER TEST"
+  });
+  assert.strictEqual(deployResNoArrays.accepted, false);
+  assert.strictEqual(deployResNoArrays.supportedLocally, true);
+  assert.ok(deployResNoArrays.message.includes("arrays must be non-empty"));
+  console.log("  -> Test Case 15: Validation rejects no arrays passed!");
+
+  // 16. rejects invalid array numbers
+  const deployResInvalidArrays = await BalancerTestService.deploy({
+    arrays: [9],
+    direction: "charge",
+    confirmationToken: "START BALANCER TEST"
+  });
+  assert.strictEqual(deployResInvalidArrays.accepted, false);
+  assert.strictEqual(deployResInvalidArrays.supportedLocally, true);
+  assert.ok(deployResInvalidArrays.message.includes("arrays must be between 1 and 8"));
+  console.log("  -> Test Case 16: Validation rejects invalid arrays passed!");
+
+  // 17. rejects missing confirmation phrase
+  const deployResNoConfirm = await BalancerTestService.deploy({
+    arrays: [1],
+    direction: "charge",
+    confirmationToken: ""
+  });
+  assert.strictEqual(deployResNoConfirm.accepted, false);
+  assert.strictEqual(deployResNoConfirm.supportedLocally, true);
+  assert.ok(deployResNoConfirm.message.includes("missing or invalid confirmation phrase"));
+  console.log("  -> Test Case 17: Validation rejects missing confirmation passed!");
+
+  // 18. if endpoint is mocked as configured, deploy route sends expected EMS request and parses testId
+  const originalFetch = globalThis.fetch;
+  const originalGlobalFetch = (global as any).fetch;
+  const interceptedUrls: string[] = [];
+  const mockFetch = async (url: any) => {
+    const urlStr = url.toString();
+    interceptedUrls.push(urlStr);
+    if (urlStr.includes("/trigger/")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ testId: 99 })
+      } as any;
+    } else {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `<body>{"testId": 99, "direction": "charge", "statusMessage": "Finished.", "balancerTestTargets": "Array :1:1", "started": true, "finished": true}</body>`
+      } as any;
+    }
+  };
+  globalThis.fetch = mockFetch;
+  (global as any).fetch = mockFetch;
+
+  const deployResSuccess = await BalancerTestService.deploy({
+    arrays: [1, 2],
+    direction: "charge",
+    confirmationToken: "START BALANCER TEST"
+  });
+
+  globalThis.fetch = originalFetch;
+  (global as any).fetch = originalGlobalFetch;
+
+  assert.strictEqual(deployResSuccess.accepted, true);
+  assert.strictEqual(deployResSuccess.testId, 99);
+  assert.ok(interceptedUrls.some(u => u.includes("trigger/charge.json")));
+  assert.ok(interceptedUrls.some(u => u.includes("arrayIndexes=1,2")));
+  console.log("  -> Test Case 18: Successful deploy hits correct endpoint and parses testId passed!");
+
   console.log("All unit tests completed successfully!");
 }
 
-try {
-  runTests();
-} catch (err: any) {
-  console.error("Balancer Test suite failed:", err);
-  process.exit(1);
+async function start() {
+  try {
+    await runTests();
+  } catch (err: any) {
+    console.error("Balancer Test suite failed:", err);
+    process.exit(1);
+  }
 }
+
+start();

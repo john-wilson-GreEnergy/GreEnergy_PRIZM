@@ -73,3 +73,33 @@ export interface BalancerTestAnalysis {
   warningRows: BalancerTestResultRow[];
   rows: BalancerTestResultRow[];
 }
+
+export interface BalancerTestDeployRequest {
+  block?: number;
+  arrays: number[];
+  direction: "charge" | "discharge";
+  totalCellGroups?: number;
+  operator?: string;
+  confirmationToken?: string;
+}
+
+export interface BalancerTestDeployResponse {
+  accepted: boolean;
+  supportedLocally: boolean;
+  testId?: number | null;
+  message: string;
+  request: BalancerTestDeployRequest;
+  emsEndpoint?: string;
+  emsHttpStatus?: number | null;
+  emsResponseText?: string | null;
+  parsedStatus?: BalancerTestStatus | null;
+  auditId: string;
+}
+
+export interface BalancerTestCapabilities {
+  statusSupported: boolean;
+  analysisSupported: boolean;
+  deploySupported: boolean;
+  deployEndpointConfigured: boolean;
+  message: string;
+}

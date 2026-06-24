@@ -36,6 +36,36 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
   const [searchWarningText, setSearchWarningText] = useState("");
   const [lastPolled, setLastPolled] = useState<string | null>(null);
 
+  // Deployment form & capabilities state
+  const [capabilities, setCapabilities] = useState<{
+    statusSupported: boolean;
+    analysisSupported: boolean;
+    deploySupported: boolean;
+    deployEndpointConfigured: boolean;
+    message: string;
+  } | null>(null);
+  const [deployBlock, setDeployBlock] = useState(1);
+  const [deployArrays, setDeployArrays] = useState<number[]>([]);
+  const [deployDirection, setDeployDirection] = useState<"charge" | "discharge">("charge");
+  const [deployTotalCellGroups, setDeployTotalCellGroups] = useState(30);
+  const [deployConfirmation, setDeployConfirmation] = useState("");
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<{
+    accepted: boolean;
+    supportedLocally: boolean;
+    testId?: number | null;
+    message: string;
+    auditId: string;
+  } | null>(null);
+
+  // Load capabilities on mount
+  useEffect(() => {
+    fetch("/api/local/balancer-test/capabilities")
+      .then((res) => res.json())
+      .then((data) => setCapabilities(data))
+      .catch((err) => console.error("Failed to fetch balancer capabilities:", err));
+  }, []);
+
   // Load active statuses
   const fetchStatuses = useCallback(async (refresh = false) => {
     setLoadingStatus(true);
@@ -57,15 +87,64 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
     }
   }, []);
 
-  // Poll active statuses while tab is active
+  // Poll active statuses while tab is active - 2 seconds if active runs, 5 seconds otherwise
   useEffect(() => {
     if (!active) return;
     fetchStatuses();
+    const hasActiveRuns = statuses.some(s => s.state === "RUNNING" || s.state === "PENDING");
+    const intervalTime = hasActiveRuns ? 2000 : 5000;
     const interval = setInterval(() => {
       fetchStatuses();
-    }, 5000); // 5s interval for live tracking
+    }, intervalTime);
     return () => clearInterval(interval);
-  }, [active, fetchStatuses]);
+  }, [active, fetchStatuses, statuses]);
+
+  // Handle deploying a new balancer test
+  const handleDeploy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!capabilities?.deploySupported) return;
+    if (deployArrays.length === 0) return;
+    if (deployConfirmation !== "START BALANCER TEST") return;
+
+    setDeploying(true);
+    setDeployResult(null);
+
+    try {
+      const res = await fetch("/api/local/balancer-test/deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          block: deployBlock,
+          arrays: deployArrays,
+          direction: deployDirection,
+          totalCellGroups: deployTotalCellGroups,
+          confirmationToken: deployConfirmation,
+          operator: "PRIZM Dashboard Operator"
+        })
+      });
+
+      const data = await res.json();
+      setDeployResult(data);
+
+      if (data.accepted) {
+        if (data.testId) {
+          setSelectedIds((prev) => [...new Set([...prev, data.testId])]);
+        }
+        await fetchStatuses(true);
+        setDeployConfirmation("");
+      }
+    } catch (err: any) {
+      console.error("Failed to deploy balancer test:", err);
+      setDeployResult({
+        accepted: false,
+        supportedLocally: true,
+        message: err.message || "Failed to trigger balancer test deployment",
+        auditId: "local-error-" + Date.now()
+      });
+    } finally {
+      setDeploying(false);
+    }
+  };
 
   // Load analysis for selected test IDs
   const runAnalysis = async (testIds: number[]) => {
@@ -159,6 +238,270 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
             <RefreshCw size={11} className={loadingStatus ? "animate-spin" : ""} />
             Refresh
           </button>
+        </div>
+      </div>
+
+      {/* Deploy New Balance Test Card */}
+      <div className="border border-amber-500/30 bg-prizm-surface rounded-md shadow-sm overflow-hidden">
+        <div className="bg-amber-500/5 px-4 py-3 border-b border-amber-500/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sliders size={14} className="text-amber-500" />
+            <span className="text-[11px] font-bold uppercase tracking-widest text-prizm-text">
+              Deploy New Balance Circuit Test
+            </span>
+          </div>
+          {capabilities && (
+            <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded border ${
+              capabilities.deploySupported 
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+            }`}>
+              {capabilities.deploySupported ? "Deployment Active" : "Deployment Locked"}
+            </span>
+          )}
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Warn message if unconfigured or generic */}
+          {capabilities && !capabilities.deploySupported && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-md flex items-start gap-2.5 text-rose-400 font-mono text-xs">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">DEPLOYMENT LOCKED:</span> {capabilities.message}
+              </div>
+            </div>
+          )}
+
+          {capabilities && capabilities.deploySupported && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex items-start gap-2.5 text-amber-500 font-mono text-xs">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">CRITICAL WARNING:</span> Initiating a balance circuit test starts high-power grid balancing operations. Ensure block parameters, safety locks, and targeted arrays are fully verified before proceeding.
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleDeploy} className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            {/* Column 1: Block & Direction & Total Cell Groups (Left side) */}
+            <div className="md:col-span-4 space-y-3">
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text-muted mb-1">
+                  Target Block (Read-only)
+                </label>
+                <input
+                  type="number"
+                  value={deployBlock}
+                  disabled
+                  className="w-full font-mono text-xs p-2 rounded border border-prizm-border bg-prizm-surface-strong text-prizm-text-muted cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text mb-1">
+                  Test Direction
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployDirection("charge")}
+                    className={`p-2 rounded border font-mono text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                      deployDirection === "charge"
+                        ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                        : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:border-prizm-primary/40"
+                    }`}
+                  >
+                    Charge
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployDirection("discharge")}
+                    className={`p-2 rounded border font-mono text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                      deployDirection === "discharge"
+                        ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                        : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:border-prizm-primary/40"
+                    }`}
+                  >
+                    Discharge
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text mb-1">
+                  Total Cell Groups (Advanced)
+                </label>
+                <input
+                  type="number"
+                  value={deployTotalCellGroups}
+                  disabled={!capabilities?.deploySupported || deploying}
+                  onChange={(e) => setDeployTotalCellGroups(Math.max(1, Number(e.target.value)))}
+                  className="w-full font-mono text-xs p-2 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
+                />
+              </div>
+            </div>
+
+            {/* Column 2: Arrays Targeted (Center side) */}
+            <div className="md:col-span-5 space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-mono text-[10px] uppercase tracking-wider text-prizm-text">
+                    Target Arrays (Select at least one)
+                  </label>
+                  <span className="font-mono text-[10px] text-prizm-primary font-bold">
+                    {deployArrays.length} selected
+                  </span>
+                </div>
+
+                {/* Grid of Array Checkboxes */}
+                <div className="grid grid-cols-4 gap-1.5 border border-prizm-border p-2 bg-prizm-surface-strong rounded">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((arr) => {
+                    const isChecked = deployArrays.includes(arr);
+                    return (
+                      <button
+                        type="button"
+                        key={arr}
+                        disabled={!capabilities?.deploySupported || deploying}
+                        onClick={() => {
+                          setDeployArrays(prev =>
+                            prev.includes(arr)
+                              ? prev.filter(x => x !== arr)
+                              : [...prev, arr].sort()
+                          );
+                        }}
+                        className={`p-1.5 rounded font-mono text-xs border transition-all text-center ${
+                          isChecked
+                            ? "bg-prizm-primary/25 text-prizm-primary border-prizm-primary"
+                            : "bg-prizm-surface text-prizm-text-muted border-prizm-border hover:border-prizm-text-muted"
+                        }`}
+                      >
+                        A{arr}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick actions row */}
+                <div className="grid grid-cols-4 gap-1 mt-1.5">
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployArrays([1, 2, 3, 4, 5, 6, 7, 8])}
+                    className="p-1 rounded font-mono text-[9px] uppercase tracking-wider bg-prizm-surface border border-prizm-border hover:bg-prizm-border text-prizm-text cursor-pointer"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployArrays([1, 3, 5, 7])}
+                    className="p-1 rounded font-mono text-[9px] uppercase tracking-wider bg-prizm-surface border border-prizm-border hover:bg-prizm-border text-prizm-text cursor-pointer"
+                  >
+                    Odd
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployArrays([2, 4, 6, 8])}
+                    className="p-1 rounded font-mono text-[9px] uppercase tracking-wider bg-prizm-surface border border-prizm-border hover:bg-prizm-border text-prizm-text cursor-pointer"
+                  >
+                    Even
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!capabilities?.deploySupported || deploying}
+                    onClick={() => setDeployArrays([])}
+                    className="p-1 rounded font-mono text-[9px] uppercase tracking-wider bg-prizm-surface border border-prizm-border hover:bg-prizm-border text-rose-400 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Column 3: Confirmation and Submit (Right side) */}
+            <div className="md:col-span-3 space-y-3 flex flex-col justify-between">
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text mb-1">
+                  Phrase Authorization
+                </label>
+                <input
+                  type="text"
+                  placeholder='Type "START BALANCER TEST"'
+                  value={deployConfirmation}
+                  disabled={!capabilities?.deploySupported || deploying}
+                  onChange={(e) => setDeployConfirmation(e.target.value)}
+                  className="w-full font-mono text-xs p-2 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-amber-500 placeholder:text-prizm-text-muted/50"
+                />
+              </div>
+
+              <div>
+                <button
+                  type="submit"
+                  disabled={
+                    !capabilities?.deploySupported ||
+                    deployArrays.length === 0 ||
+                    deployConfirmation !== "START BALANCER TEST" ||
+                    deploying
+                  }
+                  className={`w-full font-mono text-xs py-2.5 px-4 uppercase font-bold tracking-wider rounded transition-all flex items-center justify-center gap-2 border cursor-pointer ${
+                    deploying
+                      ? "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border cursor-wait"
+                      : deployArrays.length > 0 && deployConfirmation === "START BALANCER TEST" && capabilities?.deploySupported
+                        ? "bg-amber-500 text-black font-black hover:bg-amber-600 border-amber-500 hover:border-amber-600 shadow-md"
+                        : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border opacity-50 cursor-not-allowed"
+                  }`}
+                >
+                  {deploying ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      Deploying...
+                    </>
+                  ) : (
+                    <>
+                      <Sliders size={12} />
+                      Deploy Test
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Deploy Result Banner */}
+          {deployResult && (
+            <div className={`p-4 border rounded-md font-mono text-xs space-y-2 ${
+              deployResult.accepted
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+            }`}>
+              <div className="flex items-start gap-2">
+                {deployResult.accepted ? (
+                  <CheckCircle size={15} className="shrink-0 mt-0.5" />
+                ) : (
+                  <AlertOctagon size={15} className="shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="font-bold uppercase tracking-wider text-sm">
+                    {deployResult.accepted ? "Deployment Accepted" : "Deployment Rejected / Failed"}
+                  </div>
+                  <div className="mt-1">{deployResult.message}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[10px] pt-2 border-t border-prizm-border/40 text-prizm-text-muted">
+                <div>
+                  <span className="font-semibold uppercase text-prizm-text">Audit ID:</span> {deployResult.auditId}
+                </div>
+                {deployResult.testId && (
+                  <div>
+                    <span className="font-semibold uppercase text-prizm-text">Assigned Test ID:</span> {deployResult.testId}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -304,7 +647,11 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                             runAnalysis([s.id]);
                           }}
                           disabled={s.id === -1 || loadingAnalysis}
-                          className="px-2 py-1 border border-prizm-border hover:border-prizm-primary bg-prizm-surface-strong text-prizm-primary hover:bg-prizm-primary hover:text-white rounded text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer"
+                          className={`px-2 py-1 border rounded text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer ${
+                            s.state === "FINISHED"
+                              ? "bg-emerald-500 border-emerald-600 text-black hover:bg-emerald-600 hover:border-emerald-700 animate-pulse"
+                              : "border-prizm-border hover:border-prizm-primary bg-prizm-surface-strong text-prizm-primary hover:bg-prizm-primary hover:text-white"
+                          }`}
                         >
                           Analyze
                         </button>

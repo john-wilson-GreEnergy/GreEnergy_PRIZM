@@ -71,4 +71,49 @@ router.post("/analyze", async (req, res) => {
   }
 });
 
+// GET /api/local/balancer-test/capabilities
+router.get("/capabilities", (req, res) => {
+  const caps = BalancerTestService.getCapabilities();
+  res.json(caps);
+});
+
+// POST /api/local/balancer-test/deploy
+router.post("/deploy", async (req, res) => {
+  try {
+    const deployReq = req.body;
+    
+    // Check capabilities first
+    const caps = BalancerTestService.getCapabilities();
+    if (!caps.deploySupported) {
+      const deployRes = await BalancerTestService.deploy(deployReq);
+      return res.status(501).json(deployRes);
+    }
+
+    // Validation
+    let validationError = "";
+    if (!deployReq || !deployReq.arrays || !Array.isArray(deployReq.arrays) || deployReq.arrays.length === 0) {
+      validationError = "arrays must be non-empty";
+    } else if (deployReq.arrays.some((a: any) => isNaN(Number(a)) || Number(a) < 1 || Number(a) > 8)) {
+      validationError = "arrays must be between 1 and 8";
+    } else if (deployReq.direction !== "charge" && deployReq.direction !== "discharge") {
+      validationError = "direction must be charge or discharge";
+    } else if (!deployReq.confirmationToken || deployReq.confirmationToken !== "START BALANCER TEST") {
+      validationError = "missing or invalid confirmation phrase";
+    }
+
+    if (validationError) {
+      const deployRes = await BalancerTestService.deploy(deployReq);
+      return res.status(400).json(deployRes);
+    }
+
+    const deployRes = await BalancerTestService.deploy(deployReq);
+    if (!deployRes.accepted) {
+      return res.status(500).json(deployRes);
+    }
+    res.json(deployRes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

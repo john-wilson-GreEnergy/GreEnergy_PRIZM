@@ -1,5 +1,14 @@
+import * as fs from "fs";
+import * as path from "path";
 import { ProfileStore } from "../profiles/profileStore";
-import { BalancerTestStatus, BalancerTestResultRow, BalancerTestAnalysis } from "./balancerTestTypes";
+import {
+  BalancerTestStatus,
+  BalancerTestResultRow,
+  BalancerTestAnalysis,
+  BalancerTestDeployRequest,
+  BalancerTestDeployResponse,
+  BalancerTestCapabilities
+} from "./balancerTestTypes";
 import { parseStatusPayload, parseReportPayload } from "./balancerTestParser";
 import { analyzeReports } from "./balancerTestAnalyzer";
 
@@ -122,5 +131,191 @@ export class BalancerTestService {
     }
 
     return analysis;
+  }
+
+  public static getCapabilities(): BalancerTestCapabilities {
+    const unconfigured = process.env.MOCK_DEPLOY_UNCONFIGURED === "true";
+    return {
+      statusSupported: true,
+      analysisSupported: true,
+      deploySupported: !unconfigured,
+      deployEndpointConfigured: !unconfigured,
+      message: unconfigured
+        ? "Balancer test deployment endpoint is not configured. Status and analysis are available."
+        : "Balancer test deployment is supported and configured."
+    };
+  }
+
+  private static writeAudit(record: any) {
+    const auditPath = path.join(process.cwd(), "data", "audit", "balancer_test_audit.jsonl");
+    try {
+      fs.mkdirSync(path.dirname(auditPath), { recursive: true });
+      fs.appendFileSync(auditPath, JSON.stringify(record) + "\n");
+    } catch (err) {
+      console.error("[BalancerTestService] Failed to write audit log:", err);
+    }
+  }
+
+  public static async deploy(req: BalancerTestDeployRequest): Promise<BalancerTestDeployResponse> {
+    const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 11);
+    const profile = ProfileStore.getActiveProfile();
+    const stationCode = profile?.stationCode || "unknown";
+    const blockNum = req.block ?? 1;
+
+    // Check capabilities
+    const capabilities = this.getCapabilities();
+    if (!capabilities.deploySupported) {
+      const response: BalancerTestDeployResponse = {
+        accepted: false,
+        supportedLocally: false,
+        message: "Balancer test deployment endpoint is not configured. Status and analysis are available.",
+        request: req,
+        auditId
+      };
+      this.writeAudit({
+        timestamp: new Date().toISOString(),
+        stationCode,
+        block: blockNum,
+        arrays: req.arrays || [],
+        direction: req.direction,
+        operator: req.operator || "PRIZM Operator",
+        accepted: false,
+        supportedLocally: false,
+        rejectionReason: "Deployment endpoint not configured",
+        auditId
+      });
+      return response;
+    }
+
+    // Validation
+    let rejectionReason = "";
+    if (!req.arrays || !Array.isArray(req.arrays) || req.arrays.length === 0) {
+      rejectionReason = "arrays must be non-empty";
+    } else if (req.arrays.some(a => isNaN(a) || a < 1 || a > 8)) {
+      rejectionReason = "arrays must be between 1 and 8";
+    } else if (req.direction !== "charge" && req.direction !== "discharge") {
+      rejectionReason = "direction must be charge or discharge";
+    } else if (!req.confirmationToken || req.confirmationToken !== "START BALANCER TEST") {
+      rejectionReason = "missing or invalid confirmation phrase";
+    }
+
+    if (rejectionReason) {
+      const response: BalancerTestDeployResponse = {
+        accepted: false,
+        supportedLocally: true,
+        message: `Validation failed: ${rejectionReason}`,
+        request: req,
+        auditId
+      };
+      this.writeAudit({
+        timestamp: new Date().toISOString(),
+        stationCode,
+        block: blockNum,
+        arrays: req.arrays || [],
+        direction: req.direction,
+        operator: req.operator || "PRIZM Operator",
+        accepted: false,
+        supportedLocally: true,
+        rejectionReason,
+        auditId
+      });
+      return response;
+    }
+
+    const baseUrl = getEmsBaseUrl();
+    const emsEndpoint = `${baseUrl}/tools/report/ems/balancertest/trigger/${req.direction}.json?arrayIndexes=${req.arrays.join(",")}`;
+
+    let emsHttpStatus: number | null = null;
+    let emsResponseText: string | null = null;
+    let testId: number | null = null;
+    let accepted = false;
+    let message = "";
+    let parsedStatus: BalancerTestStatus | null = null;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(emsEndpoint, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      emsHttpStatus = res.status;
+      emsResponseText = await res.text();
+
+      if (res.ok) {
+        accepted = true;
+        message = "Balancer test started successfully.";
+        // Parse testId if available
+        try {
+          let cleanJson = emsResponseText;
+          const bodyStartIdx = cleanJson.toLowerCase().indexOf("<body>");
+          if (bodyStartIdx !== -1) {
+            cleanJson = cleanJson.slice(bodyStartIdx + 6);
+          }
+          const bodyEndIdx = cleanJson.toLowerCase().indexOf("</body>");
+          if (bodyEndIdx !== -1) {
+            cleanJson = cleanJson.slice(0, bodyEndIdx);
+          }
+          cleanJson = cleanJson.trim();
+          const parsed = JSON.parse(cleanJson);
+          testId = parsed.testId ?? parsed.id ?? parsed.testID ?? null;
+        } catch (e) {
+          const match = emsResponseText.match(/\"?testId\"?\s*:\s*(\d+)/i) || emsResponseText.match(/\"?id\"?\s*:\s*(\d+)/i);
+          if (match) {
+            testId = parseInt(match[1], 10);
+          }
+        }
+      } else {
+        accepted = false;
+        message = `EMS trigger failed with HTTP ${res.status}`;
+      }
+    } catch (err: any) {
+      accepted = false;
+      message = `Failed to contact EMS: ${err.message}`;
+      emsResponseText = err.message;
+    }
+
+    // Refresh status
+    if (accepted) {
+      try {
+        const refreshed = await this.getStatus(true, req.totalCellGroups ?? 30);
+        if (testId !== null) {
+          parsedStatus = refreshed.find(s => s.id === testId) || null;
+        } else {
+          parsedStatus = refreshed.find(s => s.state === "RUNNING" || s.state === "PENDING") || null;
+        }
+      } catch (e) {
+        console.warn("Failed to refresh status after deploy:", e);
+      }
+    }
+
+    const auditRecord = {
+      timestamp: new Date().toISOString(),
+      stationCode,
+      block: blockNum,
+      arrays: req.arrays,
+      direction: req.direction,
+      operator: req.operator || "PRIZM Operator",
+      accepted,
+      supportedLocally: true,
+      emsEndpoint,
+      emsHttpStatus,
+      emsResponseText: emsResponseText ? emsResponseText.substring(0, 200) : null,
+      testId,
+      auditId
+    };
+    this.writeAudit(auditRecord);
+
+    return {
+      accepted,
+      supportedLocally: true,
+      testId,
+      message,
+      request: req,
+      emsEndpoint,
+      emsHttpStatus,
+      emsResponseText,
+      parsedStatus,
+      auditId
+    };
   }
 }
