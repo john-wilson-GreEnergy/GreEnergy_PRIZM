@@ -32,6 +32,26 @@ export interface BalancerTestResultRow {
   raw: any;
 }
 
+export interface BalancerTestCorrelatedWarning {
+  source: "balancer-report" | "live-notification" | "corrective-action";
+  confidence: "high" | "medium" | "low";
+  code?: number | string;
+  severity: "WARNING" | "ALARM" | "INFO";
+  title: string;
+  rawMessage?: string;
+  block?: string | number | null;
+  arrayNumber?: number | null;
+  stringNumber?: number | null;
+  energySegmentNumber?: number | null;
+  bpc?: number | null;
+  cell?: number | null;
+  label: string;
+  reason: string;
+  testIds: number[];
+  detectedAt?: string | null;
+  raw?: unknown;
+}
+
 export interface BalancerTestAnalysis {
   source: {
     testIds: number[];
@@ -42,6 +62,10 @@ export interface BalancerTestAnalysis {
     totalCellGroups: number;
     confirmedBalances: number;
     warningCount: number;
+    reportWarningCount: number;
+    correlatedWarningCount: number;
+    balancerCodeWarningCount: number;
+    relatedBpcIssueCount: number;
     minDurationSec: number | null;
     avgDurationSec: number | null;
     p95DurationSec: number | null;
@@ -71,6 +95,8 @@ export interface BalancerTestAnalysis {
     label: string;
   }>;
   warningRows: BalancerTestResultRow[];
+  correlatedWarnings: BalancerTestCorrelatedWarning[];
+  combinedWarningRows?: any[];
   rows: BalancerTestResultRow[];
 }
 

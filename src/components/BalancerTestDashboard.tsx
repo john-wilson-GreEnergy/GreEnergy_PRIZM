@@ -196,16 +196,82 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
     return `${secs}s`;
   };
 
-  // Filter warnings based on text
-  const filteredWarningRows = analysis?.warningRows.filter(row => {
+  // Combine native BPC warning hotspots with correlated ones
+  const bpcHotspotsMap = new Map<string, {
+    label: string;
+    block: string;
+    array: number;
+    stringNumber: number;
+    energySegmentNumber: number;
+    bpc: string | number;
+    warningCount: number;
+    types: string[];
+  }>();
+
+  if (analysis) {
+    (analysis.bpcWarningSummary || []).forEach(h => {
+      const key = `native_${h.block}_${h.array}_${h.stringNumber}_${h.bpc}`;
+      bpcHotspotsMap.set(key, {
+        label: h.label,
+        block: h.block,
+        array: h.array,
+        stringNumber: h.stringNumber,
+        energySegmentNumber: h.energySegmentNumber,
+        bpc: h.bpc,
+        warningCount: h.warningCount,
+        types: ["Report Warning"]
+      });
+    });
+
+    (analysis.correlatedWarnings || []).forEach(w => {
+      const blockVal = String(w.block ?? "1");
+      const bpcVal = w.bpc !== null && w.bpc !== undefined ? String(w.bpc) : "String-Level";
+      const key = `correlated_${blockVal}_${w.arrayNumber}_${w.stringNumber}_${bpcVal}`;
+      const existing = bpcHotspotsMap.get(key);
+      
+      if (existing) {
+        existing.warningCount += 1;
+        const typeStr = `${w.severity}: Code ${w.code}`;
+        if (!existing.types.includes(typeStr)) {
+          existing.types.push(typeStr);
+        }
+      } else {
+        bpcHotspotsMap.set(key, {
+          label: w.label,
+          block: blockVal,
+          array: w.arrayNumber ?? 1,
+          stringNumber: w.stringNumber ?? 1,
+          energySegmentNumber: w.energySegmentNumber ?? 1,
+          bpc: bpcVal,
+          warningCount: 1,
+          types: [`${w.severity}: Code ${w.code}`]
+        });
+      }
+    });
+  }
+
+  const combinedHotspots = Array.from(bpcHotspotsMap.values()).sort((a, b) => {
+    if (a.array !== b.array) return a.array - b.array;
+    if (a.stringNumber !== b.stringNumber) return a.stringNumber - b.stringNumber;
+    return String(a.bpc).localeCompare(String(b.bpc));
+  });
+
+  const hasOnlyCorrelatedWarnings = analysis && (analysis.summary.reportWarningCount ?? 0) === 0 && (((analysis.summary.correlatedWarningCount ?? 0) > 0) || ((analysis.summary.relatedBpcIssueCount ?? 0) > 0));
+
+  const combinedRows = analysis?.combinedWarningRows || [];
+  const filteredWarningRows = combinedRows.filter(row => {
     if (!searchWarningText) return true;
     const txt = searchWarningText.toLowerCase();
-    const keyMatch = row.cellGroupKey?.toLowerCase().includes(txt);
-    const msgMatch = row.warningTriggerMessage?.toLowerCase().includes(txt);
-    const timeMatch = row.warningTriggeredTime?.toLowerCase().includes(txt);
-    const esMatch = `es${row.energySegmentNumber}`.includes(txt) || `s${row.stringNumber}`.includes(txt);
-    return keyMatch || msgMatch || timeMatch || esMatch;
-  }) || [];
+    const sourceMatch = row.source?.toLowerCase().includes(txt);
+    const codeMatch = String(row.code ?? "").toLowerCase().includes(txt);
+    const titleMatch = row.title?.toLowerCase().includes(txt);
+    const msgMatch = row.rawMessage?.toLowerCase().includes(txt);
+    const reasonMatch = row.reason?.toLowerCase().includes(txt);
+    const blockMatch = `b${row.block}`.toLowerCase().includes(txt);
+    const arrayMatch = `a${row.arrayNumber}`.toLowerCase().includes(txt);
+    const esMatch = `es${row.energySegmentNumber}`.toLowerCase().includes(txt) || `s${row.stringNumber}`.toLowerCase().includes(txt);
+    return sourceMatch || codeMatch || titleMatch || msgMatch || reasonMatch || blockMatch || arrayMatch || esMatch;
+  });
 
   return (
     <div className="space-y-6">
@@ -732,11 +798,27 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
               </div>
             </div>
 
-            <div className="border border-prizm-border bg-prizm-surface p-4 rounded-md shadow-sm font-mono">
-              <span className="text-[10px] text-prizm-text-muted uppercase tracking-wider font-bold block">Warnings Detected</span>
-              <div className={`text-2xl font-bold mt-1 flex items-baseline gap-1.5 ${analysis.summary.warningCount > 0 ? "text-prizm-danger" : "text-prizm-text-muted"}`}>
-                {analysis.summary.warningCount}
-                <span className="text-[10px] text-prizm-text-muted font-normal">flagged</span>
+            <div className="border border-prizm-border bg-prizm-surface p-4 rounded-md shadow-sm font-mono flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] text-prizm-text-muted uppercase tracking-wider font-bold block">Warnings Detected</span>
+                <div className={`text-2xl font-bold mt-1 flex items-baseline gap-1.5 ${analysis.summary.warningCount > 0 ? "text-prizm-danger" : "text-prizm-text-muted"}`}>
+                  {analysis.summary.warningCount}
+                  <span className="text-[10px] text-prizm-text-muted font-normal">total</span>
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-prizm-text-muted space-y-1 border-t border-prizm-border/40 pt-1.5">
+                <div className="flex justify-between">
+                  <span>Report Warnings:</span>
+                  <span className={analysis.summary.reportWarningCount > 0 ? "font-bold text-prizm-danger" : ""}>{analysis.summary.reportWarningCount ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Live Correlated:</span>
+                  <span className={analysis.summary.correlatedWarningCount > 0 ? "font-bold text-amber-500" : ""}>{analysis.summary.correlatedWarningCount ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Related BPC Issues:</span>
+                  <span className={analysis.summary.relatedBpcIssueCount > 0 ? "font-bold text-amber-500" : ""}>{analysis.summary.relatedBpcIssueCount ?? 0}</span>
+                </div>
               </div>
             </div>
 
@@ -794,7 +876,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                   </span>
                 </div>
                 <span className="text-[10px] font-bold bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 px-2 py-0.5 rounded font-mono">
-                  {analysis.bpcWarningSummary.length} Hotspots
+                  {combinedHotspots.length} Hotspots
                 </span>
               </div>
               
@@ -803,33 +885,40 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                   <thead>
                     <tr className="bg-prizm-bg border-b border-prizm-border text-prizm-text-muted text-[10px] uppercase">
                       <th className="p-3">Physical Label (Block/Array/ES/Str)</th>
-                      <th className="p-3 w-20 text-center">BPC</th>
+                      <th className="p-3 w-28 text-center">BPC / Target</th>
                       <th className="p-3 w-24 text-center">Flags</th>
                       <th className="p-3 w-16 text-right"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-prizm-border">
-                    {analysis.bpcWarningSummary.length === 0 ? (
+                    {combinedHotspots.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="p-8 text-center text-prizm-text-muted italic">
                           No BPC balancer hotspots detected. Excellent balancing alignment!
                         </td>
                       </tr>
                     ) : (
-                      analysis.bpcWarningSummary.map((bpcItem, idx) => {
+                      combinedHotspots.map((bpcItem, idx) => {
                         const esLabel = `A${bpcItem.array}/ES${bpcItem.energySegmentNumber}/S${bpcItem.stringNumber}`;
                         return (
                           <tr key={idx} className="hover:bg-black/5">
-                            <td className="p-3 font-bold text-prizm-text flex items-center gap-1.5">
-                              <span className="px-1.5 py-0.5 bg-prizm-bg rounded border border-prizm-border text-[10px]">
-                                {esLabel}
-                              </span>
-                              <span className="text-[10px] text-prizm-text-muted font-normal font-sans">({bpcItem.label})</span>
+                            <td className="p-3 font-bold text-prizm-text">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-1.5 py-0.5 bg-prizm-bg rounded border border-prizm-border text-[10px]">
+                                  {esLabel}
+                                </span>
+                                <span className="text-[10px] text-prizm-text-muted font-normal font-sans">({bpcItem.label})</span>
+                              </div>
+                              <div className="text-[9px] text-amber-500 mt-0.5 font-normal">
+                                {bpcItem.types.join(" · ")}
+                              </div>
                             </td>
-                            <td className="p-3 text-center font-bold text-prizm-text">BPC {bpcItem.bpc}</td>
+                            <td className="p-3 text-center font-bold text-prizm-text">
+                              {typeof bpcItem.bpc === "number" ? `BPC ${bpcItem.bpc}` : bpcItem.bpc}
+                            </td>
                             <td className="p-3 text-center">
                               <span className="px-2 py-0.5 bg-prizm-danger/15 text-prizm-danger border border-prizm-danger/20 rounded font-black text-[10px]">
-                                {bpcItem.warningCount} Warnings
+                                {bpcItem.warningCount} Alerts
                               </span>
                             </td>
                             <td className="p-3 text-right">
@@ -878,53 +967,97 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
               </div>
             </div>
 
+            {/* Timing & Correlation Disclaimer */}
+            <div className="bg-prizm-info/10 border-b border-prizm-border p-3 px-4 flex items-start gap-2 text-[11px] text-prizm-text-muted font-mono">
+              <Info size={13} className="shrink-0 mt-0.5 text-prizm-primary" />
+              <div>
+                <span className="font-bold text-prizm-text uppercase">Timing & Correlation Disclaimer:</span> Correlated live warnings and related BPC issues reflect active real-time conditions retrieved from site telemetry. Because live events and completed balancer reports can occur at different points in time, please carefully cross-reference the <span className="text-prizm-text font-bold">Trigger Time</span> column to confirm temporal alignment.
+              </div>
+            </div>
+
+            {/* Active Live Alerts Banner if no native report warnings exist */}
+            {hasOnlyCorrelatedWarnings && (
+              <div className="bg-amber-500/10 border-b border-amber-500/20 p-3.5 px-4 flex items-start gap-3 text-xs text-amber-400 font-mono">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold uppercase">Active Live Alerts Detected:</span> The balancer report itself completed with zero warnings, but active live telemetry has flagged balancer or BPC-related alerts on these target arrays. Check the log below or open the corrective actions dashboard to investigate.
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto max-h-[400px]">
               <table className="w-full text-left font-mono text-xs border-collapse">
                 <thead>
                   <tr className="bg-prizm-bg border-b border-prizm-border text-prizm-text-muted text-[10px] uppercase">
-                    <th className="p-3">Block</th>
-                    <th className="p-3 w-20">Array</th>
-                    <th className="p-3 w-32">Segment / String</th>
+                    <th className="p-3 w-28">Source</th>
+                    <th className="p-3 w-24">Severity</th>
+                    <th className="p-3 w-20">Code</th>
+                    <th className="p-3 w-16">Block</th>
+                    <th className="p-3 w-16">Array</th>
+                    <th className="p-3 w-32">Segment/String</th>
                     <th className="p-3 w-16">BPC</th>
                     <th className="p-3 w-16">Cell</th>
-                    <th className="p-3 w-24">Duration</th>
-                    <th className="p-3">Warning Reason</th>
+                    <th className="p-3">Reason</th>
                     <th className="p-3 w-40">Trigger Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-prizm-border">
                   {filteredWarningRows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-prizm-text-muted italic">
-                        {searchWarningText ? "No warnings matched the filter." : "No warning events found in the selected test logs."}
+                      <td colSpan={10} className="p-8 text-center text-prizm-text-muted italic">
+                        {searchWarningText ? "No warnings matched the filter." : "No warning events found in the selected test logs or active live notifications."}
                       </td>
                     </tr>
                   ) : (
                     filteredWarningRows.map((row, idx) => {
+                      const isReport = row.source === "balancer-report";
+                      const sourceBadge = 
+                        row.source === "balancer-report" ? (
+                          <span className="px-1.5 py-0.5 rounded font-black text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">BALANCER REPORT</span>
+                        ) : row.source === "live-notification" ? (
+                          <span className="px-1.5 py-0.5 rounded font-black text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/25">LIVE NOTIFICATION</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded font-black text-[9px] bg-orange-500/15 text-orange-400 border border-orange-500/25">CORRECTIVE ACTION</span>
+                        );
+
+                      const severityBadge = 
+                        row.severity === "ALARM" ? (
+                          <span className="px-1.5 py-0.5 rounded font-bold text-[9px] bg-rose-500/15 text-rose-400 border border-rose-500/25">ALARM</span>
+                        ) : row.severity === "WARNING" ? (
+                          <span className="px-1.5 py-0.5 rounded font-bold text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/25">WARNING</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded font-bold text-[9px] bg-neutral-500/15 text-neutral-400 border border-neutral-500/25">INFO</span>
+                        );
+
                       return (
-                        <tr key={idx} className="hover:bg-black/5">
-                          <td className="p-3 font-bold text-prizm-text">B{row.block}</td>
-                          <td className="p-3">A{row.array}</td>
+                        <tr key={idx} className={`hover:bg-black/5 ${!isReport ? "bg-amber-500/5" : ""}`}>
+                          <td className="p-3">{sourceBadge}</td>
+                          <td className="p-3">{severityBadge}</td>
+                          <td className="p-3 font-mono font-bold text-prizm-text">{row.code ?? "N/A"}</td>
+                          <td className="p-3 font-bold text-prizm-text">B{row.block ?? "1"}</td>
+                          <td className="p-3">A{row.arrayNumber ?? "--"}</td>
                           <td className="p-3">
-                            <span className="font-bold text-prizm-text">ES{row.energySegmentNumber}</span>
-                            <span className="text-prizm-text-muted text-[10px] ml-1">/ S{row.stringNumber}</span>
+                            {row.energySegmentNumber !== null && row.energySegmentNumber !== undefined ? (
+                              <span className="font-bold text-prizm-text">ES{row.energySegmentNumber}</span>
+                            ) : (
+                              <span className="text-prizm-text-muted italic">--</span>
+                            )}
+                            {row.stringNumber !== null && row.stringNumber !== undefined && (
+                              <span className="text-prizm-text-muted text-[10px] ml-1">/ S{row.stringNumber}</span>
+                            )}
                           </td>
-                          <td className="p-3 font-bold text-prizm-text">BPC {row.bpc}</td>
-                          <td className="p-3">C{row.cell}</td>
-                          <td className="p-3 text-prizm-text">{formatDuration(row.durationSec)}</td>
+                          <td className="p-3 font-bold text-prizm-text">
+                            {row.bpc !== null && row.bpc !== undefined ? `BPC ${row.bpc}` : "String"}
+                          </td>
                           <td className="p-3">
-                            <div className="flex flex-col gap-0.5">
-                              {row.warningTriggerMessage ? (
-                                <span className="text-prizm-danger font-bold text-[11px]">{row.warningTriggerMessage}</span>
-                              ) : row.warningTriggeredAfterBalance ? (
-                                <span className="text-amber-500 font-bold text-[11px]">Warning Triggered After Balance</span>
-                              ) : (
-                                <span className="text-neutral-400 italic">No trigger code parsed</span>
-                              )}
-                            </div>
+                            {row.cell !== null && row.cell !== undefined ? `C${row.cell}` : "Any"}
                           </td>
-                          <td className="p-3 text-prizm-text-muted text-[10px] truncate" title={row.warningTriggeredTime || ""}>
-                            {row.warningTriggeredTime ? new Date(row.warningTriggeredTime).toLocaleString() : "--"}
+                          <td className="p-3" title={row.reason}>
+                            <span className="text-prizm-text font-bold text-[11px] block truncate max-w-xs">{row.title}</span>
+                            <span className="text-[10px] text-prizm-text-muted block max-w-xs truncate">{row.reason}</span>
+                          </td>
+                          <td className="p-3 text-prizm-text-muted text-[10px] truncate" title={row.detectedAt || ""}>
+                            {row.detectedAt ? new Date(row.detectedAt).toLocaleString() : "--"}
                           </td>
                         </tr>
                       );

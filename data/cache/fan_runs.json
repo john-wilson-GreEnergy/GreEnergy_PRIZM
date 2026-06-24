@@ -1,8 +1,8 @@
 [
   {
-    "runId": "hold-1782339733491-om6cvix-1782339733566",
-    "holdId": "hold-1782339733491-om6cvix",
-    "timestamp": "2026-06-24T22:22:13.566Z",
+    "runId": "hold-1782340652793-upsgmkt-1782340652869",
+    "holdId": "hold-1782340652793-upsgmkt",
+    "timestamp": "2026-06-24T22:37:32.869Z",
     "fanSpeedPercent": 80,
     "durationSeconds": 60,
     "operator": "Test Tech Stop",
@@ -10,8 +10,8 @@
     "state": "STOPPED",
     "verificationResults": [
       {
-        "holdId": "hold-1782339733491-om6cvix",
-        "targetId": "hold-1782339733491-om6cvix-A2-S5",
+        "holdId": "hold-1782340652793-upsgmkt",
+        "targetId": "hold-1782340652793-upsgmkt-A2-S5",
         "controller": "ems",
         "arrayNumber": 2,
         "stringNumber": 5,
@@ -28,7 +28,7 @@
         "fanRatedRpm": 7500,
         "fanStatusAvgRpm": null,
         "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T22:22:13.545Z",
+        "feedbackTimestamp": "2026-06-24T22:37:32.849Z",
         "telemetryAgeMs": 20,
         "result": "UNKNOWN_NO_TELEMETRY",
         "notes": [
@@ -36,8 +36,8 @@
         ]
       },
       {
-        "holdId": "hold-1782339733491-om6cvix",
-        "targetId": "hold-1782339733491-om6cvix-A2-S28",
+        "holdId": "hold-1782340652793-upsgmkt",
+        "targetId": "hold-1782340652793-upsgmkt-A2-S28",
         "controller": "ems",
         "arrayNumber": 2,
         "stringNumber": 28,
@@ -54,8 +54,8 @@
         "fanRatedRpm": 7500,
         "fanStatusAvgRpm": null,
         "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T22:22:13.547Z",
-        "telemetryAgeMs": 18,
+        "feedbackTimestamp": "2026-06-24T22:37:32.850Z",
+        "telemetryAgeMs": 19,
         "result": "UNKNOWN_NO_TELEMETRY",
         "notes": [
           "Telemetry exists but has no fan speed / RPM readings."
@@ -64,9 +64,9 @@
     ]
   },
   {
-    "runId": "hold-1782338709485-sxg9nwf-1782338709578",
-    "holdId": "hold-1782338709485-sxg9nwf",
-    "timestamp": "2026-06-24T22:05:09.578Z",
+    "runId": "hold-1782340247869-ip5cqge-1782340247940",
+    "holdId": "hold-1782340247869-ip5cqge",
+    "timestamp": "2026-06-24T22:30:47.940Z",
     "fanSpeedPercent": 80,
     "durationSeconds": 60,
     "operator": "Test Tech Stop",
@@ -74,8 +74,8 @@
     "state": "STOPPED",
     "verificationResults": [
       {
-        "holdId": "hold-1782338709485-sxg9nwf",
-        "targetId": "hold-1782338709485-sxg9nwf-A2-S5",
+        "holdId": "hold-1782340247869-ip5cqge",
+        "targetId": "hold-1782340247869-ip5cqge-A2-S5",
         "controller": "ems",
         "arrayNumber": 2,
         "stringNumber": 5,
@@ -92,355 +92,16 @@
         "fanRatedRpm": 7500,
         "fanStatusAvgRpm": null,
         "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T22:05:09.556Z",
-        "telemetryAgeMs": 22,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782338709485-sxg9nwf",
-        "targetId": "hold-1782338709485-sxg9nwf-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "actualFanPercentByFan": [],
-        "fanCount": 1,
-        "fanRatedRpm": 7500,
-        "fanStatusAvgRpm": null,
-        "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T22:05:09.557Z",
-        "telemetryAgeMs": 21,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782336277824-iccww19-1782336277911",
-    "holdId": "hold-1782336277824-iccww19",
-    "timestamp": "2026-06-24T21:24:37.911Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782336277824-iccww19",
-        "targetId": "hold-1782336277824-iccww19-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "actualFanPercentByFan": [],
-        "fanCount": 1,
-        "fanRatedRpm": 7500,
-        "fanStatusAvgRpm": null,
-        "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T21:24:37.879Z",
-        "telemetryAgeMs": 32,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782336277824-iccww19",
-        "targetId": "hold-1782336277824-iccww19-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "actualFanPercentByFan": [],
-        "fanCount": 1,
-        "fanRatedRpm": 7500,
-        "fanStatusAvgRpm": null,
-        "fanStatusPercent": null,
-        "feedbackTimestamp": "2026-06-24T21:24:37.880Z",
-        "telemetryAgeMs": 31,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782333511220-18twc1s-1782333511313",
-    "holdId": "hold-1782333511220-18twc1s",
-    "timestamp": "2026-06-24T20:38:31.313Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782333511220-18twc1s",
-        "targetId": "hold-1782333511220-18twc1s-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:38:31.290Z",
-        "telemetryAgeMs": 23,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782333511220-18twc1s",
-        "targetId": "hold-1782333511220-18twc1s-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:38:31.291Z",
-        "telemetryAgeMs": 22,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782333482953-2hahwjn-1782333483052",
-    "holdId": "hold-1782333482953-2hahwjn",
-    "timestamp": "2026-06-24T20:38:03.052Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782333482953-2hahwjn",
-        "targetId": "hold-1782333482953-2hahwjn-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:38:03.022Z",
-        "telemetryAgeMs": 30,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782333482953-2hahwjn",
-        "targetId": "hold-1782333482953-2hahwjn-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:38:03.024Z",
-        "telemetryAgeMs": 28,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782333359815-7glb5p3-1782333359934",
-    "holdId": "hold-1782333359815-7glb5p3",
-    "timestamp": "2026-06-24T20:35:59.934Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782333359815-7glb5p3",
-        "targetId": "hold-1782333359815-7glb5p3-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:35:59.878Z",
-        "telemetryAgeMs": 55,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782333359815-7glb5p3",
-        "targetId": "hold-1782333359815-7glb5p3-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:35:59.879Z",
-        "telemetryAgeMs": 54,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782333262460-h2yth9i-1782333262561",
-    "holdId": "hold-1782333262460-h2yth9i",
-    "timestamp": "2026-06-24T20:34:22.561Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782333262460-h2yth9i",
-        "targetId": "hold-1782333262460-h2yth9i-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:34:22.539Z",
-        "telemetryAgeMs": 22,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
-      },
-      {
-        "holdId": "hold-1782333262460-h2yth9i",
-        "targetId": "hold-1782333262460-h2yth9i-A2-S28",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 28,
-        "energySegmentNumber": 14,
-        "label": "A2 / ES14 / S28",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:34:22.541Z",
+        "feedbackTimestamp": "2026-06-24T22:30:47.919Z",
         "telemetryAgeMs": 20,
         "result": "UNKNOWN_NO_TELEMETRY",
         "notes": [
           "Telemetry exists but has no fan speed / RPM readings."
         ]
-      }
-    ]
-  },
-  {
-    "runId": "hold-1782333233770-43e4pkw-1782333233849",
-    "holdId": "hold-1782333233770-43e4pkw",
-    "timestamp": "2026-06-24T20:33:53.849Z",
-    "fanSpeedPercent": 80,
-    "durationSeconds": 60,
-    "operator": "Test Tech Stop",
-    "targetsCount": 2,
-    "state": "STOPPED",
-    "verificationResults": [
-      {
-        "holdId": "hold-1782333233770-43e4pkw",
-        "targetId": "hold-1782333233770-43e4pkw-A2-S5",
-        "controller": "ems",
-        "arrayNumber": 2,
-        "stringNumber": 5,
-        "energySegmentNumber": 3,
-        "label": "A2 / ES3 / S5",
-        "commandedSpeedPercent": 80,
-        "commandedState": "ON",
-        "actualFanState": "UNKNOWN",
-        "actualFanSpeedPercent": null,
-        "actualFanRpm": null,
-        "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:33:53.827Z",
-        "telemetryAgeMs": 22,
-        "result": "UNKNOWN_NO_TELEMETRY",
-        "notes": [
-          "Telemetry exists but has no fan speed / RPM readings."
-        ]
       },
       {
-        "holdId": "hold-1782333233770-43e4pkw",
-        "targetId": "hold-1782333233770-43e4pkw-A2-S28",
+        "holdId": "hold-1782340247869-ip5cqge",
+        "targetId": "hold-1782340247869-ip5cqge-A2-S28",
         "controller": "ems",
         "arrayNumber": 2,
         "stringNumber": 28,
@@ -452,8 +113,13 @@
         "actualFanSpeedPercent": null,
         "actualFanRpm": null,
         "actualFanRpmByFan": [],
-        "feedbackTimestamp": "2026-06-24T20:33:53.828Z",
-        "telemetryAgeMs": 21,
+        "actualFanPercentByFan": [],
+        "fanCount": 1,
+        "fanRatedRpm": 7500,
+        "fanStatusAvgRpm": null,
+        "fanStatusPercent": null,
+        "feedbackTimestamp": "2026-06-24T22:30:47.920Z",
+        "telemetryAgeMs": 19,
         "result": "UNKNOWN_NO_TELEMETRY",
         "notes": [
           "Telemetry exists but has no fan speed / RPM readings."

@@ -248,7 +248,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     const failCount = rows.filter((r: any) => r.result.startsWith("FAIL_")).length;
     const unknownCount = rows.filter((r: any) => r.result === "UNKNOWN_NO_TELEMETRY").length;
 
-    const targetsWithFans = rows.filter((r: any) => Array.isArray(r.actualFanRpmByFan) && r.actualFanRpmByFan.length > 0);
+
 
     const htmlContent = `
       <html>
