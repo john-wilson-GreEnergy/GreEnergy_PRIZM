@@ -340,18 +340,19 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
           <table>
             <thead>
               <tr>
-                <th style="width: 15%;">Target</th>
-                <th style="width: 12%;">Commanded</th>
-                <th style="width: 12%;">Actual State</th>
+                <th style="width: 12%;">Target</th>
+                <th style="width: 10%;">Commanded</th>
+                <th style="width: 10%;">Actual State</th>
                 <th style="width: 15%;">Avg Speed / RPM</th>
                 <th style="width: 20%;">Individual Fan Speeds</th>
-                <th style="width: 10%;">Result</th>
-                <th style="width: 16%;">Diagnostic Notes</th>
+                <th style="width: 8%;">Result</th>
+                <th style="width: 25%;">Diagnostic Notes</th>
               </tr>
             </thead>
             <tbody>
               ${(run.verificationResults || []).map((row: any) => {
                 const badgeClass = row.result === "PASS" ? "pass" : row.result.startsWith("WARN") ? "warn" : row.result.startsWith("FAIL") ? "fail" : "unknown";
+                const badgeText = row.result === "PASS" ? "PASS" : row.result.startsWith("WARN") ? "WARN" : row.result.startsWith("FAIL") ? "FAIL" : "UNKNOWN";
                 
                 const hasIndividual = Array.isArray(row.actualFanRpmByFan) && row.actualFanRpmByFan.length > 0;
                 const individualHtml = hasIndividual
@@ -381,7 +382,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                       ${individualHtml}
                       ${hasIndividual ? `<div style="font-size: 8px; color: #64748b; margin-top: 4px;">${row.actualFanRpmByFan.length} fan readings captured</div>` : ''}
                     </td>
-                    <td><span class="badge ${badgeClass}">${row.result}</span></td>
+                    <td><span class="badge ${badgeClass}">${badgeText}</span></td>
                     <td>
                       ${(() => {
                         const mainNotes = row.notes.filter((note: string) => !(/^Fan \d+ /i.test(note)));
