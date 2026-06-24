@@ -382,7 +382,16 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                       ${hasIndividual ? `<div style="font-size: 8px; color: #64748b; margin-top: 4px;">${row.actualFanRpmByFan.length} fan readings captured</div>` : ''}
                     </td>
                     <td><span class="badge ${badgeClass}">${row.result}</span></td>
-                    <td>${row.notes.join("; ")}</td>
+                    <td>
+                      ${(() => {
+                        const mainNotes = row.notes.filter((note: string) => !(/^Fan \d+ /i.test(note)));
+                        if (mainNotes.length > 0) {
+                          const hasFanAnomalies = row.notes.some((note: string) => /^Fan \d+ /i.test(note));
+                          return mainNotes.join("; ") + (hasFanAnomalies ? " <br/><span style='font-size: 8px; color: #64748b; font-style: italic;'>(See individual fans / appendix)</span>" : "");
+                        }
+                        return row.notes.join("; ");
+                      })()}
+                    </td>
                   </tr>
                 `;
               }).join("")}
