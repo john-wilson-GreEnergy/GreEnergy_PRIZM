@@ -417,7 +417,14 @@ async function doBackgroundPoll() {
               arrayReports: rawArrayReports
           },
           normalized: {
-              strings: stringsResult ? stringsResult.strings : (parsed.stringSummary?.tableRows || []),
+              strings: (() => {
+                  const isNonEmptyArray = (arr: any) => Array.isArray(arr) && arr.length > 0;
+                  if (stringsResult && isNonEmptyArray(stringsResult.strings)) return stringsResult.strings;
+                  const legacyStr = (parsed.stringSummary || {}) as any;
+                  if (isNonEmptyArray(legacyStr.tableRows)) return legacyStr.tableRows;
+                  if (isNonEmptyArray(legacyStr.strings)) return legacyStr.strings;
+                  return [];
+              })(),
               arrays: parsed.arraySummary || [],
               pcs: pcsListToUse,
               feather: enrichedFeatherRows,
@@ -426,16 +433,36 @@ async function doBackgroundPoll() {
               arrayDetailsByArray
           },
           rollups: {
-              stringSummary: stringsResult ? {
-                  tableRows: stringsResult.strings,
-                  rollups: {
-                      ...parsed.stringSummary?.rollups,
-                      ...stringsResult.rollups
-                  },
-                  buckets: parsed.stringSummary?.buckets || {},
-                  summary: stringsResult.summary,
-                  cards: stringsResult.cards
-              } : (parsed.stringSummary || {}),
+              stringSummary: (() => {
+                  const legacyStringSummary = (parsed.stringSummary || {}) as any;
+                  const isNonEmptyArray = (arr: any) => Array.isArray(arr) && arr.length > 0;
+                  const isNonEmptyObject = (obj: any) => obj !== null && typeof obj === 'object' && Object.keys(obj).length > 0;
+                  
+                  return {
+                      ...legacyStringSummary,
+                      tableRows: isNonEmptyArray(stringsResult?.strings)
+                          ? stringsResult.strings
+                          : (isNonEmptyArray(legacyStringSummary.tableRows)
+                              ? legacyStringSummary.tableRows
+                              : (isNonEmptyArray(legacyStringSummary.strings) ? legacyStringSummary.strings : [])),
+                      rollups: {
+                          ...(legacyStringSummary.rollups || {}),
+                          ...(stringsResult?.rollups || {})
+                      },
+                      buckets: isNonEmptyObject(legacyStringSummary.buckets) && Object.values(legacyStringSummary.buckets).some(v => typeof v === 'number' && v > 0)
+                          ? legacyStringSummary.buckets
+                          : (isNonEmptyObject(stringsResult?.buckets) ? stringsResult.buckets : (legacyStringSummary.buckets || {})),
+                      summary: {
+                          ...(legacyStringSummary.summary || {}),
+                          ...(stringsResult?.summary || {})
+                      },
+                      cards: {
+                          ...(legacyStringSummary.cards || {}),
+                          ...(stringsResult?.cards || {})
+                      },
+                      enhanced: stringsResult || undefined
+                  };
+              })(),
               arraySummary: parsed.arraySummary || [],
               pcsSummary: pcsSummaryObj,
               bessFleetSummary: parsed.bessFleetSummary || {},

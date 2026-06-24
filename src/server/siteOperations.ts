@@ -16,6 +16,7 @@ import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
+import { formatStringEsLabel } from "../lib/stringToEsMapper";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
 
@@ -1637,8 +1638,12 @@ export async function buildSiteOperationsSummaryFromCache() {
                      : (targetIp ? `${resolvedTarget.label} — ${targetIp}` : resolvedTarget.displayLabel);
 
                  if (stringNumber && stringNumber > 0) {
-                     const esNum = Math.ceil(stringNumber / 2);
-                     label = `Block ${blockIndex} / Array ${arrayNumber} / ES${esNum} - String ${stringNumber}`;
+                     label = formatStringEsLabel({
+                         blockIndex,
+                         arrayNumber,
+                         stringNumber,
+                         includeBlock: true
+                     });
                      displayLabel = targetIp ? `${label} — ${targetIp}` : label;
                  }
 

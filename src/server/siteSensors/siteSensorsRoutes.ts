@@ -14,6 +14,7 @@ import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/prof
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
 import { parseEmsTopology, parseActiveState } from "../emsTopologySensorParser";
+import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
 
 
 const router = Router();
@@ -1329,7 +1330,7 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
     if (pos === null && loc.strings && loc.strings.length > 0) {
       const minStringIndex = Math.min(...loc.strings.map((str: any) => Number(str.stringIndex || 999)));
       if (minStringIndex < 999) {
-        pos = Math.ceil(minStringIndex / 2);
+        pos = stringNumberToEnergySegment(minStringIndex);
         locationDerivedFromFallback = true;
       }
     }

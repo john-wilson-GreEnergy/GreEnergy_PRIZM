@@ -8,6 +8,7 @@ import PhysicalEnergySegmentHeatmap from "./PhysicalEnergySegmentHeatmap";
 import { buildPhysicalSlotsFromRichDetail } from "../lib/physicalEnergySegmentLayout";
 import { cToF } from "../lib/temperatureUnits";
 import { formatTemperatureF } from "../utils/temperatureScale";
+import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const { snapshot } = useSiteData();
@@ -118,10 +119,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const legacyStringViewerHealth = safeObject(safeSourceHealth.stringviewer);
 
   const stringNum = finite(s.stringNumber ?? s.stringIndex ?? s.StringIndex);
-  const energySegmentNumber =
-    stringNum !== null
-      ? Math.ceil(stringNum / 2)
-      : null;
+  const energySegmentNumber = stringNumberToEnergySegment(stringNum);
   const containerNumber = energySegmentNumber;
   const containerLabel =
     energySegmentNumber !== null

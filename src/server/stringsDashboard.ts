@@ -16,6 +16,7 @@ import * as prizmCache from "./cache/prizmCache";
 import * as prizmHistory from "./history/prizmHistory";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } from "../lib/bessStatusCodes";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
+import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
 const router = Router();
 
@@ -1080,7 +1081,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
          }
 
         const stringNumValue = pN(stringNumber);
-        const energySegmentNumber = stringNumValue !== null ? Math.ceil(stringNumValue / 2) : null;
+        const energySegmentNumber = stringNumberToEnergySegment(stringNumValue);
         const containerNumber = energySegmentNumber;
         const containerLabel = energySegmentNumber !== null ? `ES ${energySegmentNumber}` : "--";
 

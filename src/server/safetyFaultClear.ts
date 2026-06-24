@@ -213,7 +213,7 @@ function normalizeBlockviewerTopology(topologyData: any): SafetyFaultClearCandid
     const candidates: SafetyFaultClearCandidate[] = [];
     if (!topologyData) return candidates;
 
-    const list = Array.isArray(topologyData) ? topologyData : (topologyData.topology || []);
+    const list = Array.isArray(topologyData) ? topologyData : (Array.isArray(topologyData.topology) ? topologyData.topology : []);
 
     for (const item of list) {
         if (!item || !item.entityKeyToken) continue;

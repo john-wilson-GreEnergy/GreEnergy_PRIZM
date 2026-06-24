@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
 import RotationModal, { RotationTarget } from "./RotationModal";
+import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
 function CollapsibleSection({
   title,
@@ -948,8 +949,7 @@ export default function SiteOperationsDashboard({
                                                   {(() => {
                                                     const sNum = aff.stringNumber ?? aff.stringIndex;
                                                     if (sNum && sNum > 0) {
-                                                      const esNum = Math.ceil(sNum / 2);
-                                                      return `ES${esNum} - String ${sNum}`;
+                                                      return formatStringEsLabel({ stringNumber: sNum });
                                                     }
                                                     return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
                                                   })()}
