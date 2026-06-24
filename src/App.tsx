@@ -23,7 +23,8 @@ import {
   ArrowDown,
   RotateCcw,
   X,
-  Check
+  Check,
+  Gauge
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
@@ -32,6 +33,7 @@ import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
 import PcsDashboard from "./components/PcsDashboard";
 import FeatherDashboard from "./components/FeatherDashboard";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
+import BalancerTestDashboard from "./components/BalancerTestDashboard";
 
 const Reporting = React.lazy(() => import("./components/Reporting"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
@@ -43,7 +45,7 @@ import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteData } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
-type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
 
 interface TabItem {
   id: string;
@@ -55,6 +57,7 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
   "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
+  "balancer-test": { label: "BPC Balance Test", icon: Gauge },
   "site-configuration": { label: "Site Configuration", icon: Settings },
   "feather-hvac": { label: "Feather / HVAC", icon: Network },
   "lightbar-control": { label: "Lineup Lightbar", icon: Sliders },
@@ -67,6 +70,7 @@ const DEFAULT_TABS_ORDER: string[] = [
   "arrays-strings",
   "site-health",
   "pcs-dashboard",
+  "balancer-test",
   "site-configuration",
   "feather-hvac",
   "lightbar-control",
@@ -617,6 +621,12 @@ export default function App() {
               {visitedTabs.has("pcs-dashboard") && (
                 <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
                   <PcsDashboard active={activeTab === "pcs-dashboard"} />
+                </div>
+              )}
+
+              {visitedTabs.has("balancer-test") && (
+                <div className={activeTab === "balancer-test" ? "block animate-fade-in" : "hidden"}>
+                  <BalancerTestDashboard active={activeTab === "balancer-test"} />
                 </div>
               )}
 

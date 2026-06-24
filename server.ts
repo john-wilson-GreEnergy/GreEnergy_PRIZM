@@ -89,6 +89,9 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 
+import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
+app.use("/api/local/balancer-test", balancerTestRouter);
+
 import debugSourceScanRouter from "./src/server/debugSourceScan";
 app.use("/api/local", debugSourceScanRouter);
 
