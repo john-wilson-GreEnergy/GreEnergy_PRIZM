@@ -9,6 +9,7 @@ import { buildNormalizedResponderSummary } from "./siteSensors/siteSensorsRoutes
 import { fetchEnrichedDevices } from "./feather/deviceEnrichment";
 import { getSegmentName } from "./siteData/segmentTranslator";
 import { buildNormalizedStringsData } from "./stringsDashboard";
+import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
 
 export type NormalizedArraySummary = any;
@@ -255,66 +256,168 @@ async function doBackgroundPoll() {
       // Arrays normalization Stage 2
       const rawArrayReports = getEmsCachedArrayReports() || {};
       const arrayDetailsByArray: Record<string, any> = {};
-      const rawArrReportKeys = Object.keys(rawArrayReports).sort((a,b) => Number(a) - Number(b));
+      const preferNonNull = (val1: any, val2: any) => {
+        return (val1 !== null && val1 !== undefined) ? val1 : val2;
+      };
       
-      for (const arrKey of rawArrReportKeys) {
-        const arrNum = Number(arrKey);
+      for (let arrNum = 1; arrNum <= 8; arrNum++) {
+        const arrKey = String(arrNum);
         const item = rawArrayReports[arrKey];
-        if (!item) continue;
-        const response = item.data;
+        const response = item?.data;
         const condCellRep = response?.cellGroupReportForArray?.condensedCellReportForString || {};
 
         const strings: any[] = [];
-        const strKeys = Object.keys(condCellRep).sort((a, b) => Number(a) - Number(b));
-        
-        for (const sKey of strKeys) {
-          const sData = condCellRep[sKey];
-          if (!sData) continue;
-          const strNum = Number(sData.stringIndex || sKey);
+        const richStringsForArray = (stringsResult?.strings || []).filter((s: any) => s.arrayNumber === arrNum);
 
-          const mv = Array.isArray(sData.millivolts) ? sData.millivolts.map(Number) : [];
-          const temps = Array.isArray(sData.temperatures) ? sData.temperatures.map(Number) : [];
+        if (richStringsForArray.length > 0) {
+          for (const rs of richStringsForArray) {
+            const strNum = rs.stringNumber;
+            const sKey = Object.keys(condCellRep).find(k => Number(condCellRep[k]?.stringIndex || k) === strNum);
+            const sData = sKey ? condCellRep[sKey] : null;
 
-          const cellVoltageMin = mv.length ? Math.min(...mv) : null;
-          const cellVoltageMax = mv.length ? Math.max(...mv) : null;
-          const cellVoltageAvg = mv.length ? mv.reduce((sum, val) => sum + val, 0) / mv.length : null;
-          const cellVoltageDelta = (cellVoltageMin !== null && cellVoltageMax !== null) ? (cellVoltageMax - cellVoltageMin) : null;
+            if (sData) {
+              const mv = Array.isArray(sData.millivolts) ? sData.millivolts.map(Number) : [];
+              const temps = Array.isArray(sData.temperatures) ? sData.temperatures.map(Number) : [];
 
-          const cellTempMin = temps.length ? Math.min(...temps) : null;
-          const cellTempMax = temps.length ? Math.max(...temps) : null;
-          const cellTempAvg = temps.length ? temps.reduce((sum, val) => sum + val, 0) / temps.length : null;
-          const cellTempDelta = (cellTempMin !== null && cellTempMax !== null) ? (cellTempMax - cellTempMin) : null;
+              const cellVoltageMin = mv.length ? Math.min(...mv) : null;
+              const cellVoltageMax = mv.length ? Math.max(...mv) : null;
+              const cellVoltageAvg = mv.length ? mv.reduce((sum, val) => sum + val, 0) / mv.length : null;
+              const cellVoltageDelta = (cellVoltageMin !== null && cellVoltageMax !== null) ? (cellVoltageMax - cellVoltageMin) : null;
 
-          const ignoredTempSensorCount = Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors.length : 0;
-          const balancingStatusCount = Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes.length : 0;
-          const balancingSettingCount = Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes.length : 0;
+              const cellTempMin = temps.length ? Math.min(...temps) : null;
+              const cellTempMax = temps.length ? Math.max(...temps) : null;
+              const cellTempAvg = temps.length ? temps.reduce((sum, val) => sum + val, 0) / temps.length : null;
+              const cellTempDelta = (cellTempMin !== null && cellTempMax !== null) ? (cellTempMax - cellTempMin) : null;
 
-          strings.push({
-            id: `A${arrNum}-S${strNum}`,
-            arrayNumber: arrNum,
-            stringNumber: strNum,
-            batteryPackCount: sData.batteryPackCount !== undefined ? Number(sData.batteryPackCount) : null,
-            cellGroupPerBatteryPackCount: sData.cellGroupPerBatteryPackCount !== undefined ? Number(sData.cellGroupPerBatteryPackCount) : null,
-            millivolts: mv,
-            temperatures: temps,
-            timestamps: Array.isArray(sData.timestamps) ? sData.timestamps.map(Number) : [],
-            socs: Array.isArray(sData.socs) ? sData.socs.map(Number) : [],
-            ignoredTempSensors: Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors : [],
-            balancingStatusPerBpIndexes: Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes : [],
-            balancingSettingPerBpIndexes: Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes : [],
-            cellVoltageMin,
-            cellVoltageMax,
-            cellVoltageAvg,
-            cellVoltageDelta,
-            cellTempMin,
-            cellTempMax,
-            cellTempAvg,
-            cellTempDelta,
-            staleCellGroupCount: null,
-            ignoredTempSensorCount,
-            balancingStatusCount,
-            balancingSettingCount
-          });
+              const ignoredTempSensorCount = Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors.length : 0;
+              const balancingStatusCount = Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes.length : 0;
+              const balancingSettingCount = Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes.length : 0;
+
+              const calculatedSocPct = (Array.isArray(sData.socs) && sData.socs.length > 0) ? Number(sData.socs[0]) : null;
+
+              strings.push({
+                ...rs,
+                id: rs.id || `A${arrNum}-S${strNum}`,
+                stringKey: rs.stringKey || `A${arrNum}-S${strNum}`,
+                arrayNumber: arrNum,
+                stringNumber: strNum,
+                energySegmentNumber: preferNonNull(rs.energySegmentNumber, stringNumberToEnergySegment(strNum)),
+                physicalStringNumber: preferNonNull(rs.physicalStringNumber, strNum),
+                
+                batteryPackCount: preferNonNull(rs.batteryPackCount, sData.batteryPackCount !== undefined ? Number(sData.batteryPackCount) : null),
+                cellGroupPerBatteryPackCount: preferNonNull(rs.cellGroupPerBatteryPackCount, sData.cellGroupPerBatteryPackCount !== undefined ? Number(sData.cellGroupPerBatteryPackCount) : null),
+                millivolts: mv.length ? mv : (rs.millivolts || []),
+                temperatures: temps.length ? temps : (rs.temperatures || []),
+                timestamps: Array.isArray(sData.timestamps) ? sData.timestamps.map(Number) : (rs.timestamps || []),
+                socs: Array.isArray(sData.socs) ? sData.socs.map(Number) : (rs.socs || []),
+                ignoredTempSensors: Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors : (rs.ignoredTempSensors || []),
+                balancingStatusPerBpIndexes: Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes : (rs.balancingStatusPerBpIndexes || []),
+                balancingSettingPerBpIndexes: Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes : (rs.balancingSettingPerBpIndexes || []),
+                
+                cellVoltageMin: preferNonNull(rs.cellVoltageMin, cellVoltageMin),
+                cellVoltageMax: preferNonNull(rs.cellVoltageMax, cellVoltageMax),
+                cellVoltageAvg: preferNonNull(rs.cellVoltageAvg, cellVoltageAvg),
+                cellVoltageDelta: preferNonNull(rs.cellVoltageDelta, cellVoltageDelta),
+                
+                cellTempMin: preferNonNull(rs.cellTempMin, cellTempMin),
+                cellTempMax: preferNonNull(rs.cellTempMax, cellTempMax),
+                cellTempAvg: preferNonNull(rs.cellTempAvg, cellTempAvg),
+                cellTempDelta: preferNonNull(rs.cellTempDelta, cellTempDelta),
+                
+                staleCellGroupCount: preferNonNull(rs.staleCellGroupCount, null),
+                ignoredTempSensorCount: preferNonNull(rs.ignoredTempSensorCount, ignoredTempSensorCount),
+                balancingStatusCount: preferNonNull(rs.balancingStatusCount, balancingStatusCount),
+                balancingSettingCount: preferNonNull(rs.balancingSettingCount, balancingSettingCount),
+                socPct: preferNonNull(rs.socPct, calculatedSocPct)
+              });
+            } else {
+              strings.push({
+                ...rs,
+                id: rs.id || `A${arrNum}-S${strNum}`,
+                stringKey: rs.stringKey || `A${arrNum}-S${strNum}`,
+                arrayNumber: arrNum,
+                stringNumber: strNum,
+                energySegmentNumber: preferNonNull(rs.energySegmentNumber, stringNumberToEnergySegment(strNum)),
+                physicalStringNumber: preferNonNull(rs.physicalStringNumber, strNum),
+                millivolts: rs.millivolts || [],
+                temperatures: rs.temperatures || [],
+                timestamps: rs.timestamps || [],
+                socs: rs.socs || [],
+                ignoredTempSensors: rs.ignoredTempSensors || [],
+                balancingStatusPerBpIndexes: rs.balancingStatusPerBpIndexes || [],
+                balancingSettingPerBpIndexes: rs.balancingSettingPerBpIndexes || [],
+                cellVoltageMin: rs.cellVoltageMin ?? null,
+                cellVoltageMax: rs.cellVoltageMax ?? null,
+                cellVoltageAvg: rs.cellVoltageAvg ?? null,
+                cellVoltageDelta: rs.cellVoltageDelta ?? null,
+                cellTempMin: rs.cellTempMin ?? null,
+                cellTempMax: rs.cellTempMax ?? null,
+                cellTempAvg: rs.cellTempAvg ?? null,
+                cellTempDelta: rs.cellTempDelta ?? null,
+                ignoredTempSensorCount: rs.ignoredTempSensorCount ?? 0,
+                balancingStatusCount: rs.balancingStatusCount ?? 0,
+                balancingSettingCount: rs.balancingSettingCount ?? 0
+              });
+            }
+          }
+        } else {
+          // No rich strings from stringsResult! Build from condensed report instead
+          const strKeys = Object.keys(condCellRep).sort((a, b) => Number(a) - Number(b));
+          for (const sKey of strKeys) {
+            const sData = condCellRep[sKey];
+            if (!sData) continue;
+            const strNum = Number(sData.stringIndex || sKey);
+
+            const mv = Array.isArray(sData.millivolts) ? sData.millivolts.map(Number) : [];
+            const temps = Array.isArray(sData.temperatures) ? sData.temperatures.map(Number) : [];
+
+            const cellVoltageMin = mv.length ? Math.min(...mv) : null;
+            const cellVoltageMax = mv.length ? Math.max(...mv) : null;
+            const cellVoltageAvg = mv.length ? mv.reduce((sum, val) => sum + val, 0) / mv.length : null;
+            const cellVoltageDelta = (cellVoltageMin !== null && cellVoltageMax !== null) ? (cellVoltageMax - cellVoltageMin) : null;
+
+            const cellTempMin = temps.length ? Math.min(...temps) : null;
+            const cellTempMax = temps.length ? Math.max(...temps) : null;
+            const cellTempAvg = temps.length ? temps.reduce((sum, val) => sum + val, 0) / temps.length : null;
+            const cellTempDelta = (cellTempMin !== null && cellTempMax !== null) ? (cellTempMax - cellTempMin) : null;
+
+            const ignoredTempSensorCount = Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors.length : 0;
+            const balancingStatusCount = Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes.length : 0;
+            const balancingSettingCount = Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes.length : 0;
+
+            const calculatedSocPct = (Array.isArray(sData.socs) && sData.socs.length > 0) ? Number(sData.socs[0]) : null;
+
+            strings.push({
+              id: `A${arrNum}-S${strNum}`,
+              stringKey: `A${arrNum}-S${strNum}`,
+              arrayNumber: arrNum,
+              stringNumber: strNum,
+              energySegmentNumber: stringNumberToEnergySegment(strNum),
+              physicalStringNumber: strNum,
+              batteryPackCount: sData.batteryPackCount !== undefined ? Number(sData.batteryPackCount) : null,
+              cellGroupPerBatteryPackCount: sData.cellGroupPerBatteryPackCount !== undefined ? Number(sData.cellGroupPerBatteryPackCount) : null,
+              millivolts: mv,
+              temperatures: temps,
+              timestamps: Array.isArray(sData.timestamps) ? sData.timestamps.map(Number) : [],
+              socs: Array.isArray(sData.socs) ? sData.socs.map(Number) : [],
+              ignoredTempSensors: Array.isArray(sData.ignoredTempSensors) ? sData.ignoredTempSensors : [],
+              balancingStatusPerBpIndexes: Array.isArray(sData.cellGroupBalancingStatusPerBpIndexes) ? sData.cellGroupBalancingStatusPerBpIndexes : [],
+              balancingSettingPerBpIndexes: Array.isArray(sData.cellGroupBalancingSettingPerBpIndexes) ? sData.cellGroupBalancingSettingPerBpIndexes : [],
+              cellVoltageMin,
+              cellVoltageMax,
+              cellVoltageAvg,
+              cellVoltageDelta,
+              cellTempMin,
+              cellTempMax,
+              cellTempAvg,
+              cellTempDelta,
+              staleCellGroupCount: null,
+              ignoredTempSensorCount,
+              balancingStatusCount,
+              balancingSettingCount,
+              socPct: calculatedSocPct
+            });
+          }
         }
 
         // Calculate rollups
@@ -361,9 +464,9 @@ async function doBackgroundPoll() {
             balancingStatusCount: totalBalStatus,
             balancingSettingCount: totalBalSetting
           },
-          sourceOk: item.ok,
-          sourceEndpoint: item.endpoint,
-          raw: response
+          sourceOk: item ? item.ok : false,
+          sourceEndpoint: item ? item.endpoint : `/tools/report/ems/array/${arrNum}/report.json`,
+          raw: response || null
         };
       }
 
@@ -384,6 +487,14 @@ async function doBackgroundPoll() {
         outRotationCount: outRotationCount,
         unrecognizedRotationCount: unknownRotation
       };
+
+      const flatMergedStrings: any[] = [];
+      for (let arrNum = 1; arrNum <= 8; arrNum++) {
+          const arrD = arrayDetailsByArray[arrNum];
+          if (arrD && Array.isArray(arrD.strings)) {
+              flatMergedStrings.push(...arrD.strings);
+          }
+      }
 
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
@@ -417,7 +528,7 @@ async function doBackgroundPoll() {
               arrayReports: rawArrayReports
           },
           normalized: {
-              strings: (() => {
+              strings: flatMergedStrings.length > 0 ? flatMergedStrings : (() => {
                   const isNonEmptyArray = (arr: any) => Array.isArray(arr) && arr.length > 0;
                   if (stringsResult && isNonEmptyArray(stringsResult.strings)) return stringsResult.strings;
                   const legacyStr = (parsed.stringSummary || {}) as any;
@@ -440,11 +551,13 @@ async function doBackgroundPoll() {
                   
                   return {
                       ...legacyStringSummary,
-                      tableRows: isNonEmptyArray(stringsResult?.strings)
-                          ? stringsResult.strings
-                          : (isNonEmptyArray(legacyStringSummary.tableRows)
-                              ? legacyStringSummary.tableRows
-                              : (isNonEmptyArray(legacyStringSummary.strings) ? legacyStringSummary.strings : [])),
+                      tableRows: flatMergedStrings.length > 0
+                          ? flatMergedStrings
+                          : (isNonEmptyArray(stringsResult?.strings)
+                              ? stringsResult.strings
+                              : (isNonEmptyArray(legacyStringSummary.tableRows)
+                                  ? legacyStringSummary.tableRows
+                                  : (isNonEmptyArray(legacyStringSummary.strings) ? legacyStringSummary.strings : []))),
                       rollups: {
                           ...(legacyStringSummary.rollups || {}),
                           ...(stringsResult?.rollups || {})
