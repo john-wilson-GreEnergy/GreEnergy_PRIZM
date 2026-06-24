@@ -6,10 +6,20 @@ export interface FanControlCapabilities {
   message: string;
 }
 
-export interface FanControlHoldRequest {
+export interface FanCommandTarget {
   controller: "ems" | "bms";
   arrayNumber: number;
   stringNumber: number;
+  energySegmentNumber?: number;
+}
+
+export interface FanControlHoldRequest {
+  targets?: FanCommandTarget[]; // List of multiple targets
+  // Backward compatibility singular fields:
+  controller?: "ems" | "bms";
+  arrayNumber?: number;
+  stringNumber?: number;
+
   fanSpeedPercent: number;
   durationSeconds: number;
   repeatIntervalSeconds: number;
@@ -34,6 +44,7 @@ export interface FanControlHoldResponse {
   nextCommandAt?: string | null;
   auditId: string;
   message?: string;
+  targets?: FanCommandTarget[];
 }
 
 export interface FanControlStopRequest {
@@ -43,13 +54,32 @@ export interface FanControlStopRequest {
   stringNumber?: number;
   sendStopCommand?: boolean;
   operator?: string;
+  targetId?: string; // Optional target-specific stop
+}
+
+export interface FanCommandTargetStatus {
+  targetId: string;
+  controller: "ems" | "bms";
+  arrayNumber: number;
+  stringNumber: number;
+  energySegmentNumber: number | null;
+  label: string;
+  lastCommandAt: string | null;
+  lastCommandOk: boolean;
+  lastCommandStatus: number | null;
+  lastCommandResponse: string | null;
+  errorCount: number;
+  consecutiveErrorCount?: number;
+  state: "RUNNING" | "STOPPED" | "FAILED";
 }
 
 export interface FanControlHoldStatus {
   holdId: string;
+  // singular properties mapped from the first target (for backward compatibility)
   controller: "ems" | "bms";
   arrayNumber: number;
   stringNumber: number;
+
   fanSpeedPercent: number;
   startedAt: string;
   expiresAt: string;
@@ -62,11 +92,33 @@ export interface FanControlHoldStatus {
   lastCommandResponse: string | null;
   errorCount: number;
   state: "RUNNING" | "ENDING" | "STOPPED" | "FAILED";
+  
+  targets: FanCommandTargetStatus[];
+}
+
+export interface FanCommandVerificationRow {
+  holdId: string;
+  targetId: string;
+  controller: "ems" | "bms";
+  arrayNumber: number;
+  stringNumber: number;
+  energySegmentNumber: number | null;
+  label: string;
+  commandedSpeedPercent: number;
+  commandedState: "OFF" | "ON";
+  actualFanState?: "OFF" | "ON" | "UNKNOWN";
+  actualFanSpeedPercent?: number | null;
+  actualFanRpm?: number | null;
+  actualFanRpmByFan?: number[] | null;
+  feedbackTimestamp?: string | null;
+  telemetryAgeMs?: number | null;
+  result: "PASS" | "WARN_ZERO_RPM" | "FAIL_NO_RESPONSE" | "WARN_UNDER_COMMAND" | "WARN_OVER_COMMAND" | "FAIL_STALE_TELEMETRY" | "UNKNOWN_NO_TELEMETRY";
+  notes: string[];
 }
 
 export interface FanControlAuditRecord {
   timestamp: string;
-  action: "START" | "COMMAND" | "STOP" | "COMPLETE" | "FAILED";
+  action: "START" | "COMMAND" | "STOP" | "COMPLETE" | "FAILED" | "VERIFY";
   holdId: string;
   controller: "ems" | "bms";
   arrayNumber: number;
@@ -83,4 +135,5 @@ export interface FanControlAuditRecord {
   rejectionReason?: string | null;
   operator?: string;
   auditId: string;
+  targetId?: string;
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Sliders,
   AlertTriangle,
@@ -13,8 +13,17 @@ import {
   Flame,
   Gauge,
   Activity,
-  History
+  History,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Search,
+  Filter,
+  Check
 } from "lucide-react";
+import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
 interface Capabilities {
   turtleFanEndpointSupported: boolean;
@@ -22,6 +31,29 @@ interface Capabilities {
   holdSchedulerSupported: boolean;
   controllers: string[];
   message: string;
+}
+
+interface FanCommandTarget {
+  controller: "ems" | "bms";
+  arrayNumber: number;
+  stringNumber: number;
+  energySegmentNumber?: number;
+}
+
+interface FanCommandTargetStatus {
+  targetId: string;
+  controller: "ems" | "bms";
+  arrayNumber: number;
+  stringNumber: number;
+  energySegmentNumber: number | null;
+  label: string;
+  lastCommandAt: string | null;
+  lastCommandOk: boolean;
+  lastCommandStatus: number | null;
+  lastCommandResponse: string | null;
+  errorCount: number;
+  consecutiveErrorCount?: number;
+  state: "RUNNING" | "STOPPED" | "FAILED";
 }
 
 interface ActiveHold {
@@ -41,14 +73,27 @@ interface ActiveHold {
   lastCommandResponse: string | null;
   errorCount: number;
   state: "RUNNING" | "ENDING" | "STOPPED" | "FAILED";
+  targets: FanCommandTargetStatus[];
 }
 
-interface TelemetryRow {
-  arrayIndex: number;
-  stringIndex: number;
-  fanStatusPercent: number | null;
-  fanStatusAvgRpm: number | null;
-  lastFanCommand: string | null;
+interface FanCommandVerificationRow {
+  holdId: string;
+  targetId: string;
+  controller: "ems" | "bms";
+  arrayNumber: number;
+  stringNumber: number;
+  energySegmentNumber: number | null;
+  label: string;
+  commandedSpeedPercent: number;
+  commandedState: "OFF" | "ON";
+  actualFanState?: "OFF" | "ON" | "UNKNOWN";
+  actualFanSpeedPercent?: number | null;
+  actualFanRpm?: number | null;
+  actualFanRpmByFan?: number[] | null;
+  feedbackTimestamp?: string | null;
+  telemetryAgeMs?: number | null;
+  result: "PASS" | "WARN_ZERO_RPM" | "FAIL_NO_RESPONSE" | "WARN_UNDER_COMMAND" | "WARN_OVER_COMMAND" | "FAIL_STALE_TELEMETRY" | "UNKNOWN_NO_TELEMETRY";
+  notes: string[];
 }
 
 export default function StringFanCommandHold({ active = true }: { active?: boolean }) {
@@ -57,18 +102,28 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   
   // Active Holds list
   const [activeHolds, setActiveHolds] = useState<ActiveHold[]>([]);
+  const [verificationRows, setVerificationRows] = useState<FanCommandVerificationRow[]>([]);
   const [loadingHolds, setLoadingHolds] = useState(false);
-  
-  // Strings telemetry from `/api/local/strings`
-  const [stringsTelemetry, setStringsTelemetry] = useState<TelemetryRow[]>([]);
   
   // Timer state to trigger 1-second ticks for countdowns
   const [now, setNow] = useState(Date.now());
 
   // Form State
   const [controller, setController] = useState<"ems" | "bms">("ems");
-  const [arrayNumber, setArrayNumber] = useState(1);
-  const [stringNumber, setStringNumber] = useState(1);
+  const [targetScope, setTargetScope] = useState<"site" | "arrays" | "strings" | "individual">("arrays");
+  
+  // Selection States
+  const [selectedArrays, setSelectedArrays] = useState<number[]>([1]);
+  const [stringRangeStart, setStringRangeStart] = useState<number>(1);
+  const [stringRangeEnd, setStringRangeEnd] = useState<number>(40);
+  const [individualTargets, setIndividualTargets] = useState<{ controller: "ems" | "bms"; arrayNumber: number; stringNumber: number }[]>([
+    { controller: "ems", arrayNumber: 1, stringNumber: 5 }
+  ]);
+  
+  // Helpers for adding individual target in form
+  const [indivArray, setIndivArray] = useState(1);
+  const [indivString, setIndivString] = useState(1);
+
   const [fanSpeedPercent, setFanSpeedPercent] = useState(50);
   const [durationPreset, setDurationPreset] = useState<string>("300"); // '300' is 5 min, 'custom' for custom input
   const [customDuration, setCustomDuration] = useState(300);
@@ -76,6 +131,16 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const [sendStopAtEnd, setSendStopAtEnd] = useState(true);
   const [confirmationPhrase, setConfirmationPhrase] = useState("");
   
+  // UI Expandable Holds State
+  const [expandedHolds, setExpandedHolds] = useState<Record<string, boolean>>({});
+
+  // Verification Settings & Filter
+  const [verifyFilter, setVerifyFilter] = useState<string>("ALL");
+  const [verifySearch, setVerifySearch] = useState<string>("");
+  const [verifyWarmup, setVerifyWarmup] = useState<number>(30);
+  const [verifyTolerance, setVerifyTolerance] = useState<number>(15);
+  const [verifyRequireAllRunning, setVerifyRequireAllRunning] = useState<boolean>(false);
+
   // Actions State
   const [submitting, setSubmitting] = useState(false);
   const [actionResult, setActionResult] = useState<{
@@ -93,49 +158,43 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       .catch((err) => console.error("Failed to load fan capabilities:", err));
   }, []);
 
-  // Fetch active holds
-  const fetchHolds = useCallback(async () => {
+  // Fetch active holds & verification
+  const fetchHoldsAndVerification = useCallback(async () => {
     setLoadingHolds(true);
     try {
-      const res = await fetch("/api/local/fan-control/hold/status");
+      const queryParams = new URLSearchParams({
+        warmupSeconds: String(verifyWarmup),
+        tolerancePercent: String(verifyTolerance),
+        requireAllFansRunning: String(verifyRequireAllRunning)
+      });
+      const res = await fetch(`/api/local/fan-control/hold/status?${queryParams.toString()}`);
       const data = await res.json();
-      if (data && Array.isArray(data.activeHolds)) {
-        setActiveHolds(data.activeHolds);
+      if (data) {
+        if (Array.isArray(data.activeHolds)) {
+          setActiveHolds(data.activeHolds);
+        }
+        if (Array.isArray(data.verification)) {
+          setVerificationRows(data.verification);
+        }
       }
     } catch (err) {
-      console.error("Failed to fetch active fan holds:", err);
+      console.error("Failed to fetch active fan holds and verification:", err);
     } finally {
       setLoadingHolds(false);
     }
-  }, []);
-
-  // Fetch strings telemetry for fan feedback
-  const fetchStringsTelemetry = useCallback(async () => {
-    try {
-      const res = await fetch("/api/local/strings");
-      const data = await res.json();
-      if (data && Array.isArray(data.data)) {
-        setStringsTelemetry(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch strings telemetry for fan feedback:", err);
-    }
-  }, []);
+  }, [verifyWarmup, verifyTolerance, verifyRequireAllRunning]);
 
   // Initial load and fast polling loop
   useEffect(() => {
     if (!active) return;
-    fetchHolds();
-    fetchStringsTelemetry();
+    fetchHoldsAndVerification();
 
-    // Poll holds and telemetry every 3 seconds
     const interval = setInterval(() => {
-      fetchHolds();
-      fetchStringsTelemetry();
+      fetchHoldsAndVerification();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [active, fetchHolds, fetchStringsTelemetry]);
+  }, [active, fetchHoldsAndVerification]);
 
   // Fast countdown timer loop (runs every 1 second)
   useEffect(() => {
@@ -146,7 +205,36 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     return () => clearInterval(interval);
   }, [active]);
 
-  // Helper to resolve current duration value
+  // Dynamic list of targets based on form selection
+  const resolvedTargets = useMemo((): FanCommandTarget[] => {
+    const list: FanCommandTarget[] = [];
+    if (targetScope === "site") {
+      for (let a = 1; a <= 8; a++) {
+        for (let s = 1; s <= 40; s++) {
+          list.push({ controller, arrayNumber: a, stringNumber: s });
+        }
+      }
+    } else if (targetScope === "arrays") {
+      for (const a of selectedArrays) {
+        for (let s = 1; s <= 40; s++) {
+          list.push({ controller, arrayNumber: a, stringNumber: s });
+        }
+      }
+    } else if (targetScope === "strings") {
+      const arrs = selectedArrays.length > 0 ? selectedArrays : [1, 2, 3, 4, 5, 6, 7, 8];
+      const startS = Math.min(stringRangeStart, stringRangeEnd);
+      const endS = Math.max(stringRangeStart, stringRangeEnd);
+      for (const a of arrs) {
+        for (let s = startS; s <= endS; s++) {
+          list.push({ controller, arrayNumber: a, stringNumber: s });
+        }
+      }
+    } else if (targetScope === "individual") {
+      list.push(...individualTargets.map(t => ({ ...t, controller })));
+    }
+    return list;
+  }, [targetScope, controller, selectedArrays, stringRangeStart, stringRangeEnd, individualTargets]);
+
   const getSelectedDuration = (): number => {
     if (durationPreset === "custom") {
       return customDuration;
@@ -154,10 +242,33 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     return Number(durationPreset);
   };
 
+  const handleArrayToggle = (arrNum: number) => {
+    if (selectedArrays.includes(arrNum)) {
+      setSelectedArrays(selectedArrays.filter(a => a !== arrNum));
+    } else {
+      setSelectedArrays([...selectedArrays, arrNum].sort((a, b) => a - b));
+    }
+  };
+
+  const addIndividualTarget = () => {
+    const exists = individualTargets.some(t => t.arrayNumber === indivArray && t.stringNumber === indivString);
+    if (!exists) {
+      setIndividualTargets([...individualTargets, { controller, arrayNumber: indivArray, stringNumber: indivString }]);
+    }
+  };
+
+  const removeIndividualTarget = (index: number) => {
+    setIndividualTargets(individualTargets.filter((_, i) => i !== index));
+  };
+
   // Handle Deploy Trigger
   const handleStartHold = async (e: React.FormEvent) => {
     e.preventDefault();
     if (confirmationPhrase !== "HOLD FAN SPEED") return;
+    if (resolvedTargets.length === 0) {
+      alert("Error: Resolved targets list cannot be empty.");
+      return;
+    }
 
     setSubmitting(true);
     setActionResult(null);
@@ -169,9 +280,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          controller,
-          arrayNumber,
-          stringNumber,
+          targets: resolvedTargets,
           fanSpeedPercent,
           durationSeconds: duration,
           repeatIntervalSeconds,
@@ -185,12 +294,15 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       if (res.ok && data.accepted) {
         setActionResult({
           success: true,
-          message: data.message || `Fan hold successfully scheduled on Array ${arrayNumber} String ${stringNumber}!`,
+          message: data.message || `Fan hold successfully scheduled for ${resolvedTargets.length} targets!`,
           holdId: data.holdId,
           auditId: data.auditId
         });
         setConfirmationPhrase("");
-        await fetchHolds();
+        if (data.holdId) {
+          setExpandedHolds(prev => ({ ...prev, [data.holdId]: true }));
+        }
+        await fetchHoldsAndVerification();
       } else {
         setActionResult({
           success: false,
@@ -208,20 +320,21 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
     }
   };
 
-  // Handle Stop Trigger
-  const handleStopHold = async (holdId: string, sendStop: boolean) => {
+  // Handle Stop Trigger (hold-wide or single target)
+  const handleStopHold = async (holdId: string, sendStop: boolean, targetId?: string) => {
     try {
       const res = await fetch("/api/local/fan-control/hold/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           holdId,
+          targetId,
           sendStopCommand: sendStop,
           operator: "PRIZM Dashboard Operator"
         })
       });
       if (res.ok) {
-        await fetchHolds();
+        await fetchHoldsAndVerification();
       } else {
         const errData = await res.json();
         alert(`Stop action rejected: ${errData.message}`);
@@ -235,21 +348,27 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const handleEmergencyStopAll = async () => {
     const running = activeHolds.filter((h) => h.state === "RUNNING");
     if (running.length === 0) {
-      // Just send immediate stop 0% to the selected string as an overrides helper
+      // Just send immediate stop 0% to the selected strings as an overrides helper
+      if (resolvedTargets.length === 0) {
+        alert("No active holds and no target selected to force STOP command.");
+        return;
+      }
       try {
-        const res = await fetch("/api/local/fan-control/hold/stop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            controller,
-            arrayNumber,
-            stringNumber,
-            sendStopCommand: true,
-            operator: "EMERGENCY OVERRIDE 0%"
+        const promises = resolvedTargets.map(t => 
+          fetch("/api/local/fan-control/hold/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              controller: t.controller,
+              arrayNumber: t.arrayNumber,
+              stringNumber: t.stringNumber,
+              sendStopCommand: true,
+              operator: "EMERGENCY OVERRIDE 0%"
+            })
           })
-        });
-        const data = await res.json();
-        alert(`Dispatched single manual stop command (fanSpeed: 0%) directly to Array ${arrayNumber} String ${stringNumber}.`);
+        );
+        await Promise.all(promises);
+        alert(`Dispatched manual stop command (fanSpeed: 0%) directly to ${resolvedTargets.length} targets.`);
       } catch (err) {
         console.error("EMERGENCY DIRECT OVERRIDE FAILED:", err);
       }
@@ -274,19 +393,88 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       }
     }
     alert(`Emergency Terminate: successfully stopped ${successCount} of ${running.length} active fan hold loops.`);
-    await fetchHolds();
+    await fetchHoldsAndVerification();
   };
 
-  // Helper to find observed telemetry for an array and string indices
-  const getObservedTelemetry = (arr: number, str: number) => {
-    const row = stringsTelemetry.find((t) => t.arrayIndex === arr && t.stringIndex === str);
-    if (!row) return null;
-    return {
-      statusPercent: row.fanStatusPercent,
-      avgRpm: row.fanStatusAvgRpm,
-      lastCommand: row.lastFanCommand
-    };
+  // Toggle expandable hold rows
+  const toggleHoldExpand = (holdId: string) => {
+    setExpandedHolds(prev => ({ ...prev, [holdId]: !prev[holdId] }));
   };
+
+  // Filtered Verification rows
+  const filteredVerification = useMemo(() => {
+    return verificationRows.filter((r) => {
+      // Search filter
+      if (verifySearch) {
+        const searchLower = verifySearch.toLowerCase();
+        const matchesLabel = r.label.toLowerCase().includes(searchLower);
+        const matchesResult = r.result.toLowerCase().includes(searchLower);
+        const matchesNotes = r.notes.some(n => n.toLowerCase().includes(searchLower));
+        if (!matchesLabel && !matchesResult && !matchesNotes) {
+          return false;
+        }
+      }
+
+      // Dropdown filter
+      if (verifyFilter === "ALL") return true;
+      if (verifyFilter === "PASS" && r.result === "PASS") return true;
+      if (verifyFilter === "WARN" && r.result.startsWith("WARN_")) return true;
+      if (verifyFilter === "FAIL" && r.result.startsWith("FAIL_")) return true;
+      if (verifyFilter === "UNKNOWN" && r.result === "UNKNOWN_NO_TELEMETRY") return true;
+      
+      return false;
+    });
+  }, [verificationRows, verifyFilter, verifySearch]);
+
+  // Export functions
+  const handleExportCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Status,Hold ID,Target ID,Controller,Array,ES,String,Commanded Speed,Actual State,Actual RPM,Feedback Age,Notes\r\n";
+    
+    for (const r of filteredVerification) {
+      const notesStr = r.notes.join("; ").replace(/"/g, '""');
+      const ageStr = r.telemetryAgeMs !== null && r.telemetryAgeMs !== undefined 
+        ? `${Math.round(r.telemetryAgeMs / 1000)}s` 
+        : "--";
+      csvContent += `"${r.result}","${r.holdId}","${r.targetId}","${r.controller}","${r.arrayNumber}","ES${r.energySegmentNumber ?? ""}","String ${r.stringNumber}","${r.commandedSpeedPercent}%","${r.actualFanState || ""}","${r.actualFanRpm || ""}","${ageStr}","${notesStr}"\r\n`;
+    }
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `fan_verification_report_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportJSON = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(filteredVerification, null, 2));
+    const link = document.createElement("a");
+    link.setAttribute("href", dataStr);
+    link.setAttribute("download", `fan_verification_report_${Date.now()}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Counters for Verification Summary Cards
+  const summaryCounts = useMemo(() => {
+    let total = verificationRows.length;
+    let passing = 0;
+    let warning = 0;
+    let failed = 0;
+    let unknown = 0;
+
+    for (const r of verificationRows) {
+      if (r.result === "PASS") passing++;
+      else if (r.result.startsWith("WARN_")) warning++;
+      else if (r.result.startsWith("FAIL_")) failed++;
+      else unknown++;
+    }
+
+    return { total, passing, warning, failed, unknown };
+  }, [verificationRows]);
 
   return (
     <div className="space-y-4">
@@ -297,7 +485,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
             String Fan Command Hold Tool
           </h2>
           <p className="text-[11px] text-prizm-text-muted font-mono mt-0.5">
-            Command rack extraction/stack fan speeds for an exact duration and safely bypass slower telemetry polling.
+            Command rack extraction/stack fan speeds for an exact duration across single, multiple, or site-wide string targets.
           </p>
         </div>
 
@@ -323,8 +511,8 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
         <div>
           <span className="font-bold">CRITICAL WARNING & GUIDELINES:</span>
           <p className="mt-0.5 text-[11px] text-amber-700 font-medium">
-            This tool will repeatedly command the selected string fans to the target speed until the selected duration expires or the hold is manually stopped. 
-            Ensure cell temperatures and rack pressure locks are verified before forcing custom fan duty cycles.
+            This tool repeatedly sends string fan commands to maintain duty-cycles across the selected target set. 
+            Keep confirmation phrase checks secure to prevent accidental thermal stalls or excessive negative pressure gradients.
           </p>
         </div>
       </div>
@@ -350,7 +538,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                   <button
                     type="button"
                     onClick={() => setController("ems")}
-                    className={`p-1.5 font-mono text-xs uppercase rounded border transition-all ${
+                    className={`p-1.5 font-mono text-xs uppercase rounded border transition-all cursor-pointer ${
                       controller === "ems"
                         ? "bg-prizm-primary/10 text-prizm-primary-strong border-prizm-primary/30 font-bold"
                         : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:bg-prizm-border/40"
@@ -361,7 +549,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                   <button
                     type="button"
                     onClick={() => setController("bms")}
-                    className={`p-1.5 font-mono text-xs uppercase rounded border transition-all ${
+                    className={`p-1.5 font-mono text-xs uppercase rounded border transition-all cursor-pointer ${
                       controller === "bms"
                         ? "bg-prizm-primary/10 text-prizm-primary-strong border-prizm-primary/30 font-bold"
                         : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:bg-prizm-border/40"
@@ -372,41 +560,149 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                 </div>
               </div>
 
-              {/* Grid Array & String selectors */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted mb-1">
-                    Array Number
-                  </label>
-                  <select
-                    value={arrayNumber}
-                    onChange={(e) => setArrayNumber(Number(e.target.value))}
-                    className="w-full text-xs font-mono p-1.5 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((arr) => (
-                      <option key={arr} value={arr}>
-                        A{arr} (Array {arr})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Target Scope Dropdown */}
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted mb-1">
+                  Target Deployment Scope
+                </label>
+                <select
+                  value={targetScope}
+                  onChange={(e) => setTargetScope(e.target.value as any)}
+                  className="w-full text-xs font-mono p-1.5 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
+                >
+                  <option value="site">Entire Site (320 Strings, A1-A8 S1-S40)</option>
+                  <option value="arrays">Selected Arrays (All Strings in selected Arrays)</option>
+                  <option value="strings">Specific String Range across Selected Arrays</option>
+                  <option value="individual">Custom Target Combinations List</option>
+                </select>
+              </div>
 
+              {/* Multi-Array Checkbox Grid (Array Scope) */}
+              {(targetScope === "arrays" || targetScope === "strings") && (
                 <div>
-                  <label className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted mb-1">
-                    String Number
+                  <label className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted mb-1.5">
+                    Select Arrays
                   </label>
-                  <select
-                    value={stringNumber}
-                    onChange={(e) => setStringNumber(Number(e.target.value))}
-                    className="w-full text-xs font-mono p-1.5 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
-                  >
-                    {Array.from({ length: 40 }, (_, i) => i + 1).map((str) => (
-                      <option key={str} value={str}>
-                        S{str} (String {str})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((arrNum) => {
+                      const isSelected = selectedArrays.includes(arrNum);
+                      return (
+                        <button
+                          type="button"
+                          key={arrNum}
+                          onClick={() => handleArrayToggle(arrNum)}
+                          className={`p-1.5 font-mono text-xs rounded border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                            isSelected
+                              ? "bg-prizm-primary/15 text-prizm-primary-strong border-prizm-primary/40 font-bold"
+                              : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:bg-prizm-border/40"
+                          }`}
+                        >
+                          {isSelected && <Check size={11} />}
+                          A{arrNum}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              )}
+
+              {/* String Range Selector (String Scope) */}
+              {targetScope === "strings" && (
+                <div className="space-y-2 border-t border-prizm-border/20 pt-2.5">
+                  <span className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted">
+                    String Number Range
+                  </span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-mono text-prizm-text-muted mb-0.5">FROM</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="40"
+                        value={stringRangeStart}
+                        onChange={(e) => setStringRangeStart(Math.max(1, Math.min(40, Number(e.target.value))))}
+                        className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-mono text-prizm-text-muted mb-0.5">TO</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="40"
+                        value={stringRangeEnd}
+                        onChange={(e) => setStringRangeEnd(Math.max(1, Math.min(40, Number(e.target.value))))}
+                        className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Individual Custom Target Selection */}
+              {targetScope === "individual" && (
+                <div className="space-y-2 border-t border-prizm-border/20 pt-2.5">
+                  <span className="block text-[10px] font-mono uppercase tracking-wider text-prizm-text-muted">
+                    Configure Individual Targets List
+                  </span>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-[8px] font-mono text-prizm-text-muted">ARRAY</label>
+                      <select
+                        value={indivArray}
+                        onChange={(e) => setIndivArray(Number(e.target.value))}
+                        className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(a => <option key={a} value={a}>Array {a}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-[8px] font-mono text-prizm-text-muted">STRING</label>
+                      <select
+                        value={indivString}
+                        onChange={(e) => setIndivString(Number(e.target.value))}
+                        className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
+                      >
+                        {Array.from({ length: 40 }, (_, i) => i + 1).map(s => <option key={s} value={s}>String {s}</option>)}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addIndividualTarget}
+                      className="p-1.5 bg-prizm-surface border border-prizm-border text-prizm-primary hover:bg-prizm-primary hover:text-white rounded transition-all cursor-pointer flex items-center justify-center"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+
+                  {/* List of custom targets */}
+                  <div className="border border-prizm-border bg-prizm-surface-strong/30 rounded p-2 max-h-[140px] overflow-y-auto space-y-1 divide-y divide-prizm-border/40 font-mono text-[10px]">
+                    {individualTargets.length === 0 ? (
+                      <div className="text-center text-prizm-text-muted py-2">No individual targets configured.</div>
+                    ) : (
+                      individualTargets.map((t, idx) => (
+                        <div key={idx} className="flex items-center justify-between pt-1 first:pt-0">
+                          <span>{t.controller.toUpperCase()} A{t.arrayNumber}-S{t.stringNumber} (ES{stringNumberToEnergySegment(t.stringNumber)})</span>
+                          <button
+                            type="button"
+                            onClick={() => removeIndividualTarget(idx)}
+                            className="text-prizm-danger hover:text-red-700 transition-all cursor-pointer"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* resolved targets count preview */}
+              <div className="bg-prizm-surface-strong p-2 rounded border border-prizm-border/50 text-[10px] font-mono text-prizm-text flex items-center justify-between">
+                <span>Targets Count:</span>
+                <span className="font-black text-prizm-primary bg-prizm-primary/10 px-1.5 py-0.5 rounded">
+                  {resolvedTargets.length} String{resolvedTargets.length !== 1 ? "s" : ""}
+                </span>
               </div>
 
               {/* Fan Speed Slider */}
@@ -457,7 +753,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                       onClick={() => {
                         setDurationPreset(preset.val);
                       }}
-                      className={`p-1.5 font-mono text-[10px] rounded border transition-all ${
+                      className={`p-1.5 font-mono text-[10px] rounded border transition-all cursor-pointer ${
                         durationPreset === preset.val
                           ? "bg-prizm-primary/10 text-prizm-primary-strong border-prizm-primary/40 font-bold"
                           : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:bg-prizm-border/40"
@@ -471,7 +767,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                     onClick={() => {
                       setDurationPreset("custom");
                     }}
-                    className={`col-span-3 p-1.5 font-mono text-[10px] rounded border transition-all ${
+                    className={`col-span-3 p-1.5 font-mono text-[10px] rounded border transition-all cursor-pointer ${
                       durationPreset === "custom"
                         ? "bg-prizm-primary/10 text-prizm-primary-strong border-prizm-primary/40 font-bold"
                         : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border hover:bg-prizm-border/40"
@@ -508,7 +804,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                   onChange={(e) => setRepeatIntervalSeconds(Number(e.target.value))}
                   className="w-full text-xs font-mono p-1.5 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
                 >
-                  <option value={5}>Every 5 Seconds (Extremely Slower Polling Bypass)</option>
+                  <option value={5}>Every 5 Seconds (Fast Telemetry Bypass)</option>
                   <option value={10}>Every 10 Seconds</option>
                   <option value={20}>Every 20 Seconds</option>
                   <option value={30}>Every 30 Seconds (Default Grid Balancing)</option>
@@ -548,9 +844,9 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
               <div className="space-y-2 pt-1.5">
                 <button
                   type="submit"
-                  disabled={confirmationPhrase !== "HOLD FAN SPEED" || submitting}
+                  disabled={confirmationPhrase !== "HOLD FAN SPEED" || submitting || resolvedTargets.length === 0}
                   className={`w-full font-mono text-xs font-extrabold py-2 px-4 rounded transition-all flex items-center justify-center gap-2 border uppercase cursor-pointer ${
-                    confirmationPhrase === "HOLD FAN SPEED" && !submitting
+                    confirmationPhrase === "HOLD FAN SPEED" && !submitting && resolvedTargets.length > 0
                       ? "bg-prizm-primary text-white border-prizm-primary hover:bg-prizm-primary-strong hover:border-prizm-primary-strong shadow-sm"
                       : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border opacity-50 cursor-not-allowed"
                   }`}
@@ -563,7 +859,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                   ) : (
                     <>
                       <Play size={13} />
-                      Start Fan Speed Hold
+                      Start Fan Speed Hold ({resolvedTargets.length} Targets)
                     </>
                   )}
                 </button>
@@ -617,13 +913,13 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
             <div className="bg-prizm-surface-strong px-4 py-2.5 border-b border-prizm-border flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-prizm-text flex items-center gap-2">
                 <Activity size={14} className="text-prizm-primary animate-pulse" />
-                Active Hold Loops ({activeHolds.filter(h => h.state === "RUNNING").length})
+                Active Hold Sessions ({activeHolds.filter(h => h.state === "RUNNING").length})
               </span>
               <button
                 type="button"
-                onClick={fetchHolds}
+                onClick={fetchHoldsAndVerification}
                 disabled={loadingHolds}
-                className="p-1 rounded hover:bg-prizm-border/40 text-prizm-text-muted hover:text-prizm-text transition-all"
+                className="p-1 rounded hover:bg-prizm-border/40 text-prizm-text-muted hover:text-prizm-text transition-all cursor-pointer"
               >
                 <RefreshCw size={12} className={loadingHolds ? "animate-spin" : ""} />
               </button>
@@ -637,80 +933,49 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                 </div>
               ) : (
                 activeHolds.map((hold) => {
-                  const telemetry = getObservedTelemetry(hold.arrayNumber, hold.stringNumber);
-                  
-                  // Calculate remaining seconds
+                  const isExpanded = !!expandedHolds[hold.holdId];
                   const expiresTime = new Date(hold.expiresAt).getTime();
                   const remainingSec = Math.max(0, Math.round((expiresTime - now) / 1000));
                   
-                  // Calculate next tick seconds
                   let nextTickSec = 0;
                   if (hold.nextCommandAt) {
                     nextTickSec = Math.max(0, Math.round((new Date(hold.nextCommandAt).getTime() - now) / 1000));
                   }
 
-                  // Progress percent
                   const durationTotal = Math.round((expiresTime - new Date(hold.startedAt).getTime()) / 1000);
                   const progressPct = durationTotal > 0 ? Math.min(100, Math.max(0, ((durationTotal - remainingSec) / durationTotal) * 100)) : 100;
 
                   return (
                     <div key={hold.holdId} className="p-4 space-y-3 hover:bg-prizm-surface-strong/30 transition-all">
-                      {/* Title & Badge */}
+                      {/* Session Info */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 font-mono">
                           <span className="text-xs font-bold text-prizm-text bg-prizm-surface-strong px-2 py-0.5 rounded border border-prizm-border/40">
-                            {hold.controller.toUpperCase()} RACK A{hold.arrayNumber}-S{hold.stringNumber}
+                            SESSION: {hold.targets.length} Target{hold.targets.length !== 1 ? "s" : ""} @ {hold.fanSpeedPercent}%
                           </span>
                           <span className="text-[9px] text-prizm-text-muted uppercase">ID: {hold.holdId.substring(0, 8)}</span>
                         </div>
-                        <span className={`text-[9px] uppercase font-mono px-2 py-0.5 rounded border font-extrabold ${
-                          hold.state === "RUNNING"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 animate-pulse"
-                            : hold.state === "FAILED"
-                              ? "bg-rose-50 text-rose-700 border-rose-200"
-                              : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border"
-                        }`}>
-                          {hold.state}
-                        </span>
-                      </div>
-
-                      {/* Speed Metrics Grid */}
-                      <div className="grid grid-cols-2 gap-3 bg-prizm-surface border border-prizm-border/40 p-2.5 rounded">
-                        <div className="space-y-1">
-                          <div className="text-[9px] font-mono uppercase text-prizm-text-muted flex items-center gap-1">
-                            <Gauge size={11} className="text-prizm-primary" />
-                            Command Target
-                          </div>
-                          <div className="font-mono text-sm font-black text-prizm-text">
-                            {hold.fanSpeedPercent}% <span className="text-[9px] font-normal text-prizm-text-muted">duty</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1 border-l border-prizm-border/40 pl-3">
-                          <div className="text-[9px] font-mono uppercase text-prizm-text-muted flex items-center gap-1">
-                            <Activity size={11} className="text-prizm-info" />
-                            Observed Telemetry
-                          </div>
-                          <div className="font-mono text-sm font-black text-prizm-text">
-                            {telemetry ? (
-                              <>
-                                {telemetry.statusPercent !== null ? `${telemetry.statusPercent}%` : "0%"}
-                                {telemetry.avgRpm !== null && (
-                                  <span className="text-[9px] font-bold text-prizm-info ml-1.5">
-                                    ({telemetry.avgRpm} RPM)
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-[9px] font-normal text-amber-600 block leading-tight">
-                                Telemetry not available from current source.
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[9px] uppercase font-mono px-2 py-0.5 rounded border font-extrabold ${
+                            hold.state === "RUNNING"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 animate-pulse"
+                              : hold.state === "FAILED"
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border"
+                          }`}>
+                            {hold.state}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => toggleHoldExpand(hold.holdId)}
+                            className="p-1 rounded hover:bg-prizm-border/50 text-prizm-text-muted cursor-pointer"
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
                         </div>
                       </div>
 
-                      {/* Countdown & Next Command Row */}
+                      {/* Parent Progress / Countdown */}
                       {hold.state === "RUNNING" && (
                         <div className="space-y-1.5 font-mono text-[10px]">
                           <div className="flex items-center justify-between text-prizm-text-muted">
@@ -722,7 +987,6 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                               Next Pulse: <span className="font-extrabold">{nextTickSec}s</span>
                             </span>
                           </div>
-                          {/* Duration Progress bar */}
                           <div className="w-full bg-prizm-surface-strong h-1.5 rounded-full overflow-hidden border border-prizm-border/30">
                             <div
                               className="bg-prizm-primary h-full transition-all duration-1000"
@@ -732,46 +996,68 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                         </div>
                       )}
 
-                      {/* Stats & Command Status */}
-                      <div className="grid grid-cols-3 gap-2 font-mono text-[9px] text-prizm-text-muted">
-                        <div>
-                          <span className="font-semibold text-prizm-text">Pulses Sent:</span> {hold.commandCount}
+                      {/* Parent actions */}
+                      <div className="flex justify-between items-center text-[10px] font-mono">
+                        <div className="text-prizm-text-muted">
+                          Pulses: <span className="font-bold text-prizm-text">{hold.commandCount}</span> | Errors: <span className="font-bold text-prizm-text">{hold.errorCount}</span>
                         </div>
-                        <div>
-                          <span className="font-semibold text-prizm-text">Errors:</span> {hold.errorCount}
-                        </div>
-                        <div className="text-right">
-                          <span className="font-semibold text-prizm-text">Last HTTP:</span>{" "}
-                          <span className={hold.lastCommandOk ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
-                            {hold.lastCommandStatus ? `${hold.lastCommandStatus}` : "--"}
-                          </span>
-                        </div>
+                        {hold.state === "RUNNING" && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleStopHold(hold.holdId, false)}
+                              className="px-2 py-0.5 font-mono text-[9px] uppercase border border-prizm-border bg-prizm-surface text-prizm-text hover:bg-prizm-surface-strong rounded cursor-pointer"
+                            >
+                              Stop Loop Only
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStopHold(hold.holdId, true)}
+                              className="px-2.5 py-0.5 font-mono text-[9px] uppercase bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 font-bold rounded flex items-center gap-1 cursor-pointer"
+                            >
+                              <StopCircle size={10} />
+                              Stop & Reset Fans to 0%
+                            </button>
+                          </div>
+                        )}
                       </div>
 
-                      {hold.lastCommandResponse && (
-                        <div className="p-1.5 bg-prizm-surface-strong border border-prizm-border/30 rounded font-mono text-[8px] text-prizm-text-muted overflow-x-auto whitespace-pre truncate">
-                          Response: {hold.lastCommandResponse}
-                        </div>
-                      )}
-
-                      {/* Row Action Trigger */}
-                      {hold.state === "RUNNING" && (
-                        <div className="flex justify-end gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleStopHold(hold.holdId, false)}
-                            className="px-2 py-1 font-mono text-[9px] uppercase border border-prizm-border bg-prizm-surface text-prizm-text hover:bg-prizm-surface-strong rounded cursor-pointer"
-                          >
-                            Stop Loop Only
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleStopHold(hold.holdId, true)}
-                            className="px-2.5 py-1 font-mono text-[9px] uppercase bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 font-bold rounded flex items-center gap-1 cursor-pointer"
-                          >
-                            <StopCircle size={10} />
-                            Stop & Reset Fans to 0%
-                          </button>
+                      {/* Expandable Individual Targets Status table */}
+                      {isExpanded && (
+                        <div className="border border-prizm-border/60 rounded bg-prizm-surface-strong/20 p-2 text-[10px] font-mono space-y-1.5 mt-2 transition-all">
+                          <span className="font-bold uppercase text-[9px] text-prizm-text-muted">Targeted Racks Status list</span>
+                          <div className="max-h-[220px] overflow-y-auto space-y-1 divide-y divide-prizm-border/30">
+                            {hold.targets.map((t) => (
+                              <div key={t.targetId} className="flex items-center justify-between pt-1 first:pt-0">
+                                <div className="flex flex-col">
+                                  <span className="font-bold text-prizm-text">{t.controller.toUpperCase()} {t.label}</span>
+                                  <span className="text-[8px] text-prizm-text-muted">
+                                    Last command: {t.lastCommandAt ? new Date(t.lastCommandAt).toLocaleTimeString() : "Never"} | Status: {t.lastCommandStatus ?? "--"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[8px] font-bold px-1 rounded ${
+                                    t.state === "RUNNING" 
+                                      ? "bg-emerald-100 text-emerald-800" 
+                                      : t.state === "FAILED" 
+                                        ? "bg-rose-100 text-rose-800" 
+                                        : "bg-gray-100 text-gray-800"
+                                  }`}>
+                                    {t.state}
+                                  </span>
+                                  {t.state === "RUNNING" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStopHold(hold.holdId, true, t.targetId)}
+                                      className="text-prizm-danger hover:text-red-700 font-bold text-[9px] transition-all cursor-pointer"
+                                    >
+                                      Stop Target
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -780,6 +1066,232 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 3. Command Verification Results Section */}
+      <div className="bg-prizm-surface border border-prizm-border rounded-md shadow-sm overflow-hidden mt-6">
+        <div className="bg-prizm-surface-strong px-4 py-3 border-b border-prizm-border flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-prizm-text font-mono flex items-center gap-1.5">
+              <ShieldAlert size={14} className="text-prizm-primary" />
+              Command Verification & Feedback Logs
+            </h3>
+            <p className="text-[10px] font-mono text-prizm-text-muted mt-0.5">
+              Compare commanded fan state/speed against live string report feedback values from the array.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Verify settings */}
+            <div className="flex items-center gap-1 bg-prizm-surface border border-prizm-border rounded p-1 text-[9px] font-mono">
+              <span className="text-prizm-text-muted uppercase">Warmup:</span>
+              <input
+                type="number"
+                value={verifyWarmup}
+                onChange={e => setVerifyWarmup(Number(e.target.value))}
+                className="w-10 bg-transparent text-prizm-text font-bold text-center focus:outline-none"
+              />
+              <span className="text-prizm-text-muted">s</span>
+            </div>
+
+            <div className="flex items-center gap-1 bg-prizm-surface border border-prizm-border rounded p-1 text-[9px] font-mono">
+              <span className="text-prizm-text-muted uppercase">Tol:</span>
+              <input
+                type="number"
+                value={verifyTolerance}
+                onChange={e => setVerifyTolerance(Number(e.target.value))}
+                className="w-10 bg-transparent text-prizm-text font-bold text-center focus:outline-none"
+              />
+              <span className="text-prizm-text-muted">%</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="px-2.5 py-1 text-[10px] font-mono uppercase bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+            >
+              <Download size={11} />
+              Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={handleExportJSON}
+              className="px-2.5 py-1 text-[10px] font-mono uppercase bg-prizm-surface border border-prizm-border hover:bg-prizm-surface-strong text-prizm-text rounded transition-all cursor-pointer flex items-center gap-1"
+            >
+              <Download size={11} />
+              JSON
+            </button>
+          </div>
+        </div>
+
+        {/* 4. Verification Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-prizm-border border-b border-prizm-border text-center font-mono py-2.5 bg-prizm-surface-strong/20">
+          <div className="py-1">
+            <span className="block text-[9px] text-prizm-text-muted uppercase">Targets Active</span>
+            <span className="text-base font-black text-prizm-text">{summaryCounts.total}</span>
+          </div>
+          <div className="py-1">
+            <span className="block text-[9px] text-emerald-600 uppercase">Passing (Verified)</span>
+            <span className="text-base font-black text-emerald-700">{summaryCounts.passing}</span>
+          </div>
+          <div className="py-1">
+            <span className="block text-[9px] text-amber-600 uppercase">Warnings (Deviation)</span>
+            <span className="text-base font-black text-amber-700">{summaryCounts.warning}</span>
+          </div>
+          <div className="py-1">
+            <span className="block text-[9px] text-rose-600 uppercase">Failed (No Feedback)</span>
+            <span className="text-base font-black text-rose-700">{summaryCounts.failed}</span>
+          </div>
+          <div className="py-1 col-span-2 sm:col-span-1">
+            <span className="block text-[9px] text-prizm-text-muted uppercase">Unknown/No Telemetry</span>
+            <span className="text-base font-black text-prizm-text-muted">{summaryCounts.unknown}</span>
+          </div>
+        </div>
+
+        {/* 5. Filter & Search Bar */}
+        <div className="bg-prizm-surface p-3 border-b border-prizm-border flex flex-col md:flex-row items-stretch md:items-center gap-3 font-mono text-xs">
+          {/* Status filters */}
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { label: "All", filter: "ALL" },
+              { label: "Passing", filter: "PASS" },
+              { label: "Warnings", filter: "WARN" },
+              { label: "Failed", filter: "FAIL" },
+              { label: "Unknown", filter: "UNKNOWN" }
+            ].map((f) => (
+              <button
+                type="button"
+                key={f.filter}
+                onClick={() => setVerifyFilter(f.filter)}
+                className={`px-2 py-1 border rounded text-[10px] uppercase transition-all cursor-pointer ${
+                  verifyFilter === f.filter
+                    ? "bg-prizm-primary/10 border-prizm-primary/40 text-prizm-primary font-bold shadow-xs"
+                    : "bg-prizm-surface text-prizm-text-muted border-prizm-border hover:bg-prizm-surface-strong"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 flex gap-2">
+            {/* Search Input */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-prizm-text-muted" size={13} />
+              <input
+                type="text"
+                placeholder="Search by Array, ES, String or result notes..."
+                value={verifySearch}
+                onChange={e => setVerifySearch(e.target.value)}
+                className="w-full text-xs font-mono p-1.5 pl-8 rounded border border-prizm-border bg-prizm-surface text-prizm-text placeholder:text-prizm-text-muted/30 focus:outline-none focus:border-prizm-primary"
+              />
+            </div>
+            {/* Require all running check */}
+            <label className="flex items-center gap-1.5 select-none text-[10px] text-prizm-text-muted uppercase shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={verifyRequireAllRunning}
+                onChange={e => setVerifyRequireAllRunning(e.target.checked)}
+                className="rounded text-prizm-primary focus:ring-prizm-primary h-3.5 w-3.5"
+              />
+              Strict All Fans Running
+            </label>
+          </div>
+        </div>
+
+        {/* 6. Verification Results Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left font-mono text-[10px] border-collapse">
+            <thead className="bg-prizm-surface-strong/40 border-b border-prizm-border text-prizm-text-muted uppercase tracking-wider text-[9px]">
+              <tr>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-12">Result</th>
+                <th className="p-2 border-r border-prizm-border/40">Target Label</th>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-20">Commanded</th>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-20">Actual State</th>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-24">Actual RPM / Speed</th>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-24">Telemetry Age</th>
+                <th className="p-2">Diagnostic Notes & Tolerance Checks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-prizm-border">
+              {filteredVerification.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-prizm-text-muted font-mono text-xs">
+                    No matching fan command verification feedback rows available.
+                  </td>
+                </tr>
+              ) : (
+                filteredVerification.map((r, idx) => {
+                  const resultConfig = {
+                    PASS: { color: "bg-emerald-50 text-emerald-800 border-emerald-200", label: "PASS" },
+                    WARN_ZERO_RPM: { color: "bg-amber-50 text-amber-800 border-amber-200", label: "WARN" },
+                    WARN_UNDER_COMMAND: { color: "bg-amber-50 text-amber-800 border-amber-200", label: "WARN" },
+                    WARN_OVER_COMMAND: { color: "bg-amber-50 text-amber-800 border-amber-200", label: "WARN" },
+                    FAIL_NO_RESPONSE: { color: "bg-rose-50 text-rose-800 border-rose-200", label: "FAIL" },
+                    FAIL_STALE_TELEMETRY: { color: "bg-rose-50 text-rose-800 border-rose-200", label: "FAIL" },
+                    UNKNOWN_NO_TELEMETRY: { color: "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border", label: "UNKNOWN" }
+                  }[r.result] || { color: "bg-prizm-surface-strong text-prizm-text-muted border-prizm-border", label: "UNKNOWN" };
+
+                  const ageSec = r.telemetryAgeMs !== null && r.telemetryAgeMs !== undefined
+                    ? Math.round(r.telemetryAgeMs / 1000)
+                    : null;
+
+                  return (
+                    <tr key={idx} className="hover:bg-prizm-surface-strong/20 transition-all">
+                      <td className="p-2 border-r border-prizm-border/40 text-center">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${resultConfig.color}`}>
+                          {resultConfig.label}
+                        </span>
+                      </td>
+                      <td className="p-2 border-r border-prizm-border/40 font-bold text-prizm-text">
+                        {r.controller.toUpperCase()} {r.label}
+                      </td>
+                      <td className="p-2 border-r border-prizm-border/40 text-center text-prizm-text">
+                        {r.commandedSpeedPercent}% ({r.commandedState})
+                      </td>
+                      <td className="p-2 border-r border-prizm-border/40 text-center">
+                        <span className={`px-1 rounded text-[9px] font-semibold ${
+                          r.actualFanState === "ON" 
+                            ? "bg-emerald-50 text-emerald-700" 
+                            : r.actualFanState === "OFF" 
+                              ? "bg-gray-100 text-gray-700" 
+                              : "bg-yellow-50 text-yellow-700"
+                        }`}>
+                          {r.actualFanState || "UNKNOWN"}
+                        </span>
+                      </td>
+                      <td className="p-2 border-r border-prizm-border/40 text-center font-bold text-prizm-text">
+                        {r.actualFanSpeedPercent !== null && r.actualFanSpeedPercent !== undefined 
+                          ? `${r.actualFanSpeedPercent}%` 
+                          : "--"}
+                        {r.actualFanRpm !== null && r.actualFanRpm !== undefined && (
+                          <span className="text-[9px] font-normal text-prizm-text-muted block mt-0.5">
+                            {r.actualFanRpm} RPM
+                          </span>
+                        )}
+                      </td>
+                      <td className={`p-2 border-r border-prizm-border/40 text-center font-bold ${
+                        ageSec !== null && ageSec > 60 ? "text-amber-600" : "text-prizm-text"
+                      }`}>
+                        {ageSec !== null ? `${ageSec}s ago` : "No feedback"}
+                      </td>
+                      <td className="p-2 text-prizm-text-muted text-[10px] leading-relaxed">
+                        <div className="space-y-0.5">
+                          {r.notes.map((note, nIdx) => (
+                            <div key={nIdx} className="flex items-center gap-1.5">
+                              <span className="inline-block w-1 h-1 rounded-full bg-prizm-primary shrink-0" />
+                              <span>{note}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

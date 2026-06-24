@@ -6,8 +6,13 @@ import {
   FanControlHoldResponse,
   FanControlStopRequest,
   FanControlHoldStatus,
-  FanControlAuditRecord
+  FanCommandTargetStatus,
+  FanCommandVerificationRow,
+  FanControlAuditRecord,
+  FanCommandTarget
 } from "./fanControlTypes";
+import { stringNumberToEnergySegment, formatStringEsLabel } from "../../lib/stringToEsMapper";
+import { buildNormalizedStringsData } from "../stringsDashboard";
 
 // Helper to get EMS/Turtle base URL
 function getEmsBaseUrl(): string {
@@ -24,9 +29,8 @@ function getEmsBaseUrl(): string {
 export class FanControlService {
   private static activeHolds = new Map<string, FanControlHoldStatus>();
   private static activeIntervals = new Map<string, NodeJS.Timeout>();
-  private static consecutiveErrors = new Map<string, number>();
 
-  // Maximum consecutive failures allowed before automatic abort
+  // Maximum consecutive failures allowed before target automatic abort
   private static CONSECUTIVE_ERROR_THRESHOLD = 3;
 
   static {
@@ -61,14 +65,23 @@ export class FanControlService {
     const holdId = "hold-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
     const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
 
+    // Expand targets list
+    let targets: FanCommandTarget[] = [];
+    if (req.targets && Array.isArray(req.targets) && req.targets.length > 0) {
+      targets = req.targets;
+    } else if (req.controller && req.arrayNumber && req.stringNumber) {
+      targets = [{
+        controller: req.controller,
+        arrayNumber: req.arrayNumber,
+        stringNumber: req.stringNumber,
+        energySegmentNumber: req.totalCellGroups // backward-compatible mapping if any
+      }];
+    }
+
     // 1. Validation
     let rejectionReason = "";
-    if (!req.controller || (req.controller !== "ems" && req.controller !== "bms")) {
-      rejectionReason = "controller required, ems or bms";
-    } else if (req.arrayNumber === undefined || !Number.isInteger(req.arrayNumber) || req.arrayNumber <= 0) {
-      rejectionReason = "arrayNumber required, positive integer";
-    } else if (req.stringNumber === undefined || !Number.isInteger(req.stringNumber) || req.stringNumber <= 0) {
-      rejectionReason = "stringNumber required, positive integer";
+    if (targets.length === 0) {
+      rejectionReason = "At least one target is required";
     } else if (req.fanSpeedPercent === undefined || isNaN(req.fanSpeedPercent)) {
       rejectionReason = "fanSpeedPercent required";
     } else if (req.durationSeconds === undefined || isNaN(req.durationSeconds) || req.durationSeconds < 10) {
@@ -81,16 +94,33 @@ export class FanControlService {
       rejectionReason = "repeatIntervalSeconds must be less than durationSeconds";
     } else if (!req.confirmationPhrase || req.confirmationPhrase !== "HOLD FAN SPEED") {
       rejectionReason = "confirmationPhrase must equal HOLD FAN SPEED";
+    } else {
+      // Validate each target
+      for (const t of targets) {
+        if (!t.controller || (t.controller !== "ems" && t.controller !== "bms")) {
+          rejectionReason = "Each target requires controller (ems or bms)";
+          break;
+        }
+        if (t.arrayNumber === undefined || !Number.isInteger(t.arrayNumber) || t.arrayNumber < 1 || t.arrayNumber > 8) {
+          rejectionReason = "Each target requires a valid arrayNumber (1 to 8)";
+          break;
+        }
+        if (t.stringNumber === undefined || !Number.isInteger(t.stringNumber) || t.stringNumber < 1 || t.stringNumber > 40) {
+          rejectionReason = "Each target requires a valid stringNumber (1 to 40)";
+          break;
+        }
+      }
     }
 
     if (rejectionReason) {
+      const fallbackTarget = targets[0] || { controller: "ems", arrayNumber: 0, stringNumber: 0 };
       FanControlAudit.write({
         timestamp: new Date().toISOString(),
         action: "START",
         holdId: "",
-        controller: req.controller || "ems",
-        arrayNumber: req.arrayNumber || 0,
-        stringNumber: req.stringNumber || 0,
+        controller: fallbackTarget.controller,
+        arrayNumber: fallbackTarget.arrayNumber,
+        stringNumber: fallbackTarget.stringNumber,
         fanSpeedPercent: req.fanSpeedPercent || 0,
         durationSeconds: req.durationSeconds || 0,
         repeatIntervalSeconds: req.repeatIntervalSeconds || 0,
@@ -103,9 +133,9 @@ export class FanControlService {
 
       return {
         accepted: false,
-        controller: req.controller || "ems",
-        arrayNumber: req.arrayNumber || 0,
-        stringNumber: req.stringNumber || 0,
+        controller: fallbackTarget.controller,
+        arrayNumber: fallbackTarget.arrayNumber,
+        stringNumber: fallbackTarget.stringNumber,
         fanSpeedPercent: req.fanSpeedPercent || 0,
         durationSeconds: req.durationSeconds || 0,
         repeatIntervalSeconds: req.repeatIntervalSeconds || 0,
@@ -115,24 +145,35 @@ export class FanControlService {
       };
     }
 
-    // Check if another active hold exists for the same controller/array/string
-    const duplicate = Array.from(this.activeHolds.values()).find(
-      (h) =>
-        h.state === "RUNNING" &&
-        h.controller === req.controller &&
-        h.arrayNumber === req.arrayNumber &&
-        h.stringNumber === req.stringNumber
-    );
+    // Check overlaps with other RUNNING holds
+    let overlappingTarget: FanCommandTarget | null = null;
+    for (const h of this.activeHolds.values()) {
+      if (h.state !== "RUNNING") continue;
+      for (const t of targets) {
+        const foundOverlap = h.targets.find(
+          (ht) =>
+            ht.state === "RUNNING" &&
+            ht.controller === t.controller &&
+            ht.arrayNumber === t.arrayNumber &&
+            ht.stringNumber === t.stringNumber
+        );
+        if (foundOverlap) {
+          overlappingTarget = t;
+          break;
+        }
+      }
+      if (overlappingTarget) break;
+    }
 
-    if (duplicate) {
-      const dupReason = `Another active hold (${duplicate.holdId}) exists for controller ${req.controller}, Array ${req.arrayNumber}, String ${req.stringNumber}`;
+    if (overlappingTarget) {
+      const dupReason = `Overlapping target already has an active hold: controller ${overlappingTarget.controller}, Array ${overlappingTarget.arrayNumber}, String ${overlappingTarget.stringNumber}`;
       FanControlAudit.write({
         timestamp: new Date().toISOString(),
         action: "START",
         holdId: "",
-        controller: req.controller,
-        arrayNumber: req.arrayNumber,
-        stringNumber: req.stringNumber,
+        controller: overlappingTarget.controller,
+        arrayNumber: overlappingTarget.arrayNumber,
+        stringNumber: overlappingTarget.stringNumber,
         fanSpeedPercent: req.fanSpeedPercent,
         durationSeconds: req.durationSeconds,
         repeatIntervalSeconds: req.repeatIntervalSeconds,
@@ -145,9 +186,9 @@ export class FanControlService {
 
       return {
         accepted: false,
-        controller: req.controller,
-        arrayNumber: req.arrayNumber,
-        stringNumber: req.stringNumber,
+        controller: overlappingTarget.controller,
+        arrayNumber: overlappingTarget.arrayNumber,
+        stringNumber: overlappingTarget.stringNumber,
         fanSpeedPercent: req.fanSpeedPercent,
         durationSeconds: req.durationSeconds,
         repeatIntervalSeconds: req.repeatIntervalSeconds,
@@ -159,16 +200,45 @@ export class FanControlService {
 
     // Clamp and round fanSpeedPercent to nearest 5
     const clampedSpeed = Math.max(0, Math.min(100, Math.round(req.fanSpeedPercent / 5) * 5));
-
     const startedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + req.durationSeconds * 1000).toISOString();
     const nextCommandAt = new Date(Date.now() + req.repeatIntervalSeconds * 1000).toISOString();
 
+    // Map targets to target statuses
+    const targetStatuses: FanCommandTargetStatus[] = targets.map((t) => {
+      const tId = `${holdId}-A${t.arrayNumber}-S${t.stringNumber}`;
+      const esNum = t.energySegmentNumber ?? stringNumberToEnergySegment(t.stringNumber);
+      const label = formatStringEsLabel({
+        blockIndex: 1,
+        arrayNumber: t.arrayNumber,
+        stringNumber: t.stringNumber,
+        energySegmentNumber: esNum ?? undefined,
+        compact: true
+      });
+
+      return {
+        targetId: tId,
+        controller: t.controller,
+        arrayNumber: t.arrayNumber,
+        stringNumber: t.stringNumber,
+        energySegmentNumber: esNum,
+        label,
+        lastCommandAt: null,
+        lastCommandOk: false,
+        lastCommandStatus: null,
+        lastCommandResponse: null,
+        errorCount: 0,
+        consecutiveErrorCount: 0,
+        state: "RUNNING"
+      };
+    });
+
+    const primary = targetStatuses[0];
     const initialStatus: FanControlHoldStatus = {
       holdId,
-      controller: req.controller,
-      arrayNumber: req.arrayNumber,
-      stringNumber: req.stringNumber,
+      controller: primary.controller,
+      arrayNumber: primary.arrayNumber,
+      stringNumber: primary.stringNumber,
       fanSpeedPercent: clampedSpeed,
       startedAt,
       expiresAt,
@@ -180,51 +250,50 @@ export class FanControlService {
       lastCommandStatus: null,
       lastCommandResponse: null,
       errorCount: 0,
-      state: "RUNNING"
+      state: "RUNNING",
+      targets: targetStatuses
     };
 
     this.activeHolds.set(holdId, initialStatus);
-    this.consecutiveErrors.set(holdId, 0);
 
-    // 2. Immediately send the first fan command
-    const firstResult = await this.sendFanCommand(
-      req.controller,
-      req.arrayNumber,
-      req.stringNumber,
-      clampedSpeed
-    );
-
-    const nowStr = new Date().toISOString();
-    initialStatus.lastCommandAt = nowStr;
-    initialStatus.commandCount = 1;
-    initialStatus.lastCommandOk = firstResult.ok;
-    initialStatus.lastCommandStatus = firstResult.status;
-    initialStatus.lastCommandResponse = firstResult.response;
-
-    if (!firstResult.ok) {
-      initialStatus.errorCount = 1;
-      this.consecutiveErrors.set(holdId, 1);
-    }
-
-    // Log the START action
+    // Log the START actions
     FanControlAudit.write({
-      timestamp: nowStr,
+      timestamp: startedAt,
       action: "START",
       holdId,
-      controller: req.controller,
-      arrayNumber: req.arrayNumber,
-      stringNumber: req.stringNumber,
+      controller: primary.controller,
+      arrayNumber: primary.arrayNumber,
+      stringNumber: primary.stringNumber,
       fanSpeedPercent: clampedSpeed,
       durationSeconds: req.durationSeconds,
       repeatIntervalSeconds: req.repeatIntervalSeconds,
       sendStopAtEnd: !!req.sendStopAtEnd,
-      commandUrl: firstResult.url,
-      httpStatus: firstResult.status,
-      responseText: firstResult.response ? firstResult.response.substring(0, 200) : null,
       accepted: true,
       operator: req.operator || "PRIZM Operator",
       auditId
     });
+
+    for (const t of targetStatuses) {
+      FanControlAudit.write({
+        timestamp: startedAt,
+        action: "START",
+        holdId,
+        controller: t.controller,
+        arrayNumber: t.arrayNumber,
+        stringNumber: t.stringNumber,
+        fanSpeedPercent: clampedSpeed,
+        durationSeconds: req.durationSeconds,
+        repeatIntervalSeconds: req.repeatIntervalSeconds,
+        sendStopAtEnd: !!req.sendStopAtEnd,
+        accepted: true,
+        operator: req.operator || "PRIZM Operator",
+        auditId,
+        targetId: t.targetId
+      });
+    }
+
+    // 2. Immediately send first command to all targets
+    await this.dispatchCommands(holdId, clampedSpeed, req.operator);
 
     // 3. Set up the scheduler interval
     const intervalId = setInterval(async () => {
@@ -236,9 +305,9 @@ export class FanControlService {
     return {
       accepted: true,
       holdId,
-      controller: req.controller,
-      arrayNumber: req.arrayNumber,
-      stringNumber: req.stringNumber,
+      controller: primary.controller,
+      arrayNumber: primary.arrayNumber,
+      stringNumber: primary.stringNumber,
       fanSpeedPercent: clampedSpeed,
       durationSeconds: req.durationSeconds,
       repeatIntervalSeconds: req.repeatIntervalSeconds,
@@ -247,12 +316,83 @@ export class FanControlService {
       expiresAt,
       nextCommandAt,
       auditId,
-      message: "String fan command hold started successfully."
+      message: "String fan command hold started successfully for " + targets.length + " targets.",
+      targets
     };
   }
 
   public static async stopHold(req: FanControlStopRequest): Promise<{ stopped: boolean; auditId: string; message: string }> {
     const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+    
+    // Support target-specific stops
+    if (req.targetId) {
+      for (const hold of this.activeHolds.values()) {
+        const target = hold.targets.find(t => t.targetId === req.targetId);
+        if (target && target.state === "RUNNING") {
+          target.state = "STOPPED";
+          
+          let stopCmdUrl = "";
+          let stopHttpStatus: number | null = null;
+          let stopResponseText: string | null = null;
+
+          if (req.sendStopCommand ?? true) {
+            const stopResult = await this.sendFanCommand(
+              target.controller,
+              target.arrayNumber,
+              target.stringNumber,
+              0
+            );
+            stopCmdUrl = stopResult.url;
+            stopHttpStatus = stopResult.status;
+            stopResponseText = stopResult.response;
+          }
+
+          FanControlAudit.write({
+            timestamp: new Date().toISOString(),
+            action: "STOP",
+            holdId: hold.holdId,
+            controller: target.controller,
+            arrayNumber: target.arrayNumber,
+            stringNumber: target.stringNumber,
+            fanSpeedPercent: hold.fanSpeedPercent,
+            durationSeconds: 0,
+            repeatIntervalSeconds: hold.repeatIntervalSeconds,
+            sendStopAtEnd: false,
+            commandUrl: stopCmdUrl || undefined,
+            httpStatus: stopHttpStatus,
+            responseText: stopResponseText ? stopResponseText.substring(0, 200) : null,
+            accepted: true,
+            operator: req.operator || "PRIZM Operator",
+            auditId,
+            targetId: target.targetId
+          });
+
+          // If all targets stopped/failed, stop parent hold session
+          const allInactive = hold.targets.every(t => t.state !== "RUNNING");
+          if (allInactive) {
+            hold.state = "STOPPED";
+            hold.nextCommandAt = null;
+            const interval = this.activeIntervals.get(hold.holdId);
+            if (interval) {
+              clearInterval(interval);
+              this.activeIntervals.delete(hold.holdId);
+            }
+          }
+
+          return {
+            stopped: true,
+            auditId,
+            message: `Target ${target.label} stopped successfully.`
+          };
+        }
+      }
+      return {
+        stopped: false,
+        auditId,
+        message: "Active target not found."
+      };
+    }
+
     let targetHold: FanControlHoldStatus | undefined;
 
     if (req.holdId) {
@@ -287,24 +427,51 @@ export class FanControlService {
     targetHold.state = "STOPPED";
     targetHold.nextCommandAt = null;
 
-    let stopCmdUrl = "";
-    let stopHttpStatus: number | null = null;
-    let stopResponseText: string | null = null;
+    // Stop all targets
+    const stopPromises = targetHold.targets.map(async (t) => {
+      if (t.state !== "RUNNING") return;
+      t.state = "STOPPED";
 
-    // Optionally send stop command (fanCtlAll/0)
-    if (req.sendStopCommand) {
-      const stopResult = await this.sendFanCommand(
-        targetHold.controller,
-        targetHold.arrayNumber,
-        targetHold.stringNumber,
-        0
-      );
-      stopCmdUrl = stopResult.url;
-      stopHttpStatus = stopResult.status;
-      stopResponseText = stopResult.response;
-    }
+      let stopCmdUrl = "";
+      let stopHttpStatus: number | null = null;
+      let stopResponseText: string | null = null;
 
-    // Log the STOP action
+      if (req.sendStopCommand ?? true) {
+        const stopResult = await this.sendFanCommand(
+          t.controller,
+          t.arrayNumber,
+          t.stringNumber,
+          0
+        );
+        stopCmdUrl = stopResult.url;
+        stopHttpStatus = stopResult.status;
+        stopResponseText = stopResult.response;
+      }
+
+      FanControlAudit.write({
+        timestamp: new Date().toISOString(),
+        action: "STOP",
+        holdId,
+        controller: t.controller,
+        arrayNumber: t.arrayNumber,
+        stringNumber: t.stringNumber,
+        fanSpeedPercent: targetHold!.fanSpeedPercent,
+        durationSeconds: 0,
+        repeatIntervalSeconds: targetHold!.repeatIntervalSeconds,
+        sendStopAtEnd: false,
+        commandUrl: stopCmdUrl || undefined,
+        httpStatus: stopHttpStatus,
+        responseText: stopResponseText ? stopResponseText.substring(0, 200) : null,
+        accepted: true,
+        operator: req.operator || "PRIZM Operator",
+        auditId,
+        targetId: t.targetId
+      });
+    });
+
+    await Promise.all(stopPromises);
+
+    // Parent stop log
     FanControlAudit.write({
       timestamp: new Date().toISOString(),
       action: "STOP",
@@ -313,12 +480,9 @@ export class FanControlService {
       arrayNumber: targetHold.arrayNumber,
       stringNumber: targetHold.stringNumber,
       fanSpeedPercent: targetHold.fanSpeedPercent,
-      durationSeconds: 0, // Not applicable for manual stop audit record duration
+      durationSeconds: 0,
       repeatIntervalSeconds: targetHold.repeatIntervalSeconds,
       sendStopAtEnd: false,
-      commandUrl: stopCmdUrl || undefined,
-      httpStatus: stopHttpStatus,
-      responseText: stopResponseText ? stopResponseText.substring(0, 200) : null,
       accepted: true,
       operator: req.operator || "PRIZM Operator",
       auditId
@@ -327,14 +491,13 @@ export class FanControlService {
     return {
       stopped: true,
       auditId,
-      message: `Hold ${holdId} stopped successfully.`
+      message: `Hold ${holdId} and its ${targetHold.targets.length} targets stopped successfully.`
     };
   }
 
   private static async tickHold(holdId: string, sendStopAtEnd: boolean, operator?: string): Promise<void> {
     const hold = this.activeHolds.get(holdId);
     if (!hold || hold.state !== "RUNNING") {
-      // Safeguard: clear interval if hold is no longer active
       const interval = this.activeIntervals.get(holdId);
       if (interval) {
         clearInterval(interval);
@@ -346,9 +509,8 @@ export class FanControlService {
     const now = Date.now();
     const expiresTime = new Date(hold.expiresAt).getTime();
 
-    // Check if hold has expired
+    // Expired?
     if (now >= expiresTime) {
-      // Natural completion
       const interval = this.activeIntervals.get(holdId);
       if (interval) {
         clearInterval(interval);
@@ -358,22 +520,51 @@ export class FanControlService {
       hold.state = "STOPPED";
       hold.nextCommandAt = null;
 
-      let stopCmdUrl = "";
-      let stopHttpStatus: number | null = null;
-      let stopResponseText: string | null = null;
+      const stopPromises = hold.targets.map(async (t) => {
+        if (t.state !== "RUNNING") return;
+        t.state = "STOPPED";
 
-      if (sendStopAtEnd) {
-        const stopResult = await this.sendFanCommand(
-          hold.controller,
-          hold.arrayNumber,
-          hold.stringNumber,
-          0
-        );
-        stopCmdUrl = stopResult.url;
-        stopHttpStatus = stopResult.status;
-        stopResponseText = stopResult.response;
-      }
+        let stopCmdUrl = "";
+        let stopHttpStatus: number | null = null;
+        let stopResponseText: string | null = null;
 
+        if (sendStopAtEnd) {
+          const stopResult = await this.sendFanCommand(
+            t.controller,
+            t.arrayNumber,
+            t.stringNumber,
+            0
+          );
+          stopCmdUrl = stopResult.url;
+          stopHttpStatus = stopResult.status;
+          stopResponseText = stopResult.response;
+        }
+
+        const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+        FanControlAudit.write({
+          timestamp: new Date().toISOString(),
+          action: "COMPLETE",
+          holdId,
+          controller: t.controller,
+          arrayNumber: t.arrayNumber,
+          stringNumber: t.stringNumber,
+          fanSpeedPercent: hold.fanSpeedPercent,
+          durationSeconds: 0,
+          repeatIntervalSeconds: hold.repeatIntervalSeconds,
+          sendStopAtEnd,
+          commandUrl: stopCmdUrl || undefined,
+          httpStatus: stopHttpStatus,
+          responseText: stopResponseText ? stopResponseText.substring(0, 200) : null,
+          accepted: true,
+          operator: operator || "PRIZM Operator",
+          auditId,
+          targetId: t.targetId
+        });
+      });
+
+      await Promise.all(stopPromises);
+
+      // Parent complete
       const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
       FanControlAudit.write({
         timestamp: new Date().toISOString(),
@@ -386,9 +577,6 @@ export class FanControlService {
         durationSeconds: 0,
         repeatIntervalSeconds: hold.repeatIntervalSeconds,
         sendStopAtEnd,
-        commandUrl: stopCmdUrl || undefined,
-        httpStatus: stopHttpStatus,
-        responseText: stopResponseText ? stopResponseText.substring(0, 200) : null,
         accepted: true,
         operator: operator || "PRIZM Operator",
         auditId
@@ -396,101 +584,310 @@ export class FanControlService {
       return;
     }
 
-    // Reissue command
-    const cmdResult = await this.sendFanCommand(
-      hold.controller,
-      hold.arrayNumber,
-      hold.stringNumber,
-      hold.fanSpeedPercent
-    );
+    // Tick commands
+    await this.dispatchCommands(holdId, hold.fanSpeedPercent, operator);
+  }
+
+  private static async dispatchCommands(holdId: string, speed: number, operator?: string): Promise<void> {
+    const hold = this.activeHolds.get(holdId);
+    if (!hold) return;
 
     const tickTime = new Date();
     hold.lastCommandAt = tickTime.toISOString();
     hold.nextCommandAt = new Date(tickTime.getTime() + hold.repeatIntervalSeconds * 1000).toISOString();
     hold.commandCount += 1;
-    hold.lastCommandOk = cmdResult.ok;
-    hold.lastCommandStatus = cmdResult.status;
-    hold.lastCommandResponse = cmdResult.response;
 
-    const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+    const promises = hold.targets.map(async (t) => {
+      if (t.state !== "RUNNING") return;
 
-    if (cmdResult.ok) {
-      this.consecutiveErrors.set(holdId, 0);
+      const cmdResult = await this.sendFanCommand(
+        t.controller,
+        t.arrayNumber,
+        t.stringNumber,
+        speed
+      );
 
-      FanControlAudit.write({
-        timestamp: tickTime.toISOString(),
-        action: "COMMAND",
-        holdId,
-        controller: hold.controller,
-        arrayNumber: hold.arrayNumber,
-        stringNumber: hold.stringNumber,
-        fanSpeedPercent: hold.fanSpeedPercent,
-        durationSeconds: 0,
-        repeatIntervalSeconds: hold.repeatIntervalSeconds,
-        sendStopAtEnd,
-        commandUrl: cmdResult.url,
-        httpStatus: cmdResult.status,
-        responseText: cmdResult.response ? cmdResult.response.substring(0, 200) : null,
-        accepted: true,
-        operator: operator || "PRIZM Operator",
-        auditId
-      });
-    } else {
-      hold.errorCount += 1;
-      const currentErrors = (this.consecutiveErrors.get(holdId) || 0) + 1;
-      this.consecutiveErrors.set(holdId, currentErrors);
+      t.lastCommandAt = tickTime.toISOString();
+      t.lastCommandOk = cmdResult.ok;
+      t.lastCommandStatus = cmdResult.status;
+      t.lastCommandResponse = cmdResult.response;
 
-      FanControlAudit.write({
-        timestamp: tickTime.toISOString(),
-        action: "COMMAND",
-        holdId,
-        controller: hold.controller,
-        arrayNumber: hold.arrayNumber,
-        stringNumber: hold.stringNumber,
-        fanSpeedPercent: hold.fanSpeedPercent,
-        durationSeconds: 0,
-        repeatIntervalSeconds: hold.repeatIntervalSeconds,
-        sendStopAtEnd,
-        commandUrl: cmdResult.url,
-        httpStatus: cmdResult.status,
-        responseText: cmdResult.response ? cmdResult.response.substring(0, 200) : null,
-        accepted: false,
-        error: `Command failed: ${cmdResult.response || "No response details"}`,
-        operator: operator || "PRIZM Operator",
-        auditId
-      });
+      const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
 
-      // Threshold check
-      if (currentErrors >= this.CONSECUTIVE_ERROR_THRESHOLD) {
-        // Abort the hold
-        const interval = this.activeIntervals.get(holdId);
-        if (interval) {
-          clearInterval(interval);
-          this.activeIntervals.delete(holdId);
-        }
-
-        hold.state = "FAILED";
-        hold.nextCommandAt = null;
-
-        const failAuditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+      if (cmdResult.ok) {
+        t.consecutiveErrorCount = 0;
         FanControlAudit.write({
-          timestamp: new Date().toISOString(),
-          action: "FAILED",
+          timestamp: tickTime.toISOString(),
+          action: "COMMAND",
           holdId,
-          controller: hold.controller,
-          arrayNumber: hold.arrayNumber,
-          stringNumber: hold.stringNumber,
-          fanSpeedPercent: hold.fanSpeedPercent,
+          controller: t.controller,
+          arrayNumber: t.arrayNumber,
+          stringNumber: t.stringNumber,
+          fanSpeedPercent: speed,
           durationSeconds: 0,
           repeatIntervalSeconds: hold.repeatIntervalSeconds,
-          sendStopAtEnd,
-          accepted: false,
-          error: `Aborted: exceeded ${this.CONSECUTIVE_ERROR_THRESHOLD} consecutive communication failures`,
+          sendStopAtEnd: true,
+          commandUrl: cmdResult.url,
+          httpStatus: cmdResult.status,
+          responseText: cmdResult.response ? cmdResult.response.substring(0, 200) : null,
+          accepted: true,
           operator: operator || "PRIZM Operator",
-          auditId: failAuditId
+          auditId,
+          targetId: t.targetId
+        });
+      } else {
+        t.errorCount += 1;
+        const currentErrors = (t.consecutiveErrorCount || 0) + 1;
+        t.consecutiveErrorCount = currentErrors;
+
+        FanControlAudit.write({
+          timestamp: tickTime.toISOString(),
+          action: "COMMAND",
+          holdId,
+          controller: t.controller,
+          arrayNumber: t.arrayNumber,
+          stringNumber: t.stringNumber,
+          fanSpeedPercent: speed,
+          durationSeconds: 0,
+          repeatIntervalSeconds: hold.repeatIntervalSeconds,
+          sendStopAtEnd: true,
+          commandUrl: cmdResult.url,
+          httpStatus: cmdResult.status,
+          responseText: cmdResult.response ? cmdResult.response.substring(0, 200) : null,
+          accepted: false,
+          error: `Command failed: ${cmdResult.response || "No response details"}`,
+          operator: operator || "PRIZM Operator",
+          auditId,
+          targetId: t.targetId
+        });
+
+        if (currentErrors >= this.CONSECUTIVE_ERROR_THRESHOLD) {
+          t.state = "FAILED";
+          const failAuditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+          FanControlAudit.write({
+            timestamp: new Date().toISOString(),
+            action: "FAILED",
+            holdId,
+            controller: t.controller,
+            arrayNumber: t.arrayNumber,
+            stringNumber: t.stringNumber,
+            fanSpeedPercent: speed,
+            durationSeconds: 0,
+            repeatIntervalSeconds: hold.repeatIntervalSeconds,
+            sendStopAtEnd: true,
+            accepted: false,
+            error: `Aborted: exceeded ${this.CONSECUTIVE_ERROR_THRESHOLD} consecutive failures`,
+            operator: operator || "PRIZM Operator",
+            auditId: failAuditId,
+            targetId: t.targetId
+          });
+        }
+      }
+    });
+
+    await Promise.all(promises);
+
+    // Sync parent properties with first target
+    const primary = hold.targets[0];
+    if (primary) {
+      hold.lastCommandOk = primary.lastCommandOk;
+      hold.lastCommandStatus = primary.lastCommandStatus;
+      hold.lastCommandResponse = primary.lastCommandResponse;
+      hold.errorCount = hold.targets.reduce((sum, t) => sum + t.errorCount, 0);
+    }
+
+    // If all targets stopped/failed, fail or stop the parent hold session too
+    const allFailed = hold.targets.every(t => t.state === "FAILED");
+    const allInactive = hold.targets.every(t => t.state !== "RUNNING");
+    if (allFailed) {
+      hold.state = "FAILED";
+      hold.nextCommandAt = null;
+    } else if (allInactive) {
+      hold.state = "STOPPED";
+      hold.nextCommandAt = null;
+    }
+  }
+
+  public static async getVerification(holdId?: string, settings?: {
+    warmupSeconds?: number;
+    tolerancePercent?: number;
+    staleTelemetryMs?: number;
+    requireAllFansRunning?: boolean;
+    rpmMinimum?: number;
+  }): Promise<FanCommandVerificationRow[]> {
+    const holdsToVerify = holdId 
+      ? [this.activeHolds.get(holdId)].filter((h): h is FanControlHoldStatus => !!h)
+      : Array.from(this.activeHolds.values()).filter(h => h.state === "RUNNING");
+
+    if (holdsToVerify.length === 0) return [];
+
+    // Fetch live string report telemetry
+    const stringsResult = await buildNormalizedStringsData(false).catch((err) => {
+      console.error("[FanControlService] Error building live strings data for verification:", err.message);
+      return null;
+    });
+
+    const liveStrings = stringsResult?.strings || [];
+    const rows: FanCommandVerificationRow[] = [];
+
+    const warmupSeconds = settings?.warmupSeconds ?? 30;
+    const tolerancePercent = settings?.tolerancePercent ?? 15;
+    const staleTelemetryMs = settings?.staleTelemetryMs ?? 120000;
+
+    for (const hold of holdsToVerify) {
+      const elapsedMs = Date.now() - new Date(hold.startedAt).getTime();
+      const isWarmingUp = elapsedMs < warmupSeconds * 1000;
+
+      for (const t of hold.targets) {
+        // Find corresponding live telemetry
+        const live = liveStrings.find(
+          (ls: any) => ls.arrayNumber === t.arrayNumber && ls.stringNumber === t.stringNumber
+        );
+
+        const commandedSpeedPercent = hold.fanSpeedPercent;
+        const commandedState = commandedSpeedPercent > 0 ? "ON" : "OFF";
+
+        if (!live) {
+          rows.push({
+            holdId: hold.holdId,
+            targetId: t.targetId,
+            controller: t.controller,
+            arrayNumber: t.arrayNumber,
+            stringNumber: t.stringNumber,
+            energySegmentNumber: t.energySegmentNumber,
+            label: t.label,
+            commandedSpeedPercent,
+            commandedState,
+            actualFanState: "UNKNOWN",
+            actualFanSpeedPercent: null,
+            actualFanRpm: null,
+            actualFanRpmByFan: null,
+            feedbackTimestamp: null,
+            telemetryAgeMs: null,
+            result: "UNKNOWN_NO_TELEMETRY",
+            notes: ["No telemetry feedback source found for this string."]
+          });
+          continue;
+        }
+
+        const actualFanSpeedPercent = live.fanStatusPercent !== undefined && live.fanStatusPercent !== null ? Number(live.fanStatusPercent) : null;
+        const actualFanRpm = live.fanStatusAvgRpm !== undefined && live.fanStatusAvgRpm !== null ? Number(live.fanStatusAvgRpm) : null;
+        const actualFanRpmByFan = Array.isArray(live.fanStatusRpmValues) ? live.fanStatusRpmValues : null;
+        const feedbackTimestamp = live.timestampUtc || live.timestamp || null;
+
+        let telemetryAgeMs: number | null = null;
+        if (feedbackTimestamp) {
+          telemetryAgeMs = Date.now() - new Date(feedbackTimestamp).getTime();
+        }
+
+        const actualFanState = actualFanSpeedPercent === null 
+          ? "UNKNOWN" 
+          : (actualFanSpeedPercent > 0 ? "ON" : "OFF");
+
+        // Stale Telemetry Check
+        if (telemetryAgeMs !== null && telemetryAgeMs > staleTelemetryMs) {
+          rows.push({
+            holdId: hold.holdId,
+            targetId: t.targetId,
+            controller: t.controller,
+            arrayNumber: t.arrayNumber,
+            stringNumber: t.stringNumber,
+            energySegmentNumber: t.energySegmentNumber,
+            label: t.label,
+            commandedSpeedPercent,
+            commandedState,
+            actualFanState,
+            actualFanSpeedPercent,
+            actualFanRpm,
+            actualFanRpmByFan,
+            feedbackTimestamp,
+            telemetryAgeMs,
+            result: "FAIL_STALE_TELEMETRY",
+            notes: [`Telemetry is stale (${Math.round(telemetryAgeMs / 1000)}s old)`]
+          });
+          continue;
+        }
+
+        let result: FanCommandVerificationRow["result"] = "PASS";
+        const notes: string[] = [];
+
+        if (commandedSpeedPercent > 0) {
+          if (actualFanSpeedPercent === null && actualFanRpm === null) {
+            result = "UNKNOWN_NO_TELEMETRY";
+            notes.push("Telemetry exists but has no fan speed / RPM readings.");
+          } else if (actualFanSpeedPercent === 0 || (actualFanRpm === 0 && (!actualFanRpmByFan || actualFanRpmByFan.every((r: any) => Number(r) === 0)))) {
+            if (isWarmingUp) {
+              result = "PASS";
+              notes.push(`Warming up (${Math.round(elapsedMs / 1000)}s elapsed of ${warmupSeconds}s warmup limit)`);
+            } else {
+              result = "WARN_ZERO_RPM";
+              notes.push("Fans report 0 RPM / 0% speed despite ON command");
+            }
+          } else if (actualFanSpeedPercent !== null) {
+            const diff = actualFanSpeedPercent - commandedSpeedPercent;
+            if (diff < -tolerancePercent) {
+              result = "WARN_UNDER_COMMAND";
+              notes.push(`Actual speed (${actualFanSpeedPercent}%) is below commanded speed (${commandedSpeedPercent}%) by ${Math.abs(diff)}% (tolerance: ${tolerancePercent}%)`);
+            } else if (diff > tolerancePercent) {
+              result = "WARN_OVER_COMMAND";
+              notes.push(`Actual speed (${actualFanSpeedPercent}%) is above commanded speed (${commandedSpeedPercent}%) by ${Math.abs(diff)}% (tolerance: ${tolerancePercent}%)`);
+            } else {
+              result = "PASS";
+              notes.push("Fan speed verified within tolerance.");
+            }
+          } else {
+            // RPM exists but no percentage, evaluate on binary
+            result = "PASS";
+            notes.push(`Verified running at ${actualFanRpm} RPM.`);
+          }
+        } else {
+          // Commanded to 0%
+          if (actualFanSpeedPercent === null || actualFanSpeedPercent === 0 || (actualFanRpm === 0 && (!actualFanRpmByFan || actualFanRpmByFan.every((r: any) => Number(r) === 0)))) {
+            result = "PASS";
+            notes.push("Fans stopped as commanded.");
+          } else {
+            if (isWarmingUp) {
+              result = "PASS";
+              notes.push("Fans stopping.");
+            } else {
+              result = "WARN_OVER_COMMAND";
+              notes.push(`Fans still spinning at ${actualFanSpeedPercent}% after stop command`);
+            }
+          }
+        }
+
+        // Configurable verify option: requireAllFansRunning
+        if (result === "PASS" && settings?.requireAllFansRunning && actualFanRpmByFan) {
+          const zeroFan = actualFanRpmByFan.some((r: any) => Number(r) === 0);
+          if (zeroFan && commandedSpeedPercent > 0) {
+            result = "WARN_ZERO_RPM";
+            notes.push("At least one individual fan is reporting 0 RPM.");
+          }
+        }
+
+        rows.push({
+          holdId: hold.holdId,
+          targetId: t.targetId,
+          controller: t.controller,
+          arrayNumber: t.arrayNumber,
+          stringNumber: t.stringNumber,
+          energySegmentNumber: t.energySegmentNumber,
+          label: t.label,
+          commandedSpeedPercent,
+          commandedState,
+          actualFanState,
+          actualFanSpeedPercent,
+          actualFanRpm,
+          actualFanRpmByFan,
+          feedbackTimestamp,
+          telemetryAgeMs,
+          result,
+          notes
         });
       }
     }
+
+    return rows;
   }
 
   private static async sendFanCommand(

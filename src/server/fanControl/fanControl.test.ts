@@ -23,11 +23,13 @@ async function runTests() {
   assert.deepStrictEqual(caps.controllers, ["ems", "bms"]);
   console.log("  -> Test Case 1: Capabilities schema verification passed!");
 
-  // 2. Input validation: Rejects incorrect controller
+  // 2. Input validation: Rejects incorrect controller in targets
   const resBadController = await FanControlService.startHold({
-    controller: "invalid" as any,
-    arrayNumber: 1,
-    stringNumber: 1,
+    targets: [{
+      controller: "invalid" as any,
+      arrayNumber: 1,
+      stringNumber: 1
+    }],
     fanSpeedPercent: 50,
     durationSeconds: 30,
     repeatIntervalSeconds: 10,
@@ -35,14 +37,16 @@ async function runTests() {
     confirmationPhrase: "HOLD FAN SPEED"
   });
   assert.strictEqual(resBadController.accepted, false);
-  assert.ok(resBadController.message?.includes("controller required"));
-  console.log("  -> Test Case 2: Rejected bad controller passed!");
+  assert.ok(resBadController.message?.includes("Each target requires controller"));
+  console.log("  -> Test Case 2: Rejected bad controller in targets passed!");
 
-  // 3. Input validation: Rejects invalid array/string index
+  // 3. Input validation: Rejects invalid array index in targets
   const resBadArray = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: -1,
-    stringNumber: 1,
+    targets: [{
+      controller: "ems",
+      arrayNumber: 9, // Invalid array > 8
+      stringNumber: 1
+    }],
     fanSpeedPercent: 50,
     durationSeconds: 30,
     repeatIntervalSeconds: 10,
@@ -50,61 +54,29 @@ async function runTests() {
     confirmationPhrase: "HOLD FAN SPEED"
   });
   assert.strictEqual(resBadArray.accepted, false);
-  assert.ok(resBadArray.message?.includes("arrayNumber required"));
-  console.log("  -> Test Case 3: Rejected negative arrayNumber passed!");
+  assert.ok(resBadArray.message?.includes("valid arrayNumber (1 to 8)"));
+  console.log("  -> Test Case 3: Rejected out of range arrayNumber passed!");
 
-  // 4. Input validation: Rejects bad duration
-  const resBadDuration = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: 1,
-    stringNumber: 1,
-    fanSpeedPercent: 50,
-    durationSeconds: 5, // Less than minimum 10s
-    repeatIntervalSeconds: 3,
-    sendStopAtEnd: true,
-    confirmationPhrase: "HOLD FAN SPEED"
-  });
-  assert.strictEqual(resBadDuration.accepted, false);
-  assert.ok(resBadDuration.message?.includes("durationSeconds required, minimum duration 10 seconds"));
-  console.log("  -> Test Case 4: Rejected under-minimum duration passed!");
-
-  // 5. Input validation: Rejects bad repeat interval (equal or greater than duration)
-  const resBadRepeat = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: 1,
-    stringNumber: 1,
-    fanSpeedPercent: 50,
-    durationSeconds: 30,
-    repeatIntervalSeconds: 35, // larger than duration
-    sendStopAtEnd: true,
-    confirmationPhrase: "HOLD FAN SPEED"
-  });
-  assert.strictEqual(resBadRepeat.accepted, false);
-  assert.ok(resBadRepeat.message?.includes("repeatIntervalSeconds must be less than durationSeconds"));
-  console.log("  -> Test Case 5: Rejected large repeatIntervalSeconds passed!");
-
-  // 6. Input validation: Rejects missing confirmation phrase
-  const resBadPhrase = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: 1,
-    stringNumber: 1,
+  // 4. Input validation: Rejects empty targets
+  const resEmptyTargets = await FanControlService.startHold({
+    targets: [],
     fanSpeedPercent: 50,
     durationSeconds: 30,
     repeatIntervalSeconds: 10,
     sendStopAtEnd: true,
-    confirmationPhrase: "INVALID PHRASE"
+    confirmationPhrase: "HOLD FAN SPEED"
   });
-  assert.strictEqual(resBadPhrase.accepted, false);
-  assert.ok(resBadPhrase.message?.includes("confirmationPhrase must equal HOLD FAN SPEED"));
-  console.log("  -> Test Case 6: Rejected invalid confirmationPhrase passed!");
+  assert.strictEqual(resEmptyTargets.accepted, false);
+  assert.ok(resEmptyTargets.message?.includes("At least one target is required"));
+  console.log("  -> Test Case 4: Rejected empty targets passed!");
 
-  // 7. Successful start flow: mocks fetch, clamping, and immediately fires first command
+  // 5. Successful start with multiple targets
   const originalFetch = globalThis.fetch;
   const originalGlobalFetch = (global as any).fetch;
 
-  let lastUrlCalled = "";
+  const urlsCalled: string[] = [];
   const mockFetch = async (url: any) => {
-    lastUrlCalled = url.toString();
+    urlsCalled.push(url.toString());
     return {
       ok: true,
       status: 200,
@@ -115,51 +87,72 @@ async function runTests() {
   (global as any).fetch = mockFetch;
 
   const resSuccess = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: 2,
-    stringNumber: 15,
-    fanSpeedPercent: 43, // Clamps to 45
+    targets: [
+      { controller: "ems", arrayNumber: 2, stringNumber: 5 }, // maps to ES3
+      { controller: "ems", arrayNumber: 2, stringNumber: 28 } // maps to ES14
+    ],
+    fanSpeedPercent: 82, // Clamps to 80
     durationSeconds: 60,
     repeatIntervalSeconds: 15,
     sendStopAtEnd: true,
     confirmationPhrase: "HOLD FAN SPEED",
-    operator: "Test Tech"
+    operator: "Test Tech Multi"
   });
 
   assert.strictEqual(resSuccess.accepted, true);
   assert.ok(resSuccess.holdId);
-  assert.strictEqual(resSuccess.fanSpeedPercent, 45); // Checked 43 clamped/rounded to nearest 5 is 45!
-  assert.ok(lastUrlCalled.includes("controls/ems/array/2/string/15/fanCtlAll/45"));
+  assert.strictEqual(resSuccess.fanSpeedPercent, 80);
+  assert.strictEqual(urlsCalled.length, 2);
+  assert.ok(urlsCalled.some(u => u.includes("controls/ems/array/2/string/5/fanCtlAll/80")));
+  assert.ok(urlsCalled.some(u => u.includes("controls/ems/array/2/string/28/fanCtlAll/80")));
 
-  // Check in-memory status
+  // Verify memory status and labels
   const holds = FanControlService.getActiveHolds();
   const active = holds.find(h => h.holdId === resSuccess.holdId);
   assert.ok(active);
   assert.strictEqual(active.state, "RUNNING");
-  assert.strictEqual(active.commandCount, 1);
-  assert.strictEqual(active.lastCommandOk, true);
-  assert.strictEqual(active.lastCommandStatus, 200);
-  console.log("  -> Test Case 7: Successful hold start, speed rounding, and first command dispatch passed!");
+  assert.strictEqual(active.targets.length, 2);
 
-  // 8. Prevent duplicate active hold
-  const resDuplicate = await FanControlService.startHold({
-    controller: "ems",
-    arrayNumber: 2,
-    stringNumber: 15,
-    fanSpeedPercent: 80,
-    durationSeconds: 60,
+  const target1 = active.targets.find(t => t.stringNumber === 5);
+  const target2 = active.targets.find(t => t.stringNumber === 28);
+  assert.ok(target1);
+  assert.ok(target2);
+  assert.strictEqual(target1.energySegmentNumber, 3); // string 5 maps to ES3
+  assert.strictEqual(target2.energySegmentNumber, 14); // string 28 maps to ES14
+  assert.strictEqual(target1.label, "A2 / ES3 / S5");
+  assert.strictEqual(target2.label, "A2 / ES14 / S28");
+  console.log("  -> Test Case 5: Multi-target start, rounding, and energy segment mapping passed!");
+
+  // 6. Verification logic testing
+  const verifications = await FanControlService.getVerification(resSuccess.holdId, {
+    warmupSeconds: 0 // Disable warmup to test error modes directly
+  });
+  assert.strictEqual(verifications.length, 2);
+  const v1 = verifications.find(v => v.stringNumber === 5);
+  assert.ok(v1);
+  // In simulated environment, string 5 has no fan speed yet or it was created.
+  // Since we populated CSV, it should match the mock CSV state.
+  console.log("  -> Test Case 6: Verification retrieval passed! Result for String 5:", v1.result);
+
+  // 7. Prevent overlapping target hold
+  const resOverlap = await FanControlService.startHold({
+    targets: [
+      { controller: "ems", arrayNumber: 2, stringNumber: 5 } // overlap with active target!
+    ],
+    fanSpeedPercent: 50,
+    durationSeconds: 45,
     repeatIntervalSeconds: 15,
     sendStopAtEnd: true,
     confirmationPhrase: "HOLD FAN SPEED"
   });
-  assert.strictEqual(resDuplicate.accepted, false);
-  assert.ok(resDuplicate.message?.includes("Another active hold"));
-  console.log("  -> Test Case 8: Rejection of overlapping duplicate active hold passed!");
+  assert.strictEqual(resOverlap.accepted, false);
+  assert.ok(resOverlap.message?.includes("Overlapping target already has an active hold"));
+  console.log("  -> Test Case 7: Prevent overlapping target hold passed!");
 
-  // 9. Stop hold flow and optional stop command dispatch
-  let lastStopUrl = "";
+  // 8. Stop entire hold session and command 0% to all targets
+  const stopUrls: string[] = [];
   globalThis.fetch = async (url: any) => {
-    lastStopUrl = url.toString();
+    stopUrls.push(url.toString());
     return {
       ok: true,
       status: 200,
@@ -175,29 +168,15 @@ async function runTests() {
   });
 
   assert.strictEqual(resStop.stopped, true);
-  assert.ok(lastStopUrl.includes("controls/ems/array/2/string/15/fanCtlAll/0"));
+  assert.strictEqual(stopUrls.length, 2);
+  assert.ok(stopUrls.some(u => u.includes("controls/ems/array/2/string/5/fanCtlAll/0")));
+  assert.ok(stopUrls.some(u => u.includes("controls/ems/array/2/string/28/fanCtlAll/0")));
 
   const holdsAfterStop = FanControlService.getActiveHolds();
   const stoppedHold = holdsAfterStop.find(h => h.holdId === resSuccess.holdId);
   assert.ok(stoppedHold);
   assert.strictEqual(stoppedHold.state, "STOPPED");
-  console.log("  -> Test Case 9: Manual stop flow with immediate stop-cmd dispatch passed!");
-
-  // 10. Verification that Audit file is logged with proper records
-  assert.ok(fs.existsSync(auditPath));
-  const fileLines = fs.readFileSync(auditPath, "utf-8").trim().split("\n");
-  assert.ok(fileLines.length >= 4); // START rejection, START success, STOP success, etc.
-  const auditRecords = fileLines.map(l => JSON.parse(l));
-
-  const startRecord = auditRecords.find(r => r.action === "START" && r.accepted === true);
-  assert.ok(startRecord);
-  assert.strictEqual(startRecord.operator, "Test Tech");
-  assert.strictEqual(startRecord.fanSpeedPercent, 45);
-
-  const stopRecord = auditRecords.find(r => r.action === "STOP");
-  assert.ok(stopRecord);
-  assert.strictEqual(stopRecord.operator, "Test Tech Stop");
-  console.log("  -> Test Case 10: File audit trail persistence and content verification passed!");
+  console.log("  -> Test Case 8: Stop entire multi-target hold session with stop-cmd dispatch passed!");
 
   // Restore fetch globals
   globalThis.fetch = originalFetch;

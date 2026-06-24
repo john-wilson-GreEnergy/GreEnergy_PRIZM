@@ -2422,14 +2422,62 @@ app.post("/api/upload-modbus-map", (req, res) => {
   }
 });
 
+const mockFanSpeeds = new Map<string, number>();
+
+app.get([
+  "/turtle/tools/controls/ems/array/:arrayId/string/:stringId/fanCtlAll/:fanSpeed",
+  "/turtle/tools/controls/bms/array/:arrayId/string/:stringId/fanCtlAll/:fanSpeed",
+  "/tools/controls/ems/array/:arrayId/string/:stringId/fanCtlAll/:fanSpeed",
+  "/tools/controls/bms/array/:arrayId/string/:stringId/fanCtlAll/:fanSpeed"
+], (req, res) => {
+  const arrayId = Number(req.params.arrayId);
+  const stringId = Number(req.params.stringId);
+  const fanSpeed = Number(req.params.fanSpeed);
+  mockFanSpeeds.set(`A${arrayId}-S${stringId}`, fanSpeed);
+  res.json({ status: "success", detail: `Fan speed set to ${fanSpeed}% on Array ${arrayId} String ${stringId}` });
+});
+
 app.get("/turtle/tools/report/ems/strings.csv", (req, res) => {
   res.setHeader("Content-Type", "text/csv");
-  let csv = "Array,String,Status,SoC\r\n";
+  let csv = "Array,String,Status,SoC,Ah,MeasuredStringVoltage,CalculatedStringVoltage,DcBusVoltage,StringCurrent,KW,MinCellGroupVoltage,MaxCellGroupVoltage,AvgCellGroupVoltage,MinCellGroupTemp,MaxCellGroupTemp,AvgCellGroupTemp,BalancingCount,BalancingMode,FanCommand,FanSetting,FanActual,LastFanCommandTime,FanHealthy,PositiveContactorClosed,NegativeContactorClosed,OutRotation,TimestampUtc,Location\r\n";
   for (let a = 1; a <= 8; a++) {
-    for (let s = 1; s <= 3; s++) {
-      const status = (a === 3 && s === 1) ? "FAULTED" : "ONLINE";
-      const soc = (a === 3 && s === 1) ? "18.4" : (40 + (a * 5) + (s * 2)).toFixed(1);
-      csv += `${a},${s},${status},${soc}\r\n`;
+    for (let s = 1; s <= 40; s++) {
+      const isFaulted = (a === 3 && s === 1);
+      const status = isFaulted ? "FAULTED" : "ONLINE";
+      const soc = isFaulted ? "18.4" : (65.5 + a * 1.5 + (s % 5) * 0.5).toFixed(1);
+      const ah = "280";
+      
+      const measV = (1280 + a * 5 + s * 0.2).toFixed(1);
+      const calcV = (1280 + a * 5 + s * 0.2 + 0.1).toFixed(1);
+      const busV = (1280 + a * 5 + s * 0.2 + 1.5).toFixed(1);
+      const current = isFaulted ? "0.0" : (12.5 + a * 0.5).toFixed(1);
+      const kw = (Number(measV) * Number(current) / 1000).toFixed(2);
+      
+      const minCellV = "3.245";
+      const maxCellV = "3.285";
+      const avgCellV = "3.265";
+      const minCellT = "24.5";
+      const maxCellT = "27.2";
+      const avgCellT = "25.8";
+      
+      const balCount = s % 7 === 0 ? "3" : "0";
+      const balMode = "Auto";
+      
+      // Look up our mock fan speed!
+      const commandedSpeed = mockFanSpeeds.get(`A${a}-S${s}`) ?? 0;
+      const fanCommand = String(commandedSpeed);
+      const fanSetting = String(commandedSpeed);
+      const fanActual = String(commandedSpeed);
+      
+      const lastFanCmdTime = new Date().toISOString();
+      const fanHealthy = "true";
+      const posContClosed = "true";
+      const negContClosed = "true";
+      const outRotation = "false";
+      const timestampUtc = new Date().toISOString();
+      const location = `A${a}-S${s}`;
+      
+      csv += `${a},${s},${status},${soc},${ah},${measV},${calcV},${busV},${current},${kw},${minCellV},${maxCellV},${avgCellV},${minCellT},${maxCellT},${avgCellT},${balCount},${balMode},${fanCommand},${fanSetting},${fanActual},${lastFanCmdTime},${fanHealthy},${posContClosed},${negContClosed},${outRotation},${timestampUtc},${location}\r\n`;
     }
   }
   res.send(csv);

@@ -36,12 +36,36 @@ router.post("/hold/stop", async (req, res) => {
 });
 
 // GET /api/local/fan-control/hold/status
-router.get("/hold/status", (req, res) => {
+router.get("/hold/status", async (req, res) => {
   try {
     const holds = FanControlService.getActiveHolds();
-    res.json({ activeHolds: holds });
+    const settings = {
+      warmupSeconds: req.query.warmupSeconds ? Number(req.query.warmupSeconds) : undefined,
+      tolerancePercent: req.query.tolerancePercent ? Number(req.query.tolerancePercent) : undefined,
+      staleTelemetryMs: req.query.staleTelemetryMs ? Number(req.query.staleTelemetryMs) : undefined,
+      requireAllFansRunning: req.query.requireAllFansRunning === "true"
+    };
+    const verification = await FanControlService.getVerification(undefined, settings);
+    res.json({ activeHolds: holds, verification });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "An unexpected error occurred during hold status query." });
+  }
+});
+
+// GET /api/local/fan-control/hold/verification
+router.get("/hold/verification", async (req, res) => {
+  try {
+    const holdId = req.query.holdId as string | undefined;
+    const settings = {
+      warmupSeconds: req.query.warmupSeconds ? Number(req.query.warmupSeconds) : undefined,
+      tolerancePercent: req.query.tolerancePercent ? Number(req.query.tolerancePercent) : undefined,
+      staleTelemetryMs: req.query.staleTelemetryMs ? Number(req.query.staleTelemetryMs) : undefined,
+      requireAllFansRunning: req.query.requireAllFansRunning === "true"
+    };
+    const verification = await FanControlService.getVerification(holdId, settings);
+    res.json({ verification });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "An unexpected error occurred during hold verification." });
   }
 });
 

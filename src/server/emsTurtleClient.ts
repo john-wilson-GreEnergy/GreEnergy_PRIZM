@@ -856,7 +856,7 @@ let lastSlowFetchTime = 0;
 
 function getSimulatedArrayReport(arrayNum: number) {
   const strings: Record<string, any> = {};
-  for (let s = 1; s <= 3; s++) {
+  for (let s = 1; s <= 40; s++) {
     const lenY = 14; 
     const totalCG = 14 * 30; 
     strings[s] = {
