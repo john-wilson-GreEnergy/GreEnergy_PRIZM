@@ -241,33 +241,56 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       alert("Please allow popups to export PDF reports.");
       return;
     }
+    
+    const rows = run.verificationResults || [];
+    const passCount = rows.filter((r: any) => r.result === "PASS").length;
+    const warnCount = rows.filter((r: any) => r.result.startsWith("WARN_")).length;
+    const failCount = rows.filter((r: any) => r.result.startsWith("FAIL_")).length;
+    const unknownCount = rows.filter((r: any) => r.result === "UNKNOWN_NO_TELEMETRY").length;
+
+    const targetsWithFans = rows.filter((r: any) => Array.isArray(r.actualFanRpmByFan) && r.actualFanRpmByFan.length > 0);
+
     const htmlContent = `
       <html>
         <head>
           <title>GreEnergy PRIZM - Fan Hold Test Report</title>
           <style>
-            body { font-family: 'Inter', system-ui, sans-serif; color: #1e293b; padding: 40px; margin: 0; }
-            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
-            .logo { font-size: 24px; font-weight: 800; color: #f59e0b; letter-spacing: -0.05em; }
-            .title { font-size: 14px; font-weight: 600; text-transform: uppercase; color: #64748b; letter-spacing: 0.1em; }
-            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px; }
-            .meta-item { border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; }
-            .meta-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
-            .meta-value { font-size: 14px; font-weight: 600; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 11px; }
-            th { background: #f8fafc; border-bottom: 1px solid #cbd5e1; padding: 10px; text-align: left; font-weight: 700; text-transform: uppercase; color: #475569; }
-            td { border-bottom: 1px solid #e2e8f0; padding: 10px; }
-            .pass { background-color: #f0fdf4; color: #166534; font-weight: 700; }
-            .warn { background-color: #fffbeb; color: #92400e; font-weight: 700; }
-            .fail { background-color: #fef2f2; color: #991b1b; font-weight: 700; }
-            .badge { padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; }
+            body { font-family: 'Inter', system-ui, sans-serif; color: #1e293b; padding: 40px; margin: 0; background: #ffffff; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #10b981; padding-bottom: 20px; margin-bottom: 30px; }
+            .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.05em; }
+            .title { font-size: 14px; font-weight: 600; text-transform: uppercase; color: #10b981; letter-spacing: 0.1em; }
+            
+            .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+            .meta-item { border: 1px solid #e2e8f0; border-top: 3px solid #10b981; padding: 12px; border-radius: 6px; background: #f8fafc; }
+            .meta-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+            .meta-value { font-size: 13px; font-weight: 600; }
+            
+            .counts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+            .count-card { border: 1px solid #e2e8f0; padding: 10px 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+            .count-card.pass { border-left: 4px solid #10b981; }
+            .count-card.warn { border-left: 4px solid #f59e0b; }
+            .count-card.fail { border-left: 4px solid #ef4444; }
+            .count-card.unknown { border-left: 4px solid #64748b; }
+            .count-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; }
+            .count-value { font-size: 18px; font-weight: 800; }
+
+            h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; color: #1e293b; margin-top: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
+            th { background: #f8fafc; border-bottom: 2px solid #cbd5e1; padding: 10px; text-align: left; font-weight: 700; text-transform: uppercase; color: #475569; }
+            td { border-bottom: 1px solid #e2e8f0; padding: 10px; vertical-align: top; }
+            
+            .badge { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; border: 1px solid currentColor; display: inline-block; text-align: center; }
+            .badge.pass { background-color: #f0fdf4; color: #166534; }
+            .badge.warn { background-color: #fffbeb; color: #b45309; }
+            .badge.fail { background-color: #fef2f2; color: #b91c1c; }
+            .badge.unknown { background-color: #f1f5f9; color: #475569; }
           </style>
         </head>
         <body>
           <div class="header">
             <div>
-              <div class="logo">GreEnergy <span style="color: #475569;">PRIZM</span></div>
-              <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Dynamic Fan Verification Audit</div>
+              <div class="logo"><span style="color: #10b981;">Gre</span><span style="color: #f59e0b;">Energy</span> <span style="color: #1e293b; font-weight: 500;">PRIZM</span></div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 4px; font-weight: 500;">Dynamic Fan Verification Audit</div>
             </div>
             <div style="text-align: right;">
               <div class="title">FAN HOLD RUN REPORT</div>
@@ -285,7 +308,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
               <div class="meta-value">${run.operator}</div>
             </div>
             <div class="meta-item">
-              <div class="meta-label">Commanded Fan Speed</div>
+              <div class="meta-label">Commanded Speed</div>
               <div class="meta-value">${run.fanSpeedPercent}%</div>
             </div>
             <div class="meta-item">
@@ -294,29 +317,70 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
             </div>
           </div>
 
+          <div class="counts-grid">
+            <div class="count-card pass">
+              <span class="count-label" style="color: #166534;">Passing</span>
+              <span class="count-value" style="color: #166534;">${passCount}</span>
+            </div>
+            <div class="count-card warn">
+              <span class="count-label" style="color: #b45309;">Warning</span>
+              <span class="count-value" style="color: #b45309;">${warnCount}</span>
+            </div>
+            <div class="count-card fail">
+              <span class="count-label" style="color: #b91c1c;">Failure</span>
+              <span class="count-value" style="color: #b91c1c;">${failCount}</span>
+            </div>
+            <div class="count-card unknown">
+              <span class="count-label" style="color: #475569;">Unknown</span>
+              <span class="count-value" style="color: #475569;">${unknownCount}</span>
+            </div>
+          </div>
+
           <h3>Verification Results Summary (${run.targetsCount} Targets)</h3>
           <table>
             <thead>
               <tr>
-                <th>Target</th>
-                <th>Commanded</th>
-                <th>Actual State</th>
-                <th>Actual speed / RPM</th>
-                <th>Telemetry Age</th>
-                <th>Result</th>
-                <th>Diagnostic Notes</th>
+                <th style="width: 15%;">Target</th>
+                <th style="width: 12%;">Commanded</th>
+                <th style="width: 12%;">Actual State</th>
+                <th style="width: 15%;">Avg Speed / RPM</th>
+                <th style="width: 20%;">Individual Fan Speeds</th>
+                <th style="width: 10%;">Result</th>
+                <th style="width: 16%;">Diagnostic Notes</th>
               </tr>
             </thead>
             <tbody>
               ${(run.verificationResults || []).map((row: any) => {
-                const badgeClass = row.result === "PASS" ? "pass" : row.result.startsWith("WARN") ? "warn" : "fail";
+                const badgeClass = row.result === "PASS" ? "pass" : row.result.startsWith("WARN") ? "warn" : row.result.startsWith("FAIL") ? "fail" : "unknown";
+                
+                const hasIndividual = Array.isArray(row.actualFanRpmByFan) && row.actualFanRpmByFan.length > 0;
+                const individualHtml = hasIndividual
+                  ? row.actualFanRpmByFan.map((rpm: number, i: number) => {
+                      const pct = Array.isArray(row.actualFanPercentByFan) && row.actualFanPercentByFan[i] !== undefined
+                        ? row.actualFanPercentByFan[i] + '%'
+                        : '--';
+                      return `<div style="white-space: nowrap;"><strong>F${i + 1}:</strong> ${rpm} RPM / ${pct}</div>`;
+                    }).join("")
+                  : `<span style="color: #94a3b8; font-style: italic;">Individual fan telemetry unavailable</span>`;
+
+                const telemetryAgeText = row.telemetryAgeMs !== null && row.telemetryAgeMs !== undefined 
+                  ? Math.round(row.telemetryAgeMs / 1000) + 's ago' 
+                  : 'No feedback';
+
                 return `
                   <tr>
                     <td><strong>${row.controller.toUpperCase()} ${row.label}</strong></td>
                     <td>${row.commandedSpeedPercent}% (${row.commandedState})</td>
                     <td>${row.actualFanState || "UNKNOWN"}</td>
-                    <td>${row.actualFanSpeedPercent !== null ? row.actualFanSpeedPercent + '%' : '--'} ${row.actualFanRpm ? '(' + row.actualFanRpm + ' RPM)' : ''}</td>
-                    <td>${row.telemetryAgeMs !== null ? Math.round(row.telemetryAgeMs / 1000) + 's ago' : 'No feedback'}</td>
+                    <td>
+                      ${row.actualFanSpeedPercent !== null ? row.actualFanSpeedPercent + '%' : '--'} 
+                      ${row.actualFanRpm ? '(' + row.actualFanRpm + ' RPM)' : ''}
+                      <div style="font-size: 9px; color: #64748b; margin-top: 4px;">Age: ${telemetryAgeText}</div>
+                    </td>
+                    <td>
+                      ${individualHtml}
+                      ${hasIndividual ? `<div style="font-size: 8px; color: #64748b; margin-top: 4px;">${row.actualFanRpmByFan.length} fan readings captured</div>` : ''}
+                    </td>
                     <td><span class="badge ${badgeClass}">${row.result}</span></td>
                     <td>${row.notes.join("; ")}</td>
                   </tr>
@@ -325,8 +389,66 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
             </tbody>
           </table>
           
-          <div style="margin-top: 50px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px;">
-            Confidential Report Generated by GreEnergy PRIZM Control System on ${new Date().toISOString()}
+          ${targetsWithFans.length > 0 ? `
+            <h3>Appendix: Target Fan Detail</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 25%;">Target</th>
+                  <th style="width: 10%;">Fan #</th>
+                  <th style="width: 15%;">RPM</th>
+                  <th style="width: 15%;">Percent</th>
+                  <th style="width: 15%;">Status</th>
+                  <th style="width: 20%;">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${targetsWithFans.map((row: any) => {
+                  return (row.actualFanRpmByFan || []).map((rpm: number, i: number) => {
+                    const pct = Array.isArray(row.actualFanPercentByFan) && row.actualFanPercentByFan[i] !== undefined
+                      ? row.actualFanPercentByFan[i] + '%'
+                      : '--';
+                    
+                    const isZero = rpm === 0;
+                    const isBelow = pct !== '--' && parseInt(pct) < row.commandedSpeedPercent - 15;
+                    const isAbove = pct !== '--' && parseInt(pct) > row.commandedSpeedPercent + 15;
+                    
+                    let statusText = "PASS";
+                    let badgeClass = "pass";
+                    let fanNote = "Within tolerance";
+                    
+                    if (isZero && row.commandedSpeedPercent > 0) {
+                      statusText = "ZERO RPM";
+                      badgeClass = "warn";
+                      fanNote = "Fan stopped";
+                    } else if (isBelow) {
+                      statusText = "UNDER SPEED";
+                      badgeClass = "warn";
+                      fanNote = `Below command by ${Math.abs(parseInt(pct) - row.commandedSpeedPercent)}%`;
+                    } else if (isAbove) {
+                      statusText = "OVER SPEED";
+                      badgeClass = "warn";
+                      fanNote = `Above command by ${Math.abs(parseInt(pct) - row.commandedSpeedPercent)}%`;
+                    }
+
+                    return `
+                      <tr>
+                        <td><strong>${row.controller.toUpperCase()} ${row.label}</strong></td>
+                        <td>Fan ${i + 1}</td>
+                        <td>${rpm} RPM</td>
+                        <td>${pct}</td>
+                        <td><span class="badge ${badgeClass}">${statusText}</span></td>
+                        <td>${fanNote}</td>
+                      </tr>
+                    `;
+                  }).join("");
+                }).join("")}
+              </tbody>
+            </table>
+          ` : ''}
+
+          <div style="margin-top: 50px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #10b981; padding-top: 20px;">
+            Generated by GreEnergy PRIZM &bull; Run ID: ${run.runId} &bull; Created: ${new Date(run.timestamp).toISOString()}
           </div>
           <script>
             window.onload = function() {
@@ -588,14 +710,25 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   // Export functions
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Status,Hold ID,Target ID,Controller,Array,ES,String,Commanded Speed,Actual State,Actual RPM,Feedback Age,Notes\r\n";
+    csvContent += "Status,Hold ID,Target ID,Controller,Array,ES,String,Commanded Speed,Actual State,Actual RPM,Feedback Age,Notes,Fan Count,Fan Rated RPM,Fan Status Avg RPM,Actual Fan RPM By Fan,Actual Fan Percent By Fan,Individual Fan Notes\r\n";
     
     for (const r of filteredVerification) {
       const notesStr = r.notes.join("; ").replace(/"/g, '""');
       const ageStr = r.telemetryAgeMs !== null && r.telemetryAgeMs !== undefined 
         ? `${Math.round(r.telemetryAgeMs / 1000)}s` 
         : "--";
-      csvContent += `"${r.result}","${r.holdId}","${r.targetId}","${r.controller}","${r.arrayNumber}","ES${r.energySegmentNumber ?? ""}","String ${r.stringNumber}","${r.commandedSpeedPercent}%","${r.actualFanState || ""}","${r.actualFanRpm || ""}","${ageStr}","${notesStr}"\r\n`;
+      
+      const fanCountVal = r.fanCount !== null && r.fanCount !== undefined ? r.fanCount : "";
+      const fanRatedRpmVal = r.fanRatedRpm !== null && r.fanRatedRpm !== undefined ? r.fanRatedRpm : "";
+      const fanStatusAvgRpmVal = r.fanStatusAvgRpm !== null && r.fanStatusAvgRpm !== undefined ? r.fanStatusAvgRpm : "";
+      const actualFanRpmByFanVal = Array.isArray(r.actualFanRpmByFan) ? r.actualFanRpmByFan.join(";") : "";
+      const actualFanPercentByFanVal = Array.isArray(r.actualFanPercentByFan) ? r.actualFanPercentByFan.join(";") : "";
+      const individualFanNotesVal = r.notes
+        .filter((note: string) => note.startsWith("Fan ") || note.toLowerCase().includes("individual"))
+        .join("; ")
+        .replace(/"/g, '""');
+
+      csvContent += `"${r.result}","${r.holdId}","${r.targetId}","${r.controller}","${r.arrayNumber}","ES${r.energySegmentNumber ?? ""}","String ${r.stringNumber}","${r.commandedSpeedPercent}%","${r.actualFanState || ""}","${r.actualFanRpm || ""}","${ageStr}","${notesStr}","${fanCountVal}","${fanRatedRpmVal}","${fanStatusAvgRpmVal}","${actualFanRpmByFanVal}","${actualFanPercentByFanVal}","${individualFanNotesVal}"\r\n`;
     }
 
     const encodedUri = encodeURI(csvContent);
@@ -1386,6 +1519,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                 <th className="p-2 border-r border-prizm-border/40 text-center w-20">Commanded</th>
                 <th className="p-2 border-r border-prizm-border/40 text-center w-20">Actual State</th>
                 <th className="p-2 border-r border-prizm-border/40 text-center w-24">Actual RPM / Speed</th>
+                <th className="p-2 border-r border-prizm-border/40 text-center w-36">Individual Fans</th>
                 <th className="p-2 border-r border-prizm-border/40 text-center w-24">Telemetry Age</th>
                 <th className="p-2">Diagnostic Notes & Tolerance Checks</th>
               </tr>
@@ -1393,7 +1527,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
             <tbody className="divide-y divide-prizm-border">
               {filteredVerification.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-prizm-text-muted font-mono text-xs">
+                  <td colSpan={8} className="p-8 text-center text-prizm-text-muted font-mono text-xs">
                     No matching fan command verification feedback rows available.
                   </td>
                 </tr>
@@ -1444,6 +1578,27 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                         {r.actualFanRpm !== null && r.actualFanRpm !== undefined && (
                           <span className="text-[9px] font-normal text-prizm-text-muted block mt-0.5">
                             {r.actualFanRpm} RPM
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-2 border-r border-prizm-border/40">
+                        {Array.isArray(r.actualFanRpmByFan) && r.actualFanRpmByFan.length > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            {r.actualFanRpmByFan.map((rpm: number, i: number) => {
+                              const pct = Array.isArray(r.actualFanPercentByFan) && r.actualFanPercentByFan[i] !== undefined
+                                ? `${r.actualFanPercentByFan[i]}%`
+                                : "--";
+                              return (
+                                <div key={i} className="flex items-center justify-between gap-2 bg-prizm-surface-strong/40 border border-prizm-border/30 rounded px-1.5 py-0.5 text-[9px] font-mono leading-none">
+                                  <span className="text-prizm-text-muted font-bold">F{i + 1}:</span>
+                                  <span className="text-prizm-text font-semibold">{rpm} RPM / {pct}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[9px] text-prizm-text-muted italic block text-center">
+                            Individual fan telemetry unavailable
                           </span>
                         )}
                       </td>

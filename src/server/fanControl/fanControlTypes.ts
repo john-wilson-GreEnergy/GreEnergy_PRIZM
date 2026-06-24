@@ -110,6 +110,11 @@ export interface FanCommandVerificationRow {
   actualFanSpeedPercent?: number | null;
   actualFanRpm?: number | null;
   actualFanRpmByFan?: number[] | null;
+  actualFanPercentByFan?: number[] | null;
+  fanCount?: number | null;
+  fanRatedRpm?: number | null;
+  fanStatusAvgRpm?: number | null;
+  fanStatusPercent?: number | null;
   feedbackTimestamp?: string | null;
   telemetryAgeMs?: number | null;
   result: "PASS" | "WARN_ZERO_RPM" | "FAIL_NO_RESPONSE" | "WARN_UNDER_COMMAND" | "WARN_OVER_COMMAND" | "FAIL_STALE_TELEMETRY" | "UNKNOWN_NO_TELEMETRY";

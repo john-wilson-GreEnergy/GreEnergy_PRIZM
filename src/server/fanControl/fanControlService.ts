@@ -774,6 +774,11 @@ export class FanControlService {
             actualFanSpeedPercent: null,
             actualFanRpm: null,
             actualFanRpmByFan: null,
+            actualFanPercentByFan: null,
+            fanCount: null,
+            fanRatedRpm: null,
+            fanStatusAvgRpm: null,
+            fanStatusPercent: null,
             feedbackTimestamp: null,
             telemetryAgeMs: null,
             result: "UNKNOWN_NO_TELEMETRY",
@@ -782,10 +787,22 @@ export class FanControlService {
           continue;
         }
 
-        const actualFanSpeedPercent = live.fanStatusPercent !== undefined && live.fanStatusPercent !== null ? Number(live.fanStatusPercent) : null;
-        const actualFanRpm = live.fanStatusAvgRpm !== undefined && live.fanStatusAvgRpm !== null ? Number(live.fanStatusAvgRpm) : null;
+        const fanRatedRpm = live.fanRatedRpm !== undefined && live.fanRatedRpm !== null ? Number(live.fanRatedRpm) : 7500;
+        const fanCount = live.fanCount !== undefined && live.fanCount !== null ? Number(live.fanCount) : null;
+        const fanStatusAvgRpm = live.fanStatusAvgRpm !== undefined && live.fanStatusAvgRpm !== null ? Number(live.fanStatusAvgRpm) : null;
+        const fanStatusPercent = live.fanStatusPercent !== undefined && live.fanStatusPercent !== null ? Number(live.fanStatusPercent) : null;
+
+        const actualFanSpeedPercent = fanStatusPercent;
+        const actualFanRpm = fanStatusAvgRpm;
         const actualFanRpmByFan = Array.isArray(live.fanStatusRpmValues) ? live.fanStatusRpmValues : null;
         const feedbackTimestamp = live.timestampUtc || live.timestamp || null;
+
+        const actualFanPercentByFan = actualFanRpmByFan
+          ? actualFanRpmByFan.map((rpm: number) => {
+              const rated = fanRatedRpm > 0 ? fanRatedRpm : 7500;
+              return Math.max(0, Math.min(100, Math.round((rpm / rated) * 100)));
+            })
+          : null;
 
         let telemetryAgeMs: number | null = null;
         if (feedbackTimestamp) {
@@ -812,6 +829,11 @@ export class FanControlService {
             actualFanSpeedPercent,
             actualFanRpm,
             actualFanRpmByFan,
+            actualFanPercentByFan,
+            fanCount,
+            fanRatedRpm,
+            fanStatusAvgRpm,
+            fanStatusPercent,
             feedbackTimestamp,
             telemetryAgeMs,
             result: "FAIL_STALE_TELEMETRY",
@@ -868,12 +890,42 @@ export class FanControlService {
           }
         }
 
-        // Configurable verify option: requireAllFansRunning
+        // Add granular individual fan analysis if telemetry is available
+        if (actualFanRpmByFan && actualFanRpmByFan.length > 0 && commandedSpeedPercent > 0) {
+          actualFanRpmByFan.forEach((rpm: number, index: number) => {
+            const fanNum = index + 1;
+            const fanPct = actualFanPercentByFan ? actualFanPercentByFan[index] : null;
+
+            if (rpm === 0) {
+              notes.push(`Fan ${fanNum} remained at 0 RPM`);
+              if (settings?.requireAllFansRunning) {
+                result = "WARN_ZERO_RPM";
+              }
+            } else if (fanPct !== null) {
+              const fanDiff = fanPct - commandedSpeedPercent;
+              if (fanDiff < -tolerancePercent) {
+                notes.push(`Fan ${fanNum} is below command by ${Math.abs(fanDiff)}%`);
+                if (result === "PASS") {
+                  result = "WARN_UNDER_COMMAND";
+                }
+              } else if (fanDiff > tolerancePercent) {
+                notes.push(`Fan ${fanNum} is above command by ${Math.abs(fanDiff)}%`);
+                if (result === "PASS") {
+                  result = "WARN_OVER_COMMAND";
+                }
+              }
+            }
+          });
+        }
+
+        // Configurable verify option: requireAllFansRunning (fallback logic)
         if (result === "PASS" && settings?.requireAllFansRunning && actualFanRpmByFan) {
           const zeroFan = actualFanRpmByFan.some((r: any) => Number(r) === 0);
           if (zeroFan && commandedSpeedPercent > 0) {
             result = "WARN_ZERO_RPM";
-            notes.push("At least one individual fan is reporting 0 RPM.");
+            if (!notes.includes("At least one individual fan is reporting 0 RPM.")) {
+              notes.push("At least one individual fan is reporting 0 RPM.");
+            }
           }
         }
 
@@ -891,6 +943,11 @@ export class FanControlService {
           actualFanSpeedPercent,
           actualFanRpm,
           actualFanRpmByFan,
+          actualFanPercentByFan,
+          fanCount,
+          fanRatedRpm,
+          fanStatusAvgRpm,
+          fanStatusPercent,
           feedbackTimestamp,
           telemetryAgeMs,
           result,
