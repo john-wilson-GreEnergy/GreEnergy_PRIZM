@@ -92,6 +92,9 @@ app.use("/api/local/site-data", siteDataRouter);
 import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 app.use("/api/local/balancer-test", balancerTestRouter);
 
+import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
+app.use("/api/local/fan-control", fanControlRouter);
+
 import debugSourceScanRouter from "./src/server/debugSourceScan";
 app.use("/api/local", debugSourceScanRouter);
 
