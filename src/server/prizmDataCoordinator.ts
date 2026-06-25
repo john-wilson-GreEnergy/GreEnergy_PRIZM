@@ -79,6 +79,59 @@ export type PrizmSiteSnapshot = {
   };
 }
 
+function countArrayDetailStrings(snapshot: any): number {
+  return (Object.values(snapshot?.normalized?.arrayDetailsByArray || {}) as any[])
+    .reduce((sum: number, arr: any) => sum + ((arr?.strings || []).length), 0);
+}
+
+function getSnapshotQuality(snapshot: any) {
+  return {
+    normalizedStrings: snapshot?.normalized?.strings?.length || 0,
+    stringSummaryRows: snapshot?.rollups?.stringSummary?.tableRows?.length || 0,
+    arraySummaryRows: snapshot?.rollups?.arraySummary?.length || 0,
+    arrayDetailStringTotal: countArrayDetailStrings(snapshot),
+    hasNormalized: !!snapshot?.normalized,
+    hasRollups: !!snapshot?.rollups,
+    hasStringSummary: !!snapshot?.rollups?.stringSummary
+  };
+}
+
+function isRenderableSnapshot(snapshot: any): boolean {
+  const q = getSnapshotQuality(snapshot);
+  return q.hasNormalized && q.hasRollups && q.hasStringSummary && q.normalizedStrings > 0;
+}
+
+function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
+  const previousQuality = getSnapshotQuality(previous);
+  const nextQuality = getSnapshotQuality(next);
+
+  if (!previous || !isRenderableSnapshot(previous)) {
+    return { degraded: false, reason: "no previous renderable snapshot", previousQuality, nextQuality };
+  }
+
+  if (!isRenderableSnapshot(next)) {
+    return { degraded: true, reason: "next snapshot is not renderable", previousQuality, nextQuality };
+  }
+
+  if (previousQuality.normalizedStrings >= 100 && nextQuality.normalizedStrings < previousQuality.normalizedStrings * 0.5) {
+    return { degraded: true, reason: "normalized string count collapsed", previousQuality, nextQuality };
+  }
+
+  if (previousQuality.stringSummaryRows >= 100 && nextQuality.stringSummaryRows < previousQuality.stringSummaryRows * 0.5) {
+    return { degraded: true, reason: "string summary rows collapsed", previousQuality, nextQuality };
+  }
+
+  if (previousQuality.arrayDetailStringTotal > 0 && nextQuality.arrayDetailStringTotal === 0) {
+    return { degraded: true, reason: "array detail strings collapsed to zero", previousQuality, nextQuality };
+  }
+
+  if (previousQuality.arraySummaryRows > 0 && nextQuality.arraySummaryRows === 0) {
+    return { degraded: true, reason: "array summary rows collapsed to zero", previousQuality, nextQuality };
+  }
+
+  return { degraded: false, reason: "snapshot accepted", previousQuality, nextQuality };
+}
+
 let centralSnapshot: PrizmSiteSnapshot | null = null;
 const coordinatorStartedAt = new Date().toISOString();
 let lastPollStartedAt: string | null = null;
@@ -618,11 +671,64 @@ async function doBackgroundPoll() {
       (newSnap.rollups as any).topologyCounts = parsed.topologyCounts || {};
       (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
 
-      centralSnapshot = newSnap;
+      let acceptSnapshot = true;
+      let rejectionReason = "";
+      if (centralSnapshot) {
+          const { degraded, reason } = isDegradedComparedToPrevious(newSnap, centralSnapshot);
+          if (degraded) {
+              acceptSnapshot = false;
+              rejectionReason = reason;
+          }
+      }
 
-      // Ensure cache layer has this info available so it doesn't need to rebuild
-      prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
-      if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('prizm-site-snapshot', centralSnapshot);
+      if (acceptSnapshot) {
+          centralSnapshot = newSnap;
+          prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
+          if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('prizm-site-snapshot', centralSnapshot);
+      } else {
+          console.warn(`[Data Coordinator] Rejected degraded snapshot. Reason: ${rejectionReason}`);
+          if (centralSnapshot) {
+              if (!centralSnapshot.liveStatus) {
+                  centralSnapshot.liveStatus = {
+                      state: "LIVE",
+                      source: "live-ems",
+                      liveAttempted: true,
+                      liveSucceeded: true,
+                      stale: true,
+                      cacheUsed: false,
+                      lastUpdated: new Date().toISOString(),
+                      ageMs: 0,
+                      warnings: [],
+                      errors: []
+                  };
+              }
+              const warnings = Array.isArray(centralSnapshot.liveStatus.warnings) ? centralSnapshot.liveStatus.warnings : [];
+              if (!warnings.includes("Latest poll from EMS was degraded. Displaying last-known-good snapshot.")) {
+                  warnings.push("Latest poll from EMS was degraded. Displaying last-known-good snapshot.");
+              }
+              centralSnapshot.liveStatus.warnings = warnings;
+              centralSnapshot.liveStatus.stale = true;
+              (centralSnapshot.liveStatus as any).lastAttemptedAt = new Date().toISOString();
+
+              if (!centralSnapshot.debug) {
+                  centralSnapshot.debug = {
+                      coordinatorStartedAt,
+                      lastPollStartedAt,
+                      lastPollFinishedAt: new Date().toISOString(),
+                      lastPollDurationMs: Date.now() - startTime,
+                      normalizedStringRowCount: 0,
+                      arraySummarySource: "native",
+                      correctiveActionsCount: 0,
+                      featherCellTempExcludedCollectionSegments: 0,
+                      errors: []
+                  };
+              }
+              (centralSnapshot.debug as any).snapshotRejected = true;
+              (centralSnapshot.debug as any).snapshotRejectionReason = rejectionReason;
+              
+              prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
+          }
+      }
       
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();

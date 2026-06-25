@@ -214,7 +214,19 @@ export default function App() {
   const [bootStatus, setBootStatus] = useState<any>(null);
   const [showConnectionConfig, setShowConnectionConfig] = useState(false);
 
-  const { isInitialLoading: siteDataLoading } = useSiteData();
+  const {
+    isInitialLoading: siteDataLoading,
+    dataQualityWarning,
+    isPollingEnabled,
+    isTerminated,
+    pausePolling,
+    resumePolling,
+    terminateConnection,
+    consecutiveFailureCount,
+    consecutiveDegradedCount,
+    lastPollAttemptedAt,
+    lastGoodSnapshotAt
+  } = useSiteData();
 
   const [warmStartState, setWarmStartState] = useState<"idle" | "running" | "complete" | "failed">("idle");
 
@@ -584,6 +596,61 @@ export default function App() {
               })()}
             </div>
 
+            {/* Polling State & Controls */}
+            <div className="hidden md:flex items-center gap-3 text-[10px] font-mono text-prizm-text-muted border-l border-prizm-border pl-4">
+              <span className="font-bold text-prizm-text-muted uppercase">POLLING:</span>
+              <div className="flex items-center gap-2">
+                {isTerminated ? (
+                  <span className="text-rose-500 font-bold flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                    TERMINATED
+                  </span>
+                ) : !isPollingEnabled ? (
+                  <span className="text-amber-500 font-bold flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                    PAUSED
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    ACTIVE
+                  </span>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div className="flex items-center gap-1.5">
+                {!isTerminated && (
+                  <>
+                    {isPollingEnabled ? (
+                      <button
+                        onClick={pausePolling}
+                        title="Pause automatic polling"
+                        className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-amber-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                      >
+                        Pause
+                      </button>
+                    ) : (
+                      <button
+                        onClick={resumePolling}
+                        title="Resume automatic polling"
+                        className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-emerald-400 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                      >
+                        Resume
+                      </button>
+                    )}
+                    <button
+                      onClick={terminateConnection}
+                      title="Terminate background polling connection permanently"
+                      className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-rose-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                    >
+                      Terminate
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
@@ -600,6 +667,72 @@ export default function App() {
           </div>
         ) : (
           <div className="animate-fade-in duration-300 h-full">
+            {/* Polling / Data Quality Status Banner */}
+            {(dataQualityWarning || !isPollingEnabled || isTerminated || consecutiveFailureCount > 0) && (
+              <div className="mb-4 p-3 rounded-lg border border-prizm-border bg-prizm-surface flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono text-[11px] text-prizm-text shadow-sm animate-fade-in">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {isTerminated ? (
+                      <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-400 font-bold border border-rose-800">
+                        CONNECTION TERMINATED
+                      </span>
+                    ) : !isPollingEnabled ? (
+                      <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-400 font-bold border border-amber-800 animate-pulse">
+                        POLLING PAUSED
+                      </span>
+                    ) : consecutiveFailureCount > 0 ? (
+                      <span className="px-2 py-0.5 rounded bg-red-950 text-red-400 font-bold border border-red-800">
+                        POLLING UNSTABLE
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-bold border border-emerald-800">
+                        LIVE REFRESH ACTIVE
+                      </span>
+                    )}
+
+                    {dataQualityWarning && (
+                      <span className="text-amber-400 font-bold flex items-center gap-1.5 animate-pulse">
+                        ⚠️ DISPLAYING LAST KNOWN GOOD SNAPSHOT
+                      </span>
+                    )}
+                  </div>
+                  
+                  {dataQualityWarning && (
+                    <p className="text-prizm-text-muted mt-1 leading-tight max-w-2xl font-sans text-xs">
+                      {dataQualityWarning}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-prizm-text-muted text-[10px] bg-black/10 p-2.5 rounded border border-prizm-border/40">
+                  <div>
+                    <span className="block text-prizm-text-muted uppercase text-[9px] font-bold">Last Attempted Poll</span>
+                    <span className="font-bold text-prizm-text font-mono">
+                      {lastPollAttemptedAt ? new Date(lastPollAttemptedAt).toLocaleTimeString() : "Never"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-prizm-text-muted uppercase text-[9px] font-bold">Last Good Snapshot</span>
+                    <span className="font-bold text-prizm-text font-mono">
+                      {lastGoodSnapshotAt ? new Date(lastGoodSnapshotAt).toLocaleTimeString() : "Never"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-prizm-text-muted uppercase text-[9px] font-bold">Consecutive Failures</span>
+                    <span className={`font-bold font-mono ${consecutiveFailureCount > 0 ? 'text-rose-400' : 'text-prizm-text'}`}>
+                      {consecutiveFailureCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-prizm-text-muted uppercase text-[9px] font-bold">Degraded Count</span>
+                    <span className={`font-bold font-mono ${consecutiveDegradedCount > 0 ? 'text-amber-400' : 'text-prizm-text'}`}>
+                      {consecutiveDegradedCount}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
               {visitedTabs.has("overview") && (
                 <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
