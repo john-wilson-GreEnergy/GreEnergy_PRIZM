@@ -46,9 +46,21 @@ function isRenderableSnapshot(snapshot: any): boolean {
   return q.hasNormalized && q.hasRollups && q.hasStringSummary && q.normalizedStrings > 0;
 }
 
+function hasArrayZeroFallback(snapshot: any): boolean {
+  const summary = snapshot?.rollups?.arraySummary || snapshot?.arrays || [];
+  if (summary.length === 1 && (summary[0]?.arrayIndex === 0 || summary[0]?.arrayNumber === 0) && (summary[0]?.stringCount || 0) >= 100) {
+    return true;
+  }
+  return false;
+}
+
 function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
   const previousQuality = getSnapshotQuality(previous);
   const nextQuality = getSnapshotQuality(next);
+
+  if (hasArrayZeroFallback(next)) {
+    return { degraded: true, reason: "Rejected synthesized Array 0 fallback; preserving last-known-good array summary.", previousQuality, nextQuality };
+  }
 
   if (!previous || !isRenderableSnapshot(previous)) {
     return { degraded: false, reason: "no previous renderable snapshot", previousQuality, nextQuality };

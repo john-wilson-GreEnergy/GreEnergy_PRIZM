@@ -1513,7 +1513,13 @@ export default function SiteOperationsDashboard({
               </div>
             ) : (
               <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
-                No Array Summary available
+                {sum?.debug?.arraySummarySynthesis?.rejectedArrayZeroFallback ? (
+                  <span className="text-amber-500 font-semibold">
+                    Array grouping is warming up or unavailable. No valid arrays (1-8) mapped.
+                  </span>
+                ) : (
+                  "No Array Summary available"
+                )}
               </div>
             )}
           </div>

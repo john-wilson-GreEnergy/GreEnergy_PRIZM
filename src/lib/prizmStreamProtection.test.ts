@@ -5,7 +5,7 @@ import { getEmsConnectionStatus } from "../server/emsTurtleClient";
 // Core quality gates replicated for unit test assertions
 // ----------------------------------------------------
 function countArrayDetailStrings(snapshot: any): number {
-  return Object.values(snapshot?.normalized?.arrayDetailsByArray || {})
+  return (Object.values(snapshot?.normalized?.arrayDetailsByArray || {}) as any[])
     .reduce((sum: number, arr: any) => sum + ((arr?.strings || []).length), 0);
 }
 

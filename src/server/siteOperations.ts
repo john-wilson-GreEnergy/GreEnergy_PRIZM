@@ -106,6 +106,86 @@ function collectEmsAppCandidates(root: any, path: string = ""): any[] {
     return results;
 }
 
+export function deriveArrayNumberFromRow(str: any): number | null {
+  const raw = str?.raw || str;
+  if (!raw) return null;
+
+  // 1. row.arrayNumber / row.ArrayNumber
+  const an = raw.arrayNumber ?? raw.ArrayNumber;
+  if (typeof an === 'number' && an >= 1 && an <= 8) return an;
+  if (typeof an === 'string') {
+    const parsed = parseInt(an, 10);
+    if (parsed >= 1 && parsed <= 8) return parsed;
+  }
+
+  // 2. row.arrayIndex, only if >= 1
+  const ai = raw.arrayIndex ?? raw.ArrayIndex ?? raw.array_index;
+  if (typeof ai === 'number' && ai >= 1 && ai <= 8) return ai;
+  if (typeof ai === 'string') {
+    const parsed = parseInt(ai, 10);
+    if (parsed >= 1 && parsed <= 8) return parsed;
+  }
+
+  // 3. row.array
+  const arr = raw.array;
+  if (typeof arr === 'number' && arr >= 1 && arr <= 8) return arr;
+  if (typeof arr === 'string') {
+    const parsed = parseInt(arr, 10);
+    if (parsed >= 1 && parsed <= 8) return parsed;
+  }
+
+  // 4. row.arr
+  const ar = raw.arr;
+  if (typeof ar === 'number' && ar >= 1 && ar <= 8) return ar;
+  if (typeof ar === 'string') {
+    const parsed = parseInt(ar, 10);
+    if (parsed >= 1 && parsed <= 8) return parsed;
+  }
+
+  // 5. parse from row.label / row.displayLabel / row.friendlyString / row.id / row.deviceName
+  const stringsToSearch: string[] = [];
+  if (str?.id) stringsToSearch.push(String(str.id));
+  if (str?.stringKey) stringsToSearch.push(String(str.stringKey));
+  if (raw.id) stringsToSearch.push(String(raw.id));
+  if (raw.label) stringsToSearch.push(String(raw.label));
+  if (raw.displayLabel) stringsToSearch.push(String(raw.displayLabel));
+  if (raw.friendlyString) stringsToSearch.push(String(raw.friendlyString));
+  if (raw.deviceName) stringsToSearch.push(String(raw.deviceName));
+
+  for (const s of stringsToSearch) {
+    if (!s) continue;
+    
+    // Pattern: BHE0020:1:1 or ES00001:1:5
+    const parts = s.split(':');
+    if (parts.length >= 3) {
+      const p2 = parseInt(parts[1], 10);
+      const p3 = parseInt(parts[2], 10);
+      if (p2 >= 1 && p2 <= 8) return p2;
+      if (p3 >= 1 && p3 <= 8) return p3;
+    }
+
+    // Pattern: A1-S1 or A5
+    const matchA = s.match(/\bA([1-8])\b/i) || s.match(/A([1-8])[-_\s]/i);
+    if (matchA) {
+      return parseInt(matchA[1], 10);
+    }
+    
+    // Pattern: Array 1 or Array5
+    const matchArray = s.match(/array\s*([1-8])\b/i);
+    if (matchArray) {
+      return parseInt(matchArray[1], 10);
+    }
+
+    // Pattern: Block 1 / Array 5 / ES3 - String 5
+    const matchBlockArray = s.match(/array\s*([1-8])/i);
+    if (matchBlockArray) {
+      return parseInt(matchBlockArray[1], 10);
+    }
+  }
+
+  return null;
+}
+
 export type NormalizedStringRow = {
   id: string;
   arrayNumber: number | null;
@@ -232,7 +312,13 @@ export function buildStringBucketSummary(stringsData: any[]) {
     const tableRows: NormalizedStringRow[] = stringsData.map(row => {
         totalStringsVal++;
 
-        const arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? row.ArrayNumber);
+        let arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? row.ArrayNumber);
+        if (arrayNumber === null || arrayNumber === 0) {
+            const derived = deriveArrayNumberFromRow({ raw: row });
+            if (derived !== null) {
+                arrayNumber = derived;
+            }
+        }
         const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber ?? row.StringNumber);
         
         // Use the unified shared classifier!
@@ -1017,12 +1103,41 @@ export async function buildSiteOperationsSummaryFromCache() {
         let arrCands = bestArrCand;
         let arraySummarySource = "native";
         let arraySummary: any[] = [];
+        let arraySummarySynthesis: any = {
+             used: false,
+             source: "native",
+             inputStringCount: stringSummary.tableRows.length,
+             derivedArrayCounts: {},
+             unknownArrayRows: 0,
+             emittedArrayCount: 0,
+             rejectedArrayZeroFallback: false,
+             warnings: []
+        };
         
         if (arrCands.length === 0 || bestScore < 10) {
              arraySummarySource = "synthesized-from-strings";
+             arraySummarySynthesis.used = true;
+             arraySummarySynthesis.source = "normalized-strings";
+
              const arraysMap = new Map<number, any>();
+             let unknownArrayRows = 0;
+             const derivedArrayCounts: Record<number, number> = {};
+
              for (const str of stringSummary.tableRows) {
-                 const arrId = str.arrayNumber ?? 0;
+                 let arrId = str.arrayNumber;
+                 if (arrId === null || arrId === 0) {
+                     const derived = deriveArrayNumberFromRow(str);
+                     if (derived !== null) {
+                         arrId = derived;
+                         str.arrayNumber = derived;
+                     } else {
+                         unknownArrayRows++;
+                         continue;
+                     }
+                 }
+
+                 derivedArrayCounts[arrId] = (derivedArrayCounts[arrId] || 0) + 1;
+
                  if (!arraysMap.has(arrId)) {
                      arraysMap.set(arrId, {
                          arrayIndex: arrId,
@@ -1039,6 +1154,10 @@ export async function buildSiteOperationsSummaryFromCache() {
                          offlineAvailableKWh: [],
                          powerkW: [],
                          currentAmp: [],
+                         minCellVoltages: [],
+                         maxCellVoltages: [],
+                         minCellTemps: [],
+                         maxCellTemps: [],
                          communicating: true
                      });
                  }
@@ -1059,18 +1178,36 @@ export async function buildSiteOperationsSummaryFromCache() {
                  } else {
                      arr.notCommunicationStringCount++;
                  }
-                 if (str.currentA !== null) arr.currentAmp.push(str.currentA);
-                 if (str.powerKw !== null && str.powerKw !== undefined) arr.powerkW.push(str.powerKw);
+                 const strAmp = str.amps ?? str.currentA;
+                 if (strAmp !== null && strAmp !== undefined) arr.currentAmp.push(strAmp);
+                 const strKw = str.kw ?? str.powerKw;
+                 if (strKw !== null && strKw !== undefined) arr.powerkW.push(strKw);
+                 if (str.minCellVoltage !== null) arr.minCellVoltages.push(str.minCellVoltage);
+                 if (str.maxCellVoltage !== null) arr.maxCellVoltages.push(str.maxCellVoltage);
+                 if (str.minCellTemperature !== null) arr.minCellTemps.push(str.minCellTemperature);
+                 if (str.maxCellTemperature !== null) arr.maxCellTemps.push(str.maxCellTemperature);
              }
              
+             arraySummarySynthesis.derivedArrayCounts = derivedArrayCounts;
+             arraySummarySynthesis.unknownArrayRows = unknownArrayRows;
+
              for (const arr of Array.from(arraysMap.values())) {
                  if (arr.notCommunicationStringCount === arr.stringCount && arr.stringCount > 0) {
                       arr.communicating = false;
                  }
                  const avgOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a,b)=>a+b, 0) / vals.length : null;
                  const sumOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a,b)=>a+b, 0) : null;
+                 const minOrNull = (vals: number[]) => vals.length > 0 ? Math.min(...vals) : null;
+                 const maxOrNull = (vals: number[]) => vals.length > 0 ? Math.max(...vals) : null;
+
+                 const arrMinV = minOrNull(arr.minCellVoltages);
+                 const arrMaxV = maxOrNull(arr.maxCellVoltages);
+                 const arrMinT = minOrNull(arr.minCellTemps);
+                 const arrMaxT = maxOrNull(arr.maxCellTemps);
+
                  arraySummary.push({
                      arrayIndex: arr.arrayIndex,
+                     arrayNumber: arr.arrayIndex,
                      communicating: arr.communicating,
                      stringCount: arr.stringCount,
                      onlineStringCount: arr.onlineStringCount,
@@ -1085,17 +1222,43 @@ export async function buildSiteOperationsSummaryFromCache() {
                      offlineAvailableKWh: sumOrNull(arr.offlineAvailableKWh),
                      powerkW: sumOrNull(arr.powerkW),
                      currentAmp: sumOrNull(arr.currentAmp),
+                     measuredMinCellVoltage: arrMinV,
+                     measuredMaxCellVoltage: arrMaxV,
+                     cellVoltageDelta: (arrMaxV !== null && arrMinV !== null) ? Number((arrMaxV - arrMinV).toFixed(3)) : null,
+                     measuredMinCellTemperature: arrMinT,
+                     measuredMaxCellTemperature: arrMaxT,
+                     cellTemperatureDelta: (arrMaxT !== null && arrMinT !== null) ? Number((arrMaxT - arrMinT).toFixed(1)) : null,
                      friendlyString: 'Array ' + arr.arrayIndex,
-                     sourcePath: 'synthesized',
+                     sourcePath: 'synthesized-from-normalized-strings',
                      raw: arr
                  });
              }
+
+             if (arraySummary.length === 1 && arraySummary[0].arrayIndex === 0 && arraySummary[0].stringCount >= 100) {
+                 arraySummarySynthesis.rejectedArrayZeroFallback = true;
+                 arraySummarySynthesis.warnings.push("Rejected synthesized Array 0 fallback; preserving last-known-good array summary.");
+                 arraySummarySynthesis.source = "fallback-rejected";
+                 arraySummary = [];
+             } else if (arraySummary.length === 0) {
+                 arraySummarySynthesis.warnings.push("Unable to derive real array numbers from normalized strings.");
+             }
+
+             arraySummarySynthesis.emittedArrayCount = arraySummary.length;
              arraySummary.sort((a,b)=> a.arrayIndex - b.arrayIndex);
         } else {
              arraySummarySource = "native-merged-with-strings";
              const arraysMap = new Map<number, any>();
              for (const str of stringSummary.tableRows) {
-                 const arrId = str.arrayNumber ?? 0;
+                 let arrId = str.arrayNumber;
+                 if (arrId === null || arrId === 0) {
+                     const derived = deriveArrayNumberFromRow(str);
+                     if (derived !== null) {
+                         arrId = derived;
+                         str.arrayNumber = derived;
+                     } else {
+                         arrId = 0;
+                     }
+                 }
                  if (!arraysMap.has(arrId)) {
                      arraysMap.set(arrId, {
                          arrayIndex: arrId,
@@ -1806,6 +1969,7 @@ export async function buildSiteOperationsSummaryFromCache() {
                unknownDragonAppCodes: unknownDragonAppCodes,
                arraySummarySource,
                arraySummaryCandidateCount: arrCands.length,
+               arraySummarySynthesis,
                fleetMetricSource
             },
             
