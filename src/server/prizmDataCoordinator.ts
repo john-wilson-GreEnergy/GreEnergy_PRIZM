@@ -131,30 +131,55 @@ export function hasArrayZeroFallback(snapshot: any): boolean {
   return false;
 }
 
+export function isValidArraySummary(rows: any[]): boolean {
+  return Array.isArray(rows)
+    && rows.length > 0
+    && rows.some(row => {
+      const n = Number(row.arrayNumber ?? row.arrayIndex);
+      return n >= 1 && n <= 8;
+    })
+    && !(
+      rows.length === 1 &&
+      Number(rows[0].arrayNumber ?? rows[0].arrayIndex) === 0
+    );
+}
+
+export function shouldRepairArraySummary(snapshot: any): boolean {
+  const rows = snapshot?.rollups?.arraySummary || snapshot?.arraySummary || snapshot?.normalized?.arrays || [];
+  const strings = snapshot?.normalized?.strings || [];
+  if (!strings.length) return false;
+  if (!Array.isArray(rows) || rows.length === 0) return true;
+  if (!isValidArraySummary(rows)) return true;
+  return false;
+}
+
 export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean {
   if (!snapshot) return false;
   
-  const arraySummary = snapshot.rollups?.arraySummary || snapshot.normalized?.arrays || [];
+  const arraySummary = snapshot.rollups?.arraySummary || snapshot.arraySummary || snapshot.normalized?.arrays || [];
+  const strings = snapshot.normalized?.strings || [];
   
-  // Detect invalid Array 0 fallback (Part 2)
+  if (!shouldRepairArraySummary(snapshot)) {
+    if (!snapshot.debug) {
+      snapshot.debug = {};
+    }
+    snapshot.debug.arraySummaryRepair = {
+      used: false,
+      reason: strings.length === 0 ? "no normalized strings available" : "valid native array summary present"
+    };
+    return false;
+  }
+  
+  // Detect invalid Array 0 fallback
   const isInvalidArrayZero = 
     arraySummary.length === 1 &&
     (arraySummary[0]?.arrayIndex === 0 || arraySummary[0]?.arrayNumber === 0 || arraySummary[0]?.friendlyString === "Array 0") &&
     (arraySummary[0]?.stringCount || 0) >= 100 &&
     arraySummary[0]?.sourcePath === "synthesized";
     
-  if (!isInvalidArrayZero) {
-    return false; // No repair needed
-  }
-  
-  const strings = snapshot.normalized?.strings || [];
-  if (strings.length === 0) {
-    // Repair failed, clear the invalid Array 0 fallback
-    if (snapshot.rollups) snapshot.rollups.arraySummary = [];
-    if (snapshot.normalized) snapshot.normalized.arrays = [];
-    snapshot.arraySummary = [];
-    return false;
-  }
+  const reason = isInvalidArrayZero 
+    ? "replaced invalid synthesized Array 0 fallback" 
+    : "rollups.arraySummary was empty or invalid; rebuilt from normalized.strings";
   
   const stringsByArray: Record<number, any[]> = {};
   for (let i = 1; i <= 8; i++) {
@@ -177,10 +202,23 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
   
   const derivedCount = Object.keys(derivedArrayCounts).length;
   if (derivedCount === 0) {
-    // Repair failed, clear the invalid Array 0 fallback
-    if (snapshot.rollups) snapshot.rollups.arraySummary = [];
-    if (snapshot.normalized) snapshot.normalized.arrays = [];
-    snapshot.arraySummary = [];
+    if (!snapshot.debug) {
+      snapshot.debug = {};
+    }
+    snapshot.debug.arraySummaryRepair = {
+      used: false,
+      failed: true,
+      reason: "unable to derive array numbers from normalized strings",
+      normalizedStringCount: strings.length,
+      unknownArrayRows
+    };
+    
+    // Repair failed, clear the invalid Array 0 fallback if present
+    if (isInvalidArrayZero) {
+      if (snapshot.rollups) snapshot.rollups.arraySummary = [];
+      if (snapshot.normalized) snapshot.normalized.arrays = [];
+      snapshot.arraySummary = [];
+    }
     return false;
   }
   
@@ -350,7 +388,7 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
   
   snapshot.debug.arraySummaryRepair = {
     used: true,
-    reason: "replaced invalid synthesized Array 0 fallback",
+    reason,
     inputArraySummary: {
       length: arraySummary.length,
       firstRow: arraySummary[0] ? {
@@ -366,7 +404,18 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
     unknownArrayRows
   };
   
+  // Clean liveStatus warnings
+  if (snapshot.liveStatus && Array.isArray(snapshot.liveStatus.warnings)) {
+    snapshot.liveStatus.warnings = snapshot.liveStatus.warnings.filter(
+      (w: string) => w !== "Array grouping is warming up or unavailable. No valid arrays (1-8) mapped."
+    );
+  }
+  
   return true;
+}
+
+export function repairFinalArraySummary(snapshot: any, previousSnapshot?: any): boolean {
+  return repairArraySummaryFromNormalizedStrings(snapshot);
 }
 
 function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
@@ -944,7 +993,7 @@ async function doBackgroundPoll() {
       (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
 
       // Part 1 & 4 & 5: Repair array summary
-      const repairSuccess = repairArraySummaryFromNormalizedStrings(newSnap);
+      const repairSuccess = repairFinalArraySummary(newSnap, centralSnapshot);
       if (repairSuccess) {
           if (newSnap.debug) {
               (newSnap.debug as any).arraySummarySource = "repaired-from-normalized-strings";
