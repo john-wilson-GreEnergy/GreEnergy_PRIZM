@@ -4,6 +4,7 @@ import StringDetailDashboard from "./StringDetailDashboard";
 import { formatTemperatureF } from "../utils/temperatureScale";
 
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
+import { normalizeVoltage, normalizeDeltaVoltage } from '../lib/voltageNormalizer';
 import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
 import { useSiteData } from '../context/SiteDataContext';
@@ -243,30 +244,6 @@ const handleManualRefresh = async () => {
     data?.rollups?.nearline?.maxCellTempDeltaC ??
     summary?.maxCellTemperatureDelta ??
     null;
-
-  // Voltage Normalization Helpers
-  const normalizeVoltage = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const num = Number(v);
-    if (isNaN(num)) return null;
-    if (num >= 2 && num <= 5) {
-      return num * 1000;
-    }
-    if (num >= 1500 && num <= 4500) {
-      return num;
-    }
-    return null; // treat as invalid/unavailable
-  };
-
-  const normalizeDeltaVoltage = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const num = Number(v);
-    if (isNaN(num)) return null;
-    if (num > 0 && num < 1.5) {
-      return num * 1000;
-    }
-    return num;
-  };
 
   const sourceHealthRows = useMemo(() => {
     if (!data?.sourceHealth) return [];

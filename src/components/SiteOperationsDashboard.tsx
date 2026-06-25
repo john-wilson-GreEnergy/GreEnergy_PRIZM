@@ -29,6 +29,9 @@ import {
   Pause,
 } from "lucide-react";
 import { formatPrizmUtcTimestamp } from "../lib/timeFormat";
+import { normalizeVoltage, normalizeDeltaVoltage } from "../lib/voltageNormalizer";
+import { filterAndNormalizeArraySummary } from "../lib/arraySummaryFilters";
+import { getSystemSocAndSource } from "../lib/socUtils";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
@@ -216,6 +219,8 @@ export default function SiteOperationsDashboard({
   const [clearConfRef, setClearConfRef] = useState("");
   const [clearLoading, setClearLoading] = useState(false);
   const [clearResult, setClearResult] = useState<any>(null);
+
+  const [debugExpanded, setDebugExpanded] = useState(false);
 
   // Provide a callback to execute clearing
   const executeClear = async () => {
@@ -442,104 +447,11 @@ export default function SiteOperationsDashboard({
           stringBuckets.notCommunicating || 0,
     };
 
-  // Voltage Normalization Helpers
-  const normalizeVoltage = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const num = Number(v);
-    if (isNaN(num)) return null;
-    if (num >= 2 && num <= 5) {
-      return num * 1000;
-    }
-    if (num >= 1500 && num <= 4500) {
-      return num;
-    }
-    return null; // treat as invalid/unavailable
-  };
-
-  const normalizeDeltaVoltage = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const num = Number(v);
-    if (isNaN(num)) return null;
-    if (num > 0 && num < 1.5) {
-      return num * 1000;
-    }
-    return num;
-  };
-
-  const getSystemSocAndSource = () => {
-    let soc: number | null = null;
-    let source = "";
-
-    if (sum?.bessFleetSummary?.systemSocPct != null && !isNaN(Number(sum.bessFleetSummary.systemSocPct))) {
-      soc = Number(sum.bessFleetSummary.systemSocPct);
-      source = "native block";
-    }
-
-    if ((soc === null || isNaN(soc)) && sum?.arraySummary?.length > 0) {
-      const validSocs = sum.arraySummary
-        .map((arr: any) => arr.onlineSOC ?? arr.nearlineSOC ?? arr.socPct ?? arr.averageSoc)
-        .filter((v: any) => v !== null && v !== undefined && !isNaN(Number(v)));
-      if (validSocs.length > 0) {
-        soc = validSocs.reduce((acc: number, val: any) => acc + Number(val), 0) / validSocs.length;
-        source = "array average";
-      }
-    }
-
-    if (soc === null || isNaN(soc)) {
-      const stringSoc = rollups?.averageSoc ?? rollups?.socPctAvg ?? sum?.stringSummary?.rollups?.online?.socPctAvg;
-      if (stringSoc != null && !isNaN(Number(stringSoc))) {
-        soc = Number(stringSoc);
-        source = "string average";
-      }
-    }
-
-    if (soc !== null && !isNaN(soc)) {
-      if (soc < 1 && soc > 0) soc = soc * 100;
-      soc = Math.max(0, Math.min(100, soc));
-      return { soc, source };
-    }
-
-    return { soc: null, source: "unavailable" };
-  };
-
-  const { soc: systemSoc, source: socSource } = getSystemSocAndSource();
+  // Voltage Normalization Helpers moved to lib/voltageNormalizer.ts
+  const { soc: systemSoc, source: socSource } = getSystemSocAndSource(sum, rollups);
 
   // Filter and normalize array summary data
-  const arraySummaryData = (sum?.arraySummary || [])
-    .filter((arr: any) => {
-      let arrNum = arr.arrayNumber ?? arr.arrayIndex;
-      if (arrNum === undefined || arrNum === null) {
-        const key = arr.key || arr.friendlyString || "";
-        const match = key.match(/Array\s*(\d+)/i) || key.match(/:(\d+)(:\d+)?$/);
-        if (match) {
-          arrNum = parseInt(match[1], 10);
-        }
-      }
-      if (arrNum === 0 || arrNum === "0") {
-        return false; // Skip Array 0
-      }
-      if (arrNum === null || arrNum === undefined) {
-        return false; // Skip invalid
-      }
-      return true;
-    })
-    .map((arr: any) => {
-      let arrNum = arr.arrayNumber ?? arr.arrayIndex;
-      if (arrNum === undefined || arrNum === null) {
-        const key = arr.key || arr.friendlyString || "";
-        const match = key.match(/Array\s*(\d+)/i) || key.match(/:(\d+)(:\d+)?$/);
-        if (match) {
-          arrNum = parseInt(match[1], 10);
-        }
-      }
-      return {
-        ...arr,
-        arrayNumber: arrNum,
-        arrayIndex: arrNum,
-        friendlyString: arr.friendlyString && !arr.friendlyString.includes("Array 0") ? arr.friendlyString : `Array ${arrNum}`
-      };
-    })
-    .sort((a, b) => (a.arrayNumber || 0) - (b.arrayNumber || 0));
+  const arraySummaryData = filterAndNormalizeArraySummary(sum?.arraySummary || []);
 
   const activeIssues = sum?.activeIssueGroups ? [...sum.activeIssueGroups] : [];
   activeIssues.sort((a: any, b: any) => {
@@ -2739,6 +2651,49 @@ export default function SiteOperationsDashboard({
           </div>
         </div>
       )}
+
+      {/* Debug Source Panel */}
+      <div className="mt-8 border border-prizm-border rounded-lg bg-prizm-surface p-4">
+        <button
+          onClick={() => setDebugExpanded(!debugExpanded)}
+          className="flex items-center gap-2 text-xs font-bold font-mono text-prizm-text-muted hover:text-prizm-text uppercase tracking-widest w-full text-left"
+        >
+          {debugExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          Data Source Debug Panel
+        </button>
+        {debugExpanded && (
+          <div className="mt-4 text-[10px] font-mono grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="bg-prizm-surface-strong p-3 rounded border border-prizm-border/50">
+              <h4 className="text-prizm-primary font-bold uppercase mb-2 border-b border-prizm-border/50 pb-1">Sources</h4>
+              <div className="flex justify-between py-0.5"><span className="text-prizm-text-muted">SOC Source:</span><span className="text-prizm-data-blue">{socSource || "unknown"}</span></div>
+              <div className="flex justify-between py-0.5"><span className="text-prizm-text-muted">Array Summary Source:</span><span className="text-prizm-data-blue">{sum?.debug?.arraySummarySource || "native"}</span></div>
+              <div className="flex justify-between py-0.5"><span className="text-prizm-text-muted">String Summary Source:</span><span className="text-prizm-data-blue">{sum?.debug?.stringSummarySource || "unknown"}</span></div>
+              <div className="flex justify-between py-0.5"><span className="text-prizm-text-muted">Voltage Input:</span><span className="text-emerald-400">normalized to mV</span></div>
+            </div>
+            
+            <div className="bg-prizm-surface-strong p-3 rounded border border-prizm-border/50">
+              <h4 className="text-prizm-primary font-bold uppercase mb-2 border-b border-prizm-border/50 pb-1">Rollup Keys</h4>
+              <div className="text-prizm-text-muted h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                {Object.keys(sum?.stringSummary?.rollups || {}).join(", ") || "None"}
+              </div>
+            </div>
+
+            <div className="bg-prizm-surface-strong p-3 rounded border border-prizm-border/50">
+              <h4 className="text-prizm-primary font-bold uppercase mb-2 border-b border-prizm-border/50 pb-1">First Array Row Keys</h4>
+              <div className="text-prizm-text-muted h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                {Object.keys(sum?.arraySummary?.[0] || {}).join(", ") || "None"}
+              </div>
+            </div>
+
+            <div className="bg-prizm-surface-strong p-3 rounded border border-prizm-border/50 lg:col-span-3">
+              <h4 className="text-prizm-primary font-bold uppercase mb-2 border-b border-prizm-border/50 pb-1">First String Metric Keys</h4>
+              <div className="text-prizm-text-muted h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                {Object.keys(sum?.stringSummary?.rawStrings?.[0] || sum?.stringSummary?.strings?.[0] || {}).join(", ") || "None"}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       <RotationModal
         isOpen={pcsModalOpen}
