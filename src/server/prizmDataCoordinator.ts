@@ -101,12 +101,272 @@ function isRenderableSnapshot(snapshot: any): boolean {
   return q.hasNormalized && q.hasRollups && q.hasStringSummary && q.normalizedStrings > 0;
 }
 
-function hasArrayZeroFallback(snapshot: any): boolean {
+export function deriveArrayNumberFromRow(row: any): number | null {
+  if (typeof row.arrayNumber === 'number' && row.arrayNumber >= 1 && row.arrayNumber <= 8) {
+    return row.arrayNumber;
+  }
+  if (typeof row.arrayIndex === 'number' && row.arrayIndex >= 1 && row.arrayIndex <= 8) {
+    return row.arrayIndex;
+  }
+  const idStr = row.id || row.stringKey || "";
+  if (typeof idStr === 'string' && idStr.length > 0) {
+    const match = idStr.match(/^A([1-8])[-_]/i) || idStr.match(/Array[-_ ]*([1-8])/i);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return null;
+}
+
+export function hasArrayZeroFallback(snapshot: any): boolean {
   const summary = snapshot?.rollups?.arraySummary || snapshot?.arrays || [];
-  if (summary.length === 1 && (summary[0]?.arrayIndex === 0 || summary[0]?.arrayNumber === 0) && (summary[0]?.stringCount || 0) >= 100) {
+  if (
+    summary.length === 1 &&
+    (summary[0]?.arrayIndex === 0 || summary[0]?.arrayNumber === 0 || summary[0]?.friendlyString === "Array 0") &&
+    (summary[0]?.stringCount || 0) >= 100 &&
+    summary[0]?.sourcePath === "synthesized"
+  ) {
     return true;
   }
   return false;
+}
+
+export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean {
+  if (!snapshot) return false;
+  
+  const arraySummary = snapshot.rollups?.arraySummary || snapshot.normalized?.arrays || [];
+  
+  // Detect invalid Array 0 fallback (Part 2)
+  const isInvalidArrayZero = 
+    arraySummary.length === 1 &&
+    (arraySummary[0]?.arrayIndex === 0 || arraySummary[0]?.arrayNumber === 0 || arraySummary[0]?.friendlyString === "Array 0") &&
+    (arraySummary[0]?.stringCount || 0) >= 100 &&
+    arraySummary[0]?.sourcePath === "synthesized";
+    
+  if (!isInvalidArrayZero) {
+    return false; // No repair needed
+  }
+  
+  const strings = snapshot.normalized?.strings || [];
+  if (strings.length === 0) {
+    // Repair failed, clear the invalid Array 0 fallback
+    if (snapshot.rollups) snapshot.rollups.arraySummary = [];
+    if (snapshot.normalized) snapshot.normalized.arrays = [];
+    snapshot.arraySummary = [];
+    return false;
+  }
+  
+  const stringsByArray: Record<number, any[]> = {};
+  for (let i = 1; i <= 8; i++) {
+    stringsByArray[i] = [];
+  }
+  
+  let unknownArrayRows = 0;
+  const derivedArrayCounts: Record<number, number> = {};
+  
+  for (const str of strings) {
+    const arrNum = deriveArrayNumberFromRow(str);
+    if (arrNum !== null && arrNum >= 1 && arrNum <= 8) {
+      stringsByArray[arrNum].push(str);
+      derivedArrayCounts[arrNum] = (derivedArrayCounts[arrNum] || 0) + 1;
+      str.arrayNumber = arrNum;
+    } else {
+      unknownArrayRows++;
+    }
+  }
+  
+  const derivedCount = Object.keys(derivedArrayCounts).length;
+  if (derivedCount === 0) {
+    // Repair failed, clear the invalid Array 0 fallback
+    if (snapshot.rollups) snapshot.rollups.arraySummary = [];
+    if (snapshot.normalized) snapshot.normalized.arrays = [];
+    snapshot.arraySummary = [];
+    return false;
+  }
+  
+  const repairedArrays: any[] = [];
+  
+  const getNum = (val: any): number | null => {
+    if (val === null || val === undefined) return null;
+    const numVal = Number(val);
+    return isNaN(numVal) ? null : numVal;
+  };
+  
+  for (let arrNum = 1; arrNum <= 8; arrNum++) {
+    const arrStrings = stringsByArray[arrNum];
+    if (arrStrings.length === 0) {
+      continue;
+    }
+    
+    let onlineStringCount = 0;
+    let nearlineStringCount = 0;
+    let offlineStringCount = 0;
+    let notCommunicationStringCount = 0;
+
+    const onlineSOCs: number[] = [];
+    const nearlineSOCs: number[] = [];
+    const offlineSOCs: number[] = [];
+
+    const onlineAvailableKWhs: number[] = [];
+    const nearlineAvailableKWhs: number[] = [];
+    const offlineAvailableKWhs: number[] = [];
+
+    const powerkWs: number[] = [];
+    const currentAmps: number[] = [];
+
+    const minCellVoltages: number[] = [];
+    const maxCellVoltages: number[] = [];
+    const minCellTemps: number[] = [];
+    const maxCellTemps: number[] = [];
+    
+    for (const str of arrStrings) {
+      const bucket = str.bucket;
+      let resolvedBucket = bucket;
+      if (!resolvedBucket) {
+        if (str.status === "online" || str.state === "online") resolvedBucket = "online";
+        else if (str.status === "nearline" || str.state === "nearline") resolvedBucket = "nearline";
+        else if (str.status === "offline" || str.state === "offline") resolvedBucket = "offline";
+        else if (str.communicating === false || str.status === "notCommunicating") resolvedBucket = "notCommunicating";
+        else resolvedBucket = "online";
+      }
+
+      const kw = getNum(str.kw) ?? getNum(str.powerKw) ?? getNum(str.powerkW);
+      if (kw !== null) powerkWs.push(kw);
+
+      const amps = getNum(str.amps) ?? getNum(str.currentA) ?? getNum(str.currentAmp);
+      if (amps !== null) currentAmps.push(amps);
+
+      const soc = getNum(str.socPct) ?? getNum(str.soc) ?? getNum(str.SOC);
+      const kwh = getNum(str.kwh) ?? getNum(str.kWh) ?? getNum(str.availableKWh) ?? getNum(str.availableKwh);
+
+      if (resolvedBucket === "online") {
+        onlineStringCount++;
+        if (soc !== null) onlineSOCs.push(soc);
+        if (kwh !== null) onlineAvailableKWhs.push(kwh);
+      } else if (resolvedBucket === "nearline") {
+        nearlineStringCount++;
+        if (soc !== null) nearlineSOCs.push(soc);
+        if (kwh !== null) nearlineAvailableKWhs.push(kwh);
+      } else if (resolvedBucket === "offline") {
+        offlineStringCount++;
+        if (soc !== null) offlineSOCs.push(soc);
+        if (kwh !== null) offlineAvailableKWhs.push(kwh);
+      } else {
+        notCommunicationStringCount++;
+      }
+
+      const minCellV = getNum(str.minCellVoltage) ?? getNum(str.cellVoltageMin);
+      if (minCellV !== null) minCellVoltages.push(minCellV);
+
+      const maxCellV = getNum(str.maxCellVoltage) ?? getNum(str.cellVoltageMax);
+      if (maxCellV !== null) maxCellVoltages.push(maxCellV);
+
+      const minCellT = getNum(str.minCellTemperature) ?? getNum(str.cellTempMin);
+      if (minCellT !== null) minCellTemps.push(minCellT);
+
+      const maxCellT = getNum(str.maxCellTemperature) ?? getNum(str.cellTempMax);
+      if (maxCellT !== null) maxCellTemps.push(maxCellT);
+    }
+    
+    const avgOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    const sumOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null;
+    const minOrNull = (vals: number[]) => vals.length > 0 ? Math.min(...vals) : null;
+    const maxOrNull = (vals: number[]) => vals.length > 0 ? Math.max(...vals) : null;
+
+    const measuredMinCellVoltage = minOrNull(minCellVoltages);
+    const measuredMaxCellVoltage = maxOrNull(maxCellVoltages);
+    const cellVoltageDelta = (measuredMaxCellVoltage !== null && measuredMinCellVoltage !== null)
+      ? Number((measuredMaxCellVoltage - measuredMinCellVoltage).toFixed(3))
+      : null;
+
+    const measuredMinCellTemperature = minOrNull(minCellTemps);
+    const measuredMaxCellTemperature = maxOrNull(maxCellTemps);
+    const cellTemperatureDelta = (measuredMaxCellTemperature !== null && measuredMinCellTemperature !== null)
+      ? Number((measuredMaxCellTemperature - measuredMinCellTemperature).toFixed(1))
+      : null;
+
+    const communicating = notCommunicationStringCount < arrStrings.length || arrStrings.length === 0;
+
+    const station = snapshot.siteIdentity?.stationCode;
+    const block = snapshot.siteIdentity?.blockIndex;
+    const friendlyString = (station && block !== undefined && block !== null)
+      ? `Array ${station}:${block}:${arrNum}`
+      : `Array ${arrNum}`;
+
+    repairedArrays.push({
+      arrayIndex: arrNum,
+      arrayNumber: arrNum,
+      communicating,
+      stringCount: arrStrings.length,
+      onlineStringCount,
+      nearlineStringCount,
+      offlineStringCount,
+      notCommunicationStringCount,
+      onlineSOC: avgOrNull(onlineSOCs),
+      nearlineSOC: avgOrNull(nearlineSOCs),
+      offlineSOC: avgOrNull(offlineSOCs),
+      onlineAvailableKWh: sumOrNull(onlineAvailableKWhs),
+      nearlineAvailableKWh: sumOrNull(nearlineAvailableKWhs),
+      offlineAvailableKWh: sumOrNull(offlineAvailableKWhs),
+      powerkW: sumOrNull(powerkWs),
+      currentAmp: sumOrNull(currentAmps),
+      measuredkW: sumOrNull(powerkWs),
+      commandedkW: null,
+      measuredMinCellVoltage,
+      measuredMaxCellVoltage,
+      cellVoltageDelta,
+      measuredMinCellTemperature,
+      measuredMaxCellTemperature,
+      cellTemperatureDelta,
+      friendlyString,
+      sourcePath: "repaired-from-normalized-strings",
+      raw: {
+        strings: arrStrings,
+        onlineSOCs,
+        nearlineSOCs,
+        offlineSOCs,
+        powerkWs,
+        currentAmps
+      }
+    });
+  }
+  
+  repairedArrays.sort((a, b) => a.arrayIndex - b.arrayIndex);
+  
+  if (!snapshot.rollups) {
+    snapshot.rollups = {};
+  }
+  snapshot.rollups.arraySummary = repairedArrays;
+  
+  if (!snapshot.normalized) {
+    snapshot.normalized = {};
+  }
+  snapshot.normalized.arrays = repairedArrays;
+  snapshot.arraySummary = repairedArrays;
+  
+  if (!snapshot.debug) {
+    snapshot.debug = {};
+  }
+  
+  snapshot.debug.arraySummaryRepair = {
+    used: true,
+    reason: "replaced invalid synthesized Array 0 fallback",
+    inputArraySummary: {
+      length: arraySummary.length,
+      firstRow: arraySummary[0] ? {
+        arrayIndex: arraySummary[0].arrayIndex,
+        friendlyString: arraySummary[0].friendlyString,
+        sourcePath: arraySummary[0].sourcePath,
+        stringCount: arraySummary[0].stringCount
+      } : null
+    },
+    normalizedStringCount: strings.length,
+    derivedArrayCounts,
+    emittedArrayCount: repairedArrays.length,
+    unknownArrayRows
+  };
+  
+  return true;
 }
 
 function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
@@ -682,6 +942,20 @@ async function doBackgroundPoll() {
       (newSnap.rollups as any).sourceHealthSummary = healthSummary;
       (newSnap.rollups as any).topologyCounts = parsed.topologyCounts || {};
       (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
+
+      // Part 1 & 4 & 5: Repair array summary
+      const repairSuccess = repairArraySummaryFromNormalizedStrings(newSnap);
+      if (repairSuccess) {
+          if (newSnap.debug) {
+              (newSnap.debug as any).arraySummarySource = "repaired-from-normalized-strings";
+          }
+      } else {
+          if (hasArrayZeroFallback(newSnap)) {
+              if (!newSnap.liveStatus.warnings.includes("Array grouping is warming up or unavailable. No valid arrays (1-8) mapped.")) {
+                  newSnap.liveStatus.warnings.push("Array grouping is warming up or unavailable. No valid arrays (1-8) mapped.");
+              }
+          }
+      }
 
       let acceptSnapshot = true;
       let rejectionReason = "";
