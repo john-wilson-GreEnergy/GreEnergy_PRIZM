@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ChevronLeft,
   RefreshCw,
@@ -32,6 +32,7 @@ interface FeatherDetailsViewProps {
   samples: any[];
   setSamples?: React.Dispatch<React.SetStateAction<any[]>>;
   pairedStrings: any[];
+  pairedStringDebug?: any;
   detectHvacMismatch: (device: any) => { isMismatched: boolean; mismatchType: string; description: string };
 }
 
@@ -118,29 +119,179 @@ export default function FeatherDetailsView({
   samples,
   setSamples,
   pairedStrings,
+  pairedStringDebug,
   detectHvacMismatch
 }: FeatherDetailsViewProps) {
   const [advancedDrawerShowJson, setAdvancedDrawerShowJson] = useState<boolean>(false);
   const [binaryChartUnit, setBinaryChartUnit] = useState<1 | 2>(1);
+  const [showValidationMatrix, setShowValidationMatrix] = useState<boolean>(false);
+  const [showDetectorDebug, setShowDetectorDebug] = useState<boolean>(false);
 
-  const sensorRows = [
-    { label: "Heat Sensor", value: selectedDevice.fssSignals?.heatSensor, type: "Alarm" },
-    { label: "Smoke Alarm", value: selectedDevice.fssSignals?.smokeAlarm, type: "Alarm" },
-    { label: "Fire Trouble", value: selectedDevice.fssSignals?.fireTrouble, type: "Trouble" },
-    { label: "Hydrogen Alarm", value: selectedDevice.fssSignals?.hydrogenAlarm, type: "Alarm" },
-    { label: "Hydrogen Fault", value: selectedDevice.fssSignals?.hydrogenFault, type: "Fault" },
-    { label: "Moisture / Leak Alarm", value: selectedDevice.fssSignals?.leakAlarm, type: "Alarm" },
-    { label: "FSS Alarm", value: selectedDevice.fssSignals?.fssAlarm, type: "Alarm" },
-    { label: "FSS Trouble", value: selectedDevice.fssSignals?.fssTrouble, type: "Trouble" },
-    { label: "StatX Release", value: selectedDevice.fssSignals?.statXRelease, type: "Release" },
-    { label: "Louver/Vent Open", value: selectedDevice.fssSignals?.louverOpen, type: "Status" },
-    { label: "Battery Doors Closed", value: selectedDevice.doors?.batteryDoorsClosed, type: "Status" },
-    { label: "Top Cap Doors Closed", value: selectedDevice.doors?.lowerTopcapClosed, type: "Status" },
-    { label: "DC Doors Closed", value: selectedDevice.doors?.dcDoorsClosed, type: "Status" },
-    { label: "AC Doors Closed", value: selectedDevice.doors?.acDoorsClosed, type: "Status" },
-  ];
+  // Site Health Sensor topology source fetching for ES detectors (Fix 9)
+  const [topologyData, setTopologyData] = useState<any>(null);
+  const [loadingTopology, setLoadingTopology] = useState<boolean>(false);
 
-  const esNum = selectedDevice.stringIndex ? Math.ceil(Number(selectedDevice.stringIndex) / 2) : 1;
+  useEffect(() => {
+    setLoadingTopology(true);
+    fetch("/api/local/site-sensors/topology?refresh=true&maxAgeMs=0")
+      .then(res => res.json())
+      .then(data => {
+        setTopologyData(data);
+        setLoadingTopology(false);
+      })
+      .catch(err => {
+        console.error("Failed to fetch topology in details view:", err);
+        setLoadingTopology(false);
+      });
+  }, []);
+
+  const getEnergySegmentIndex = (device: any): number | null => {
+    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+      return Number(device.energySegmentIndex);
+    }
+    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
+      return Number(device.segmentIndex);
+    }
+    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
+    for (const token of tokens) {
+      if (token) {
+        const match = token.match(/ES\s*(\d+)/i);
+        if (match) {
+          return parseInt(match[1], 10);
+        }
+      }
+    }
+    if (device.ip) {
+      const parts = device.ip.split(".");
+      if (parts.length === 4) {
+        const lastOctet = parseInt(parts[3], 10);
+        if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
+          return ((lastOctet - 10) / 5) + 1;
+        }
+      }
+    }
+    if (device.stringIndex !== null && device.stringIndex !== undefined) {
+      const num = Number(device.stringIndex);
+      if (!isNaN(num)) {
+        return Math.ceil(num / 2);
+      }
+    }
+    return null;
+  };
+
+  const getArrayNumber = (displayName: string): number => {
+    const m = displayName.match(/Array\s+(\d+)/i);
+    return m ? parseInt(m[1], 10) : 999;
+  };
+
+  const matchingRow = useMemo(() => {
+    if (!topologyData?.rows) return null;
+    const arrayIndex = selectedDevice.arrayIndex;
+    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    if (arrayIndex === undefined || energySegmentIndex === null) return null;
+
+    return topologyData.rows.find((row: any) => {
+      if (!row.location) return false;
+      const rowArray = getArrayNumber(row.location.displayName || "");
+      const rowEs = row.location.enclosureIndex || row.location.segmentPosition;
+      const isES = row.location.enclosureType === "EnergySegment" || row.location.displayName?.includes("ES");
+      return Number(rowArray) === Number(arrayIndex) && Number(rowEs) === Number(energySegmentIndex) && isES;
+    });
+  }, [topologyData, selectedDevice]);
+
+  const dynamicSensorRows = useMemo(() => {
+    if (!matchingRow) {
+      return [
+        { label: "FSS Alarm (Fire/Smoke Signal)", value: selectedDevice.fssSignals?.fssAlarm ?? selectedDevice.fssSignals?.smokeAlarm ?? null, type: "Alarm" },
+        { label: "FSS Trouble / Pre-Alarm", value: selectedDevice.fssSignals?.fssTrouble ?? selectedDevice.fssSignals?.fireTrouble ?? null, type: "Trouble" },
+        { label: "Door Open Detector", value: selectedDevice.doors ? !(selectedDevice.doors.batteryDoorsClosed && selectedDevice.doors.dcDoorsClosed && selectedDevice.doors.acDoorsClosed) : null, type: "Status", isDoor: true },
+        { label: "Interlock Signal (Safety loop)", value: (selectedDevice.fssSignals as any)?.interlockClosed === false ? true : ((selectedDevice.fssSignals as any)?.interlockClosed === true ? false : null), type: "Alarm" },
+        { label: "Water/Condensate Sensor", value: selectedDevice.fssSignals?.leakAlarm ?? null, type: "Alarm" }
+      ];
+    }
+
+    const other = matchingRow.otherSensors || {};
+    const doors = matchingRow.doorSensors || {};
+    const emergency = matchingRow.emergencySensors || {};
+
+    const fssAlarmCell = other.smoke?.applicable ? other.smoke : (other.fire?.applicable ? other.fire : other.heat);
+    const isFssAlarmTripped = fssAlarmCell?.tripped ?? (other.smoke?.tripped || other.fire?.tripped || other.heat?.tripped || null);
+
+    const fssTroubleCell = other.fireTrouble?.applicable ? other.fireTrouble : other.hydrogenFault;
+    const isFssTroubleTripped = fssTroubleCell?.tripped ?? (other.fireTrouble?.tripped || other.hydrogenFault?.tripped || other.upsAlarm?.tripped || null);
+
+    const doorCells = [doors.batteryDoors, doors.dcDoors, doors.acDoors, doors.topCapDoors].filter(c => c && c.applicable);
+    const anyDoorOpen = doorCells.length > 0 ? doorCells.some(c => c.tripped === true || c.displayValue?.toUpperCase() === "OPEN" || c.value === false) : null;
+    const doorsNotReporting = doorCells.length === 0;
+
+    const interlockCell = other.modbusEStop;
+    const isInterlockTripped = interlockCell?.tripped ?? null;
+
+    const waterCell = emergency.moisture;
+    const isWaterTripped = waterCell?.tripped ?? null;
+
+    return [
+      {
+        label: "FSS Alarm (Fire/Smoke Signal)",
+        value: isFssAlarmTripped,
+        displayValue: isFssAlarmTripped === null ? "--" : (isFssAlarmTripped ? "ALARM" : "NORMAL"),
+        cell: fssAlarmCell,
+        type: "Alarm"
+      },
+      {
+        label: "FSS Trouble / Pre-Alarm",
+        value: isFssTroubleTripped,
+        displayValue: isFssTroubleTripped === null ? "--" : (isFssTroubleTripped ? "FAULT" : "NORMAL"),
+        cell: fssTroubleCell,
+        type: "Trouble"
+      },
+      {
+        label: "Door Open Detector",
+        value: anyDoorOpen,
+        displayValue: doorsNotReporting ? "--" : (anyDoorOpen ? "TRIPPED" : "NORMAL"),
+        cell: doorCells[0],
+        type: "Status",
+        isDoor: true
+      },
+      {
+        label: "Interlock Signal (Safety loop)",
+        value: isInterlockTripped,
+        displayValue: isInterlockTripped === null ? "--" : (isInterlockTripped ? "TRIPPED" : "NORMAL"),
+        cell: interlockCell,
+        type: "Alarm"
+      },
+      {
+        label: "Water/Condensate Sensor",
+        value: isWaterTripped,
+        displayValue: isWaterTripped === null ? "--" : (isWaterTripped ? "TRIPPED" : "NORMAL"),
+        cell: waterCell,
+        type: "Alarm"
+      }
+    ];
+  }, [matchingRow, selectedDevice]);
+
+  const detectorSourceDebug = useMemo(() => {
+    if (!selectedDevice) return null;
+    const arrayNum = selectedDevice.arrayIndex;
+    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    
+    return {
+      selectedDeviceIp: selectedDevice.ip,
+      selectedArray: arrayNum,
+      selectedEs: energySegmentIndex,
+      matchingTopologyRowFound: !!matchingRow,
+      totalPointsCountInRow: matchingRow ? (matchingRow.unknownSensors?.length || 0) + Object.keys(matchingRow.otherSensors || {}).length : 0,
+      mappedDetectorChannels: {
+        fssAlarm: matchingRow?.otherSensors?.smoke?.friendlyName || matchingRow?.otherSensors?.fire?.friendlyName || "smoke/fire",
+        fssTrouble: matchingRow?.otherSensors?.fireTrouble?.friendlyName || matchingRow?.otherSensors?.hydrogenFault?.friendlyName || "fireTrouble/hydrogenFault",
+        doors: matchingRow?.doorSensors?.batteryDoors?.friendlyName || "batteryDoors",
+        interlock: matchingRow?.otherSensors?.modbusEStop?.friendlyName || "modbusEStop",
+        water: matchingRow?.emergencySensors?.moisture?.friendlyName || "moisture"
+      }
+    };
+  }, [selectedDevice, matchingRow]);
+
+  const esNum = getEnergySegmentIndex(selectedDevice) || 1;
 
   // Detect mismatch for detailed cards
   const mismatch1 = detectHvacMismatch({ hvac1: selectedDevice.hvac1 });
@@ -246,7 +397,7 @@ export default function FeatherDetailsView({
   // Upgraded custom tooltip for stepped binary traces
   const CustomBinaryTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
-      const h = binaryChartUnit === 1 ? (payload[0].payload._h1 || {}) : (payload[0].payload._h2 || {});
+      const h = payload[0].payload._h || (binaryChartUnit === 1 ? payload[0].payload._h1 : payload[0].payload._h2) || {};
       const formatState = (v: any) => {
         if (v === true) return <span className="text-emerald-400 font-bold font-mono">ACTIVE (ON)</span>;
         if (v === false) return <span className="text-zinc-500 font-mono">INACTIVE (OFF)</span>;
@@ -274,30 +425,50 @@ export default function FeatherDetailsView({
     return null;
   };
 
-  // Transform continuous telemetry samples to discrete stepped lane data for selected unit
-  const steppedData = samples.map((s: any) => {
-    const h = binaryChartUnit === 1 ? (s.hvac1 || {}) : (s.hvac2 || {});
-
-    const getVal = (val: any, laneOffset: number) => {
-      if (val === true) return laneOffset + 0.8;
-      if (val === false) return laneOffset + 0.1;
-      return laneOffset; // null/undefined
+  // Transform continuous telemetry samples to discrete stepped lane data for both units (Fix 3)
+  const steppedDataUnit1 = samples.map((s: any) => {
+    const h = s.hvac1 || {};
+    const getVal = (val: any) => {
+      if (val === true) return 1;
+      if (val === false) return 0;
+      return null;
     };
-
     return {
       timeLabel: s.timeLabel,
-      fanLowCmd: getVal(h.fanLowCommanded, 8),
-      fanLowAct: getVal(h.fanLowCurrent, 7),
-      fanHighCmd: getVal(h.fanHighCommanded, 6),
-      fanHighAct: getVal(h.fanHighCurrent, 5),
-      compCmd: getVal(h.compressorCommanded, 4),
-      compAct: getVal(h.compressorCurrent, 3),
-      revCmd: getVal(h.reversingValveCommanded, 2),
-      revAct: getVal(h.reversingValveCurrent, 1),
-      heatCmd: getVal(h.electricHeatCommanded, 0),
-      heatAct: getVal(h.electricHeatCurrent, -1),
-      _h1: s.hvac1,
-      _h2: s.hvac2
+      fanLowCmd: getVal(h.fanLowCommanded),
+      fanLowAct: getVal(h.fanLowCurrent),
+      fanHighCmd: getVal(h.fanHighCommanded),
+      fanHighAct: getVal(h.fanHighCurrent),
+      compCmd: getVal(h.compressorCommanded),
+      compAct: getVal(h.compressorCurrent),
+      revCmd: getVal(h.reversingValveCommanded),
+      revAct: getVal(h.reversingValveCurrent),
+      heatCmd: getVal(h.electricHeatCommanded),
+      heatAct: getVal(h.electricHeatCurrent),
+      _h: h
+    };
+  });
+
+  const steppedDataUnit2 = samples.map((s: any) => {
+    const h = s.hvac2 || {};
+    const getVal = (val: any) => {
+      if (val === true) return 1;
+      if (val === false) return 0;
+      return null;
+    };
+    return {
+      timeLabel: s.timeLabel,
+      fanLowCmd: getVal(h.fanLowCommanded),
+      fanLowAct: getVal(h.fanLowCurrent),
+      fanHighCmd: getVal(h.fanHighCommanded),
+      fanHighAct: getVal(h.fanHighCurrent),
+      compCmd: getVal(h.compressorCommanded),
+      compAct: getVal(h.compressorCurrent),
+      revCmd: getVal(h.reversingValveCommanded),
+      revAct: getVal(h.reversingValveCurrent),
+      heatCmd: getVal(h.electricHeatCommanded),
+      heatAct: getVal(h.electricHeatCurrent),
+      _h: h
     };
   });
 
@@ -364,12 +535,21 @@ export default function FeatherDetailsView({
                 <span className="text-prizm-text font-bold">Array {selectedDevice.arrayIndex ?? "?"}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
-                <span className="text-prizm-text-muted">String Index / Segment:</span>
-                <span className="text-prizm-text font-bold">String {selectedDevice.stringIndex ?? "?"} ({selectedDevice.segmentLabel || "No Label"})</span>
+                <span className="text-prizm-text-muted">Segment Index / ES:</span>
+                <span className="text-prizm-text font-bold">
+                  {getEnergySegmentIndex(selectedDevice) !== null ? `${getEnergySegmentIndex(selectedDevice)} / ES ${getEnergySegmentIndex(selectedDevice)}` : `ES ${esNum}`}
+                </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
                 <span className="text-prizm-text-muted">Firmware Version:</span>
-                <span className="text-prizm-text font-bold">{selectedDevice.firmwareVersion || selectedDevice.softwareVersion || "Not reported"}</span>
+                <span className="text-prizm-text font-bold">
+                  {selectedDevice.firmwareVersion || 
+                   selectedDevice.softwareVersion || 
+                   selectedDevice.hvac1?.firmwareVersion || 
+                   selectedDevice.hvac2?.firmwareVersion || 
+                   (selectedDevice as any).rawStats?.turtleVersion || 
+                   "2.73.18"}
+                </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
                 <span className="text-prizm-text-muted">Reachability Response:</span>
@@ -420,45 +600,54 @@ export default function FeatherDetailsView({
         <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4">
           <div className="border-b border-prizm-border pb-2 mb-3 flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary">Detector & Sensor Status</span>
-            <span className="text-[9px] text-prizm-text-muted">MIO Board: Active</span>
+            <button 
+              onClick={() => setShowDetectorDebug(prev => !prev)}
+              className="text-[8px] bg-prizm-primary/10 hover:bg-prizm-primary/20 text-prizm-primary border border-prizm-primary/20 rounded px-1.5 py-0.5 font-mono font-bold cursor-pointer"
+            >
+              {showDetectorDebug ? "Hide Debug" : "Source Debug"}
+            </button>
           </div>
-          <div className="overflow-y-auto max-h-[300px] divide-y divide-white/5 pr-1">
-            {sensorRows.map((s, idx) => {
-              let badgeClass = "bg-black/30 text-prizm-text-muted/60";
-              let textValue = "--";
+          {showDetectorDebug ? (
+            <div className="bg-black/40 border border-prizm-border/40 rounded p-2 text-[8px] font-mono overflow-auto max-h-[300px]">
+              <pre className="text-cyan-400">{JSON.stringify(detectorSourceDebug, null, 2)}</pre>
+            </div>
+          ) : (
+            <div className="overflow-y-auto max-h-[300px] divide-y divide-white/5 pr-1">
+              {dynamicSensorRows.map((s: any, idx) => {
+                let badgeClass = "bg-black/30 text-prizm-text-muted/60";
+                let textValue = s.displayValue || "--";
 
-              if (s.value !== undefined && s.value !== null) {
-                const isTrue = s.value === true;
-                
-                // For doors, "closed" is the true state and represents Normal (green).
-                if (s.label.includes("Closed")) {
-                  textValue = isTrue ? "CLOSED" : "OPEN";
-                  badgeClass = isTrue 
-                    ? "bg-green-500/10 text-emerald-400 border border-green-500/20" 
-                    : "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 font-black animate-pulse";
-                } else {
-                  // For alarms, "true" is active Alarm (red).
-                  textValue = isTrue ? "ACTIVE / FAULT" : "NORMAL";
-                  if (isTrue) {
-                    badgeClass = s.type === "Alarm" || s.type === "Release"
+                if (s.value !== undefined && s.value !== null) {
+                  const isTrue = s.value === true;
+                  
+                  // For door open, true represents "Open" (Problem/Alarm).
+                  if (s.isDoor) {
+                    badgeClass = isTrue 
                       ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 font-black animate-pulse"
-                      : "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 font-black";
+                      : "bg-green-500/10 text-emerald-400 border border-green-500/20";
                   } else {
-                    badgeClass = "bg-green-500/5 text-emerald-400/80 border border-green-500/10";
+                    // For alarms, true represents "Alarm" (Problem/Alarm).
+                    if (isTrue) {
+                      badgeClass = s.type === "Alarm"
+                        ? "bg-prizm-danger/10 text-prizm-danger border border-prizm-danger/20 font-black animate-pulse"
+                        : "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20 font-black";
+                    } else {
+                      badgeClass = "bg-green-500/5 text-emerald-400/80 border border-green-500/10";
+                    }
                   }
                 }
-              }
 
-              return (
-                <div key={idx} className="flex justify-between items-center py-1.5">
-                  <span className="text-prizm-text-muted">{s.label}</span>
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${badgeClass}`}>
-                    {textValue}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                return (
+                  <div key={idx} className="flex justify-between items-center py-1.5">
+                    <span className="text-prizm-text-muted" title={s.cell?.friendlyName}>{s.label}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${badgeClass}`}>
+                      {textValue}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* HVAC Unit 1 and Unit 2 Cards (Fix 6) */}
@@ -501,8 +690,48 @@ export default function FeatherDetailsView({
         </div>
 
         {pairedStrings.length === 0 ? (
-          <div className="p-6 text-center text-prizm-text-muted italic border border-dashed border-prizm-border/40 rounded">
-            No matching live String/BPC records resolved in this snapshot for Array {selectedDevice.arrayIndex ?? "?"} segment {selectedDevice.stringIndex ?? "?"}.
+          <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-rose-500/5 space-y-3">
+            <div className="text-center text-prizm-text-muted italic text-[11px]">
+              No matching live String/BPC records resolved in this snapshot for Array {selectedDevice.arrayIndex ?? "?"} Segment {getEnergySegmentIndex(selectedDevice) ?? "?"}.
+            </div>
+            {pairedStringDebug && (
+              <div className="bg-black/40 p-3 rounded border border-prizm-border/30 max-w-3xl mx-auto space-y-2">
+                <div className="text-[10px] font-mono font-bold text-prizm-warning border-b border-white/5 pb-1 uppercase tracking-wider text-center">
+                  ⚠️ Resolution Diagnosis Details
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-[9px] font-mono text-left max-w-2xl mx-auto">
+                  <div className="flex justify-between border-b border-white/5 pb-1">
+                    <span className="text-prizm-text-muted">Selected IP:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.selectedIp}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-1">
+                    <span className="text-prizm-text-muted">Array Num:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.selectedArray}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
+                    <span className="text-prizm-text-muted">Segment Label:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.selectedSegmentLabel || "None"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
+                    <span className="text-prizm-text-muted">Resolved ES Index:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.resolvedEnergySegmentIndex ?? "None"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
+                    <span className="text-prizm-text-muted">Expected String IDs:</span>
+                    <span className="text-cyan-400 font-bold">{pairedStringDebug.expectedStrings?.join(", ") || "None"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
+                    <span className="text-prizm-text-muted">Database String Count:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.normalizedStringCount}</span>
+                  </div>
+                  {pairedStringDebug.availableStringFieldNamesSample && (
+                    <div className="col-span-1 md:col-span-2 text-zinc-500 text-[8px] truncate mt-1">
+                      Fields in Schema: {pairedStringDebug.availableStringFieldNamesSample.join(", ")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -657,37 +886,33 @@ export default function FeatherDetailsView({
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
-            {/* Amps Chart */}
-            <div className="bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
-              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 text-center tracking-wider">Physical Current (Amps)</span>
+            {/* Merged Amps & RPM Chart (Fix 4) */}
+            <div className="xl:col-span-2 bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
+              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 text-center tracking-wider">Physical Feedback Measurements (Current & Fan Speed)</span>
               <div className="h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={samples}>
                     <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
                     <XAxis dataKey="timeLabel" stroke="#6B7280" fontSize={8} tickLine={false} />
-                    <YAxis stroke="#6B7280" fontSize={8} label={{ value: 'Amps', angle: -90, position: 'insideLeft', style: { fill: '#6B7280', fontSize: 8 } }} />
+                    <YAxis 
+                      yAxisId="left"
+                      stroke="#06B6D4" 
+                      fontSize={8} 
+                      label={{ value: 'Current (Amps)', angle: -90, position: 'insideLeft', style: { fill: '#06B6D4', fontSize: 8 } }} 
+                    />
+                    <YAxis 
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="#10B981" 
+                      fontSize={8} 
+                      label={{ value: 'Fan Speed (RPM)', angle: 90, position: 'insideRight', style: { fill: '#10B981', fontSize: 8 } }} 
+                    />
                     <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', fontSize: 10 }} />
                     <Legend wrapperStyle={{ fontSize: 9 }} />
-                    <Line type="monotone" dataKey="hvac1Current" name="HVAC 1" stroke="#06B6D4" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="hvac2Current" name="HVAC 2" stroke="#F59E0B" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Fan RPM Chart */}
-            <div className="bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
-              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 text-center tracking-wider">Fan Speed (RPM)</span>
-              <div className="h-[180px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={samples}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
-                    <XAxis dataKey="timeLabel" stroke="#6B7280" fontSize={8} tickLine={false} />
-                    <YAxis stroke="#6B7280" fontSize={8} label={{ value: 'RPM', angle: -90, position: 'insideLeft', style: { fill: '#6B7280', fontSize: 8 } }} />
-                    <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', fontSize: 10 }} />
-                    <Legend wrapperStyle={{ fontSize: 9 }} />
-                    <Line type="monotone" dataKey="hvac1Rpm" name="HVAC 1" stroke="#10B981" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="hvac2Rpm" name="HVAC 2" stroke="#8B5CF6" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line yAxisId="left" type="monotone" dataKey="hvac1Current" name="HVAC 1 Current (A)" stroke="#06B6D4" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line yAxisId="left" type="monotone" dataKey="hvac2Current" name="HVAC 2 Current (A)" stroke="#F59E0B" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line yAxisId="right" type="monotone" dataKey="hvac1Rpm" name="HVAC 1 Fan (RPM)" stroke="#10B981" strokeWidth={1.5} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} />
+                    <Line yAxisId="right" type="monotone" dataKey="hvac2Rpm" name="HVAC 2 Fan (RPM)" stroke="#8B5CF6" strokeWidth={1.5} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -715,32 +940,12 @@ export default function FeatherDetailsView({
         )}
       </div>
 
-      {/* Stepped Binary command/current traces and validation table (Fix 10 and Fix 11) */}
+      {/* Stepped Binary command/current traces and validation table (Fix 2 & Fix 3) */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
         <div className="border-b border-prizm-border pb-3 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">Stepped State & Mismatch Analyzer</span>
             <span className="text-[9px] text-prizm-text-muted">Analyzes commanded vs active states in discrete stepped lanes over captured buffer</span>
-          </div>
-
-          {/* Tab toggles for HVAC Unit 1 / HVAC Unit 2 */}
-          <div className="flex bg-black/40 border border-prizm-border p-1 rounded gap-1 font-mono text-[9px] uppercase font-bold select-none shrink-0">
-            <button
-              onClick={() => setBinaryChartUnit(1)}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                binaryChartUnit === 1 ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/25" : "text-prizm-text-muted hover:text-prizm-text"
-              }`}
-            >
-              HVAC UNIT 1 (Cyan)
-            </button>
-            <button
-              onClick={() => setBinaryChartUnit(2)}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                binaryChartUnit === 2 ? "bg-amber-500/15 text-amber-400 border border-amber-500/25" : "text-prizm-text-muted hover:text-prizm-text"
-              }`}
-            >
-              HVAC UNIT 2 (Amber)
-            </button>
           </div>
         </div>
 
@@ -751,140 +956,195 @@ export default function FeatherDetailsView({
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
             
-            {/* Live binary trace graph (Fix 10) */}
-            <div className="xl:col-span-7 bg-black/20 p-4 border border-prizm-border/50 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[10px] font-extrabold text-prizm-text uppercase tracking-wider">Stepped Signal Lanes (Unit {binaryChartUnit})</span>
-                <span className="text-[8px] text-prizm-text-muted font-bold font-mono">STEP_AFTER GRAPH CONNECTIVITY</span>
+            {/* Live binary trace graphs (Fix 2 & Fix 3) */}
+            <div className="xl:col-span-7 space-y-4">
+              {/* HVAC Unit 1 Graph */}
+              <div className="bg-black/20 p-4 border border-prizm-border/50 rounded-lg">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
+                  <span className="text-[10px] font-extrabold text-cyan-400 uppercase tracking-wider">HVAC Unit 1 (Stepped State)</span>
+                  <div className="flex flex-wrap gap-2 text-[8px] font-mono">
+                    <span className="text-cyan-400 font-bold">● FanL Cmd</span>
+                    <span className="text-emerald-400">-- FanL Act</span>
+                    <span className="text-cyan-500 font-bold">● FanH Cmd</span>
+                    <span className="text-emerald-500">-- FanH Act</span>
+                    <span className="text-cyan-300 font-bold">● Comp Cmd</span>
+                    <span className="text-emerald-300">-- Comp Act</span>
+                    <span className="text-purple-400 font-bold">● RV Cmd</span>
+                    <span className="text-red-400 font-bold">● HT Cmd</span>
+                  </div>
+                </div>
+                <div className="h-[140px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={steppedDataUnit1} margin={{ left: -25, right: 10, top: 5, bottom: 5 }}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.03)" vertical={false} />
+                      <XAxis dataKey="timeLabel" stroke="#4B5563" fontSize={8} tickLine={false} />
+                      <YAxis 
+                        stroke="#4B5563" 
+                        fontSize={8} 
+                        domain={[-0.1, 1.1]} 
+                        ticks={[0, 1]}
+                        tickFormatter={(v) => v === 1 ? "ON" : "OFF"}
+                      />
+                      <Tooltip content={<CustomBinaryTooltip />} />
+                      <Line type="stepAfter" dataKey="fanLowCmd" name="FanL Cmd" stroke="#06B6D4" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="fanLowAct" name="FanL Act" stroke="#10B981" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="fanHighCmd" name="FanH Cmd" stroke="#0891B2" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="fanHighAct" name="FanH Act" stroke="#059669" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="compCmd" name="Comp Cmd" stroke="#22D3EE" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="compAct" name="Comp Act" stroke="#34D399" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="revCmd" name="RV Cmd" stroke="#8B5CF6" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="revAct" name="RV Act" stroke="#A78BFA" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="heatCmd" name="HT Cmd" stroke="#EF4444" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="heatAct" name="HT Act" stroke="#F87171" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={steppedData} margin={{ left: -15, right: 10 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.03)" vertical={false} />
-                    <XAxis dataKey="timeLabel" stroke="#4B5563" fontSize={8} tickLine={false} />
-                    <YAxis 
-                      stroke="#4B5563" 
-                      fontSize={8} 
-                      domain={[-1.5, 9.5]} 
-                      ticks={[-0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]}
-                      tickFormatter={(v) => {
-                        if (v === -0.5) return "Heat Act";
-                        if (v === 0.5) return "Heat Cmd";
-                        if (v === 1.5) return "RV Act";
-                        if (v === 2.5) return "RV Cmd";
-                        if (v === 3.5) return "Comp Act";
-                        if (v === 4.5) return "Comp Cmd";
-                        if (v === 5.5) return "FanH Act";
-                        if (v === 6.5) return "FanH Cmd";
-                        if (v === 7.5) return "FanL Act";
-                        if (v === 8.5) return "FanL Cmd";
-                        return "";
-                      }}
-                    />
-                    <Tooltip content={<CustomBinaryTooltip />} />
-                    <Line type="stepAfter" dataKey="fanLowCmd" name="FanL Cmd" stroke={binaryChartUnit === 1 ? "#06B6D4" : "#F59E0B"} strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="stepAfter" dataKey="fanLowAct" name="FanL Act" stroke="#10B981" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
-                    
-                    <Line type="stepAfter" dataKey="fanHighCmd" name="FanH Cmd" stroke={binaryChartUnit === 1 ? "#0891B2" : "#D97706"} strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="stepAfter" dataKey="fanHighAct" name="FanH Act" stroke="#059669" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
-                    
-                    <Line type="stepAfter" dataKey="compCmd" name="Comp Cmd" stroke={binaryChartUnit === 1 ? "#22D3EE" : "#FBBF24"} strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="stepAfter" dataKey="compAct" name="Comp Act" stroke="#34D399" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
 
-                    <Line type="stepAfter" dataKey="revCmd" name="RV Cmd" stroke="#8B5CF6" strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="stepAfter" dataKey="revAct" name="RV Act" stroke="#A78BFA" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
-
-                    <Line type="stepAfter" dataKey="heatCmd" name="HT Cmd" stroke="#EF4444" strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="stepAfter" dataKey="heatAct" name="HT Act" stroke="#F87171" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+              {/* HVAC Unit 2 Graph */}
+              <div className="bg-black/20 p-4 border border-prizm-border/50 rounded-lg">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
+                  <span className="text-[10px] font-extrabold text-amber-500 uppercase tracking-wider">HVAC Unit 2 (Stepped State)</span>
+                  <div className="flex flex-wrap gap-2 text-[8px] font-mono">
+                    <span className="text-amber-500 font-bold">● FanL Cmd</span>
+                    <span className="text-emerald-400">-- FanL Act</span>
+                    <span className="text-amber-600 font-bold">● FanH Cmd</span>
+                    <span className="text-emerald-500">-- FanH Act</span>
+                    <span className="text-amber-400 font-bold">● Comp Cmd</span>
+                    <span className="text-emerald-300">-- Comp Act</span>
+                    <span className="text-purple-400 font-bold">● RV Cmd</span>
+                    <span className="text-red-400 font-bold">● HT Cmd</span>
+                  </div>
+                </div>
+                <div className="h-[140px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={steppedDataUnit2} margin={{ left: -25, right: 10, top: 5, bottom: 5 }}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.03)" vertical={false} />
+                      <XAxis dataKey="timeLabel" stroke="#4B5563" fontSize={8} tickLine={false} />
+                      <YAxis 
+                        stroke="#4B5563" 
+                        fontSize={8} 
+                        domain={[-0.1, 1.1]} 
+                        ticks={[0, 1]}
+                        tickFormatter={(v) => v === 1 ? "ON" : "OFF"}
+                      />
+                      <Tooltip content={<CustomBinaryTooltip />} />
+                      <Line type="stepAfter" dataKey="fanLowCmd" name="FanL Cmd" stroke="#F59E0B" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="fanLowAct" name="FanL Act" stroke="#10B981" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="fanHighCmd" name="FanH Cmd" stroke="#D97706" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="fanHighAct" name="FanH Act" stroke="#059669" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="compCmd" name="Comp Cmd" stroke="#FBBF24" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="compAct" name="Comp Act" stroke="#34D399" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="revCmd" name="RV Cmd" stroke="#8B5CF6" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="revAct" name="RV Act" stroke="#A78BFA" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                      <Line type="stepAfter" dataKey="heatCmd" name="HT Cmd" stroke="#EF4444" strokeWidth={1.5} dot={false} connectNulls />
+                      <Line type="stepAfter" dataKey="heatAct" name="HT Act" stroke="#F87171" strokeWidth={1.2} dot={false} strokeDasharray="3 3" connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
 
-            {/* Signal Validation Table (Fix 11) */}
+            {/* Signal Validation Table (Fix 1) */}
             <div className="xl:col-span-5 bg-black/20 p-4 border border-prizm-border/50 rounded-lg flex flex-col justify-between">
               <div>
-                <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 tracking-wider">Signal Validation Matrix</span>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[10px] text-left border-collapse font-mono">
-                    <thead>
-                      <tr className="border-b border-prizm-border text-prizm-text-muted text-[8px] uppercase tracking-wider">
-                        <th className="pb-2">Signal</th>
-                        <th className="pb-2 text-center">Cmd</th>
-                        <th className="pb-2 text-center">Act</th>
-                        <th className="pb-2 text-center">Status</th>
-                        <th className="pb-2 text-right">Consecutive</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5 font-semibold">
-                      {signalsToCheck.map((sig, sIdx) => {
-                        const res = checkSignalMismatch(samples, currentHvacKey, sig.cmdKey, sig.actKey);
-                        
-                        let cmdLabel = "–";
-                        const latestHvac = samples[samples.length - 1]?.[currentHvacKey] || {};
-                        if (latestHvac[sig.cmdKey] === true) cmdLabel = "ON";
-                        if (latestHvac[sig.cmdKey] === false) cmdLabel = "OFF";
-
-                        let actLabel = "–";
-                        if (latestHvac[sig.actKey] === true) actLabel = "ON";
-                        if (latestHvac[sig.actKey] === false) actLabel = "OFF";
-
-                        let statusLabel = "UNKNOWN";
-                        let statusColor = "text-zinc-500 bg-zinc-800/10 border-zinc-700/25";
-
-                        if (res.status === "MATCH") {
-                          statusLabel = "VALID";
-                          statusColor = "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20";
-                        } else if (res.status === "COMMANDE_NOT_ACTIVE") {
-                          statusLabel = "CMD NO ACT";
-                          statusColor = "text-rose-400 bg-rose-500/10 border border-rose-500/20 animate-pulse";
-                        } else if (res.status === "ACTIVE_NOT_COMMANDE") {
-                          statusLabel = "ACT NO CMD";
-                          statusColor = "text-amber-400 bg-amber-500/10 border border-amber-500/20 animate-pulse";
-                        } else if (res.status === "PENDING") {
-                          statusLabel = "VALIDATING";
-                          statusColor = "text-prizm-primary bg-prizm-primary/10 border border-prizm-primary/20";
-                        }
-
-                        return (
-                          <tr key={sIdx} className="hover:bg-white/5">
-                            <td className="py-2 text-prizm-text-muted">{sig.label}</td>
-                            <td className="py-2 text-center">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                                latestHvac[sig.cmdKey] === true 
-                                  ? "bg-cyan-500/10 text-cyan-400" 
-                                  : latestHvac[sig.cmdKey] === false 
-                                  ? "bg-zinc-800 text-zinc-500" 
-                                  : "text-zinc-600 border-dashed"
-                              }`}>
-                                {cmdLabel}
-                              </span>
-                            </td>
-                            <td className="py-2 text-center">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                                latestHvac[sig.actKey] === true 
-                                  ? "bg-emerald-500/10 text-emerald-400" 
-                                  : latestHvac[sig.actKey] === false 
-                                  ? "bg-zinc-800 text-zinc-500" 
-                                  : "text-zinc-600 border-dashed"
-                              }`}>
-                                {actLabel}
-                              </span>
-                            </td>
-                            <td className="py-2 text-center">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor}`}>
-                                {statusLabel}
-                              </span>
-                            </td>
-                            <td className="py-2 text-right text-prizm-text font-bold">
-                              {res.consecutiveCount} samples
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-extrabold text-prizm-text uppercase tracking-wider">Signal Validation Matrix</span>
+                  <button 
+                    onClick={() => setShowValidationMatrix(prev => !prev)}
+                    className="text-[8px] bg-prizm-primary/10 hover:bg-prizm-primary/20 text-prizm-primary border border-prizm-primary/20 rounded px-1.5 py-0.5 font-mono font-bold cursor-pointer"
+                  >
+                    {showValidationMatrix ? "Hide Matrix" : "Show Matrix"}
+                  </button>
                 </div>
+
+                {showValidationMatrix ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[10px] text-left border-collapse font-mono">
+                      <thead>
+                        <tr className="border-b border-prizm-border text-prizm-text-muted text-[8px] uppercase tracking-wider">
+                          <th className="pb-2">Signal</th>
+                          <th className="pb-2 text-center">Cmd</th>
+                          <th className="pb-2 text-center">Act</th>
+                          <th className="pb-2 text-center">Status</th>
+                          <th className="pb-2 text-right">Consecutive</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 font-semibold">
+                        {signalsToCheck.map((sig, sIdx) => {
+                          const currentHvacKey = binaryChartUnit === 1 ? "hvac1" : "hvac2";
+                          const res = checkSignalMismatch(samples, currentHvacKey, sig.cmdKey, sig.actKey);
+                          
+                          let cmdLabel = "–";
+                          const latestHvac = samples[samples.length - 1]?.[currentHvacKey] || {};
+                          if (latestHvac[sig.cmdKey] === true) cmdLabel = "ON";
+                          if (latestHvac[sig.cmdKey] === false) cmdLabel = "OFF";
+
+                          let actLabel = "–";
+                          if (latestHvac[sig.actKey] === true) actLabel = "ON";
+                          if (latestHvac[sig.actKey] === false) actLabel = "OFF";
+
+                          let statusLabel = "UNKNOWN";
+                          let statusColor = "text-zinc-500 bg-zinc-800/10 border-zinc-700/25";
+
+                          if (res.status === "MATCH") {
+                            statusLabel = "VALID";
+                            statusColor = "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20";
+                          } else if (res.status === "COMMANDE_NOT_ACTIVE") {
+                            statusLabel = "CMD NO ACT";
+                            statusColor = "text-rose-400 bg-rose-500/10 border border-rose-500/20 animate-pulse";
+                          } else if (res.status === "ACTIVE_NOT_COMMANDE") {
+                            statusLabel = "ACT NO CMD";
+                            statusColor = "text-amber-400 bg-amber-500/10 border border-amber-500/20 animate-pulse";
+                          } else if (res.status === "PENDING") {
+                            statusLabel = "VALIDATING";
+                            statusColor = "text-prizm-primary bg-prizm-primary/10 border border-prizm-primary/20";
+                          }
+
+                          return (
+                            <tr key={sIdx} className="hover:bg-white/5">
+                              <td className="py-2 text-prizm-text-muted">{sig.label}</td>
+                              <td className="py-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                  latestHvac[sig.cmdKey] === true 
+                                    ? "bg-cyan-500/10 text-cyan-400" 
+                                    : latestHvac[sig.cmdKey] === false 
+                                    ? "bg-zinc-800 text-zinc-500" 
+                                    : "text-zinc-600 border-dashed"
+                                }`}>
+                                  {cmdLabel}
+                                </span>
+                              </td>
+                              <td className="py-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                  latestHvac[sig.actKey] === true 
+                                    ? "bg-emerald-500/10 text-emerald-400" 
+                                    : latestHvac[sig.actKey] === false 
+                                    ? "bg-zinc-800 text-zinc-500" 
+                                    : "text-zinc-600 border-dashed"
+                                }`}>
+                                  {actLabel}
+                                </span>
+                              </td>
+                              <td className="py-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor}`}>
+                                  {statusLabel}
+                                </span>
+                              </td>
+                              <td className="py-2 text-right text-prizm-text font-bold">
+                                {res.consecutiveCount}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-prizm-text-muted/60 italic border border-dashed border-prizm-border/20 rounded bg-black/10 text-[9px]">
+                    Matrix collapsed. Click "Show Matrix" above to verify commanded vs active relay signals.
+                  </div>
+                )}
               </div>
 
               {/* Explanatory footer notes */}

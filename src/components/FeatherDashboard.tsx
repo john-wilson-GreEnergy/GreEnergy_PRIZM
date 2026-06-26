@@ -305,6 +305,72 @@ function getHvacSampleDetails(hvac: any) {
         const h1 = data.device.hvac1 || {};
         const h2 = data.device.hvac2 || {};
         
+        const tSpace = data.device.spaceTemperatureC !== undefined && data.device.spaceTemperatureC !== null
+          ? data.device.spaceTemperatureC
+          : (data.device.thermal?.spaceTemperature !== undefined && data.device.thermal?.spaceTemperature !== null
+              ? data.device.thermal.spaceTemperature
+              : null);
+
+        const tCell = data.device.avgCellTemperatureC !== undefined && data.device.avgCellTemperatureC !== null
+          ? data.device.avgCellTemperatureC
+          : (data.device.temperatureCellC !== undefined && data.device.temperatureCellC !== null
+              ? data.device.temperatureCellC
+              : (data.device.thermal?.avgCellTemperature !== undefined && data.device.thermal?.avgCellTemperature !== null
+                  ? data.device.thermal.avgCellTemperature
+                  : null));
+
+        const tSupply = data.device.supplyAirTempC !== undefined && data.device.supplyAirTempC !== null
+          ? data.device.supplyAirTempC
+          : (data.device.temperatureSupplyC !== undefined && data.device.temperatureSupplyC !== null
+              ? data.device.temperatureSupplyC
+              : (data.device.thermal?.supplyAirTemp !== undefined && data.device.thermal?.supplyAirTemp !== null
+                  ? data.device.thermal.supplyAirTemp
+                  : null));
+
+        const tReturn = data.device.returnAirTempC !== undefined && data.device.returnAirTempC !== null
+          ? data.device.returnAirTempC
+          : (data.device.temperatureReturnC !== undefined && data.device.temperatureReturnC !== null
+              ? data.device.temperatureReturnC
+              : (data.device.thermal?.returnAirTemp !== undefined && data.device.thermal?.returnAirTemp !== null
+                  ? data.device.thermal.returnAirTemp
+                  : null));
+
+        const tOutside = data.device.outsideTemperatureC !== undefined && data.device.outsideTemperatureC !== null
+          ? data.device.outsideTemperatureC
+          : (data.device.thermal?.outsideTemperature !== undefined && data.device.thermal?.outsideTemperature !== null
+              ? data.device.thermal.outsideTemperature
+              : null);
+
+        const toF = (c: number | null) => {
+          if (c === null || c === undefined) return null;
+          return c * 1.8 + 32;
+        };
+
+        const getSourceDebug = (val: any, fieldName: string) => {
+          if (val !== undefined && val !== null) return fieldName;
+          return null;
+        };
+
+        const spaceSource = getSourceDebug(data.device.spaceTemperatureC, "device.spaceTemperatureC") ||
+                            getSourceDebug(data.device.thermal?.spaceTemperature, "thermal.spaceTemperature") || "missing";
+
+        const cellSource = getSourceDebug(data.device.avgCellTemperatureC, "device.avgCellTemperatureC") ||
+                           getSourceDebug(data.device.temperatureCellC, "device.temperatureCellC") ||
+                           getSourceDebug(data.device.thermal?.avgCellTemperature, "thermal.avgCellTemperature") || "missing";
+
+        const supplySource = getSourceDebug(data.device.supplyAirTempC, "device.supplyAirTempC") ||
+                             getSourceDebug(data.device.temperatureSupplyC, "device.temperatureSupplyC") ||
+                             getSourceDebug(data.device.thermal?.supplyAirTemp, "thermal.supplyAirTemp") || "missing";
+
+        const returnSource = getSourceDebug(data.device.returnAirTempC, "device.returnAirTempC") ||
+                             getSourceDebug(data.device.temperatureReturnC, "device.temperatureReturnC") ||
+                             getSourceDebug(data.device.thermal?.returnAirTemp, "thermal.returnAirTemp") || "missing";
+
+        const outsideSource = getSourceDebug(data.device.outsideTemperatureC, "device.outsideTemperatureC") ||
+                              getSourceDebug(data.device.thermal?.outsideTemperature, "thermal.outsideTemperature") || "missing";
+
+        const rawThermalKeys = data.device.thermal ? Object.keys(data.device.thermal) : [];
+         
         const newSample = {
           timestamp: now.toISOString(),
           timeLabel,
@@ -314,23 +380,28 @@ function getHvacSampleDetails(hvac: any) {
           hvac2Current: h2.currentA ?? 0,
           hvac1Rpm: h1.fanSpeedRpm ?? 0,
           hvac2Rpm: h2.fanSpeedRpm ?? 0,
-          spaceTemp: data.device.spaceTemperatureC !== undefined && data.device.spaceTemperatureC !== null 
-            ? (data.device.spaceTemperatureC * 1.8 + 32) 
-            : (data.device.temperatureSupplyC !== undefined && data.device.temperatureSupplyC !== null 
-                ? data.device.temperatureSupplyC * 1.8 + 32 
-                : 0),
-          cellTemp: data.device.avgCellTemperatureC !== undefined && data.device.avgCellTemperatureC !== null
-            ? (data.device.avgCellTemperatureC * 1.8 + 32)
-            : (data.device.temperatureCellC !== undefined && data.device.temperatureCellC !== null
-                ? data.device.temperatureCellC * 1.8 + 32
-                : 0),
+          spaceTemp: toF(tSpace),
+          cellTemp: toF(tCell),
+          supplyTemp: toF(tSupply),
+          returnTemp: toF(tReturn),
+          outsideTemp: toF(tOutside),
           hvac1: getHvacSampleDetails(data.device.hvac1),
           hvac2: getHvacSampleDetails(data.device.hvac2),
           temperatures: {
-            spaceTempC: data.device.spaceTemperatureC ?? data.device.temperatureSupplyC ?? null,
-            cellTempC: data.device.avgCellTemperatureC ?? data.device.temperatureCellC ?? null,
-            supplyAirTempC: data.device.supplyAirTempC ?? null,
-            returnAirTempC: data.device.returnAirTempC ?? null
+            spaceTempC: tSpace,
+            cellTempC: tCell,
+            supplyAirTempC: tSupply,
+            returnAirTempC: tReturn,
+            outsideTempC: tOutside,
+            raw: data.device.thermal || null
+          },
+          temperatureSourceDebug: {
+            spaceTempCSource: spaceSource,
+            cellTempCSource: cellSource,
+            supplyAirTempCSource: supplySource,
+            returnAirTempCSource: returnSource,
+            outsideTempCSource: outsideSource,
+            rawThermalKeys
           },
           sensors: {
             doors: data.device.doors ?? null,
@@ -379,6 +450,41 @@ function getHvacSampleDetails(hvac: any) {
     return () => clearInterval(timer);
   }, [selectedDevice?.ip, selectedDeviceInterval, samples.length]);
 
+  // Helper to extract Energy Segment Index
+  const getEnergySegmentIndex = (device: any): number | null => {
+    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+      return Number(device.energySegmentIndex);
+    }
+    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
+      return Number(device.segmentIndex);
+    }
+    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
+    for (const token of tokens) {
+      if (token) {
+        const match = token.match(/ES\s*(\d+)/i);
+        if (match) {
+          return parseInt(match[1], 10);
+        }
+      }
+    }
+    if (device.ip) {
+      const parts = device.ip.split(".");
+      if (parts.length === 4) {
+        const lastOctet = parseInt(parts[3], 10);
+        if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
+          return ((lastOctet - 10) / 5) + 1;
+        }
+      }
+    }
+    if (device.stringIndex !== null && device.stringIndex !== undefined) {
+      const num = Number(device.stringIndex);
+      if (!isNaN(num)) {
+        return Math.ceil(num / 2);
+      }
+    }
+    return null;
+  };
+
   // Map strings associated with this feather / ES
   const pairedStrings = useMemo(() => {
     if (!selectedDevice || !snapshot?.normalized?.strings) return [];
@@ -386,33 +492,53 @@ function getHvacSampleDetails(hvac: any) {
     const arrayNum = selectedDevice.arrayIndex;
     if (arrayNum === undefined) return [];
     
-    const stringsInArray = snapshot.normalized.strings.filter(
-      (s: any) => s.arrayNumber === arrayNum
-    );
+    const stringsInArray = snapshot.normalized.strings.filter((s: any) => {
+      const aNum = s.arrayNumber !== undefined ? s.arrayNumber : s.arrayIndex;
+      return Number(aNum) === Number(arrayNum);
+    });
     
-    const strIdx = selectedDevice.stringIndex;
-    if (strIdx === null || strIdx === undefined) return [];
-    
-    let esNum = 0;
-    const label = (selectedDevice.segmentLabel || selectedDevice.entityKeyToken || selectedDevice.entityDescription || "").toUpperCase();
-    const matchES = label.match(/ES(\d+)/);
-    if (matchES) {
-      esNum = parseInt(matchES[1], 10);
-    } else {
-      esNum = Math.ceil(Number(strIdx) / 2);
+    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    if (energySegmentIndex === null) {
+      const strIdx = selectedDevice.stringIndex;
+      if (strIdx === null || strIdx === undefined) return [];
+      const numStrIdx = Number(strIdx);
+      return stringsInArray.filter((s: any) => {
+        const sNum = s.stringNumber !== undefined ? s.stringNumber : s.stringIndex;
+        return Number(sNum) === numStrIdx;
+      });
     }
     
-    if (!esNum) {
-      esNum = Math.ceil(Number(strIdx) / 2) || 1;
-    }
+    const strA = energySegmentIndex * 2 - 1;
+    const strB = energySegmentIndex * 2;
     
-    const strA = 2 * esNum - 1;
-    const strB = 2 * esNum;
-    
-    return stringsInArray.filter(
-      (s: any) => s.stringNumber === strA || s.stringNumber === strB || s.stringNumber === strIdx
-    );
+    return stringsInArray.filter((s: any) => {
+      const sNum = s.stringNumber !== undefined ? s.stringNumber : s.stringIndex;
+      if (sNum === undefined || sNum === null) return false;
+      const num = Number(sNum);
+      return num === strA || num === strB || num === Number(selectedDevice.stringIndex);
+    });
   }, [selectedDevice?.ip, selectedDevice?.stringIndex, selectedDevice?.arrayIndex, snapshot?.normalized?.strings]);
+
+  const pairedStringDebug = useMemo(() => {
+    if (!selectedDevice) return null;
+    const arrayNum = selectedDevice.arrayIndex;
+    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    const strA = energySegmentIndex ? (energySegmentIndex * 2 - 1) : null;
+    const strB = energySegmentIndex ? (energySegmentIndex * 2) : null;
+    const allStrings = snapshot?.normalized?.strings || [];
+    const sampleString = allStrings[0] || {};
+    
+    return {
+      selectedIp: selectedDevice.ip,
+      selectedArray: arrayNum,
+      selectedSegmentLabel: selectedDevice.segmentLabel,
+      resolvedEnergySegmentIndex: energySegmentIndex,
+      expectedStrings: strA && strB ? [`A${arrayNum}-S${strA}`, `A${arrayNum}-S${strB}`] : [],
+      normalizedStringCount: allStrings.length,
+      matchingRowsFound: pairedStrings.length,
+      availableStringFieldNamesSample: Object.keys(sampleString)
+    };
+  }, [selectedDevice, snapshot?.normalized?.strings, pairedStrings]);
 
   // HVAC mismatch logic helper
   const detectHvacMismatch = (device: any) => {
@@ -970,7 +1096,9 @@ function getHvacSampleDetails(hvac: any) {
         selectedDeviceInterval={selectedDeviceInterval}
         setSelectedDeviceInterval={setSelectedDeviceInterval}
         samples={samples}
+        setSamples={setSamples}
         pairedStrings={pairedStrings}
+        pairedStringDebug={pairedStringDebug}
         detectHvacMismatch={detectHvacMismatch}
       />
     );
