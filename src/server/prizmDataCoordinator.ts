@@ -2105,7 +2105,8 @@ function makeAffectedLabel(target: any): string {
   if (target.stringIndex != null) {
     if (label) label += " / ";
     const es = Math.ceil(Number(target.stringIndex) / 2);
-    label += `ES${es} / String ${target.stringIndex}`;
+    const side = Number(target.stringIndex) % 2 === 1 ? "A-Side" : "B-Side";
+    label += `ES${es} / String ${target.stringIndex} / ${side}`;
   } else if (target.segmentIndex != null) {
     if (label) label += " / ";
     label += `Segment ${target.segmentIndex}`;
@@ -2120,7 +2121,7 @@ function makeAffectedLabel(target: any): string {
     label += `BPC ${bpc}`;
   }
   
-  const cg = target.cellGroupIndex;
+  const cg = target.cellGroupIndex ?? target.cgIndex;
   if (cg != null && Number(cg) > 0) {
     if (label) label += " / ";
     label += `CG ${cg}`;
@@ -2128,6 +2129,83 @@ function makeAffectedLabel(target: any): string {
   
   if (!label && target.ip) return target.ip;
   return label || "Unknown Target";
+}
+
+function normalizeCorrectiveActionFields(rawLabel: string, severityStr: string, explicitCode?: string | null) {
+  const codeNum = explicitCode ? Number(explicitCode) : extractNumericFaultCode(rawLabel);
+  const code = codeNum ? String(codeNum) : null;
+  
+  let faultName = rawLabel;
+  if (code) {
+    faultName = faultName.replace(/^(Warning|Alarm|Fault)?\s*Code\s*\d{4}\s*:\s*/i, "");
+    faultName = faultName.replace(/^\d{4}\s*:\s*/i, "");
+  }
+  
+  if (code === "2074" && (faultName === "2074" || faultName.includes("2074") || faultName.includes("Charge Balancer"))) {
+    faultName = "CellGroup Charge Balancer Warning";
+  } else if (code === "2073" && (faultName === "2073" || faultName.includes("2073") || faultName.includes("Discharge Balancer"))) {
+    faultName = "CellGroup Discharge Balancer Warning";
+  } else if (code === "1024" && (faultName === "1024" || faultName.includes("1024") || faultName.includes("Disconnect"))) {
+    faultName = "BPC Disconnect Alarm";
+  } else if (code === "2024" && (faultName === "2024" || faultName.includes("2024") || faultName.includes("Disconnect"))) {
+    faultName = "BPC Disconnect Warning";
+  }
+  
+  const sevUpper = (severityStr || "warning").toUpperCase() as "WARNING" | "ALARM";
+  const levelLower = (severityStr || "warning").toLowerCase() as "warning" | "alarm";
+  
+  let codeType: "Warning Code" | "Alarm Code" | "Fault Code" = "Fault Code";
+  if (sevUpper === "WARNING") {
+    codeType = "Warning Code";
+  } else if (sevUpper === "ALARM") {
+    codeType = "Alarm Code";
+  }
+  
+  let faultLabel = faultName;
+  if (code) {
+    faultLabel = `${codeType} ${code}: ${faultName}`;
+  }
+  
+  return {
+    code: code || "",
+    codeNumber: codeNum || null,
+    codeType: code ? codeType : null,
+    faultLabel,
+    faultName,
+    severity: sevUpper,
+    level: levelLower
+  };
+}
+
+function deriveDeviceIp(target: any, sourceName?: string): string {
+  const directIp = target.deviceIp || target.ip || target.device?.ip || target.raw?.ip || target.raw?.deviceIp;
+  if (directIp) return directIp;
+  
+  const activeProfile = ProfileStore.getActiveProfile();
+  const tm: any = activeProfile?.topologyModel || {};
+  const cp: any = activeProfile?.capacityProfile || {};
+  
+  const basePrefix = tm.basePrefix || "10.0";
+  const esSegmentStart = tm.esSegmentStart !== undefined ? Number(tm.esSegmentStart) : 10;
+  const esSegmentStep = tm.esSegmentStep !== undefined ? Number(tm.esSegmentStep) : 5;
+  const stringsPerES = cp.stringsPerEnergySegment !== undefined ? Number(cp.stringsPerEnergySegment) : 2;
+  
+  const arrayIndex = target.arrayIndex !== null && target.arrayIndex !== undefined ? Number(target.arrayIndex) : 1;
+  const stringIndex = target.stringIndex !== null && target.stringIndex !== undefined ? Number(target.stringIndex) : null;
+  
+  if (stringIndex !== null) {
+    const energySegment = Math.ceil(stringIndex / stringsPerES);
+    const segmentOctet = esSegmentStart + ((energySegment - 1) * esSegmentStep);
+    return `${basePrefix}.${arrayIndex}.${segmentOctet}`;
+  }
+  
+  const segmentIndex = target.segmentIndex ?? target.energySegmentNumber ?? target.energySegmentIndex ?? null;
+  if (segmentIndex !== null) {
+    const segmentOctet = esSegmentStart + ((Number(segmentIndex) - 1) * esSegmentStep);
+    return `${basePrefix}.${arrayIndex}.${segmentOctet}`;
+  }
+  
+  return "Unavailable";
 }
 
 function getSuggestedAction(label: string): string {
@@ -2181,12 +2259,14 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
     }
     existingEventsNormalized++;
     
-    const severity = action.severity || "warning";
+    const severity = (action.severity || "warning").toLowerCase();
     const code = extractNumericFaultCode(label);
     const familyKey = getFaultFamilyKey(code, label);
     
     const targets = Array.isArray(action.affected) ? action.affected : [action.target || {}];
     for (const t of targets) {
+      const bpcIndex = t.bpcIndex ?? t.batteryPackIndex ?? null;
+      const cellGroupIndex = t.cellGroupIndex ?? t.cgIndex ?? null;
       rawEvents.push({
         faultLabel: label,
         code: code ? String(code) : "",
@@ -2196,8 +2276,10 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
           ip: t.ip || null,
           arrayIndex: t.arrayIndex || null,
           stringIndex: t.stringIndex || null,
-          bpcIndex: t.bpcIndex ?? t.batteryPackIndex ?? null,
-          cellGroupIndex: t.cellGroupIndex ?? null
+          bpcIndex,
+          batteryPackIndex: bpcIndex,
+          cellGroupIndex,
+          cgIndex: cellGroupIndex
         },
         source: "existing"
       });
@@ -2218,8 +2300,10 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       }
       
       const code = extractNumericFaultCode(faultLabel);
-      const severity = determineSeverity(faultLabel, msg.severity);
+      const severity = determineSeverity(faultLabel, msg.severity).toLowerCase();
       
+      const bpcIndex = extractBpcIndex(device) ?? extractBpcIndex(msg) ?? null;
+      const cellGroupIndex = extractCellGroupIndex(device) ?? extractCellGroupIndex(msg) ?? null;
       rawEvents.push({
         faultLabel,
         code: code ? String(code) : "",
@@ -2229,8 +2313,10 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
           ip,
           arrayIndex: device.arrayIndex,
           stringIndex: device.stringIndex,
-          bpcIndex: extractBpcIndex(device) ?? extractBpcIndex(msg) ?? null,
-          cellGroupIndex: extractCellGroupIndex(device) ?? extractCellGroupIndex(msg) ?? null
+          bpcIndex,
+          batteryPackIndex: bpcIndex,
+          cellGroupIndex,
+          cgIndex: cellGroupIndex
         },
         source: "feather"
       });
@@ -2250,8 +2336,10 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       }
       
       const code = extractNumericFaultCode(faultLabel);
-      const severity = determineSeverity(faultLabel, msg.severity);
+      const severity = determineSeverity(faultLabel, msg.severity).toLowerCase();
       
+      const bpcIndex = extractBpcIndex(row) ?? extractBpcIndex(msg) ?? null;
+      const cellGroupIndex = extractCellGroupIndex(row) ?? extractCellGroupIndex(msg) ?? null;
       rawEvents.push({
         faultLabel,
         code: code ? String(code) : "",
@@ -2260,8 +2348,10 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
         target: {
           arrayIndex: row.arrayNumber || row.arrayIndex || null,
           stringIndex: row.stringNumber || row.stringIndex || null,
-          bpcIndex: extractBpcIndex(row) ?? extractBpcIndex(msg) ?? null,
-          cellGroupIndex: extractCellGroupIndex(row) ?? extractCellGroupIndex(msg) ?? null
+          bpcIndex,
+          batteryPackIndex: bpcIndex,
+          cellGroupIndex,
+          cgIndex: cellGroupIndex
         },
         source: "strings"
       });
@@ -2306,7 +2396,9 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
         arrayIndex,
         stringIndex,
         bpcIndex,
+        batteryPackIndex: bpcIndex,
         cellGroupIndex,
+        cgIndex: cellGroupIndex,
         ip: source.ipAddress || null
       };
       
@@ -2418,6 +2510,7 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
         severity: event.severity,
         faultLabel: event.faultLabel,
         familyKey: event.familyKey,
+        code: event.code,
         affectedMap: new Map<string, any>(),
         suggestedAction: getSuggestedAction(event.faultLabel),
         source: event.source
@@ -2432,31 +2525,87 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
   
   // 8. Build final actions
   const finalActions = Array.from(groupsMap.values()).map(group => {
-    const affected = Array.from(group.affectedMap.values());
-    const affectedLabel = makeAffectedLabel(affected[0]);
+    const affected = Array.from(group.affectedMap.values()) as any[];
+    const affectedLabels = affected.map(target => makeAffectedLabel(target));
+    const affectedLabel = affectedLabels[0];
     const affectedSummary = affected.length > 1 ? `${affectedLabel} (+${affected.length - 1} more)` : affectedLabel;
     const groupKey = `${group.severity}|${group.familyKey}`;
     const id = `action-${groupKey.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
     
+    const fields = normalizeCorrectiveActionFields(group.faultLabel, group.severity, group.code);
+    
+    // Build navigation targets based on source
+    let navigationTarget: any = null;
+    if (group.source === "feather") {
+      navigationTarget = {
+        tab: "feather",
+        deviceIp: deriveDeviceIp(affected[0], group.source),
+        arrayIndex: affected[0].arrayIndex,
+        stringIndex: affected[0].stringIndex
+      };
+    } else if (group.source === "pcs") {
+      navigationTarget = {
+        tab: "pcs",
+        arrayIndex: affected[0].arrayIndex,
+        pcsIndex: affected[0].pcsIndex
+      };
+    } else {
+      // Default to strings for array-notifications, strings, existing
+      const stringsPerES = ProfileStore.getActiveProfile()?.capacityProfile?.stringsPerEnergySegment || 2;
+      const sIndex = affected[0].stringIndex;
+      const esNum = sIndex ? Math.ceil(Number(sIndex) / stringsPerES) : null;
+      navigationTarget = {
+        tab: "strings",
+        arrayIndex: affected[0].arrayIndex,
+        stringIndex: sIndex,
+        energySegmentNumber: esNum,
+        bpcIndex: affected[0].bpcIndex ?? affected[0].batteryPackIndex ?? null,
+        cellGroupIndex: affected[0].cellGroupIndex ?? affected[0].cgIndex ?? null,
+        deviceIp: deriveDeviceIp(affected[0], group.source)
+      };
+    }
+    
+    const targets = affected.map(target => {
+       const deviceIp = deriveDeviceIp(target, group.source);
+       const sNum = target.stringIndex;
+       const stringsPerES = ProfileStore.getActiveProfile()?.capacityProfile?.stringsPerEnergySegment || 2;
+       const stringSide = sNum ? (Number(sNum) % 2 === 1 ? "A-Side" : "B-Side") : null;
+       const energySegmentNumber = sNum ? Math.ceil(Number(sNum) / stringsPerES) : null;
+       const bpcIndex = target.bpcIndex ?? target.batteryPackIndex ?? null;
+       const cellGroupIndex = target.cellGroupIndex ?? target.cgIndex ?? null;
+       const callout = makeAffectedLabel(target);
+       
+       return {
+          arrayIndex: target.arrayIndex,
+          stringIndex: sNum,
+          energySegmentNumber,
+          stringSide,
+          bpcIndex,
+          batteryPackIndex: bpcIndex,
+          cellGroupIndex,
+          cgIndex: cellGroupIndex,
+          deviceIp,
+          callout,
+          source: group.source,
+          rawCode: group.code || "",
+          rawFault: fields.faultLabel,
+          label: callout
+       };
+    });
+    
     return {
       id,
-      severity: group.severity,
-      level: group.severity === "alarm" ? "ALARM" : "WARNING",
+      ...fields, // code, codeNumber, codeType, faultLabel, faultName, severity, level
       source: group.source === "existing" ? "EMS" : group.source,
-      faultLabel: group.faultLabel,
-      faultName: group.faultLabel,
-      fault: group.faultLabel,
+      fault: fields.faultLabel,
       details: `Affected: ${affectedSummary}`,
       count: affected.length,
       affectedCount: affected.length,
       affectedSummary,
       suggestedAction: group.suggestedAction,
-      affected: affected.map(target => Object.assign({}, target, {
-         label: makeAffectedLabel(target)
-      })),
-      affectedTargets: affected.map(target => Object.assign({}, target, {
-         label: makeAffectedLabel(target)
-      }))
+      navigationTarget,
+      affected: targets,
+      affectedTargets: targets
     };
   });
   

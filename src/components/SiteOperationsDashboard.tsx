@@ -1205,7 +1205,13 @@ export default function SiteOperationsDashboard({
                                         Array
                                       </th>
                                       <th className="py-1.5 px-3 font-bold">
-                                        String/Segment
+                                        ES / String / Side
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        BPC
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        CG
                                       </th>
                                       <th className="py-1.5 px-3 font-bold">
                                         Device IP / Callout
@@ -1214,7 +1220,7 @@ export default function SiteOperationsDashboard({
                                         Source
                                       </th>
                                       <th className="py-1.5 px-3 font-bold">
-                                        Raw Fault/Code
+                                        Raw Fault / Code
                                       </th>
                                     </tr>
                                   </thead>
@@ -1237,34 +1243,50 @@ export default function SiteOperationsDashboard({
                                           </td>
                                           <td className="py-1.5 px-3 text-prizm-text">
                                             {(() => {
-                                              const sNum = aff.stringNumber ?? aff.stringIndex;
+                                              const sNum = aff.stringIndex ?? aff.stringNumber;
                                               if (sNum && sNum > 0) {
-                                                return formatStringEsLabel({ stringNumber: sNum });
+                                                const es = aff.energySegmentNumber ?? Math.ceil(sNum / 2);
+                                                const side = aff.stringSide ?? (sNum % 2 === 1 ? "A-Side" : "B-Side");
+                                                return `ES${es} – String ${sNum} – ${side}`;
                                               }
                                               return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
                                             })()}
                                           </td>
+                                          <td className="py-1.5 px-3 text-prizm-text">
+                                            {aff.bpcIndex ?? aff.batteryPackIndex ?? "—"}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-prizm-text">
+                                            {aff.cellGroupIndex ?? aff.cgIndex ?? "—"}
+                                          </td>
                                           <td className="py-1.5 px-3 text-prizm-primary font-semibold">
-                                            {aff.displayLabel || aff.ip || "N/A"}
+                                            {aff.deviceIp && aff.deviceIp !== "Unavailable" ? aff.deviceIp : (aff.callout || "Unavailable")}
                                           </td>
                                           <td className="py-1.5 px-3 text-prizm-text">
                                             <span
-                                              className={`px-1 rounded text-[8px] font-bold ${aff.source === "ems" ? "bg-indigo-500/10 text-indigo-400" : "bg-teal-500/10 text-teal-400"}`}
+                                              className={`px-1 rounded text-[8px] font-bold ${
+                                                aff.source === "array-notifications" ? "bg-indigo-500/10 text-indigo-400" :
+                                                aff.source === "strings" ? "bg-amber-500/10 text-amber-400" :
+                                                aff.source === "feather" ? "bg-teal-500/10 text-teal-400" :
+                                                aff.source === "pcs" ? "bg-rose-500/10 text-rose-400" :
+                                                "bg-gray-500/10 text-gray-400"
+                                              }`}
                                             >
-                                              {aff.source === "ems"
-                                                ? "EMS"
-                                                : "HVAC"}
+                                              {aff.source || "unknown"}
                                             </span>
                                           </td>
                                           <td
                                             className="py-1.5 px-3 text-prizm-danger truncate max-w-[200px]"
-                                            title={
-                                              aff.rawFault || aff.rawCode
-                                            }
+                                            title={aff.rawFault || aff.rawCode || aff.code}
                                           >
-                                            {aff.rawFault ||
-                                              aff.rawCode ||
-                                              "N/A"}
+                                            {(() => {
+                                              const code = aff.rawCode || aff.code;
+                                              const msg = aff.triggerMessage || aff.message;
+                                              const name = aff.rawFault || aff.faultName;
+                                              if (code) {
+                                                return msg ? `${code} / ${msg}` : String(code);
+                                              }
+                                              return name || "Unavailable";
+                                            })()}
                                           </td>
                                         </tr>
                                       ),
