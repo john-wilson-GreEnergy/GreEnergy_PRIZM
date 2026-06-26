@@ -1502,46 +1502,30 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
   const promises = arrayNumbers.map(async (a) => {
     const ep = `/tools/report/ems/array/${a}/notifications.json`;
     const baseUrl = getNormalizedBaseUrl();
-    let targetUrl = `${baseUrl}${ep}`;
-    
-    if (isEmsOffline && (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0."))) {
-      try {
-        const urlObj = new URL(targetUrl);
-        targetUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
-      } catch (e) {}
-    }
+    const targetUrl = `${baseUrl}${ep}`;
     
     let responseStatus: number | undefined = undefined;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), EMS_NORMAL_TIMEOUT_MS);
     
     try {
-      let response;
-      let fallbackAttempted = false;
-      try {
-        response = await fetch(targetUrl, { signal: controller.signal });
-        if (!response.ok && !targetUrl.includes("127.0.0.1:3000") && !targetUrl.includes("localhost:3000")) {
-          if (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0.")) {
-            isEmsOffline = true;
-          }
-          fallbackAttempted = true;
-          const urlObj = new URL(targetUrl);
-          const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
-          response = await fetch(fallbackUrl);
-        }
-      } catch (e: any) {
-        if (!fallbackAttempted && !targetUrl.includes("127.0.0.1:3000") && !targetUrl.includes("localhost:3000")) {
-          if (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0.")) {
-            isEmsOffline = true;
-          }
-          const urlObj = new URL(targetUrl);
-          const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
-          response = await fetch(fallbackUrl);
-        } else {
-          throw e;
-        }
+      if (process.env.PRIZM_USE_SIMULATED_ARRAY_NOTIFICATIONS === "true") {
+        const data = getSimulatedArrayNotifications(a);
+        arrayNotificationsCache[a] = {
+          ok: true,
+          endpoint: ep,
+          fullUrl: targetUrl,
+          status: 200,
+          lastUpdated: new Date().toISOString(),
+          data,
+          notificationCount: data.notification.length,
+          sample: data.notification.slice(0, 2)
+        };
+        clearTimeout(timeoutId);
+        return;
       }
-      
+
+      const response = await fetch(targetUrl, { signal: controller.signal });
       clearTimeout(timeoutId);
       responseStatus = response.status;
       

@@ -2643,24 +2643,5 @@ server.on('error', (e: any) => {
 });
 
 let reports: any[] = [];
-let logs: any[] = [
-  {
-    id: "log-001",
-    deviceId: "bess-03",
-    deviceName: "CATL/EVE Lineup 3",
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    level: "CRITICAL",
-    message: "Cell voltage delta exceeds critical limit of 400mV on Array 3 String 1 Battery Pack 14 Cell Group 14",
-    code: "BMS_CELL_VOLT_DELTA_CRITICAL"
-  },
-  {
-    id: "log-002",
-    deviceId: "bess-03",
-    deviceName: "CATL/EVE Lineup 3",
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    level: "WARNING",
-    message: "HVAC cooling efficiency low on Array 3 String 1",
-    code: "HVAC_COOLING_LOW"
-  }
-];
+let logs: any[] = [];
 let devices: any[] = [];
