@@ -338,6 +338,36 @@ export function buildStringBucketSummary(stringsData: any[]) {
         const contactorClosed = positiveContactorClosed && negativeContactorClosed;
         const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
         const contactorsCloseExpected = bool(row.ContactorsCloseExpected ?? row.contactorsCloseExpected ?? row.CloseExpected ?? row.closeExpected ?? false);
+
+        const connectionPermitKeys = [
+            "connectionPermitted",
+            "contactorsCloseExpected",
+            "closePermitted",
+            "canConnect",
+            "stringConnectionPermitted",
+            "permitClose",
+            "readyToConnect"
+        ];
+
+        let rawConnectionPermitted = null;
+        let matchedKey = null;
+
+        for (const key of connectionPermitKeys) {
+            // Check direct key on row (case-insensitive search)
+            const lowerKey = key.toLowerCase();
+            for (const k of Object.keys(row)) {
+                if (k.toLowerCase() === lowerKey && row[k] !== undefined && row[k] !== null && row[k] !== "") {
+                    rawConnectionPermitted = row[k];
+                    matchedKey = k;
+                    break;
+                }
+            }
+            if (rawConnectionPermitted !== null) break;
+        }
+
+        const connectionPermitted = rawConnectionPermitted !== null ? bool(rawConnectionPermitted) : null;
+        const connectionPermittedSource = matchedKey || "unavailable";
+
         const recloseCount = num(row.RecloseCount ?? row.recloseCount ?? null);
 
         // Rotation
@@ -568,6 +598,10 @@ export function buildStringBucketSummary(stringsData: any[]) {
             socPct,
             ah,
             kwh,
+            kWh: kwh,
+            storedKWh: kwh,
+            connectionPermitted,
+            connectionPermittedSource,
             minCellVoltage,
             maxCellVoltage,
             avgCellVoltage,

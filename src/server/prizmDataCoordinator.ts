@@ -673,7 +673,16 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
 
   const calculateBucketRollup = (arr: any[], bName: string, avgKwhs: number[]) => {
     const count = arr.length;
-    if (count === 0) return { count: 0 };
+    if (count === 0) return {
+      count: 0,
+      storedKWhTotal: 0,
+      storedKWhAvg: 0,
+      socKwhAvg: 0,
+      kWhAvg: 0,
+      connectionPermittedCount: 0,
+      connectionPermittedKnownCount: 0,
+      connectionPermittedSource: "unavailable"
+    };
     
     const sumNum = (keys: string[]) => {
       const vals = arr.map(a => getVal(a, keys)).filter(v => v !== null) as number[];
@@ -692,33 +701,96 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       return vals.length > 0 ? Math.min(...vals) : null;
     };
 
-    const maxVoltageMv = maxNum(["maxCellVoltageMv", "maxCellGroupVoltage", "MaxCellGroupVoltage"]);
-    const minVoltageMv = minNum(["minCellVoltageMv", "minCellGroupVoltage", "MinCellGroupVoltage"]);
-    const maxTemp = maxNum(["maxTempC", "maxTemp", "highCellTempC", "MaxCellGroupTemp", "maxCellGroupTemp"]);
-    const minTemp = minNum(["minTempC", "minTemp", "lowCellTempC", "MinCellGroupTemp", "minCellGroupTemp"]);
+    const maxVoltageMv = maxNum(["maxCellVoltage", "maxCellVoltageMv", "maxCellGroupVoltage", "MaxCellGroupVoltage"]);
+    const minVoltageMv = minNum(["minCellVoltage", "minCellVoltageMv", "minCellGroupVoltage", "MinCellGroupVoltage"]);
+    const avgVoltageMv = avgNum(["avgCellVoltage", "avgCellVoltageMv", "avgCellGroupVoltage", "AvgCellGroupVoltage"]);
+    const maxVoltageDeltaMv = maxNum(["cellVoltageDelta", "maxCellVoltageDeltaMv", "voltageDeltaMv"]);
+
+    const maxTemp = maxNum(["maxCellTemperature", "maxTempC", "maxTemp", "highCellTempC", "MaxCellGroupTemp", "maxCellGroupTemp"]);
+    const minTemp = minNum(["minCellTemperature", "minTempC", "minTemp", "lowCellTempC", "MinCellGroupTemp", "minCellGroupTemp"]);
+    const avgTemp = avgNum(["avgCellTemperature", "avgTempC", "avgTemp", "avgCellTempC", "AvgCellGroupTemp", "avgCellGroupTemp"]);
+    const maxTempDelta = maxNum(["cellTemperatureDelta", "maxCellTempDeltaC", "tempDeltaC"]);
+
+    const maxCellVoltageDeltaMv = maxVoltageDeltaMv ?? (maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null);
+    const maxCellTempDeltaC = maxTempDelta ?? (maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null);
+
+    const roundedAvgVoltageMv = avgVoltageMv !== null ? Number(avgVoltageMv.toFixed(3)) : null;
+    const roundedAvgTemp = avgTemp !== null ? Number(avgTemp.toFixed(1)) : null;
 
     const socPctAvg = bName === "online" ? onlineSocPct
                      : bName === "nearline" ? nearlineSocPct
                      : bName === "offline" ? offlineSocPct
                      : notCommunicatingSocPct;
 
-    const kWhAvg = average(avgKwhs);
+    const storedKWhTotal = sum(avgKwhs) ?? 0;
+    const storedKWhAvg = average(avgKwhs) ?? 0;
+
+    // Connection Permitted Count logic
+    const cpKeys = [
+      "connectionPermitted",
+      "contactorsCloseExpected",
+      "closePermitted",
+      "canConnect",
+      "stringConnectionPermitted",
+      "permitClose",
+      "readyToConnect"
+    ];
+
+    let connectionPermittedCount = 0;
+    let connectionPermittedKnownCount = 0;
+    const sourcesFound = new Set<string>();
+
+    for (const stringRow of arr) {
+      let cp: boolean | null = null;
+      let cpSrc = "unavailable";
+
+      if (stringRow.connectionPermitted !== undefined && stringRow.connectionPermitted !== null) {
+        cp = stringRow.connectionPermitted === true;
+        cpSrc = stringRow.connectionPermittedSource || "connectionPermitted";
+      } else {
+        // Fallback checks
+        for (const key of cpKeys) {
+          const val = stringRow[key];
+          if (val !== undefined && val !== null && val !== "") {
+            const lowerVal = String(val).toLowerCase();
+            cp = lowerVal === "true" || lowerVal === "1" || val === 1 || val === true;
+            cpSrc = key;
+            break;
+          }
+        }
+      }
+
+      if (cp !== null) {
+        connectionPermittedKnownCount++;
+        if (cp === true) {
+          connectionPermittedCount++;
+        }
+        sourcesFound.add(cpSrc);
+      }
+    }
+
+    const connectionPermittedSource = sourcesFound.size > 0 ? Array.from(sourcesFound)[0] : "unavailable";
 
     return {
       count,
       socPctAvg,
-      socKwhAvg: sumNum(["kWh", "kwh", "KWh", "kWhAvg"]),
-      kWhAvg,
+      storedKWhTotal,
+      storedKWhAvg,
+      socKwhAvg: storedKWhTotal, // legacy compatibility
+      kWhAvg: storedKWhAvg, // legacy compatibility
       maxCurrentA: maxNum(["currentA", "stringCurrent", "CtCurrent1", "amps", "ctCurrent1", "StringCurrent"]),
       minCurrentA: minNum(["currentA", "stringCurrent", "CtCurrent1", "amps", "ctCurrent1", "StringCurrent"]),
       maxCellVoltageMv: maxVoltageMv,
-      avgCellVoltageMv: avgNum(["avgCellVoltageMv", "avgCellGroupVoltage", "AvgCellGroupVoltage"]),
+      avgCellVoltageMv: roundedAvgVoltageMv,
       minCellVoltageMv: minVoltageMv,
-      maxCellVoltageDeltaMv: maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null,
+      maxCellVoltageDeltaMv,
       highCellTempC: maxTemp,
-      avgCellTempC: avgNum(["avgTempC", "avgTemp", "avgCellTempC", "AvgCellGroupTemp", "avgCellGroupTemp"]),
+      avgCellTempC: roundedAvgTemp,
       lowCellTempC: minTemp,
-      maxCellTempDeltaC: maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null
+      maxCellTempDeltaC,
+      connectionPermittedCount,
+      connectionPermittedKnownCount,
+      connectionPermittedSource
     };
   };
 
@@ -826,6 +898,70 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       },
       perArraySocCounts,
       perArrayKwhCounts
+    };
+
+    const perArrayNearlineKWh: Record<string, number> = {};
+    for (let a = 1; a <= 8; a++) {
+      const arrStrings = strings.filter((s: any) => deriveArrayNumberFromRow(s) === a && resolveStringBucket(s) === "nearline");
+      const arrKwhs = arrStrings.map((s: any) => readStoredKWh(s)).filter((v: any) => v !== null) as number[];
+      if (arrKwhs.length > 0) {
+        perArrayNearlineKWh[`A${a}`] = Math.round(sum(arrKwhs) || 0);
+      }
+    }
+
+    const perBucketValidKWhCounts = {
+      online: bucketsRaw.online.map(r => readStoredKWh(r)).filter(v => v !== null).length,
+      nearline: bucketsRaw.nearline.map(r => readStoredKWh(r)).filter(v => v !== null).length,
+      offline: bucketsRaw.offline.map(r => readStoredKWh(r)).filter(v => v !== null).length,
+      notCommunicating: bucketsRaw.notCommunicating.map(r => readStoredKWh(r)).filter(v => v !== null).length
+    };
+
+    const perBucketValidSocCounts = {
+      online: bucketsRaw.online.map(r => readSocPct(r)).filter(v => v !== null).length,
+      nearline: bucketsRaw.nearline.map(r => readSocPct(r)).filter(v => v !== null).length,
+      offline: bucketsRaw.offline.map(r => readSocPct(r)).filter(v => v !== null).length,
+      notCommunicating: bucketsRaw.notCommunicating.map(r => readSocPct(r)).filter(v => v !== null).length
+    };
+
+    const perBucketValidVoltageCounts = {
+      online: bucketsRaw.online.filter(r => r.maxCellVoltage !== null || r.maxCellVoltageMv !== null).length,
+      nearline: bucketsRaw.nearline.filter(r => r.maxCellVoltage !== null || r.maxCellVoltageMv !== null).length,
+      offline: bucketsRaw.offline.filter(r => r.maxCellVoltage !== null || r.maxCellVoltageMv !== null).length,
+      notCommunicating: bucketsRaw.notCommunicating.filter(r => r.maxCellVoltage !== null || r.maxCellVoltageMv !== null).length
+    };
+
+    const perBucketValidTempCounts = {
+      online: bucketsRaw.online.filter(r => r.maxCellTemperature !== null || r.maxTempC !== null).length,
+      nearline: bucketsRaw.nearline.filter(r => r.maxCellTemperature !== null || r.maxTempC !== null).length,
+      offline: bucketsRaw.offline.filter(r => r.maxCellTemperature !== null || r.maxTempC !== null).length,
+      notCommunicating: bucketsRaw.notCommunicating.filter(r => r.maxCellTemperature !== null || r.maxTempC !== null).length
+    };
+
+    const cpSources = new Set<string>();
+    for (const key of ["online", "nearline", "offline", "notCommunicating"]) {
+      const roll = snapshot.rollups.stringSummary.rollups[key];
+      if (roll && roll.connectionPermittedSource) {
+        cpSources.add(roll.connectionPermittedSource);
+      }
+    }
+
+    snapshot.debug.stringSummaryFormula = {
+      bucketSource: "normalized.strings.bucket",
+      bucketCounts: {
+        online: onlineStrings,
+        nearline: nearlineStrings,
+        offline: offlineStrings,
+        notCommunicating: notCommunicatingStrings
+      },
+      socKwhFormula: "sum raw stored kWh per bucket, rounded at display",
+      connectionPermittedFormula: `count strings where [${Array.from(cpSources).join(", ") || "EMS fields"}] is true`,
+      voltageFormula: "max of per-string cell max voltage, min of per-string cell min voltage, avg of per-string cell avg voltage, max of per-string cell voltage delta",
+      temperatureFormula: "max of per-string cell max temp, min of per-string cell min temp, avg of per-string cell avg temp, max of per-string cell temp delta",
+      perArrayNearlineKWh,
+      perBucketValidKWhCounts,
+      perBucketValidSocCounts,
+      perBucketValidVoltageCounts,
+      perBucketValidTempCounts
     };
   }
 

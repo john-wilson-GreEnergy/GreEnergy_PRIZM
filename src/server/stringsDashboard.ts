@@ -641,6 +641,31 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             const recloseCount = pN(getMetricValue(["reclosecount"]));
             const contactorsCloseExpected = parseBoolean(getMetricValue(["contactorscloseexpected", "closeexpected"]));
 
+            const connectionPermitKeys = [
+                "connectionPermitted",
+                "contactorsCloseExpected",
+                "closePermitted",
+                "canConnect",
+                "stringConnectionPermitted",
+                "permitClose",
+                "readyToConnect"
+            ];
+
+            let rawConnectionPermitted = null;
+            let matchedKey = null;
+
+            for (const key of connectionPermitKeys) {
+                const val = getMetricValue([key]);
+                if (val !== null && val !== undefined && val !== "") {
+                    rawConnectionPermitted = val;
+                    matchedKey = key;
+                    break;
+                }
+            }
+
+            const connectionPermitted = rawConnectionPermitted !== null ? parseBoolean(rawConnectionPermitted) : null;
+            const connectionPermittedSource = matchedKey || "unavailable";
+
             const measuredVoltage = pN(getMetricValue(["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
             const calculatedVoltage = pN(getMetricValue(["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
             const preciseCalculatedVoltage = pN(getMetricValue(["precisecalculatedstringvoltage", "precisecalculatedvoltage", "calculatedstringvoltage", "calculatedvoltage"])) ?? calculatedVoltage;
@@ -1150,13 +1175,15 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 contactorsCloseExpected,
                 positiveContactorClosed,
                 negativeContactorClosed,
+                connectionPermitted,
+                connectionPermittedSource,
                 recloseCount,
                 rotationStatus,
                 outRotation,
                 rotationEnabled,
                 measuredVoltage, calculatedVoltage, busVoltage, voltageDelta,
                 measuredStringVoltage, calculatedStringVoltage, preciseCalculatedStringVoltage: preciseCalculatedVoltage,
-                amps, kw, socPct, ah, kwh,
+                amps, kw, socPct, ah, kwh, kWh: kwh, storedKWh: kwh,
                 minCellVoltage, maxCellVoltage, avgCellVoltage, cellVoltageDelta,
                 cellVoltageMin, cellVoltageMax, cellVoltageAvg,
                 minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,

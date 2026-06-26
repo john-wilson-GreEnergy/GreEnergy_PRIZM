@@ -977,7 +977,25 @@ export default function SiteOperationsDashboard({
                           {buckets.map((b, i) => {
                             const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
                             let soc = bCount === 0 ? null : sum.stringSummary.rollups?.[b]?.socPctAvg;
-                            let kwh = bCount === 0 ? null : sum.stringSummary.rollups?.[b]?.kWhAvg;
+                            
+                            let kwh = null;
+                            if (bCount > 0 && sum.stringSummary.rollups?.[b]) {
+                              const r = sum.stringSummary.rollups[b];
+                              if (r.storedKWhTotal !== undefined && r.storedKWhTotal !== null) {
+                                kwh = r.storedKWhTotal;
+                              } else if (r.socKwhTotal !== undefined && r.socKwhTotal !== null) {
+                                kwh = r.socKwhTotal;
+                              } else if (r.socKwhAvg !== undefined && r.socKwhAvg !== null) {
+                                kwh = r.socKwhAvg;
+                              } else if (r.kWhAvg !== undefined && r.kWhAvg !== null) {
+                                kwh = r.kWhAvg * bCount;
+                              }
+                            }
+
+                            if (kwh !== null && kwh !== undefined) {
+                              kwh = Math.round(kwh);
+                            }
+
                             let txt = "--";
                             if (soc !== null && soc !== undefined)
                               txt = formatVal(soc, "%");
@@ -1025,12 +1043,21 @@ export default function SiteOperationsDashboard({
                             </td>
                             {buckets.map((b, i) => {
                               const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
+                              const r = sum.stringSummary.rollups?.[b];
+                              let displayVal: any = "--";
+                              
+                              if (r && r.connectionPermittedCount !== undefined && r.connectionPermittedCount !== null) {
+                                displayVal = r.connectionPermittedCount;
+                              } else if (bCount > 0) {
+                                displayVal = 0;
+                              }
+                              
                               return (
                                 <td
                                   key={i}
                                   className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
-                                  {((b === "online" || b === "nearline") && bCount > 0) ? bCount : "--"}
+                                  {displayVal}
                                 </td>
                               );
                             })}
