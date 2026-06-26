@@ -1,6 +1,6 @@
 import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
-import { Zap, Activity, CheckCircle2, XOctagon, AlertTriangle } from "lucide-react";
+import { Zap, Activity, CheckCircle2, XOctagon, AlertTriangle, PanelTop } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { useSiteData } from "../context/SiteDataContext";
 
@@ -620,15 +620,95 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             targetType="pcs"
         />
 
-        {/* Array Summary Placeholder */}
-        <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col p-4 mt-6">
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 pb-2 border-b border-prizm-border">
-                <span className="w-1.5 h-1.5 rounded-full bg-prizm-primary"></span>
-                ARRAY SUMMARY (FUTURE INTEGRATION)
-            </h3>
-            <p className="text-[10px] text-prizm-text-muted font-mono leading-relaxed uppercase">
-                This section is reserved for the future integration of aggregated Array diagnostics, power flows, and automated balancing controls directly matching selected PCS lineup states.
-            </p>
+        {/* Array Summary */}
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-prizm-surface-strong/50 border-b border-prizm-border">
+                <div className="flex items-center gap-2">
+                    <PanelTop size={14} className="text-prizm-primary" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-text">
+                        ARRAY SUMMARY (PCS/Array Integration Pending)
+                    </span>
+                </div>
+                {/* Visual Legend */}
+                <div className="flex flex-wrap items-center gap-4 text-[9px] font-medium font-sans">
+                    <div className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-sm bg-emerald-500/20 border border-emerald-500/50 flex-shrink-0"></span>
+                        <span className="text-prizm-data-green font-bold uppercase">Online</span>
+                        <span className="text-prizm-text-muted lowercase">(closed contactor)</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-sm bg-amber-500/20 border border-amber-500/50 flex-shrink-0"></span>
+                        <span className="text-amber-400 font-bold uppercase">Nearline</span>
+                        <span className="text-prizm-text-muted lowercase">(open contactor)</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="p-3 text-[10px] text-prizm-text-muted font-mono uppercase border-b border-prizm-border bg-prizm-surface/30">
+                Notice: Array Summary moved from Block Summary. PCS/Array integration pending.
+            </div>
+
+            <div className="overflow-x-auto no-scrollbar">
+                {snapshot?.rollups?.arraySummary && snapshot.rollups.arraySummary.length > 0 ? (
+                    <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                        <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
+                            <tr>
+                                <th className="py-2 px-3 font-bold">Array</th>
+                                <th className="py-2 px-3 font-bold text-center">Comm.</th>
+                                <th className="py-2 px-3 font-bold text-center bg-emerald-500/5 text-prizm-data-green">Online SOC</th>
+                                <th className="py-2 px-3 font-bold text-center bg-amber-500/5 text-amber-400">Nearline SOC</th>
+                                <th className="py-2 px-3 font-bold text-center bg-red-500/5 text-red-400">Offline SOC</th>
+                                <th className="py-2 px-3 font-bold text-center bg-amber-500/5 text-amber-400">Nearline kWh</th>
+                                <th className="py-2 px-3 font-bold text-center">Available kW AC</th>
+                                <th className="py-2 px-3 font-bold text-center">Commanded kW AC</th>
+                                <th className="py-2 px-3 font-bold text-center">Measured kW AC</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-prizm-border">
+                            {snapshot.rollups.arraySummary.map((arr: any, idx: number) => {
+                                const name = arr.friendlyString || arr.name || `Array ${arr.arrayNumber ?? arr.arrayIndex ?? (idx + 1)}`;
+                                
+                                const formatSOC = (val: any) => {
+                                    if (val === undefined || val === null || val === "" || val === "--") return "--";
+                                    const numVal = Number(val);
+                                    if (isNaN(numVal)) return "--";
+                                    return (numVal < 1 ? numVal * 100 : numVal).toFixed(1).replace(/\.0$/, "") + " %";
+                                };
+                                
+                                const formatVal = (val: any, suffix = "") => {
+                                    if (val === undefined || val === null || val === "" || val === "--") return "--";
+                                    return String(val) + (suffix ? " " + suffix : "");
+                                };
+                                
+                                const hasChargeDischarge = hasVal(arr.availableACChargekW) && hasVal(arr.availableACDischargekW);
+                                const chargeDischargeDisplay = hasChargeDischarge 
+                                    ? `${arr.availableACChargekW} / ${arr.availableACDischargekW}` 
+                                    : "--";
+
+                                return (
+                                    <tr key={idx} className="hover:bg-prizm-surface-strong/30 transition-colors">
+                                        <td className="py-2 px-3 text-prizm-primary font-bold">{name}</td>
+                                        <td className="py-2 px-3 text-center text-prizm-data-green font-bold">
+                                            {arr.communicating !== false ? "OK" : <span className="text-prizm-danger">FAULT</span>}
+                                        </td>
+                                        <td className="py-2 px-3 text-center text-prizm-data-green font-bold bg-emerald-500/5">{formatSOC(arr.onlineSOC)}</td>
+                                        <td className="py-2 px-3 text-center text-amber-400 font-semibold bg-amber-500/5">{formatSOC(arr.nearlineSOC)}</td>
+                                        <td className="py-2 px-3 text-center text-prizm-text-muted bg-red-500/5">{formatSOC(arr.offlineSOC)}</td>
+                                        <td className="py-2 px-3 text-center text-amber-400 bg-amber-500/5">{formatVal(arr.nearlineAvailableKWh ?? arr.nearlineAvailableKwh, "kWh")}</td>
+                                        <td className="py-2 px-3 text-center text-prizm-text">{chargeDischargeDisplay}</td>
+                                        <td className="py-2 px-3 text-center text-prizm-warning">{formatVal(arr.commandedkW ?? arr.commandedKw)}</td>
+                                        <td className="py-2 px-3 text-center text-prizm-text">{formatVal(arr.measuredkW ?? arr.measuredKw)}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                ) : (
+                    <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
+                        No Array Summary data available or warming up.
+                    </div>
+                )}
+            </div>
         </div>
             </div>
         </div>

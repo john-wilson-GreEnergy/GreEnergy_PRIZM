@@ -1119,6 +1119,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 bpcFirmwareSummary,
                 bpcs,
                 operationalState,
+                bucket: classification.state,
                 warningCount, alarmCount, warnings, alarms,
                 sourceCoverage: {
                     stringsCsv: !!stringsCsvRow,
