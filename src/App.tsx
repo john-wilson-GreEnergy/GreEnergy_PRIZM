@@ -479,16 +479,116 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+          {/* Sync Heartbeat display */}
+          <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-prizm-text-muted">
+            <span className="hidden lg:inline font-bold">SYNC HEARTBEAT:</span>
+            {(() => {
+              const isOffline = !connectionStatus || connectionStatus?.status === 'OFFLINE' || connectionStatus?.status === 'MISCONFIGURED';
+              let heartbeatText = "Live Refresh Active";
+              let heartbeatColorClass = "text-emerald-400";
+              let dotColorClass = "bg-emerald-400";
+              let dotAnimate = "animate-ping";
+
+              if (isOffline) {
+                heartbeatText = "Offline";
+                heartbeatColorClass = "text-prizm-danger";
+                dotColorClass = "bg-prizm-danger";
+                dotAnimate = "";
+              } else if (connectionStatus?.status === 'PARTIAL') {
+                heartbeatText = "Partial Connection";
+                heartbeatColorClass = "text-prizm-warning";
+                dotColorClass = "bg-prizm-warning";
+                dotAnimate = "";
+              } else if (diagnosticSession && diagnosticSession.active) {
+                if (diagnosticSession.paused) {
+                  heartbeatText = "Session Paused";
+                  heartbeatColorClass = "text-amber-500";
+                  dotColorClass = "bg-amber-500";
+                  dotAnimate = "";
+                } else {
+                  heartbeatText = "Session Recording";
+                  heartbeatColorClass = "text-rose-500";
+                  dotColorClass = "bg-rose-500";
+                  dotAnimate = "animate-pulse";
+                }
+              } else {
+                heartbeatText = "Live";
+                heartbeatColorClass = "text-emerald-400";
+                dotColorClass = "bg-emerald-400";
+                dotAnimate = "animate-ping";
+              }
+
+              return (
+                <span className={`${heartbeatColorClass} font-bold flex items-center gap-1`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${dotColorClass} ${dotAnimate}`}></span>
+                  {heartbeatText}
+                </span>
+              );
+            })()}
+          </div>
+
+          {/* Polling State & Controls */}
+          <div className="flex items-center gap-2 text-[10px] font-mono text-prizm-text-muted pl-2.5 border-l border-prizm-border">
+            <span className="hidden lg:inline font-bold uppercase">POLLING:</span>
+            <div className="flex items-center gap-1.5">
+              {isTerminated ? (
+                <span className="text-rose-500 font-bold flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                  TERM
+                </span>
+              ) : !isPollingEnabled ? (
+                <span className="text-amber-500 font-bold flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                  PAUSED
+                </span>
+              ) : (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  ACTIVE
+                </span>
+              )}
+            </div>
+
+            {/* Controls */}
+            {!isTerminated && (
+              <div className="flex items-center gap-1">
+                {isPollingEnabled ? (
+                  <button
+                    onClick={pausePolling}
+                    title="Pause automatic polling"
+                    className="px-1.5 py-0.5 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-amber-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                  >
+                    Pause
+                  </button>
+                ) : (
+                  <button
+                    onClick={resumePolling}
+                    title="Resume automatic polling"
+                    className="px-1.5 py-0.5 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-emerald-400 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                  >
+                    Resume
+                  </button>
+                )}
+                <button
+                  onClick={terminateConnection}
+                  title="Terminate background polling connection permanently"
+                  className="px-1.5 py-0.5 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-rose-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
+                >
+                  Term
+                </button>
+              </div>
+            )}
+          </div>
+
           {diagnosticSession && diagnosticSession.active && (
-            <div className={`flex items-center gap-2 border ${diagnosticSession.paused ? 'border-amber-500/20 bg-amber-500/5 text-amber-500' : 'border-rose-500/20 bg-rose-500/5 text-rose-500'} px-2.5 py-1 rounded font-mono text-[10px] font-black uppercase tracking-wider`}>
+            <div className={`flex items-center gap-1.5 border ${diagnosticSession.paused ? 'border-amber-500/20 bg-amber-500/5 text-amber-500' : 'border-rose-500/20 bg-rose-500/5 text-rose-500'} px-2 py-0.5 rounded font-mono text-[9px] font-black uppercase tracking-wider`}>
               <span className={`h-1.5 w-1.5 rounded-full ${diagnosticSession.paused ? 'bg-amber-500' : 'bg-rose-500 animate-pulse'} shrink-0`}></span>
               <span>ds: {diagnosticSession.paused ? 'paused' : 'recording'}</span>
-              <span className="text-emerald-400 font-bold hidden sm:inline px-1 border-l border-white/5 ml-1">● sync</span>
             </div>
           )}
-          <div className="text-right">
-            <div className="text-[11px] text-prizm-text-muted font-mono tracking-widest">
+          <div className="text-right border-l border-prizm-border pl-2.5">
+            <div className="text-[11px] text-prizm-text-muted font-mono tracking-widest whitespace-nowrap">
               {formatPrizmUtcTimestamp(currentTime)}
             </div>
           </div>
@@ -546,109 +646,6 @@ export default function App() {
                     </button>
                   );
                 })}
-            </div>
-
-            {/* Quick inline online node counts indicator */}
-            <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-prizm-text-muted">
-              <span>SYNC HEARTBEAT:</span>
-              {(() => {
-                const isOffline = !connectionStatus || connectionStatus?.status === 'OFFLINE' || connectionStatus?.status === 'MISCONFIGURED';
-                let heartbeatText = "Live Refresh Active";
-                let heartbeatColorClass = "text-emerald-400";
-                let dotColorClass = "bg-emerald-400";
-                let dotAnimate = "animate-ping";
-
-                if (isOffline) {
-                  heartbeatText = "Offline";
-                  heartbeatColorClass = "text-prizm-danger";
-                  dotColorClass = "bg-prizm-danger";
-                  dotAnimate = "";
-                } else if (connectionStatus?.status === 'PARTIAL') {
-                  heartbeatText = "Partial Connection";
-                  heartbeatColorClass = "text-prizm-warning";
-                  dotColorClass = "bg-prizm-warning";
-                  dotAnimate = "";
-                } else if (diagnosticSession && diagnosticSession.active) {
-                  if (diagnosticSession.paused) {
-                    heartbeatText = "Session Paused";
-                    heartbeatColorClass = "text-amber-500";
-                    dotColorClass = "bg-amber-500";
-                    dotAnimate = "";
-                  } else {
-                    heartbeatText = "Session Recording";
-                    heartbeatColorClass = "text-rose-500";
-                    dotColorClass = "bg-rose-500";
-                    dotAnimate = "animate-pulse";
-                  }
-                } else {
-                  heartbeatText = "Live Refresh Active";
-                  heartbeatColorClass = "text-emerald-400";
-                  dotColorClass = "bg-emerald-400";
-                  dotAnimate = "animate-ping";
-                }
-
-                return (
-                  <span className={`${heartbeatColorClass} font-bold flex items-center gap-1.5`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${dotColorClass} ${dotAnimate}`}></span>
-                    {heartbeatText}
-                  </span>
-                );
-              })()}
-            </div>
-
-            {/* Polling State & Controls */}
-            <div className="hidden md:flex items-center gap-3 text-[10px] font-mono text-prizm-text-muted border-l border-prizm-border pl-4">
-              <span className="font-bold text-prizm-text-muted uppercase">POLLING:</span>
-              <div className="flex items-center gap-2">
-                {isTerminated ? (
-                  <span className="text-rose-500 font-bold flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
-                    TERMINATED
-                  </span>
-                ) : !isPollingEnabled ? (
-                  <span className="text-amber-500 font-bold flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                    PAUSED
-                  </span>
-                ) : (
-                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    ACTIVE
-                  </span>
-                )}
-              </div>
-
-              {/* Controls */}
-              <div className="flex items-center gap-1.5">
-                {!isTerminated && (
-                  <>
-                    {isPollingEnabled ? (
-                      <button
-                        onClick={pausePolling}
-                        title="Pause automatic polling"
-                        className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-amber-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
-                      >
-                        Pause
-                      </button>
-                    ) : (
-                      <button
-                        onClick={resumePolling}
-                        title="Resume automatic polling"
-                        className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-emerald-400 font-bold uppercase text-[9px] transition-colors cursor-pointer"
-                      >
-                        Resume
-                      </button>
-                    )}
-                    <button
-                      onClick={terminateConnection}
-                      title="Terminate background polling connection permanently"
-                      className="px-2 py-1 rounded bg-prizm-bg border border-prizm-border hover:bg-prizm-surface text-rose-500 font-bold uppercase text-[9px] transition-colors cursor-pointer"
-                    >
-                      Terminate
-                    </button>
-                  </>
-                )}
-              </div>
             </div>
 
           </div>
