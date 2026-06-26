@@ -1349,9 +1349,13 @@ export function getEmsCachedArrayReports(): any {
 export const arrayNotificationsCache: Record<number, {
   ok: boolean;
   endpoint: string;
-  data: any | null;
+  fullUrl?: string;
+  status?: number;
   lastUpdated: string | null;
+  data: any | null;
   error?: string | null;
+  notificationCount?: number;
+  sample?: any[];
 }> = {};
 
 function getSimulatedArrayNotifications(arrayNumber: number): any {
@@ -1497,22 +1501,88 @@ function getSimulatedArrayNotifications(arrayNumber: number): any {
 export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6, 7, 8]): Promise<void> {
   const promises = arrayNumbers.map(async (a) => {
     const ep = `/tools/report/ems/array/${a}/notifications.json`;
+    const baseUrl = getNormalizedBaseUrl();
+    let targetUrl = `${baseUrl}${ep}`;
+    
+    if (isEmsOffline && (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0."))) {
+      try {
+        const urlObj = new URL(targetUrl);
+        targetUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+      } catch (e) {}
+    }
+    
+    let responseStatus: number | undefined = undefined;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), EMS_NORMAL_TIMEOUT_MS);
+    
     try {
-      const data = await fetchAndRecord(ep, EMS_NORMAL_TIMEOUT_MS, 'json');
+      let response;
+      let fallbackAttempted = false;
+      try {
+        response = await fetch(targetUrl, { signal: controller.signal });
+        if (!response.ok && !targetUrl.includes("127.0.0.1:3000") && !targetUrl.includes("localhost:3000")) {
+          if (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0.")) {
+            isEmsOffline = true;
+          }
+          fallbackAttempted = true;
+          const urlObj = new URL(targetUrl);
+          const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+          response = await fetch(fallbackUrl);
+        }
+      } catch (e: any) {
+        if (!fallbackAttempted && !targetUrl.includes("127.0.0.1:3000") && !targetUrl.includes("localhost:3000")) {
+          if (targetUrl.includes("10.0.0.3") || targetUrl.includes("10.0.0.")) {
+            isEmsOffline = true;
+          }
+          const urlObj = new URL(targetUrl);
+          const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+          response = await fetch(fallbackUrl);
+        } else {
+          throw e;
+        }
+      }
+      
+      clearTimeout(timeoutId);
+      responseStatus = response.status;
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data || typeof data !== "object") {
+        throw new Error("Invalid response: body is not a JSON object");
+      }
+      if (!Array.isArray(data.notification)) {
+        throw new Error("Invalid response: notification list is missing or not an array");
+      }
+      
+      const notificationCount = data.notification.length;
+      const sample = data.notification.slice(0, 2);
+      
       arrayNotificationsCache[a] = {
         ok: true,
         endpoint: ep,
+        fullUrl: targetUrl,
+        status: responseStatus,
+        lastUpdated: new Date().toISOString(),
         data,
-        lastUpdated: new Date().toISOString()
+        notificationCount,
+        sample
       };
     } catch (err: any) {
-      const useSimulated = process.env.PRIZM_USE_SIMULATED_ARRAY_NOTIFICATIONS === "true";
+      clearTimeout(timeoutId);
+      const errorMsg = err.message || String(err);
       arrayNotificationsCache[a] = {
         ok: false,
         endpoint: ep,
-        data: useSimulated ? getSimulatedArrayNotifications(a) : { notification: [] },
+        fullUrl: targetUrl,
+        status: responseStatus,
         lastUpdated: new Date().toISOString(),
-        error: err.message || String(err)
+        data: { notification: [] },
+        error: errorMsg,
+        notificationCount: 0,
+        sample: []
       };
     }
   });
@@ -1522,9 +1592,13 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
 export function getEmsCachedArrayNotifications(): Record<number, {
   ok: boolean;
   endpoint: string;
-  data: any | null;
+  fullUrl?: string;
+  status?: number;
   lastUpdated: string | null;
+  data: any | null;
   error?: string | null;
+  notificationCount?: number;
+  sample?: any[];
 }> {
   return arrayNotificationsCache;
 }
