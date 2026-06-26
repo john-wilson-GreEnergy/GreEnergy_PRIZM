@@ -112,16 +112,28 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   const [advancedDrawerShowJson, setAdvancedDrawerShowJson] = useState<boolean>(false);
 
   // Manual Polling & Sample states for Selected Device
-  const [selectedDeviceInterval, setSelectedDeviceInterval] = useState<string>("5000");
+  const [selectedDeviceInterval, setSelectedDeviceInterval] = useState<string>("Pause");
   const [samples, setSamples] = useState<Array<{
     timestamp: string;
     timeLabel: string;
+    deviceIp?: string;
+    reachable?: boolean;
     hvac1Current: number;
     hvac2Current: number;
     hvac1Rpm: number;
     hvac2Rpm: number;
     spaceTemp: number;
     cellTemp: number;
+    hvac1?: any;
+    hvac2?: any;
+    temperatures?: {
+      spaceTempC: number | null;
+      cellTempC: number | null;
+      supplyAirTempC: number | null;
+      returnAirTempC: number | null;
+    };
+    sensors?: any;
+    raw?: any;
   }>>([]);
   const [isPollingDevice, setIsPollingDevice] = useState<boolean>(false);
 
@@ -191,6 +203,91 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
     return () => clearInterval(intervalId);
   }, [refreshIntervalSec, active, refreshNow]);
 
+// Merges direct poll results into existing enriched device
+function mergeFeatherDeviceForDetails(prev: any, incoming: any, fallbackIp: string) {
+  if (!prev && !incoming) return null;
+
+  return {
+    ...(prev || {}),
+    ...(incoming || {}),
+
+    ip: incoming?.ip || prev?.ip || fallbackIp,
+    deviceIp: incoming?.deviceIp || prev?.deviceIp || fallbackIp,
+    arrayIndex: incoming?.arrayIndex !== undefined && incoming?.arrayIndex !== null ? incoming.arrayIndex : prev?.arrayIndex,
+    stringIndex: incoming?.stringIndex !== undefined && incoming?.stringIndex !== null ? incoming.stringIndex : prev?.stringIndex,
+    segmentLabel: incoming?.segmentLabel !== undefined && incoming?.segmentLabel !== null ? incoming.segmentLabel : prev?.segmentLabel,
+    entityDescription: incoming?.entityDescription !== undefined && incoming?.entityDescription !== null ? incoming.entityDescription : prev?.entityDescription,
+    entityKey: incoming?.entityKey !== undefined && incoming?.entityKey !== null ? incoming.entityKey : prev?.entityKey,
+    entityKeyToken: incoming?.entityKeyToken !== undefined && incoming?.entityKeyToken !== null ? incoming.entityKeyToken : prev?.entityKeyToken,
+    displayKey: incoming?.displayKey !== undefined && incoming?.displayKey !== null ? incoming.displayKey : prev?.displayKey,
+    firmwareVersion: incoming?.firmwareVersion !== undefined && incoming?.firmwareVersion !== null ? incoming.firmwareVersion : prev?.firmwareVersion,
+    softwareVersion: incoming?.softwareVersion !== undefined && incoming?.softwareVersion !== null ? incoming.softwareVersion : prev?.softwareVersion,
+    sourceCoverage: {
+      ...(prev?.sourceCoverage || {}),
+      ...(incoming?.sourceCoverage || {})
+    },
+    doorApplicability: {
+      ...(prev?.doorApplicability || {}),
+      ...(incoming?.doorApplicability || {})
+    },
+    doors: incoming?.doors !== undefined && incoming?.doors !== null ? incoming.doors : prev?.doors,
+    fssSignals: incoming?.fssSignals !== undefined && incoming?.fssSignals !== null ? incoming.fssSignals : prev?.fssSignals,
+    hvac1: incoming?.hvac1 !== undefined && incoming?.hvac1 !== null ? incoming.hvac1 : prev?.hvac1,
+    hvac2: incoming?.hvac2 !== undefined && incoming?.hvac2 !== null ? incoming.hvac2 : prev?.hvac2,
+    raw: {
+      ...(prev?.raw || {}),
+      directPoll: incoming?.raw || incoming
+    }
+  };
+}
+
+// Extract command vs feedback states for sampling
+function getHvacSampleDetails(hvac: any) {
+  if (!hvac) return {
+    fanLowCommanded: null, fanLowCurrent: null,
+    fanHighCommanded: null, fanHighCurrent: null,
+    compressorCommanded: null, compressorCurrent: null,
+    reversingValveCommanded: null, reversingValveCurrent: null,
+    electricHeatCommanded: null, electricHeatCurrent: null,
+    currentA: null, fanSpeedRpm: null, mode: null, responding: false
+  };
+
+  const hasCmd = !!(hvac.fanLowOn || hvac.fanHighOn || hvac.compressorOn || hvac.electricHeatOn || hvac.reversingValveOn);
+  const hasAct = !!((hvac.currentA && hvac.currentA > 0.2) || (hvac.fanSpeedRpm && hvac.fanSpeedRpm > 0));
+
+  return {
+    fanLowCommanded: hvac.fanLowOn ?? null,
+    fanLowCurrent: hvac.fanLowOn !== undefined && hvac.fanLowOn !== null
+      ? (hvac.fanLowOn ? hasAct : (hasAct && !hasCmd))
+      : null,
+
+    fanHighCommanded: hvac.fanHighOn ?? null,
+    fanHighCurrent: hvac.fanHighOn !== undefined && hvac.fanHighOn !== null
+      ? (hvac.fanHighOn ? hasAct : (hasAct && !hasCmd))
+      : null,
+
+    compressorCommanded: hvac.compressorOn ?? null,
+    compressorCurrent: hvac.compressorOn !== undefined && hvac.compressorOn !== null
+      ? (hvac.compressorOn ? (hvac.currentA > 8.0) : (hasAct && !hasCmd))
+      : null,
+
+    reversingValveCommanded: hvac.reversingValveOn ?? null,
+    reversingValveCurrent: hvac.reversingValveOn !== undefined && hvac.reversingValveOn !== null
+      ? (hvac.reversingValveOn ? hasAct : (hasAct && !hasCmd))
+      : null,
+
+    electricHeatCommanded: hvac.electricHeatOn ?? null,
+    electricHeatCurrent: hvac.electricHeatOn !== undefined && hvac.electricHeatOn !== null
+      ? (hvac.electricHeatOn ? hasAct : (hasAct && !hasCmd))
+      : null,
+
+    currentA: hvac.currentA ?? null,
+    fanSpeedRpm: hvac.fanSpeedRpm ?? null,
+    mode: hvac.mode ?? null,
+    responding: hvac.dataValid ?? false
+  };
+}
+
   // Trigger single device manual poll
   const triggerDevicePoll = async () => {
     if (!selectedDevice || isPollingDevice) return;
@@ -200,7 +297,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
       if (!res.ok) throw new Error("HTTP error " + res.status);
       const data = await res.json();
       if (data.success && data.device) {
-        setSelectedDevice(data.device);
+        setSelectedDevice(prev => mergeFeatherDeviceForDetails(prev, data.device, selectedDevice.ip || selectedDevice.deviceIp));
         
         const now = new Date();
         const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -211,6 +308,8 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
         const newSample = {
           timestamp: now.toISOString(),
           timeLabel,
+          deviceIp: data.device.ip || data.device.deviceIp || selectedDevice.ip,
+          reachable: !!data.device.reachable,
           hvac1Current: h1.currentA ?? 0,
           hvac2Current: h2.currentA ?? 0,
           hvac1Rpm: h1.fanSpeedRpm ?? 0,
@@ -225,11 +324,24 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
             : (data.device.temperatureCellC !== undefined && data.device.temperatureCellC !== null
                 ? data.device.temperatureCellC * 1.8 + 32
                 : 0),
+          hvac1: getHvacSampleDetails(data.device.hvac1),
+          hvac2: getHvacSampleDetails(data.device.hvac2),
+          temperatures: {
+            spaceTempC: data.device.spaceTemperatureC ?? data.device.temperatureSupplyC ?? null,
+            cellTempC: data.device.avgCellTemperatureC ?? data.device.temperatureCellC ?? null,
+            supplyAirTempC: data.device.supplyAirTempC ?? null,
+            returnAirTempC: data.device.returnAirTempC ?? null
+          },
+          sensors: {
+            doors: data.device.doors ?? null,
+            fssSignals: data.device.fssSignals ?? null
+          },
+          raw: data.device.raw ?? null
         };
         
         setSamples(prev => {
           const next = [...prev, newSample];
-          if (next.length > 50) return next.slice(-50);
+          if (next.length > 300) return next.slice(-300);
           return next;
         });
       }
@@ -245,6 +357,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   useEffect(() => {
     setSamples([]);
     setIsPollingDevice(false);
+    setSelectedDeviceInterval("Pause");
   }, [selectedDevice?.ip]);
 
   // Polling effect for selected device
@@ -680,10 +793,10 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
     if (!hvac) return <span className="text-prizm-text-muted">--</span>;
     
     const relays = [
-      { key: "fanLowOn", label: "FL" },
-      { key: "fanHighOn", label: "FH" },
-      { key: "compressorOn", label: "CP" },
-      { key: "reversingValveOn", label: "RV" },
+      { key: "fanLowOn", label: "FanL" },
+      { key: "fanHighOn", label: "FanH" },
+      { key: "compressorOn", label: "Comp" },
+      { key: "reversingValveOn", label: "Rev.V" },
       { key: "electricHeatOn", label: "HT" }
     ];
     
@@ -737,41 +850,99 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
     return null;
   };
 
+  const getSensorBadgeState = (d: any, type: 'FSS' | 'LeakDet' | 'TopCap' | 'BattDoor' | 'AcDoor' | 'DcDoor') => {
+    const fss = d.fssSignals;
+    const doors = d.doors;
+
+    if (type === 'FSS') {
+      if (!fss || fss.valid === false) return 'unavailable';
+      const problem = !!(
+        fss.fssAlarm ||
+        fss.fssTrouble ||
+        fss.fssAlarmOrTrouble ||
+        fss.fireAlarm ||
+        fss.fireTrouble ||
+        fss.smokeAlarm ||
+        fss.smokeAlarmTrouble ||
+        fss.heatSensor ||
+        fss.hydrogenAlarm ||
+        fss.hydrogenFault ||
+        fss.statXRelease
+      );
+      return problem ? 'problem' : 'normal';
+    }
+
+    if (type === 'LeakDet') {
+      if (!fss) return 'unavailable';
+      if (fss.leakAlarm === true) return 'problem';
+      if (fss.leakAlarm === false) return 'normal';
+      return 'unavailable';
+    }
+
+    if (type === 'TopCap') {
+      if (d.doorApplicability?.monitorsTopCap === false) return 'hidden';
+      if (!doors) return 'unavailable';
+      if (doors.lowerTopcapClosed === true) return 'normal';
+      if (doors.lowerTopcapClosed === false) return 'problem';
+      return 'unavailable';
+    }
+
+    if (type === 'BattDoor') {
+      if (d.doorApplicability?.monitorsBatteryDoors !== true) return 'hidden';
+      if (!doors) return 'unavailable';
+      if (doors.batteryDoorsClosed === true) return 'normal';
+      if (doors.batteryDoorsClosed === false) return 'problem';
+      return 'unavailable';
+    }
+
+    if (type === 'AcDoor') {
+      if (d.doorApplicability?.monitorsAcDoors !== true) return 'hidden';
+      if (!doors) return 'unavailable';
+      if (doors.acDoorsClosed === true) return 'normal';
+      if (doors.acDoorsClosed === false) return 'problem';
+      return 'unavailable';
+    }
+
+    if (type === 'DcDoor') {
+      if (d.doorApplicability?.monitorsDcDoors !== true) return 'hidden';
+      if (!doors) return 'unavailable';
+      if (doors.dcDoorsClosed === true) return 'normal';
+      if (doors.dcDoorsClosed === false) return 'problem';
+      return 'unavailable';
+    }
+
+    return 'unavailable';
+  };
+
   // Compact sensor status badges
   const renderSensorsCompact = (d: any) => {
-    const smoke = d.fssSignals?.smokeAlarm || d.fssSignals?.fireAlarm;
-    const leak = d.fssSignals?.leakAlarm;
-    const gas = d.hydrogen1PPM;
-    const doorsOpen = d.doors ? !(d.doors.batteryDoorsClosed && d.doors.lowerTopcapClosed && d.doors.dcDoorsClosed && d.doors.acDoorsClosed) : false;
-    
+    const types: ('FSS' | 'LeakDet' | 'TopCap' | 'BattDoor' | 'AcDoor' | 'DcDoor')[] = [
+      'FSS', 'LeakDet', 'TopCap', 'BattDoor', 'AcDoor', 'DcDoor'
+    ];
+
     return (
-      <div className="flex items-center gap-1 text-[9px]">
-        <span 
-          className={`px-1 rounded font-bold ${smoke ? "bg-prizm-danger/20 text-prizm-danger border border-prizm-danger/30" : "bg-emerald-500/10 text-emerald-400"}`}
-          title={smoke ? "Active Fire/Smoke Alarm!" : "Fire/Smoke Sensors OK"}
-        >
-          FR
-        </span>
-        <span 
-          className={`px-1 rounded font-bold ${leak ? "bg-prizm-danger/20 text-prizm-danger border border-prizm-danger/30" : "bg-emerald-500/10 text-emerald-400"}`}
-          title={leak ? "Moisture/Leak Detected!" : "Moisture/Leak Sensors OK"}
-        >
-          LK
-        </span>
-        <span 
-          className={`px-1 rounded font-bold ${doorsOpen ? "bg-prizm-warning/20 text-prizm-warning border border-prizm-warning/30" : "bg-emerald-500/10 text-emerald-400"}`}
-          title={doorsOpen ? "One or more doors are OPEN" : "All Doors Closed"}
-        >
-          DR
-        </span>
-        {gas !== undefined && gas !== null && (
-          <span 
-            className={`px-1 rounded font-bold ${d.fssSignals?.hydrogenAlarm ? "bg-prizm-danger/20 text-prizm-danger" : "text-prizm-text-muted"}`}
-            title={`Hydrogen Level: ${gas.toFixed(1)} ppm`}
-          >
-            H2: {gas.toFixed(0)}p
-          </span>
-        )}
+      <div className="flex flex-wrap items-center gap-1 text-[9px]">
+        {types.map(t => {
+          const state = getSensorBadgeState(d, t);
+          if (state === 'hidden') return null;
+
+          let colorClass = "bg-zinc-800/50 text-zinc-500 border border-zinc-700/30";
+          if (state === 'normal') {
+            colorClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+          } else if (state === 'problem') {
+            colorClass = "bg-rose-500/10 text-rose-500 border border-rose-500/20";
+          }
+
+          return (
+            <span
+              key={t}
+              className={`px-1 py-0.5 rounded font-bold uppercase tracking-wider text-[8px] border ${colorClass}`}
+              title={`${t}: State is ${state}`}
+            >
+              {t}
+            </span>
+          );
+        })}
       </div>
     );
   };
@@ -995,6 +1166,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
                   <th className="p-3">ARRAY / SEGMENT</th>
                   <th className="p-3">Entity Description</th>
                   <th className="p-3">State / Ping</th>
+                  <th className="p-3">Stage</th>
                   <th className="p-3">HVAC Unit 1</th>
                   <th className="p-3">HVAC Unit 2</th>
                   <th className="p-3">Sensors Summary</th>
@@ -1058,6 +1230,13 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
                             {d.reachable ? `${(d.pingMs || 0)} ms` : "n/a"}
                           </span>
                         </div>
+                      </td>
+
+                      {/* Stage column */}
+                      <td className="p-3 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 rounded bg-prizm-surface-strong border border-prizm-border text-[9px] font-bold text-prizm-primary uppercase">
+                          {d.thermostatStage || d.hvacRuntimeState || d.hvacMode || d.hvacStatus || "–"}
+                        </span>
                       </td>
 
                       {/* HVAC Unit 1 */}

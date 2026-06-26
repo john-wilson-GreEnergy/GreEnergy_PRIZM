@@ -1298,9 +1298,69 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
     const sourceMethod = (source && typeof source === "string") ? (source as any) : "manual";
 
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
-    const result = await queryFeatherDevice(deviceIp, sourceMethod, timeout);
+    const direct = (await queryFeatherDevice(deviceIp, sourceMethod, timeout)) as any;
+    const snapshot: any = prizmDataCoordinator.getLatestSnapshot();
 
-    res.json({ success: true, device: result });
+    const existing: any =
+      snapshot?.normalized?.feather?.find((d: any) =>
+        d.ip === deviceIp || d.deviceIp === deviceIp
+      ) ||
+      lastEnrichedCache?.devices?.find((d: any) =>
+        d.ip === deviceIp || d.deviceIp === deviceIp
+      );
+
+    const merged = {
+      ...(existing || {}),
+      ...(direct || {}),
+
+      ip: direct?.ip || existing?.ip || deviceIp,
+      deviceIp: direct?.deviceIp || existing?.deviceIp || deviceIp,
+
+      arrayIndex: direct?.arrayIndex !== undefined && direct?.arrayIndex !== null ? direct.arrayIndex : existing?.arrayIndex,
+      stringIndex: direct?.stringIndex !== undefined && direct?.stringIndex !== null ? direct.stringIndex : existing?.stringIndex,
+      segmentLabel: direct?.segmentLabel !== undefined && direct?.segmentLabel !== null ? direct.segmentLabel : existing?.segmentLabel,
+      entityDescription: direct?.entityDescription !== undefined && direct?.entityDescription !== null ? direct.entityDescription : existing?.entityDescription,
+      entityKey: direct?.entityKey !== undefined && direct?.entityKey !== null ? direct.entityKey : existing?.entityKey,
+      entityKeyToken: direct?.entityKeyToken !== undefined && direct?.entityKeyToken !== null ? direct.entityKeyToken : existing?.entityKeyToken,
+      displayKey: direct?.displayKey !== undefined && direct?.displayKey !== null ? direct.displayKey : existing?.displayKey,
+
+      firmwareVersion: direct?.firmwareVersion !== undefined && direct?.firmwareVersion !== null ? direct.firmwareVersion : existing?.firmwareVersion,
+      softwareVersion: direct?.softwareVersion !== undefined && direct?.softwareVersion !== null ? direct.softwareVersion : existing?.softwareVersion,
+
+      thermostatStage: direct?.thermostatStage !== undefined && direct?.thermostatStage !== null ? direct.thermostatStage : existing?.thermostatStage,
+      hvacRuntimeState: direct?.hvacRuntimeState !== undefined && direct?.hvacRuntimeState !== null ? direct.hvacRuntimeState : existing?.hvacRuntimeState,
+      hvacMode: direct?.hvacMode !== undefined && direct?.hvacMode !== null ? direct.hvacMode : existing?.hvacMode,
+      hvacStatus: direct?.hvacStatus !== undefined && direct?.hvacStatus !== null ? direct.hvacStatus : existing?.hvacStatus,
+
+      hvac1: (direct?.hvac1 !== undefined && direct?.hvac1 !== null) ? direct.hvac1 : existing?.hvac1,
+      hvac2: (direct?.hvac2 !== undefined && direct?.hvac2 !== null) ? direct.hvac2 : existing?.hvac2,
+      doors: (direct?.doors !== undefined && direct?.doors !== null) ? direct.doors : existing?.doors,
+      fssSignals: (direct?.fssSignals !== undefined && direct?.fssSignals !== null) ? direct.fssSignals : existing?.fssSignals,
+
+      sourceCoverage: {
+        ...(existing?.sourceCoverage || {}),
+        ...(direct?.sourceCoverage || {}),
+        directFeather: true
+      },
+
+      doorApplicability: {
+        ...(existing?.doorApplicability || {}),
+        ...(direct?.doorApplicability || {})
+      },
+
+      raw: {
+        ...(existing?.raw || {}),
+        directPoll: direct?.raw || direct
+      }
+    };
+
+    res.json({
+      success: true,
+      device: merged,
+      directStatusMerged: !!existing,
+      mergedFromSnapshot: !!snapshot?.normalized?.feather,
+      source: "direct-feather-status"
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to query device status" });
   }
