@@ -547,25 +547,99 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 return null;
             };
 
-            let isOnline = getMetricValue(["connectionstate", "contact", "communicating", "stringconnectionstate"], (v) => {
-                if (typeof v === "boolean") return v;
-                const sStr = String(v).toUpperCase();
-                return sStr === "ONLINE" || sStr === "NORMAL" || sStr === "TRUE" || sStr === "1";
-            });
-            if (isOnline === null) {
-                isOnline = false;
+            // Prioritized extraction of stringConnectionState
+            let rawStringConnectionState = null;
+            const arrayRep = arrayReports[a]?.data;
+            if (arrayRep?.stringReport?.[s]?.stringData?.stringConnectionState !== undefined) {
+                rawStringConnectionState = arrayRep.stringReport[s].stringData.stringConnectionState;
+            } else if (arrayRep?.stringReport?.[`string${s}`]?.stringData?.stringConnectionState !== undefined) {
+                rawStringConnectionState = arrayRep.stringReport[`string${s}`].stringData.stringConnectionState;
+            } else if (detailStringData?.stringConnectionState !== undefined && detailStringData?.stringConnectionState !== null) {
+                rawStringConnectionState = detailStringData.stringConnectionState;
+            } else if (detailStringData?.connectionState !== undefined && detailStringData?.connectionState !== null) {
+                rawStringConnectionState = detailStringData.connectionState;
+            } else {
+                rawStringConnectionState = getMetricValue(["stringconnectionstate", "connectionstate"]);
             }
 
-            const contactorsCloseExpected = parseBoolean(getMetricValue(["contactorscloseexpected", "closeexpected"]));
-            const positiveContactorClosed = parseBoolean(getMetricValue(["positivecontactorclosed", "positive_contactor_closed"]));
-            const negativeContactorClosed = parseBoolean(getMetricValue(["negativecontactorclosed", "negative_contactor_closed"]));
+            // Prioritized extraction of stringContactorState
+            let rawStringContactorState = null;
+            if (arrayRep?.stringReport?.[s]?.stringData?.stringContactorState !== undefined) {
+                rawStringContactorState = arrayRep.stringReport[s].stringData.stringContactorState;
+            } else if (arrayRep?.stringReport?.[`string${s}`]?.stringData?.stringContactorState !== undefined) {
+                rawStringContactorState = arrayRep.stringReport[`string${s}`].stringData.stringContactorState;
+            } else if (detailStringData?.stringContactorState !== undefined && detailStringData?.stringContactorState !== null) {
+                rawStringContactorState = detailStringData.stringContactorState;
+            } else {
+                rawStringContactorState = getMetricValue(["stringcontactorstate", "contactorstate", "contactorstatus"]);
+            }
+
+            // Prioritized extraction of stringContactorStateCause
+            let rawStringContactorStateCause = null;
+            if (arrayRep?.stringReport?.[s]?.stringData?.stringContactorStateCause !== undefined) {
+                rawStringContactorStateCause = arrayRep.stringReport[s].stringData.stringContactorStateCause;
+            } else if (arrayRep?.stringReport?.[`string${s}`]?.stringData?.stringContactorStateCause !== undefined) {
+                rawStringContactorStateCause = arrayRep.stringReport[`string${s}`].stringData.stringContactorStateCause;
+            } else if (detailStringData?.stringContactorStateCause !== undefined && detailStringData?.stringContactorStateCause !== null) {
+                rawStringContactorStateCause = detailStringData.stringContactorStateCause;
+            } else {
+                rawStringContactorStateCause = getMetricValue(["stringcontactorstatecause", "contactorstatecause"]);
+            }
+
+            let communicating = true;
+            const connectionStateUpper = String(rawStringConnectionState || "").toUpperCase();
+            if (
+                connectionStateUpper.includes("LOSS") || 
+                connectionStateUpper.includes("NOT_COMMUNICATING") || 
+                connectionStateUpper.includes("NOT_COMM") || 
+                connectionStateUpper.includes("OFFLINE_COMM")
+            ) {
+                communicating = false;
+            } else if (
+                connectionStateUpper === "ONLINE" || 
+                connectionStateUpper === "NEARLINE" || 
+                connectionStateUpper === "OFFLINE"
+            ) {
+                communicating = true;
+            } else {
+                // fallback
+                let isOnlineFallback = getMetricValue(["connectionstate", "contact", "communicating", "stringconnectionstate"], (v) => {
+                    if (typeof v === "boolean") return v;
+                    const sStr = String(v).toUpperCase();
+                    return sStr === "ONLINE" || sStr === "NORMAL" || sStr === "TRUE" || sStr === "1";
+                });
+                if (isOnlineFallback === null) {
+                    isOnlineFallback = false;
+                }
+                communicating = isOnlineFallback;
+            }
+            const isOnline = communicating;
+
+            let outRotation = parseBoolean(getMetricValue(["outrotation", "out_rotation", "rotation"]));
+            if (connectionStateUpper === "OFFLINE") {
+                outRotation = true;
+            }
+            const rotationStatus = outRotation ? "OUT" : "IN";
+            const rotationEnabled = !outRotation;
+
+            let positiveContactorClosed = false;
+            let negativeContactorClosed = false;
+            const contactorStateUpper = String(rawStringContactorState || "").toUpperCase();
+            if (contactorStateUpper === "CLOSED") {
+                positiveContactorClosed = true;
+                negativeContactorClosed = true;
+            } else if (contactorStateUpper === "OPEN") {
+                positiveContactorClosed = false;
+                negativeContactorClosed = false;
+            } else {
+                // fallback
+                positiveContactorClosed = parseBoolean(getMetricValue(["positivecontactorclosed", "positive_contactor_closed"]));
+                negativeContactorClosed = parseBoolean(getMetricValue(["negativecontactorclosed", "negative_contactor_closed"]));
+            }
             const contactorClosed = positiveContactorClosed && negativeContactorClosed;
             const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
             const recloseCount = pN(getMetricValue(["reclosecount"]));
-
-            const outRotation = parseBoolean(getMetricValue(["outrotation", "out_rotation", "rotation"]));
-            const rotationStatus = outRotation ? "OUT" : "IN";
-            const rotationEnabled = !outRotation;
+            const contactorsCloseExpected = parseBoolean(getMetricValue(["contactorscloseexpected", "closeexpected"]));
 
             const measuredVoltage = pN(getMetricValue(["measuredvoltage", "voltagemeasured", "voltagemeas", "voltage_measured", "measuredstringvoltage"]));
             const calculatedVoltage = pN(getMetricValue(["calculatedvoltage", "voltagecalculated", "voltagecalc", "voltage_calculated", "calculatedstringvoltage"]));
@@ -987,15 +1061,16 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             if (bpcFirmwares.size === 1) bpcFirmwareSummary = Array.from(bpcFirmwares)[0];
             else if (bpcFirmwares.size > 1) bpcFirmwareSummary = "Mixed";
 
-            const mockRowForClassifier = {
-                stringConnectionState: isOnline ? "ONLINE" : "OFFLINE",
-                outRotation,
-                positiveContactorClosed,
-                negativeContactorClosed,
-                communicating: isOnline,
-                connectionState: isOnline ? "ONLINE" : "OFFLINE"
+            const classifierInput = {
+                stringConnectionState: rawStringConnectionState,
+                stringContactorState: rawStringContactorState,
+                stringContactorStateCause: rawStringContactorStateCause,
+                communicating: communicating,
+                outRotation: outRotation,
+                positiveContactorClosed: positiveContactorClosed,
+                negativeContactorClosed: negativeContactorClosed
             };
-            const classification = classifyStringOperationalState(mockRowForClassifier);
+            const classification = classifyStringOperationalState(classifierInput);
             let operationalState = "OFFLINE";
             if (classification.state === "online") {
                 if (alarmCount > 0) operationalState = "ALARM";
@@ -1062,6 +1137,11 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             strings.push({
                 id, arrayNumber: a, stringNumber: s,
                 stringKey: `A${a}-S${s}`,
+                stringConnectionState: rawStringConnectionState,
+                connectionState: rawStringConnectionState,
+                stringContactorState: rawStringContactorState,
+                stringContactorStateCause: rawStringContactorStateCause,
+                communicating,
                 stringControllerIp: ipMap.find(m => pN(m.array) === a && pN(m.string) === s)?.ip || sIpInfo?.ip || tryGetField(stringsCsvRow || {}, {}, ["ip", "ipaddress"]),
                 stringControllerEntityKey: sIpInfo?.entityKey,
                 stringControllerEntityKeyToken: sIpInfo?.entityKeyToken,

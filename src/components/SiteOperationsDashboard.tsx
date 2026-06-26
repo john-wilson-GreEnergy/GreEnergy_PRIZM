@@ -1007,33 +1007,33 @@ export default function SiteOperationsDashboard({
                             <td className="py-1 px-2 text-prizm-text-muted">
                               Strings
                             </td>
-                            {buckets.map((b, i) => (
-                              <td
-                                key={i}
-                                className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                              >
-                                {sum.stringSummary.buckets?.[b] ??
-                                  sum.stringSummary.rollups?.[b]?.count ??
-                                  0}
-                              </td>
-                            ))}
+                            {buckets.map((b, i) => {
+                              const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
+                              return (
+                                <td
+                                  key={i}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                                >
+                                  {bCount === 0 ? "--" : bCount}
+                                </td>
+                              );
+                            })}
                           </tr>
                           <tr className="hover:bg-prizm-surface transition-colors">
                             <td className="py-1 px-2 text-prizm-text-muted">
                               Connection Permitted
                             </td>
-                            {buckets.map((b, i) => (
-                              <td
-                                key={i}
-                                className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                              >
-                                {b === "online" || b === "nearline"
-                                  ? (sum.stringSummary.buckets?.[b] ??
-                                    sum.stringSummary.rollups?.[b]?.count ??
-                                    0)
-                                  : "--"}
-                              </td>
-                            ))}
+                            {buckets.map((b, i) => {
+                              const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
+                              return (
+                                <td
+                                  key={i}
+                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                                >
+                                  {((b === "online" || b === "nearline") && bCount > 0) ? bCount : "--"}
+                                </td>
+                              );
+                            })}
                           </tr>
                           {renderSocRow()}
                           {renderRow(

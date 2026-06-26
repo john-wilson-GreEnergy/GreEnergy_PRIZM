@@ -56,6 +56,7 @@ export type PrizmSiteSnapshot = {
     pcs: NormalizedPcsSummary[];
     feather: NormalizedFeatherDevice[];
     correctiveActions: CorrectiveAction[];
+    emsApps: any[];
     sensors?: any[];
     arrayDetailsByArray?: Record<string, any>;
   };
@@ -1328,6 +1329,7 @@ async function doBackgroundPoll() {
               pcs: pcsListToUse,
               feather: enrichedFeatherRows,
               correctiveActions: parsed.correctiveActions || [],
+              emsApps: parsed.emsApps || [],
               sensors: sensorsData.rows,
               arrayDetailsByArray
           },
@@ -1356,9 +1358,12 @@ async function doBackgroundPoll() {
                           ...(stringsResult?.rollups || {}),
                           totalStrings: totalStrCount
                       },
-                      buckets: isNonEmptyObject(legacyStringSummary.buckets) && Object.values(legacyStringSummary.buckets).some(v => typeof v === 'number' && v > 0)
-                          ? legacyStringSummary.buckets
-                          : (isNonEmptyObject(stringsResult?.buckets) ? stringsResult.buckets : (legacyStringSummary.buckets || {})),
+                      buckets: {
+                          online: tableRows.filter((r: any) => r.bucket === 'online').length,
+                          nearline: tableRows.filter((r: any) => r.bucket === 'nearline').length,
+                          offline: tableRows.filter((r: any) => r.bucket === 'offline').length,
+                          notCommunicating: tableRows.filter((r: any) => r.bucket === 'notCommunicating').length
+                      },
                       summary: {
                           ...(legacyStringSummary.summary || {}),
                           ...(stringsResult?.summary || {})
@@ -1902,6 +1907,38 @@ export function getBlockSummaryView(): any {
     const featherDeviceCountVal = (snap.rollups as any).topologyCounts?.featherDeviceCount ?? ((snap.rollups.featherSummary?.devices || []).length || null);
     const arrayCountVal = (snap.rollups as any).topologyCounts?.arrayCount ?? ((snap.normalized?.arrays || []).length || null);
 
+    const emsApps = snap.normalized?.emsApps || [];
+    const hasApps = emsApps.length > 0;
+    const enabledCount = emsApps.filter((app: any) => app.enabled === true).length;
+    const disabledCount = emsApps.filter((app: any) => app.enabled === false).length;
+    const unknownEnabledCount = emsApps.filter((app: any) => app.enabled === null).length;
+    const healthyCount = emsApps.filter((app: any) => String(app.health || "").toUpperCase().includes("HEALTHY")).length;
+    const notEnabledCount = emsApps.filter((app: any) => String(app.health || "").toUpperCase().includes("NOT_ENABLED")).length;
+
+    const emsAppsSummary = hasApps ? {
+        total: emsApps.length,
+        enabledCount,
+        disabledCount,
+        unknownEnabledCount,
+        healthyCount,
+        notEnabledCount,
+        valid: true,
+        sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+        sourcePath: "dragonApps[]",
+        error: null
+    } : {
+        total: 0,
+        enabledCount: 0,
+        disabledCount: 0,
+        unknownEnabledCount: 0,
+        healthyCount: 0,
+        notEnabledCount: 0,
+        valid: false,
+        sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+        sourcePath: "dragonApps[]",
+        error: "No dragonApps[] returned by live blockviewer endpoint"
+    };
+
     return {
         // Uniform unified models
         siteIdentity: snap.siteIdentity,
@@ -1929,14 +1966,8 @@ export function getBlockSummaryView(): any {
         featherSummary: snap.rollups.featherSummary,
         humidityTemperatureSensors: htsSummary,
         safetySummary: (snap.rollups as any).safetySummary || {},
-        emsApps: snap.rawSources.emsApps || [],
-        emsAppsSummary: {
-            totalApps: (snap.rawSources.emsApps || []).length,
-            enabledApps: (snap.rawSources.emsApps || []).filter((app: any) => app.enabled || app.status === "Enabled").length,
-            faultedApps: (snap.rawSources.emsApps || []).filter((app: any) => app.status === "Faulted").length,
-            warningApps: (snap.rawSources.emsApps || []).filter((app: any) => app.status === "Warning").length,
-            status: (snap.rawSources.emsApps || []).length > 0 ? "Normal" : "Unavailable"
-        },
+        emsApps,
+        emsAppsSummary,
         sourceHealth: healthRows,
         sourceHealthSummary: healthSummary,
         topologyCounts: (snap.rollups as any).topologyCounts || {},

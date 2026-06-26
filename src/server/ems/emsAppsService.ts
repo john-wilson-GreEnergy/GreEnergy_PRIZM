@@ -1,122 +1,31 @@
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
-import { isDemoActive } from "../emsTurtleClient";
+import { isDemoActive, getEmsCachedBlock } from "../emsTurtleClient";
 import { EMS_APP_INTERACTION_REGISTRY, DRAGON_APP_CODE_NAME_MAP, getAppInteraction } from "./emsAppInteractionRegistry";
 
-let cachedEmsApps: any[] = [];
-let cachedRawLastCall: any = null;
-let lastFetchTime = 0;
-
-import { getEmsCachedLastCall } from "../emsTurtleClient";
-
 export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], status: string, rawLastCall: any, cacheEntry: any }> {
-    const lastCallCache = getEmsCachedLastCall();
-    const lastCallData = lastCallCache?.data;
+    const blockCache = getEmsCachedBlock();
+    const blockData = blockCache?.data;
 
-    let apps: any[] = [];
-    if (lastCallData) {
-        apps = extractDragonApps(lastCallData);
-    }
-    
-    return {
-        apps,
-        status: lastCallCache?.staleData ? "cached_timeout" : "ok",
-        rawLastCall: lastCallData,
-        cacheEntry: lastCallCache
-    };
-}
-
-function extractDragonApps(lastCallData: any): any[] {
-    let rawApps: any[] = [];
-    let pathFound = "";
-
-    // 1. Try exact path: dragonAppReport.dragonAppData.dragonAppSlotData[]
-    if (lastCallData?.dragonAppReport?.dragonAppData?.dragonAppSlotData) {
-         const slotData = lastCallData.dragonAppReport.dragonAppData.dragonAppSlotData;
-         if (Array.isArray(slotData)) {
-             rawApps = slotData;
-             pathFound = "dragonAppReport.dragonAppData.dragonAppSlotData";
-         } else if (typeof slotData === 'object') {
-             rawApps = [slotData];
-             pathFound = "dragonAppReport.dragonAppData.dragonAppSlotData";
-         }
-    } 
-    // Fallbacks if not found at exact path
-    else if (lastCallData?.blockReport?.dragonAppReport?.dragonAppData?.dragonAppSlotData) {
-         const slotData = lastCallData.blockReport.dragonAppReport.dragonAppData.dragonAppSlotData;
-         if (Array.isArray(slotData)) {
-             rawApps = slotData;
-             pathFound = "blockReport.dragonAppReport.dragonAppData.dragonAppSlotData";
-         } else if (typeof slotData === 'object') {
-             rawApps = [slotData];
-             pathFound = "blockReport.dragonAppReport.dragonAppData.dragonAppSlotData";
-         }
+    let dragonApps: any[] = [];
+    if (blockData && Array.isArray(blockData.dragonApps)) {
+        dragonApps = blockData.dragonApps;
     }
 
-    if (rawApps.length === 0) {
-        // Fallback: Recursive search inside lastCall.json
-        function searchApps(obj: any, currentPath: string = "") {
-            if (!obj || typeof obj !== "object") return;
-            if (Array.isArray(obj)) {
-                for (let i = 0; i < obj.length; i++) searchApps(obj[i], `${currentPath}[${i}]`);
-            } else {
-                if (obj.applicationTypeCode || obj.appCode) {
-                    if (obj.appName !== undefined || obj.priority !== undefined || obj.applicationPriority !== undefined || obj.configName !== undefined || obj.health !== undefined) {
-                        rawApps.push({ ...obj, sourcePath: currentPath || "recursive_fallback" });
-                        return; // Found an app, don't recurse deeper in this object
-                    }
-                }
-                for (const [key, value] of Object.entries(obj)) {
-                    searchApps(value, currentPath ? `${currentPath}.${key}` : key);
-                }
-            }
-        }
-        searchApps(lastCallData);
-    } else {
-        // tag the source path
-        rawApps = rawApps.map(a => ({ ...a, sourcePath: pathFound }));
-    }
-
-    // Normalize apps
-    const unknownDragonAppCodes: string[] = [];
-
-    let dedupedApps = rawApps.filter((v,i,a) => a.findIndex(t => (t.appCode || t.applicationTypeCode) === (v.appCode || v.applicationTypeCode) && (t.appName || t.applicationName) === (v.appName || v.applicationName)) === i);
-
-    if (dedupedApps.length === 0) {
-        dedupedApps = [
-            { appCode: "ES00001", priority: 1, configName: "estop_config_default", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Active monitoring", sourcePath: "fallback_registry" },
-            { appCode: "BSF0001", priority: 2, configName: "battery_safety_default", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Active monitoring", sourcePath: "fallback_registry" },
-            { appCode: "BP00001", priority: 3, configName: "block_power_default", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Grid synchronized", sourcePath: "fallback_registry" },
-            { appCode: "HCP0001", priority: 4, configName: "high_current_prot_v1", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Active monitoring", sourcePath: "fallback_registry" },
-            { appCode: "PC00001", priority: 5, configName: "power_ctrl_v1", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Active control loop", sourcePath: "fallback_registry" },
-            { appCode: "CTC0001", priority: 6, configName: "centipede_thermal_v1", enabled: true, health: "HEALTH_HEALTHY", appStatus: "Thermal balancing active", sourcePath: "fallback_registry" },
-        ];
-    }
-
-    return dedupedApps.map((app: any) => {
+    const apps = dragonApps.map((app: any) => {
         const appCode = app.appCode ? String(app.appCode).trim() : (app.applicationTypeCode ? String(app.applicationTypeCode).trim() : null);
-        let resolvedNameFromMap = null;
-        if (appCode) {
-            resolvedNameFromMap = DRAGON_APP_CODE_NAME_MAP[appCode];
-            if (!resolvedNameFromMap && !unknownDragonAppCodes.includes(appCode)) {
-                unknownDragonAppCodes.push(appCode);
-            }
-        }
-        const appName =
-            app.appName ||
-            app.applicationName ||
-            app.application ||
-            app.name ||
-            resolvedNameFromMap ||
-            appCode ||
-            "Unknown App";
+        const resolvedNameFromMap = appCode ? DRAGON_APP_CODE_NAME_MAP[appCode] : null;
+        const appName = app.appName || app.applicationName || app.application || app.name || resolvedNameFromMap || appCode || "Unknown App";
 
         const healthRaw = app.health ?? null;
         const healthUpper = String(healthRaw || "").toUpperCase();
+        
+        const enabled = app.enabled === true ? true : (app.enabled === false ? false : (app.health === "HEALTH_NOT_ENABLED" ? false : null));
+
         let status = "Unknown";
-        if (app.enabled === true) status = "Enabled";
-        if (app.enabled === false) status = "Not Enabled";
-        if (healthUpper.includes("HEALTH_HEALTHY") && app.enabled !== false) {
+        if (enabled === true) status = "Enabled";
+        if (enabled === false) status = "Not Enabled";
+        if (healthUpper.includes("HEALTH_HEALTHY") && enabled !== false) {
             status = "Enabled";
         }
         if (healthUpper.includes("NOT_ENABLED") || healthUpper.includes("DISABLED")) {
@@ -128,34 +37,45 @@ function extractDragonApps(lastCallData: any): any[] {
         if (healthUpper.includes("WARN")) {
             status = "Warning";
         }
-        
+
         const interactionMeta = getAppInteraction(appCode);
-        
+
         return {
-           priority: app.priority ?? app.applicationPriority ?? null,
-           appCode: appCode,
-           appName,
-           configName: app.configName ?? app.applicationConfigurationName ?? null,
-           configVersionId: app.configVersionId ?? app.configVersionid ?? app.applicationConfigurationVersionid ?? null,
-           enabled: app.enabled ?? null,
-           canDisable: app.canDisable ?? null,
-           status,
-           healthRaw,
-           shortAppStatus: app.shortAppStatus ?? null,
-           hasShortAppStatus: app.hasShortAppStatus ?? null,
-           appStatus: app.appStatus ?? null,
-           healthMessage: app.healthMessage ?? null,
-           hasEditor: app.hasEditor ?? null,
-           sourcePath: app.sourcePath || "discovered",
-           interaction: interactionMeta.interaction,
-           supportedLocally: interactionMeta.supportedLocally,
-           safetyLevel: interactionMeta.safetyLevel,
-           reason: interactionMeta.reason,
-           cloudEquivalent: interactionMeta.cloudEquivalent ?? null,
-           confirmationEnable: interactionMeta.confirmationEnable ?? null,
-           confirmationDisable: interactionMeta.confirmationDisable ?? null,
-           fields: interactionMeta.fields ?? null,
-           raw: app
+            priority: app.priority ?? app.applicationPriority ?? null,
+            appCode: appCode,
+            appName: appName,
+            configName: app.configName ?? app.applicationConfigurationName ?? null,
+            configVersionId: app.configVersionId ?? app.configVersionid ?? app.applicationConfigurationVersionid ?? null,
+            enabled: enabled,
+            enabledRaw: app.enabled ?? null,
+            canDisable: app.canDisable ?? null,
+            status,
+            health: healthRaw,
+            healthRaw,
+            shortAppStatus: app.shortAppStatus ?? null,
+            hasShortAppStatus: app.hasShortAppStatus ?? null,
+            appStatus: app.appStatus ?? app.healthMessage ?? null,
+            healthMessage: app.healthMessage ?? "",
+            reportValues: app.reportValues ?? null,
+            hasEditor: app.hasEditor ?? null,
+            sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
+            sourcePath: "dragonApps[]",
+            interaction: interactionMeta.interaction,
+            supportedLocally: interactionMeta.supportedLocally,
+            safetyLevel: interactionMeta.safetyLevel,
+            reason: interactionMeta.reason,
+            cloudEquivalent: interactionMeta.cloudEquivalent ?? null,
+            confirmationEnable: interactionMeta.confirmationEnable ?? null,
+            confirmationDisable: interactionMeta.confirmationDisable ?? null,
+            fields: interactionMeta.fields ?? null,
+            raw: app
         };
     });
+
+    return {
+        apps,
+        status: blockCache?.staleData ? "cached_timeout" : "ok",
+        rawLastCall: blockData,
+        cacheEntry: blockCache
+    };
 }
