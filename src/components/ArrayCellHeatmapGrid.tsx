@@ -228,7 +228,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
       </div>
 
       {/* Horizontal Filter Bar */}
-      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-[9px] uppercase tracking-wider">
+      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-[9px] uppercase tracking-wider">
         {/* Array Filter */}
         <div className="space-y-1">
           <label className="text-[10px] text-prizm-text-muted font-bold block">Filter Array</label>
@@ -244,25 +244,6 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
               </option>
             ))}
           </select>
-        </div>
-
-        {/* Status Filter (Disabled) */}
-        <div className="space-y-1">
-          <label className="text-[10px] text-prizm-text-muted font-bold block">Filter Status</label>
-          <select
-            disabled
-            title="Status filtering pending normalized health flags."
-            className="w-full bg-prizm-surface-strong/50 border border-prizm-border/60 text-prizm-text-muted text-[11px] p-1.5 rounded outline-none cursor-not-allowed font-bold"
-          >
-            <option value="all">Any Status (All)</option>
-            <option value="normal">Healthy / Normal</option>
-            <option value="warning">Warning</option>
-            <option value="alarm">Alarm</option>
-            <option value="missing">Not Communicating / Missing Data</option>
-          </select>
-          <span className="text-[8px] text-amber-500/80 normal-case block mt-0.5">
-            Status filtering pending normalized health flags.
-          </span>
         </div>
 
         {/* Search Input */}
@@ -289,14 +270,6 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
             Reset Filters
           </button>
         )}
-      </div>
-
-      {/* Caution Box */}
-      <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500/90 p-3 rounded-lg text-[8.5px] leading-relaxed flex items-start gap-2 sm:gap-3">
-        <Info size={14} className="shrink-0 mt-0.5 text-amber-500" />
-        <p className="normal-case">
-          <strong>Site-Wide Physical Layout:</strong> This view generates exact physical alignment tables mapping modules to environmental slots. Use toggles above to switch modes and display units dynamically.
-        </p>
       </div>
 
       {/* Stacked Arrays List */}

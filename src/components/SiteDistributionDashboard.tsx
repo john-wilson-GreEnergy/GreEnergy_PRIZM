@@ -970,7 +970,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           }`}
         >
           <Shield size={12} />
-          Sensors & Safety Health
+          Sensor Health & Open Closed Detectors
         </button>
       </div>
 
