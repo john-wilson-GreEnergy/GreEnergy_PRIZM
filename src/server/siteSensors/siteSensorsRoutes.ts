@@ -2893,6 +2893,10 @@ router.get("/topology", async (req, res) => {
   const refresh = req.query.refresh === "true";
   const maxAgeMs = req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 0;
   
+  const demo = req.query.demo === "true";
+  const sample = req.query.sample === "true";
+  const debugMode = req.query.debug === "true" || req.query.debugMode === "true";
+
   try {
     let blockData = emsCache.block;
     let shouldFetch = refresh || !blockData;
@@ -2904,20 +2908,54 @@ router.get("/topology", async (req, res) => {
       }
     }
     
+    let fetchError: string | null = null;
     if (shouldFetch) {
       const endpoint = "/tools/monitor/ems/blockviewer/data";
-      const data = await fetchAndRecord(endpoint, 4000, "json");
-      if (data) {
-        blockData = data;
-        emsCache.block = data;
-        emsCache.lastUpdated = new Date().toISOString();
+      try {
+        const data = await fetchAndRecord(endpoint, 4000, "json");
+        if (data) {
+          blockData = data;
+          emsCache.block = data;
+          emsCache.lastUpdated = new Date().toISOString();
+        } else {
+          fetchError = "fetchAndRecord returned null or empty data";
+        }
+      } catch (err: any) {
+        fetchError = err.message || String(err);
       }
     }
     
     if (!blockData) {
       blockData = emsCache.block;
-      if (!blockData) {
+    }
+
+    const hasLiveData = !!(blockData && (Array.isArray(blockData.topology) || (blockData.data && Array.isArray(blockData.data.topology))));
+
+    if (!hasLiveData) {
+      if (demo || sample || debugMode) {
         blockData = generateSimulatedTopology();
+      } else {
+        const sensorSafetyHealthDebug = {
+          requestedUrl: req.originalUrl || "/api/local/site-sensors/topology",
+          parsedQuery: req.query || {},
+          selectedProfile: "default",
+          sourceEndpoints: ["/tools/monitor/ems/blockviewer/data"],
+          sourceHealth: "offline / unavailable",
+          error: fetchError || "Live blockviewer topology data is offline or unavailable"
+        };
+
+        return res.json({
+          success: false,
+          valid: false,
+          error: fetchError || "Live blockviewer topology data is offline or unavailable",
+          sensorSafetyHealthDebug,
+          rows: [],
+          points: [],
+          activePointCount: 0,
+          unavailablePointCount: 0,
+          unknownPointCount: 0,
+          debug: {}
+        });
       }
     }
     
@@ -2941,6 +2979,7 @@ router.get("/topology", async (req, res) => {
     } else {
       res.json({
         success: false,
+        valid: false,
         error: "topology[] is missing in blockviewer payload",
         sensorSafetyHealthDebug,
         rows: [],
@@ -2962,6 +3001,7 @@ router.get("/topology", async (req, res) => {
     };
     res.json({
       success: false,
+      valid: false,
       error: error.message || String(error),
       sensorSafetyHealthDebug,
       rows: [],

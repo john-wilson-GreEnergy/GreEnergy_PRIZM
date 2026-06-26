@@ -3,6 +3,7 @@ import { getEmsCachedRawStrings, getEmsCachedBlock, getEmsStringIpMap, getEmsCon
 import { getCommunicating, getOutRotation, getContactorsClosed } from "../../lib/stringClassifier";
 import * as prizmCache from "../cache/prizmCache";
 import { ProfileStore } from "../profiles/profileStore";
+import { SITE_HEALTH_THRESHOLDS } from "../../lib/thresholds";
 
 const router = Router();
 
@@ -404,10 +405,36 @@ router.get("/strings", (req, res) => {
     (r.stackTemperatureC !== undefined && r.stackTemperatureC !== null)
   ).length;
 
+  let stationCode: string | null = null;
+  let blockIndex: number | null = null;
+
+  if (rows.length > 0) {
+    if (rows[0].stationCode) stationCode = rows[0].stationCode;
+    if (typeof rows[0].blockIndex === "number") blockIndex = rows[0].blockIndex;
+  }
+
+  const connStatus = getEmsConnectionStatus();
+  if (!stationCode && connStatus?.stationCode) {
+    stationCode = connStatus.stationCode;
+  }
+  if (blockIndex === null && connStatus && typeof connStatus.blockIndex === "number") {
+    blockIndex = connStatus.blockIndex;
+  }
+
+  const activeProfile = ProfileStore.getActiveProfile();
+  if (!stationCode && activeProfile?.stationCode) {
+    stationCode = activeProfile.stationCode;
+  }
+  if (blockIndex === null && activeProfile && typeof activeProfile.blockIndex === "number") {
+    blockIndex = activeProfile.blockIndex;
+  }
+
   const responsePayload: any = {
     success: true,
     timestamp: new Date().toISOString(),
     source: sourceLabel,
+    stationCode,
+    blockIndex,
     cacheInfo: {
       sourcesUsed: [
         { name: 'ems-strings', hasData: Boolean(rawStringsWrapper.data && rawStringsWrapper.data.length > 0) },
@@ -527,14 +554,14 @@ function getPointStatus(
   t: number | undefined,
   communicating: boolean,
   inRotation: boolean,
-  lowVolt: number = 1250,
-  lowAlarmVolt: number = 1099,
-  warningVolt: number = 1400,
-  alarmVolt: number = 1450,
-  lowTemp: number = 20,
-  lowAlarmTemp: number = 10,
-  warningTemp: number = 40,
-  alarmTemp: number = 50
+  lowVolt: number = SITE_HEALTH_THRESHOLDS.voltageVdc.lowWarningMax,
+  lowAlarmVolt: number = SITE_HEALTH_THRESHOLDS.voltageVdc.lowAlarmMax,
+  warningVolt: number = SITE_HEALTH_THRESHOLDS.voltageVdc.highWarningMin,
+  alarmVolt: number = SITE_HEALTH_THRESHOLDS.voltageVdc.highAlarmMin,
+  lowTemp: number = SITE_HEALTH_THRESHOLDS.temperatureC.lowWarningMax,
+  lowAlarmTemp: number = SITE_HEALTH_THRESHOLDS.temperatureC.lowAlarmMax,
+  warningTemp: number = SITE_HEALTH_THRESHOLDS.temperatureC.highWarningMin,
+  alarmTemp: number = SITE_HEALTH_THRESHOLDS.temperatureC.highAlarmMin
 ) {
   if (!communicating) {
     return {
@@ -721,15 +748,15 @@ router.get("/graph", async (req, res) => {
     }
   }
 
-  const lowVolt = req.query.lowVolt ? Number(req.query.lowVolt) : 1250;
-  const lowAlarmVolt = req.query.lowAlarmVolt ? Number(req.query.lowAlarmVolt) : 1099;
-  const warningVolt = req.query.warningVolt ? Number(req.query.warningVolt) : 1400;
-  const alarmVolt = req.query.alarmVolt ? Number(req.query.alarmVolt) : 1450;
+  const lowVolt = req.query.lowVolt ? Number(req.query.lowVolt) : SITE_HEALTH_THRESHOLDS.voltageVdc.lowWarningMax;
+  const lowAlarmVolt = req.query.lowAlarmVolt ? Number(req.query.lowAlarmVolt) : SITE_HEALTH_THRESHOLDS.voltageVdc.lowAlarmMax;
+  const warningVolt = req.query.warningVolt ? Number(req.query.warningVolt) : SITE_HEALTH_THRESHOLDS.voltageVdc.highWarningMin;
+  const alarmVolt = req.query.alarmVolt ? Number(req.query.alarmVolt) : SITE_HEALTH_THRESHOLDS.voltageVdc.highAlarmMin;
 
-  const lowTemp = req.query.lowTemp ? Number(req.query.lowTemp) : 20;
-  const lowAlarmTemp = req.query.lowAlarmTemp ? Number(req.query.lowAlarmTemp) : 10;
-  const warningTemp = req.query.warningTemp ? Number(req.query.warningTemp) : 40;
-  const alarmTemp = req.query.alarmTemp ? Number(req.query.alarmTemp) : 50;
+  const lowTemp = req.query.lowTemp ? Number(req.query.lowTemp) : SITE_HEALTH_THRESHOLDS.temperatureC.lowWarningMax;
+  const lowAlarmTemp = req.query.lowAlarmTemp ? Number(req.query.lowAlarmTemp) : SITE_HEALTH_THRESHOLDS.temperatureC.lowAlarmMax;
+  const warningTemp = req.query.warningTemp ? Number(req.query.warningTemp) : SITE_HEALTH_THRESHOLDS.temperatureC.highWarningMin;
+  const alarmTemp = req.query.alarmTemp ? Number(req.query.alarmTemp) : SITE_HEALTH_THRESHOLDS.temperatureC.highAlarmMin;
 
   const points: any[] = [];
 
@@ -820,7 +847,7 @@ router.get("/graph", async (req, res) => {
     sourceMode = "stringviewer-sampled";
   } else if (sourceCountDashboard > sourceCountSampled && sourceCountDashboard > sourceCountDist) {
     sourceMode = "string-dashboard-cache";
-  } else if (sourceCountDist > sourceCountSampled && sourceCountDashboard > sourceCountDashboard) {
+  } else if (sourceCountDist > sourceCountSampled && sourceCountDist > sourceCountDashboard) {
     sourceMode = "site-distribution";
   }
 
@@ -848,6 +875,11 @@ router.get("/graph", async (req, res) => {
     success: true,
     timestamp: new Date().toISOString(),
     source: sourceMode,
+    sourceCounts: {
+      sampled: sourceCountSampled,
+      dashboard: sourceCountDashboard,
+      distribution: sourceCountDist
+    },
     mode: "both",
     points,
     metricAvailability: {

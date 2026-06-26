@@ -36,6 +36,7 @@ import {
   Cell,
   ReferenceLine
 } from "recharts";
+import { SITE_HEALTH_THRESHOLDS } from "../lib/thresholds";
 
 export interface SiteStringDistributionRow {
   stationCode?: string;
@@ -69,6 +70,8 @@ export interface DistributionResponse {
   success: boolean;
   timestamp: string;
   source: string;
+  stationCode?: string | null;
+  blockIndex?: number | null;
   voltageMetric: string;
   temperatureMetric: string;
   rows: SiteStringDistributionRow[];
@@ -168,15 +171,15 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [tempMetric, setTempMetric] = useState<"max" | "avg">("max");
 
   // Threshold controls (Interactively adjustable!)
-  const [alarmTemp, setAlarmTemp] = useState<number>(50);
-  const [warningTemp, setWarningTemp] = useState<number>(40);
-  const [lowTemp, setLowTemp] = useState<number>(20);
-  const [lowAlarmTemp, setLowAlarmTemp] = useState<number>(10);
+  const [alarmTemp, setAlarmTemp] = useState<number>(SITE_HEALTH_THRESHOLDS.temperatureC.highAlarmMin);
+  const [warningTemp, setWarningTemp] = useState<number>(SITE_HEALTH_THRESHOLDS.temperatureC.highWarningMin);
+  const [lowTemp, setLowTemp] = useState<number>(SITE_HEALTH_THRESHOLDS.temperatureC.lowWarningMax);
+  const [lowAlarmTemp, setLowAlarmTemp] = useState<number>(SITE_HEALTH_THRESHOLDS.temperatureC.lowAlarmMax);
 
-  const [alarmVolt, setAlarmVolt] = useState<number>(1450);
-  const [warningVolt, setWarningVolt] = useState<number>(1400);
-  const [lowVolt, setLowVolt] = useState<number>(1250);
-  const [lowAlarmVolt, setLowAlarmVolt] = useState<number>(1099);
+  const [alarmVolt, setAlarmVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.highAlarmMin);
+  const [warningVolt, setWarningVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.highWarningMin);
+  const [lowVolt, setLowVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.lowWarningMax);
+  const [lowAlarmVolt, setLowAlarmVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.lowAlarmMax);
 
   // Load graph specific telemetry data
   const loadGraphData = async (refresh = false, useSample = false) => {
@@ -472,8 +475,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
   const handleExportPdf = () => {
     const doc = new jsPDF();
-    const station = data?.stationCode || "BHE0021";
-    const block = data?.blockIndex || 1;
+    const station = data?.stationCode || data?.rows?.[0]?.stationCode || "UNKNOWN_STATION";
+    const block = data?.blockIndex || data?.rows?.[0]?.blockIndex || "UNKNOWN_BLOCK";
     const dateStr = new Date().toLocaleDateString();
     const timeStr = new Date().toLocaleTimeString();
 
@@ -1644,8 +1647,12 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                     <th className="p-2 border-r border-prizm-border text-center">Array</th>
                     <th className="p-2 border-r border-prizm-border text-center">String</th>
                     <th className="p-2 border-r border-prizm-border">Label</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Voltage Min/Max/Avg</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Temp Min/Max/Avg</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Voltage Min</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Voltage Max</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Voltage Avg</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Temp Min</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Temp Max</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Temp Avg</th>
                     <th className="p-2 border-r border-prizm-border">Controller IP</th>
                     <th className="p-2">Status Category</th>
                   </tr>
@@ -1653,7 +1660,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 <tbody className="divide-y divide-prizm-border/50">
                   {filteredStrings.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
+                      <td colSpan={11} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
                         {outliersOnly 
                           ? "🎉 ALL site controllers are normal. No active threshold breach or off-line rotations detected."
                           : "🔍 No controller strings match your current active filters."}
@@ -1669,34 +1676,66 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                       const isHighVolt = voltV !== undefined && voltV !== null && voltV >= warningVolt;
                       const isLowVolt = voltV !== undefined && voltV !== null && voltV <= lowVolt;
 
+                      // Derive Voltage Min, Max, Avg: use stackVoltage if no cell voltage is available
+                      const renderVoltMin = s.minCellVoltage !== undefined && s.minCellVoltage !== null
+                        ? `${(s.minCellVoltage * 1000).toFixed(0)} mV`
+                        : s.stackVoltage !== undefined && s.stackVoltage !== null
+                          ? `${s.stackVoltage} Vdc`
+                          : "--";
+
+                      const renderVoltMax = s.maxCellVoltage !== undefined && s.maxCellVoltage !== null
+                        ? `${(s.maxCellVoltage * 1000).toFixed(0)} mV`
+                        : s.stackVoltage !== undefined && s.stackVoltage !== null
+                          ? `${s.stackVoltage} Vdc`
+                          : "--";
+
+                      const renderVoltAvg = s.avgCellVoltage !== undefined && s.avgCellVoltage !== null
+                        ? `${(s.avgCellVoltage * 1000).toFixed(0)} mV`
+                        : s.stackVoltage !== undefined && s.stackVoltage !== null
+                          ? `${s.stackVoltage} Vdc`
+                          : "--";
+
+                      // Derive Temp Min, Max, Avg: if min/max/avg cell temp exist render directly, otherwise fallback to stackTemperatureC
+                      const renderTempMin = s.minCellTempC !== undefined && s.minCellTempC !== null
+                        ? `${s.minCellTempC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.minCellTempC))}°F)`
+                        : s.stackTemperatureC !== undefined && s.stackTemperatureC !== null
+                          ? `${s.stackTemperatureC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.stackTemperatureC))}°F)`
+                          : "--";
+
+                      const renderTempMax = s.maxCellTempC !== undefined && s.maxCellTempC !== null
+                        ? `${s.maxCellTempC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.maxCellTempC))}°F)`
+                        : s.stackTemperatureC !== undefined && s.stackTemperatureC !== null
+                          ? `${s.stackTemperatureC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.stackTemperatureC))}°F)`
+                          : "--";
+
+                      const renderTempAvg = s.avgCellTempC !== undefined && s.avgCellTempC !== null
+                        ? `${s.avgCellTempC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.avgCellTempC))}°F)`
+                        : s.stackTemperatureC !== undefined && s.stackTemperatureC !== null
+                          ? `${s.stackTemperatureC.toFixed(1)}°C (${Math.round(celsiusToFahrenheit(s.stackTemperatureC))}°F)`
+                          : "--";
+
                       return (
                         <tr key={idx} className="bg-prizm-surface hover:bg-prizm-surface-strong divide-x divide-prizm-border/30 transition">
                           <td className="p-2 font-bold text-center text-prizm-text">{s.arrayIndex}</td>
                           <td className="p-2 font-bold text-center text-prizm-text">{s.stringIndex}</td>
                           <td className="p-2 font-bold text-prizm-text-muted">{s.displayLabel}</td>
-                          <td className="p-2 text-right">
-                            <div className={`font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
-                              {s.stackVoltage !== undefined && s.stackVoltage !== null ? `${s.stackVoltage} Vdc` : "--"}
-                            </div>
-                            {(s.minCellVoltage !== undefined || s.maxCellVoltage !== undefined || s.avgCellVoltage !== undefined) && (
-                              <div className="text-[9px] text-prizm-text-muted">
-                                Cell: {s.minCellVoltage !== undefined ? (s.minCellVoltage * 1000).toFixed(0) : "--"}/
-                                {s.maxCellVoltage !== undefined ? (s.maxCellVoltage * 1000).toFixed(0) : "--"}/
-                                {s.avgCellVoltage !== undefined ? (s.avgCellVoltage * 1000).toFixed(0) : "--"} mV
-                              </div>
-                            )}
+                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
+                            {renderVoltMin}
                           </td>
-                          <td className="p-2 text-right">
-                            <div className={`font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-300'}`}>
-                              {s.minCellTempC !== undefined && s.minCellTempC !== null ? s.minCellTempC.toFixed(1) : "--"} / {" "}
-                              {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? s.maxCellTempC.toFixed(1) : "--"} / {" "}
-                              {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? s.avgCellTempC.toFixed(1) : "--"} °C
-                            </div>
-                            <div className="text-[9px] text-prizm-text-muted">
-                              {s.minCellTempC !== undefined && s.minCellTempC !== null ? Math.round(celsiusToFahrenheit(s.minCellTempC)) : "--"} / {" "}
-                              {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? Math.round(celsiusToFahrenheit(s.maxCellTempC)) : "--"} / {" "}
-                              {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? Math.round(celsiusToFahrenheit(s.avgCellTempC)) : "--"} °F
-                            </div>
+                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
+                            {renderVoltMax}
+                          </td>
+                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
+                            {renderVoltAvg}
+                          </td>
+                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-300'}`}>
+                            {renderTempMin}
+                          </td>
+                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-300'}`}>
+                            {renderTempMax}
+                          </td>
+                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-300'}`}>
+                            {renderTempAvg}
                           </td>
                           <td className="p-2 text-prizm-text truncate" title={s.ip}>{s.ip || "Unknown"}</td>
                           <td className="p-2">
