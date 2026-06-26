@@ -418,93 +418,359 @@ export function repairFinalArraySummary(snapshot: any, previousSnapshot?: any): 
   return repairArraySummaryFromNormalizedStrings(snapshot);
 }
 
-export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any) {
-  if (!snapshot || !snapshot.normalized || !snapshot.normalized.strings) return;
-  
-  const strings = snapshot.normalized.strings;
-  if (!strings.length) return;
+export function finiteNumber(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
-  const getNum = (val: any): number | null => {
-    if (val === null || val === undefined) return null;
-    const numVal = Number(val);
-    return isNaN(numVal) ? null : numVal;
+export function normalizeSocPercent(value: any): number | null {
+  const n = finiteNumber(value);
+  if (n === null) return null;
+  if (n >= 0 && n <= 1) return n * 100;
+  if (n >= 0 && n <= 100) return n;
+  return null;
+}
+
+export function readSocPct(row: any): number | null {
+  if (!row) return null;
+  const val = row.socPct ?? row.soc ?? row.SOC ?? row.stateOfCharge ?? row.stateOfChargePct ?? row.onlineSOC ?? row.raw?.socPct ?? row.raw?.soc ?? row.raw?.SOC;
+  if (val !== undefined && val !== null) {
+      const res = normalizeSocPercent(val);
+      if (res !== null) return res;
+  }
+  if (Array.isArray(row.socs) && row.socs.length > 0) {
+      const res = normalizeSocPercent(row.socs[0]);
+      if (res !== null) return res;
+  }
+  return null;
+}
+
+export function readStoredKWh(row: any): number | null {
+  if (!row) return null;
+  const val = row.kwh ?? row.kWh ?? row.availableKWh ?? row.availableKwh ?? row.storedKWh ?? row.energyKWh ?? row.socKwh ?? row.socKWh ?? row.raw?.kwh ?? row.raw?.kWh ?? row.raw?.availableKWh ?? row.raw?.storedKWh;
+  const n = finiteNumber(val);
+  if (n !== null && n >= 0) return n;
+  return null;
+}
+
+export function resolveStringBucket(row: any): string {
+  if (!row) return "online";
+  
+  if (row.bucket && ["online", "nearline", "offline", "notCommunicating"].includes(row.bucket)) {
+    return row.bucket;
+  }
+  
+  if (row.communicating === false) return "notCommunicating";
+  
+  const status = String(row.status || row.state || "").toLowerCase();
+  if (status.includes("nearline")) return "nearline";
+  if (status.includes("offline")) return "offline";
+  if (status.includes("not") && status.includes("communicat")) return "notCommunicating";
+  if (status.includes("online")) return "online";
+  
+  return row.communicating !== false ? "online" : "notCommunicating";
+}
+
+function average(vals: number[]): number | null {
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function sum(vals: number[]): number | null {
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0);
+}
+
+export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): boolean {
+  if (!snapshot) return false;
+  if (!snapshot.debug) snapshot.debug = {};
+  
+  const strings = snapshot.normalized?.strings || [];
+  
+  if (!strings.length) {
+    snapshot.debug.fleetRollupRepair = {
+      used: false,
+      reason: "no normalized strings available",
+      inputStringCount: 0
+    };
+    return false;
+  }
+  
+  if (!snapshot.rollups) snapshot.rollups = {};
+  if (!snapshot.rollups.stringSummary) snapshot.rollups.stringSummary = {};
+  if (!snapshot.rollups.stringSummary.rollups) snapshot.rollups.stringSummary.rollups = {};
+  if (!snapshot.rollups.bessFleetSummary) snapshot.rollups.bessFleetSummary = {};
+  if (!snapshot.rollups.fleetCapacity) snapshot.rollups.fleetCapacity = {};
+
+  const totalStrings = strings.length;
+  let onlineStrings = 0;
+  let nearlineStrings = 0;
+  let offlineStrings = 0;
+  let notCommunicatingStrings = 0;
+  
+  const fleetSocValues: number[] = [];
+  const onlineSocValues: number[] = [];
+  const nearlineSocValues: number[] = [];
+  const offlineSocValues: number[] = [];
+  const notCommunicatingSocValues: number[] = [];
+  
+  const onlineStoredKWhs: number[] = [];
+  const nearlineStoredKWhs: number[] = [];
+  const offlineStoredKWhs: number[] = [];
+  const notCommunicatingStoredKWhs: number[] = [];
+  
+  const perArray = new Map<number, any>();
+  
+  for (const row of strings) {
+    const arrNum = deriveArrayNumberFromRow(row);
+    const bucket = resolveStringBucket(row);
+    const soc = readSocPct(row);
+    const kwh = readStoredKWh(row);
+    
+    if (bucket === "online") onlineStrings++;
+    else if (bucket === "nearline") nearlineStrings++;
+    else if (bucket === "offline") offlineStrings++;
+    else if (bucket === "notCommunicating") notCommunicatingStrings++;
+    
+    if (arrNum !== null) {
+      if (!perArray.has(arrNum)) {
+        perArray.set(arrNum, {
+          stringCount: 0,
+          onlineStringCount: 0,
+          nearlineStringCount: 0,
+          offlineStringCount: 0,
+          notCommunicationStringCount: 0,
+          onlineSocs: [],
+          nearlineSocs: [],
+          offlineSocs: [],
+          onlineKwhs: [],
+          nearlineKwhs: [],
+          offlineKwhs: [],
+          powerkW: 0,
+          currentAmp: 0
+        });
+      }
+      const agg = perArray.get(arrNum);
+      agg.stringCount++;
+      if (bucket === "online") agg.onlineStringCount++;
+      else if (bucket === "nearline") agg.nearlineStringCount++;
+      else if (bucket === "offline") agg.offlineStringCount++;
+      else if (bucket === "notCommunicating") agg.notCommunicationStringCount++;
+      
+      if (soc !== null) {
+        if (bucket === "online") agg.onlineSocs.push(soc);
+        else if (bucket === "nearline") agg.nearlineSocs.push(soc);
+        else if (bucket === "offline") agg.offlineSocs.push(soc);
+      }
+      
+      if (kwh !== null) {
+        if (bucket === "online") agg.onlineKwhs.push(kwh);
+        else if (bucket === "nearline") agg.nearlineKwhs.push(kwh);
+        else if (bucket === "offline") agg.offlineKwhs.push(kwh);
+      }
+      
+      const kw = finiteNumber(row.kw) ?? finiteNumber(row.powerKw) ?? finiteNumber(row.powerkW);
+      if (kw !== null) agg.powerkW += kw;
+      
+      const amps = finiteNumber(row.amps) ?? finiteNumber(row.currentA) ?? finiteNumber(row.currentAmp);
+      if (amps !== null) agg.currentAmp += amps;
+    }
+    
+    if (soc !== null) {
+      fleetSocValues.push(soc);
+      if (bucket === "online") onlineSocValues.push(soc);
+      else if (bucket === "nearline") nearlineSocValues.push(soc);
+      else if (bucket === "offline") offlineSocValues.push(soc);
+      else if (bucket === "notCommunicating") notCommunicatingSocValues.push(soc);
+    }
+    
+    if (kwh !== null) {
+      if (bucket === "online") onlineStoredKWhs.push(kwh);
+      else if (bucket === "nearline") nearlineStoredKWhs.push(kwh);
+      else if (bucket === "offline") offlineStoredKWhs.push(kwh);
+      else if (bucket === "notCommunicating") notCommunicatingStoredKWhs.push(kwh);
+    }
+  }
+  
+  const fleetSocPct = average(fleetSocValues);
+  const onlineSocPct = average(onlineSocValues);
+  const nearlineSocPct = average(nearlineSocValues);
+  const offlineSocPct = average(offlineSocValues);
+  const notCommunicatingSocPct = average(notCommunicatingSocValues);
+  
+  const onlineStoredKWh = sum(onlineStoredKWhs);
+  const nearlineStoredKWh = sum(nearlineStoredKWhs);
+  const offlineStoredKWh = sum(offlineStoredKWhs);
+  const notCommunicatingStoredKWh = sum(notCommunicatingStoredKWhs);
+  
+  let availableStoredKWh: number | null = null;
+  if (onlineStoredKWh !== null || nearlineStoredKWh !== null) {
+    availableStoredKWh = (onlineStoredKWh || 0) + (nearlineStoredKWh || 0);
+  }
+
+  // PART 3 - Fleet SOC write targets
+  if (fleetSocPct !== null) {
+    snapshot.rollups.bessFleetSummary.systemSocPct = fleetSocPct;
+    snapshot.rollups.stringSummary.rollups.averageSoc = fleetSocPct;
+    snapshot.rollups.stringSummary.rollups.socPctAvg = fleetSocPct;
+  }
+  
+  if (onlineSocPct !== null) {
+    if (!snapshot.rollups.stringSummary.rollups.online) snapshot.rollups.stringSummary.rollups.online = {};
+    snapshot.rollups.stringSummary.rollups.online.socPctAvg = onlineSocPct;
+    snapshot.rollups.stringSummary.rollups.onlineSocPctAvg = onlineSocPct;
+  }
+  
+  if (nearlineSocPct !== null) snapshot.rollups.stringSummary.rollups.nearlineSocPctAvg = nearlineSocPct;
+  if (offlineSocPct !== null) snapshot.rollups.stringSummary.rollups.offlineSocPctAvg = offlineSocPct;
+
+  // PART 4 - Fleet kWh / capacity write targets
+  snapshot.rollups.fleetCapacity.onlineStoredKWh = onlineStoredKWh;
+  snapshot.rollups.fleetCapacity.nearlineStoredKWh = nearlineStoredKWh;
+  snapshot.rollups.fleetCapacity.offlineStoredKWh = offlineStoredKWh;
+  snapshot.rollups.fleetCapacity.notCommunicatingStoredKWh = notCommunicatingStoredKWh;
+  snapshot.rollups.fleetCapacity.availableStoredKWh = availableStoredKWh;
+  
+  snapshot.rollups.stringSummary.rollups.fleetCapacity = {
+    ...snapshot.rollups.stringSummary.rollups.fleetCapacity,
+    onlineStoredKWh,
+    nearlineStoredKWh,
+    offlineStoredKWh,
+    notCommunicatingStoredKWh,
+    availableStoredKWh
   };
   
-  let onlineCount = 0;
-  let nearlineCount = 0;
-  let offlineCount = 0;
-  let notCommunicatingCount = 0;
+  snapshot.rollups.fleetCapacity.source = {
+    ...(snapshot.rollups.fleetCapacity.source || {}),
+    storedEnergy: "normalized.strings.kwh",
+    fleetSoc: "normalized.strings.socPct",
+    canonicalRollup: "prizmDataCoordinator.finalFleetRollupRepair"
+  };
+
+  // PART 5 - Canonical string counters
+  snapshot.rollups.stringSummary.rollups.totalStrings = totalStrings;
   
-  const onlineSocs: number[] = [];
-  const onlineKwhs: number[] = [];
-  
-  for (const str of strings) {
-    const bucket = str.bucket;
-    let resolvedBucket = bucket;
-    if (!resolvedBucket) {
-      if (str.status === "online" || str.state === "online") resolvedBucket = "online";
-      else if (str.status === "nearline" || str.state === "nearline") resolvedBucket = "nearline";
-      else if (str.status === "offline" || str.state === "offline") resolvedBucket = "offline";
-      else if (str.communicating === false || str.status === "notCommunicating") resolvedBucket = "notCommunicating";
-      else resolvedBucket = "online";
-    }
-    
-    if (resolvedBucket === "online") {
-      onlineCount++;
-      const soc = getNum(str.socPct) ?? getNum(str.soc) ?? getNum(str.SOC);
-      if (soc !== null) onlineSocs.push(soc);
-      
-      const kwh = getNum(str.kwh) ?? getNum(str.kWh) ?? getNum(str.availableKWh) ?? getNum(str.availableKwh);
-      if (kwh !== null) onlineKwhs.push(kwh);
-    } else if (resolvedBucket === "nearline") {
-      nearlineCount++;
-    } else if (resolvedBucket === "offline") {
-      offlineCount++;
-    } else {
-      notCommunicatingCount++;
-    }
+  if (typeof snapshot.rollups.stringSummary.rollups.online === "object") {
+    snapshot.rollups.stringSummary.rollups.online.count = onlineStrings;
+  } else {
+    snapshot.rollups.stringSummary.rollups.online = { count: onlineStrings };
   }
   
-  const totalStrings = strings.length;
-  
-  const avgOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-  const sumOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null;
-  
-  const systemSocPct = avgOrNull(onlineSocs);
-  const onlineStoredKWh = sumOrNull(onlineKwhs);
-  const availableStoredKWh = onlineStoredKWh;
-  
-  if (snapshot.rollups) {
-    if (snapshot.rollups.bessFleetSummary) {
-      snapshot.rollups.bessFleetSummary.totalStrings = totalStrings;
-      snapshot.rollups.bessFleetSummary.onlineStrings = onlineCount;
-      snapshot.rollups.bessFleetSummary.nearlineStrings = nearlineCount;
-      snapshot.rollups.bessFleetSummary.offlineStrings = offlineCount;
-      snapshot.rollups.bessFleetSummary.notCommunicatingStrings = notCommunicatingCount;
-      if (systemSocPct !== null) {
-        snapshot.rollups.bessFleetSummary.systemSocPct = Number(systemSocPct.toFixed(1));
-      }
-    }
-    
-    if (snapshot.rollups.stringSummary && snapshot.rollups.stringSummary.rollups) {
-      snapshot.rollups.stringSummary.rollups.totalStrings = totalStrings;
-      snapshot.rollups.stringSummary.rollups.offline = offlineCount;
-      snapshot.rollups.stringSummary.rollups.nearline = nearlineCount;
-      
-      snapshot.rollups.stringSummary.rollups.online = snapshot.rollups.stringSummary.rollups.online || {};
-      snapshot.rollups.stringSummary.rollups.online.count = onlineCount;
-      
-      if (systemSocPct !== null) {
-        snapshot.rollups.stringSummary.rollups.online.socPctAvg = Number(systemSocPct.toFixed(1));
-      }
-      
-      if (onlineStoredKWh !== null) {
-        snapshot.rollups.stringSummary.rollups.fleetCapacity = snapshot.rollups.stringSummary.rollups.fleetCapacity || {};
-        snapshot.rollups.stringSummary.rollups.fleetCapacity.onlineStoredKWh = Number(onlineStoredKWh.toFixed(1));
-        snapshot.rollups.stringSummary.rollups.fleetCapacity.availableStoredKWh = Number(availableStoredKWh.toFixed(1));
-      }
-    }
+  if (typeof snapshot.rollups.stringSummary.rollups.nearline === "object") {
+    snapshot.rollups.stringSummary.rollups.nearline.count = nearlineStrings;
+  } else {
+    snapshot.rollups.stringSummary.rollups.nearline = { count: nearlineStrings };
   }
+  
+  if (typeof snapshot.rollups.stringSummary.rollups.offline === "object") {
+    snapshot.rollups.stringSummary.rollups.offline.count = offlineStrings;
+  } else {
+    snapshot.rollups.stringSummary.rollups.offline = offlineStrings;
+  }
+  
+  if (typeof snapshot.rollups.stringSummary.rollups.notCommunicating === "object") {
+    snapshot.rollups.stringSummary.rollups.notCommunicating.count = notCommunicatingStrings;
+  } else {
+    snapshot.rollups.stringSummary.rollups.notCommunicating = { count: notCommunicatingStrings };
+  }
+  
+  snapshot.rollups.stringSummary.rollups.normal = onlineStrings;
+  snapshot.rollups.stringSummary.rollups.onlineCount = onlineStrings;
+  snapshot.rollups.stringSummary.rollups.nearlineCount = nearlineStrings;
+  snapshot.rollups.stringSummary.rollups.offlineCount = offlineStrings;
+  snapshot.rollups.stringSummary.rollups.notCommunicatingCount = notCommunicatingStrings;
+
+  // PART 6 - Canonical BESS fleet summary
+  snapshot.rollups.bessFleetSummary.totalStrings = totalStrings;
+  snapshot.rollups.bessFleetSummary.onlineStrings = onlineStrings;
+  snapshot.rollups.bessFleetSummary.nearlineStrings = nearlineStrings;
+  snapshot.rollups.bessFleetSummary.offlineStrings = offlineStrings;
+  snapshot.rollups.bessFleetSummary.notCommunicatingStrings = notCommunicatingStrings;
+  if (fleetSocPct !== null) snapshot.rollups.bessFleetSummary.systemSocPct = fleetSocPct;
+
+  // PART 7 - Per-array consistency
+  const applyToArray = (arr: any) => {
+    const num = arr.arrayNumber ?? arr.arrayIndex;
+    if (num && perArray.has(num)) {
+      const agg = perArray.get(num);
+      arr.stringCount = agg.stringCount;
+      arr.onlineStringCount = agg.onlineStringCount;
+      arr.nearlineStringCount = agg.nearlineStringCount;
+      arr.offlineStringCount = agg.offlineStringCount;
+      arr.notCommunicationStringCount = agg.notCommunicationStringCount;
+      
+      const onSoc = average(agg.onlineSocs);
+      if (onSoc !== null) arr.onlineSOC = onSoc;
+      const nearSoc = average(agg.nearlineSocs);
+      if (nearSoc !== null) arr.nearlineSOC = nearSoc;
+      const offSoc = average(agg.offlineSocs);
+      if (offSoc !== null) arr.offlineSOC = offSoc;
+      
+      const onKwh = sum(agg.onlineKwhs);
+      if (onKwh !== null) arr.onlineAvailableKWh = onKwh;
+      const nearKwh = sum(agg.nearlineKwhs);
+      if (nearKwh !== null) arr.nearlineAvailableKWh = nearKwh;
+      const offKwh = sum(agg.offlineKwhs);
+      if (offKwh !== null) arr.offlineAvailableKWh = offKwh;
+      
+      if (!finiteNumber(arr.powerkW)) arr.powerkW = agg.powerkW;
+      if (!finiteNumber(arr.currentAmp)) arr.currentAmp = agg.currentAmp;
+    }
+  };
+  
+  if (Array.isArray(snapshot.rollups.arraySummary)) {
+    snapshot.rollups.arraySummary.forEach(applyToArray);
+  }
+  if (Array.isArray(snapshot.normalized?.arrays)) {
+    snapshot.normalized.arrays.forEach(applyToArray);
+  }
+
+  // PART 8 - Debug output
+  const perArraySocCounts: Record<string, number> = {};
+  const perArrayKwhCounts: Record<string, number> = {};
+  
+  perArray.forEach((agg, arrNum) => {
+    perArraySocCounts[arrNum.toString()] = agg.onlineSocs.length + agg.nearlineSocs.length + agg.offlineSocs.length;
+    perArrayKwhCounts[arrNum.toString()] = agg.onlineKwhs.length + agg.nearlineKwhs.length + agg.offlineKwhs.length;
+  });
+
+  if (fleetSocValues.length === 0 && onlineStoredKWhs.length === 0 && nearlineStoredKWhs.length === 0 && offlineStoredKWhs.length === 0) {
+    snapshot.debug.fleetRollupRepair = {
+      used: false,
+      reason: "no valid SOC or kWh fields in normalized strings",
+      inputStringCount: totalStrings,
+      validSocCount: 0,
+      validKwhCount: 0
+    };
+  } else {
+    snapshot.debug.fleetRollupRepair = {
+      used: true,
+      source: "normalized.strings + repaired arraySummary",
+      inputStringCount: totalStrings,
+      validSocCount: fleetSocValues.length,
+      validKwhCount: onlineStoredKWhs.length + nearlineStoredKWhs.length + offlineStoredKWhs.length + notCommunicatingStoredKWhs.length,
+      fleetSocPct,
+      counts: {
+        totalStrings,
+        onlineStrings,
+        nearlineStrings,
+        offlineStrings,
+        notCommunicatingStrings
+      },
+      storedKWh: {
+        onlineStoredKWh,
+        nearlineStoredKWh,
+        offlineStoredKWh,
+        notCommunicatingStoredKWh,
+        availableStoredKWh
+      },
+      perArraySocCounts,
+      perArrayKwhCounts
+    };
+  }
+
+  return true;
 }
 
 function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {

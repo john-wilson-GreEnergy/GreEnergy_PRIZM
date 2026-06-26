@@ -1,4 +1,4 @@
-import { deriveArrayNumberFromRow, hasArrayZeroFallback, repairArraySummaryFromNormalizedStrings, isValidArraySummary, shouldRepairArraySummary, repairFinalArraySummary } from "../server/prizmDataCoordinator";
+import { deriveArrayNumberFromRow, hasArrayZeroFallback, repairArraySummaryFromNormalizedStrings, isValidArraySummary, shouldRepairArraySummary, repairFinalArraySummary, repairFinalFleetRollupsFromStringsAndArrays } from "../server/prizmDataCoordinator";
 import { filterAndNormalizeArraySummary } from "./arraySummaryFilters";
 
 async function runTests() {
@@ -154,6 +154,32 @@ async function runTests() {
   const filtered = filterAndNormalizeArraySummary(dummyArrays);
   assertEqual(filtered.length, 1, "Test 8.1: Frontend filters out Array 0");
   assertEqual(filtered[0].arrayNumber, 1, "Test 8.2: Frontend retains Array 1");
+
+  // 9. Fleet rollup repair populates bessFleetSummary and fleetCapacity
+  const fleetRollupSnapshot = {
+    rollups: {
+      arraySummary: []
+    },
+    normalized: {
+      strings: strings
+    }
+  };
+  repairFinalArraySummary(fleetRollupSnapshot);
+  repairFinalFleetRollupsFromStringsAndArrays(fleetRollupSnapshot);
+  
+  assertEqual((fleetRollupSnapshot as any).rollups.bessFleetSummary.totalStrings, 320, "Test 9.1: bessFleetSummary totalStrings is 320");
+  assertEqual((fleetRollupSnapshot as any).rollups.bessFleetSummary.onlineStrings, 320, "Test 9.2: bessFleetSummary onlineStrings is 320");
+  assertEqual((fleetRollupSnapshot as any).rollups.bessFleetSummary.offlineStrings, 0, "Test 9.3: bessFleetSummary offlineStrings is 0");
+  assertEqual((fleetRollupSnapshot as any).rollups.bessFleetSummary.systemSocPct, 90, "Test 9.4: systemSocPct populated");
+  assertEqual((fleetRollupSnapshot as any).rollups.fleetCapacity.availableStoredKWh, 320 * 100, "Test 9.5: availableStoredKWh populated");
+  assertEqual((fleetRollupSnapshot as any).rollups.stringSummary.rollups.fleetCapacity.availableStoredKWh, 320 * 100, "Test 9.6: stringSummary fleetCapacity populated");
+  assertEqual((fleetRollupSnapshot as any).rollups.stringSummary.rollups.totalStrings, 320, "Test 9.7: stringSummary totalStrings is 320");
+  
+  // 10. Fleet rollup repair debug metadata
+  const debugMeta = (fleetRollupSnapshot as any).debug.fleetRollupRepair;
+  assertEqual(debugMeta.used, true, "Test 10.1: fleet rollup repair used");
+  assertEqual(debugMeta.validSocCount, 320, "Test 10.2: validSocCount is 320");
+  assertEqual(debugMeta.validKwhCount, 320, "Test 10.3: validKwhCount is 320");
 
   console.log(`\nTests completed: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {
