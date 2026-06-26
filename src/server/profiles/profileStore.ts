@@ -50,13 +50,13 @@ export function getDefaultTopologyModel(): TopologyModel {
 
 export function getDefaultCapacityProfile() {
   return {
-    profileName: "Default 750kWh Energy Segment",
-    energySegmentCapacityKWh: 750,
+    profileName: "Default 742.5kWh Operational Energy Segment",
+    energySegmentCapacityKWh: 742.5,
     stringsPerEnergySegment: 2,
     nominalStringVoltageV: 1344,
-    chemistry: "LFP",
-    manufacturerModel: "EVE/CATL/AESC/REPT compatible",
-    notes: "Default profile based on PRIZM current Clyde/BHE0020 connected site documentation"
+    cellChemistry: "LFP",
+    batteryManufacturer: "EVE/CATL/AESC/REPT compatible",
+    notes: "Operational capacity profile using 742.5 kWh per Energy Segment to account for process/circuit losses from the 750 kWh DC nameplate basis."
   };
 }
 
@@ -119,6 +119,13 @@ export class ProfileStore {
               if (p.modbusUnitId === undefined) { p.modbusUnitId = 1; modified = true; }
               if (p.arrayCount === undefined) { p.arrayCount = 8; modified = true; }
               if (p.stringsPerArray === undefined) { p.stringsPerArray = 40; modified = true; }
+              if (!p.capacityProfile) {
+                p.capacityProfile = getDefaultCapacityProfile();
+                modified = true;
+              } else if (p.capacityProfile.energySegmentCapacityKWh === 750) {
+                p.capacityProfile = getDefaultCapacityProfile();
+                modified = true;
+              }
               if (!p.topologyModel || p.topologyModel.siteModelVersion !== 2) {
                  const oldTopology = p.topologyModel;
                  p.topologyModel = {

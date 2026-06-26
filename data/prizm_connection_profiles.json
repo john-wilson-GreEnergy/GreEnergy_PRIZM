@@ -17,6 +17,56 @@
     "createdAt": "2026-06-10T20:18:54.250Z",
     "updatedAt": "2026-06-10T20:18:54.250Z",
     "lastTestedAt": null,
-    "lastTestResult": null
+    "lastTestResult": null,
+    "modbusUnitId": 1,
+    "topologyModel": {
+      "type": "standard-array-segment",
+      "siteModelVersion": 2,
+      "basePrefix": "10.0",
+      "arrayOctet": 3,
+      "segmentOctet": 4,
+      "arrayStart": 1,
+      "arrayEnd": 8,
+      "segmentStart": 3,
+      "segmentEnd": 75,
+      "csSegment": 3,
+      "esSegmentStart": 10,
+      "esSegmentStep": 5,
+      "esCountPerArray": 20,
+      "includeCollectionSegment": true,
+      "blocks": [
+        {
+          "blockId": "block-1",
+          "blockName": "Block 1",
+          "blockIndex": 1,
+          "stationCode": "BHE0020",
+          "emsHost": "10.0.0.3",
+          "emsPort": 8080,
+          "turtlePath": "/turtle",
+          "modbusHost": "10.0.0.3",
+          "modbusPort": 4502,
+          "modbusUnitId": 1,
+          "basePrefix": "10.0",
+          "arrayStart": 1,
+          "arrayEnd": 8,
+          "segmentStart": 3,
+          "segmentEnd": 75,
+          "csSegment": 3,
+          "esSegmentStart": 10,
+          "esSegmentStep": 5,
+          "esCountPerArray": 20,
+          "includeCollectionSegment": true
+        }
+      ]
+    },
+    "capacityProfile": {
+      "profileName": "Default 742.5kWh Operational Energy Segment",
+      "energySegmentCapacityKWh": 742.5,
+      "stringsPerEnergySegment": 2,
+      "nominalStringVoltageV": 1344,
+      "cellChemistry": "LFP",
+      "batteryManufacturer": "EVE/CATL/AESC/REPT compatible",
+      "notes": "Operational capacity profile using 742.5 kWh per Energy Segment to account for process/circuit losses from the 750 kWh DC nameplate basis."
+    }
   }
 ]

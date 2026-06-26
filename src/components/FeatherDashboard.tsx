@@ -118,6 +118,32 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
       setLoadingStatus("");
   }, [featherData, isInitialLoading]);
 
+  useEffect(() => {
+    if (active) {
+      const targetIp = localStorage.getItem("prizm_selected_feather_ip");
+      const targetArray = localStorage.getItem("prizm_selected_feather_array");
+      const targetString = localStorage.getItem("prizm_selected_feather_string");
+      if (targetIp) {
+        setIpSearchParams(targetIp);
+        if (devices && devices.length > 0) {
+          const dev = devices.find(d => d.ip === targetIp || d.deviceIp === targetIp);
+          if (dev) {
+            setSelectedDevice(dev);
+          }
+        }
+        localStorage.removeItem("prizm_selected_feather_ip");
+      }
+      if (targetArray) {
+        setArrayFilter(targetArray);
+        localStorage.removeItem("prizm_selected_feather_array");
+      }
+      if (targetString) {
+        setStringFilter(targetString);
+        localStorage.removeItem("prizm_selected_feather_string");
+      }
+    }
+  }, [active, devices]);
+
   // Keep loadCache for manual refresh or background polling fallback if needed
   const loadCache = async (autoDiscoverOnEmpty = false, forceRefresh = false) => {
     try {

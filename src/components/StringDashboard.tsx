@@ -117,6 +117,21 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     if (!isInitialLoading) setLoading(false);
   }, [isInitialLoading]);
 
+  useEffect(() => {
+    if (active) {
+      const targetArray = localStorage.getItem("prizm_selected_array");
+      const targetString = localStorage.getItem("prizm_selected_string");
+      if (targetArray) {
+        setArrayFilter(targetArray);
+        localStorage.removeItem("prizm_selected_array");
+      }
+      if (targetString) {
+        setSearch(`string ${targetString}`);
+        localStorage.removeItem("prizm_selected_string");
+      }
+    }
+  }, [active]);
+
   // Update selected string reference to get fresh data when snapshot updates
   useEffect(() => {
     if (selectedString && data?.strings) {

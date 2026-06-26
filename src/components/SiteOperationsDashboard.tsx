@@ -485,890 +485,845 @@ export default function SiteOperationsDashboard({
     if (setActiveTab) setActiveTab(tab);
   };
 
+  const getCellMetrics = () => {
+    const rows = sum?.stringSummary?.tableRows || [];
+    
+    let minCellVoltage = Infinity;
+    let maxCellVoltage = -Infinity;
+    let maxCellVoltageDelta = -Infinity;
+    let lowCellTempC = Infinity;
+    let highCellTempC = -Infinity;
+    let maxCellTempDelta = -Infinity;
+    
+    let totalVolt = 0;
+    let countVolt = 0;
+    let totalTemp = 0;
+    let countTemp = 0;
+
+    for (const r of rows) {
+      const vMin = r.minCellVoltageMv ?? r.minCellVoltage;
+      const vAvg = r.avgCellVoltageMv ?? r.avgCellVoltage;
+      const vMax = r.maxCellVoltageMv ?? r.maxCellVoltage;
+      const vDelta = r.maxCellVoltageDeltaMv ?? r.cellVoltageDelta;
+      
+      const tMin = r.lowCellTempC ?? r.minCellTemperature;
+      const tAvg = r.avgCellTempC ?? r.avgCellTemperature;
+      const tMax = r.highCellTempC ?? r.maxCellTemperature;
+      const tDelta = r.maxCellTempDeltaC ?? r.cellTemperatureDelta;
+
+      if (vMin !== null && vMin !== undefined) minCellVoltage = Math.min(minCellVoltage, vMin);
+      if (vMax !== null && vMax !== undefined) maxCellVoltage = Math.max(maxCellVoltage, vMax);
+      if (vDelta !== null && vDelta !== undefined) maxCellVoltageDelta = Math.max(maxCellVoltageDelta, vDelta);
+      if (vAvg !== null && vAvg !== undefined) {
+        totalVolt += vAvg;
+        countVolt++;
+      }
+
+      if (tMin !== null && tMin !== undefined) lowCellTempC = Math.min(lowCellTempC, tMin);
+      if (tMax !== null && tMax !== undefined) highCellTempC = Math.max(highCellTempC, tMax);
+      if (tDelta !== null && tDelta !== undefined) maxCellTempDelta = Math.max(maxCellTempDelta, tDelta);
+      if (tAvg !== null && tAvg !== undefined) {
+        totalTemp += tAvg;
+        countTemp++;
+      }
+    }
+
+    const finalMinVolt = minCellVoltage !== Infinity ? minCellVoltage : null;
+    const finalMaxVolt = maxCellVoltage !== -Infinity ? maxCellVoltage : null;
+    const finalAvgVolt = countVolt > 0 ? totalVolt / countVolt : (sum?.bessFleetSummary?.avgCellVoltageMv ?? null);
+    const finalMaxVoltDelta = maxCellVoltageDelta !== -Infinity ? maxCellVoltageDelta : (sum?.bessFleetSummary?.maxCellVoltageDeltaMv ?? null);
+
+    const finalLowTemp = lowCellTempC !== Infinity ? lowCellTempC : null;
+    const finalHighTemp = highCellTempC !== -Infinity ? highCellTempC : (sum?.bessFleetSummary?.maxCellTempC ?? null);
+    const finalAvgTemp = countTemp > 0 ? totalTemp / countTemp : (sum?.bessFleetSummary?.avgCellTempC ?? null);
+    const finalMaxTempDelta = maxCellTempDelta !== -Infinity ? maxCellTempDelta : (sum?.bessFleetSummary?.maxCellTempDeltaC ?? null);
+
+    return {
+      minCellVoltage: finalMinVolt,
+      avgCellVoltage: finalAvgVolt,
+      maxCellVoltage: finalMaxVolt,
+      maxCellVoltageDelta: finalMaxVoltDelta,
+      lowCellTemp: finalLowTemp,
+      avgCellTemp: finalAvgTemp,
+      highCellTemp: finalHighTemp,
+      maxCellTempDelta: finalMaxTempDelta
+    };
+  };
+
+  const metrics = getCellMetrics();
+
+  const handleActionClick = (target: any) => {
+    const arrayNum = target.arrayIndex ?? target.arrayNumber;
+    const stringNum = target.stringIndex ?? target.stringNumber;
+    const deviceIp = target.ip ?? target.deviceIp;
+    const source = (target.source ?? "").toLowerCase();
+
+    if (source.includes("pcs") || target.faultName?.toLowerCase().includes("pcs") || target.suggestedAction?.toLowerCase().includes("pcs")) {
+      localStorage.setItem("prizm_selected_pcs_id", "pcs-" + (target.pcsIndex ?? target.arrayIndex ?? 1));
+      navigate("pcs-dashboard");
+      return true;
+    }
+
+    if (source.includes("feather") || source.includes("hvac") || deviceIp) {
+      if (deviceIp) {
+        localStorage.setItem("prizm_selected_feather_ip", deviceIp);
+      }
+      if (arrayNum != null) {
+        localStorage.setItem("prizm_selected_feather_array", String(arrayNum));
+      }
+      if (stringNum != null) {
+        localStorage.setItem("prizm_selected_feather_string", String(stringNum));
+      }
+      navigate("feather-hvac");
+      return true;
+    }
+
+    if (arrayNum != null || stringNum != null || source.includes("ems") || source.includes("string")) {
+      if (arrayNum != null) {
+        localStorage.setItem("prizm_selected_array", String(arrayNum));
+      }
+      if (stringNum != null) {
+        localStorage.setItem("prizm_selected_string", String(stringNum));
+      }
+      navigate("arrays-strings");
+      return true;
+    }
+
+    return false;
+  };
+
   return (
     <div className="flex-1 flex flex-col p-4 sm:p-6 overflow-y-auto no-scrollbar font-sans space-y-6">
       {/* Global Site Status Banner Removed (Moved to Global Header) */}
 
-      {/* KPI CARD GRID */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <BoxSelect size={14} className="text-prizm-primary" /> Topology
-              Overview
-            </h3>
-            <div className="flex flex-col gap-1 text-[11px] font-mono mt-3">
-              <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                <span className="text-prizm-text-muted uppercase">Arrays</span>
-                <span className="font-bold text-prizm-text">
-                  {sum?.topologyCounts?.arrayCount ?? "--"}
-                </span>
-              </div>
-              <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                <span className="text-prizm-text-muted uppercase">Strings</span>
-                <span className="font-bold text-prizm-text">
-                  {sum?.topologyCounts?.stringCount ??
-                    sum?.bessFleetSummary?.totalStrings ??
-                    "--"}
-                </span>
-              </div>
-              <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                <span className="text-prizm-text-muted uppercase">
-                  PCS Units
-                </span>
-                <span className="font-bold text-prizm-text">
-                  {sum?.topologyCounts?.pcsCount ?? "--"}
-                </span>
-              </div>
-              <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                <span className="text-prizm-text-muted uppercase">Feather</span>
-                <span className="font-bold text-prizm-text">
-                  {sum?.topologyCounts?.featherDeviceCount ?? "--"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-prizm-text-muted uppercase">
-                  AC Batts
-                </span>
-                <span className="font-bold text-prizm-text">
-                  {sum?.topologyCounts?.acBatteryCount ?? "--"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <Battery size={14} className="text-prizm-primary" /> System State
-              of Charge
-            </h3>
-            <div className="flex items-end gap-2 mt-4" title={`Source: ${socSource}`}>
-              <div className="text-3xl font-bold text-prizm-text font-mono">
-                {systemSoc !== null
-                  ? systemSoc.toFixed(1)
-                  : "--"}
-                <span className="text-lg text-prizm-text-muted">%</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono text-prizm-text-muted flex justify-between">
-            <span>Target:</span>{" "}
-            <span className="text-prizm-text font-bold">
-              {(rollups?.onlineAvailableKWh || 0).toLocaleString()}{" "}
-              <span className="text-[9px]">kWh</span>
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between group relative">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center justify-between border-b border-prizm-border pb-2">
-              <span className="flex items-center gap-2">
-                <Zap size={14} className="text-prizm-primary" /> Fleet Capacity
-              </span>
-              <span className="text-prizm-text-muted group-hover:text-prizm-text cursor-help font-mono text-[9px] border border-prizm-border px-1 rounded transition-colors">
-                HOVER BREAKDOWN
-              </span>
-            </h3>
-
-            {/* Hover Tooltip Popup panel */}
-            {(() => {
-              const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-              const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "Unavailable";
-              
-              const formatMWhOrDash = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
-
-              return (
-                <div className="absolute hidden group-hover:block top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-80 max-w-[min(90vw,24rem)] bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-[9999] text-[11px] font-mono space-y-2 font-sans pointer-events-none whitespace-normal">
-                  <div className="font-bold border-b border-slate-700 pb-1 text-[11px] text-white uppercase tracking-wider font-mono text-center mb-2">
-                    Fleet Capacity Breakdown
+      {/* NEW TOP LAYOUT GRID: KPI BLOCKS + STRING SUMMARY */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        {/* KPI BLOCKS */}
+        <div className="lg:col-span-6 flex flex-col justify-between gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+            {/* 1. Topology / Status */}
+            <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+              <div>
+                <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                  <BoxSelect size={14} className="text-prizm-primary" /> Topology / Status
+                </h3>
+                <div className="flex flex-col gap-1 text-[11px] font-mono mt-3">
+                  <div className="flex justify-between pb-1 border-b border-prizm-border/50">
+                    <span className="text-prizm-text-muted uppercase">Arrays</span>
+                    <span className="font-bold text-prizm-text">
+                      {sum?.topologyCounts?.arrayCount ?? "--"}
+                    </span>
                   </div>
-                  <div className="font-bold border-b border-slate-700 pt-1 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Installed Capacity
+                  <div className="flex justify-between pb-1 border-b border-prizm-border/50">
+                    <span className="text-prizm-text-muted uppercase">Strings (Total)</span>
+                    <span className="font-bold text-prizm-text">
+                      {sum?.topologyCounts?.stringCount ??
+                        sum?.bessFleetSummary?.totalStrings ??
+                        "--"}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-y-1 font-mono">
-                    <span>Total:</span>
-                    <span className="text-right font-bold">{formatVal(fc?.installedCapacityKWh)}</span>
-                    <span className="text-emerald-400">Online Installed:</span>
-                    <span className="text-right">{formatVal(fc?.onlineInstalledKWh)}</span>
-                    <span className="text-blue-400">Nearline Installed:</span>
-                    <span className="text-right">{formatVal(fc?.nearlineInstalledKWh)}</span>
-                    <span className="text-rose-400">Offline/Unavail:</span>
-                    <span className="text-right">{formatVal(fc?.unavailableInstalledKWh)}</span>
+                  <div className="flex justify-between pb-1 border-b border-prizm-border/50">
+                    <span className="text-prizm-warning uppercase">Strings Warn</span>
+                    <span className="font-bold text-prizm-warning">
+                      {sum?.bessFleetSummary?.warningStrings ?? rollups.warnings ?? "--"}
+                    </span>
                   </div>
-                  {fc?.installedCapacityKWh == null && (
-                    <div className="text-[9px] text-amber-300 pt-1 text-left font-sans italic">
-                      Note: Installed capacity source is not currently mapped.
-                    </div>
-                  )}
-                  
-                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Stored Energy
+                  <div className="flex justify-between pb-1 border-b border-prizm-border/50">
+                    <span className="text-prizm-danger uppercase">Strings Alarm</span>
+                    <span className="font-bold text-prizm-danger">
+                      {sum?.bessFleetSummary?.alarmStrings ?? rollups.alarms ?? "--"}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-y-1 font-mono">
-                    <span>Available Stored:</span>
-                    <span className="text-right font-bold">{formatMWhOrDash(fc?.availableStoredKWh)} MWh</span>
-                    <span className="text-emerald-400">Online Stored:</span>
-                    <span className="text-right">{formatMWhOrDash(fc?.onlineStoredKWh)} MWh</span>
-                    <span className="text-blue-400">Nearline Stored:</span>
-                    <span className="text-right">{formatMWhOrDash(fc?.nearlineStoredKWh)} MWh</span>
-                    <span className="text-amber-400">Offline Stored:</span>
-                    <span className="text-right">{formatMWhOrDash(fc?.offlineStoredKWh)} MWh</span>
-                    <span className="text-rose-400">No Comm Stored:</span>
-                    <span className="text-right">{formatMWhOrDash(fc?.notCommunicatingStoredKWh)} MWh</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-800 font-mono">
-                    <div className="text-[9px] text-slate-400 font-bold uppercase mb-1">Source</div>
-                    <ul className="list-disc list-inside text-[8px] text-slate-400 space-y-0.5">
-                      <li>Stored energy source: normalized.strings.kwh</li>
-                      <li>Fleet SOC source: normalized.strings.socPct</li>
-                      <li>Canonical rollup: prizmDataCoordinator.finalFleetRollupRepair</li>
-                    </ul>
+                  <div className="flex justify-between">
+                    <span className="text-prizm-text-muted uppercase">PCS Units</span>
+                    <span className="font-bold text-prizm-text">
+                      {sum?.topologyCounts?.pcsCount ?? "--"}
+                    </span>
                   </div>
                 </div>
-              );
-            })()}
+              </div>
+            </div>
 
-            <div className="flex flex-col mt-4">
-              {(() => {
-                const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-                const formatMWhStr = (v: number | null | undefined): string => {
-                  if (v == null) return "Unavailable";
-                  return (v / 1000).toFixed(2);
-                };
+            {/* 2. Fleet Capacity */}
+            <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between group relative">
+              <div>
+                <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center justify-between border-b border-prizm-border pb-2">
+                  <span className="flex items-center gap-2">
+                    <Zap size={14} className="text-prizm-primary" /> Fleet Capacity
+                  </span>
+                  <span className="text-prizm-text-muted group-hover:text-prizm-text cursor-help font-mono text-[9px] border border-prizm-border px-1 rounded transition-colors">
+                    HOVER BREAKDOWN
+                  </span>
+                </h3>
 
-                const hasInstalledCapacity = fc?.installedCapacityKWh != null;
-                const hasStoredEnergy = fc?.availableStoredKWh != null;
-                const hasSoc = systemSoc !== null;
+                {/* Hover Tooltip Popup panel */}
+                {(() => {
+                  const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+                  const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "Unavailable";
+                  const formatMWhOrDash = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
 
-                const primaryFleetValue = hasInstalledCapacity
-                  ? (
-                    <div className="text-2xl font-bold text-prizm-text font-mono">
-                      {formatMWhStr(fc.installedCapacityKWh)}
-                      <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
-                    </div>
-                  )
-                  : hasStoredEnergy
-                    ? (
-                      <div className="text-2xl font-bold text-prizm-text font-mono">
-                        {formatMWhStr(fc.availableStoredKWh)}
-                        <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                  return (
+                    <div className="absolute hidden group-hover:block top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-80 max-w-[min(90vw,24rem)] bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-[9999] text-[11px] font-mono space-y-2 pointer-events-none whitespace-normal">
+                      <div className="font-bold border-b border-slate-700 pb-1 text-[11px] text-white uppercase tracking-wider text-center mb-2">
+                        Fleet Capacity Breakdown
                       </div>
-                    )
-                    : hasSoc
+                      <div className="font-bold border-b border-slate-700 pt-1 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                        Installed Capacity
+                      </div>
+                      <div className="grid grid-cols-2 gap-y-1">
+                        <span>Total:</span>
+                        <span className="text-right font-bold">{formatVal(fc?.installedCapacityKWh)}</span>
+                        <span className="text-emerald-400">Online Installed:</span>
+                        <span className="text-right">{formatVal(fc?.onlineInstalledKWh)}</span>
+                        <span className="text-blue-400">Nearline Installed:</span>
+                        <span className="text-right">{formatVal(fc?.nearlineInstalledKWh)}</span>
+                        <span className="text-rose-400">Offline/Unavail:</span>
+                        <span className="text-right">{formatVal(fc?.unavailableInstalledKWh)}</span>
+                      </div>
+                      <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+                        Stored Energy
+                      </div>
+                      <div className="grid grid-cols-2 gap-y-1">
+                        <span>Available Stored:</span>
+                        <span className="text-right font-bold">{formatMWhOrDash(fc?.availableStoredKWh)} MWh</span>
+                        <span className="text-emerald-400">Online Stored:</span>
+                        <span className="text-right">{formatMWhOrDash(fc?.onlineStoredKWh)} MWh</span>
+                        <span className="text-blue-400">Nearline Stored:</span>
+                        <span className="text-right">{formatMWhOrDash(fc?.nearlineStoredKWh)} MWh</span>
+                        <span className="text-amber-400">Offline Stored:</span>
+                        <span className="text-right">{formatMWhOrDash(fc?.offlineStoredKWh)} MWh</span>
+                        <span className="text-rose-400">No Comm Stored:</span>
+                        <span className="text-right">{formatMWhOrDash(fc?.notCommunicatingStoredKWh)} MWh</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="flex flex-col mt-4">
+                  {(() => {
+                    const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+                    const formatMWhStr = (v: number | null | undefined): string => {
+                      if (v == null) return "Unavailable";
+                      return (v / 1000).toFixed(2);
+                    };
+
+                    const hasInstalledCapacity = fc?.installedCapacityKWh != null;
+                    const hasStoredEnergy = fc?.availableStoredKWh != null;
+                    const hasSoc = systemSoc !== null;
+
+                    const primaryValue = hasInstalledCapacity
                       ? (
                         <div className="text-2xl font-bold text-prizm-text font-mono">
-                          {systemSoc.toFixed(1)}
-                          <span className="text-sm text-prizm-text-muted ml-1">%</span>
+                          {formatMWhStr(fc.installedCapacityKWh)}
+                          <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
                         </div>
                       )
-                      : (
-                        <div className="text-xl font-bold text-amber-500 font-mono">
-                          Unavailable
-                        </div>
-                      );
+                      : hasStoredEnergy
+                        ? (
+                          <div className="text-2xl font-bold text-prizm-text font-mono">
+                            {formatMWhStr(fc.availableStoredKWh)}
+                            <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                          </div>
+                        )
+                        : hasSoc
+                          ? (
+                            <div className="text-2xl font-bold text-prizm-text font-mono">
+                              {systemSoc.toFixed(1)}
+                              <span className="text-sm text-prizm-text-muted ml-1">%</span>
+                            </div>
+                          )
+                          : (
+                            <div className="text-xl font-bold text-amber-500 font-mono">
+                              Unavailable
+                            </div>
+                          );
 
-                const primaryFleetLabel = hasInstalledCapacity
-                  ? "Installed Capacity"
-                  : hasStoredEnergy
-                    ? "Stored Energy Available"
-                    : hasSoc
-                      ? "SOC Available / Capacity Unmapped"
+                    const primaryLabel = hasInstalledCapacity
+                      ? "Installed Capacity"
                       : "Fleet Capacity";
 
-                return (
-                  <>
-                    {primaryFleetValue}
-                    <div className="text-[10px] text-prizm-text-muted mt-0.5 mb-2 font-mono uppercase tracking-wider">{primaryFleetLabel}</div>
+                    return (
+                      <>
+                        {primaryValue}
+                        <div className="text-[10px] text-prizm-text-muted mt-0.5 mb-2 font-mono uppercase tracking-wider">{primaryLabel}</div>
 
-                    <div className="mt-2 space-y-1 text-[10px] font-sans">
-                      <div className="flex justify-between items-center">
-                        <span className="text-prizm-text-muted">SOC Status:</span>
-                        <span className={`font-mono font-bold ${hasSoc ? 'text-prizm-data-green' : 'text-prizm-text-muted'}`}>
-                          {hasSoc ? `${systemSoc!.toFixed(1)}%` : "Unavailable"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-prizm-text-muted">Installed Capacity:</span>
-                        <span className="font-mono font-bold text-prizm-text-muted">
-                          {hasInstalledCapacity ? `${formatMWhStr(fc?.installedCapacityKWh)} MWh` : "Unavailable"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-start gap-2">
-                        <span className="text-prizm-text-muted">Stored MWh:</span>
-                        <span className="font-mono font-bold text-prizm-text-muted text-right">
-                          {hasStoredEnergy ? (
-                            `${formatMWhStr(fc.availableStoredKWh)} MWh`
-                          ) : hasSoc ? (
-                            <span className="text-amber-500/80 text-[9px] italic">
-                              Unavailable (Stored energy mapping missing)
+                        <div className="mt-2 space-y-1 text-[10px] font-sans">
+                          <div className="flex justify-between items-center">
+                            <span className="text-prizm-text-muted">SOC Status:</span>
+                            <span className={`font-mono font-bold ${hasSoc ? 'text-prizm-data-green' : 'text-prizm-text-muted'}`}>
+                              {hasSoc ? `${systemSoc!.toFixed(1)}%` : "Unavailable"}
                             </span>
-                          ) : (
-                            "Unavailable"
-                          )}
-                        </span>
-                      </div>
-                      {fc?.availableStoredKWh != null && (
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="text-prizm-text-muted">Available Stored:</span>
-                          <span className="font-mono font-bold text-prizm-text-muted text-right">
-                            {formatMWhStr(fc.availableStoredKWh)} MWh
-                          </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-prizm-text-muted">Limits Charge:</span>
+                            <span className="font-mono font-bold text-prizm-text-muted">
+                              {fc?.availableChargeKW != null ? `${(fc.availableChargeKW / 1000).toFixed(1)} MW` : "--"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-prizm-text-muted">Discharge Limit:</span>
+                            <span className="font-mono font-bold text-prizm-text-muted">
+                              {fc?.availableDischargeKW != null ? `${(fc.availableDischargeKW / 1000).toFixed(1)} MW` : "--"}
+                            </span>
+                          </div>
                         </div>
-                      )}
-                      {fc?.onlineStoredKWh != null && (
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="text-prizm-text-muted">Online Stored:</span>
-                          <span className="font-mono font-bold text-prizm-text-muted text-right">
-                            {formatMWhStr(fc.onlineStoredKWh)} MWh
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-          <div>
-            {(() => {
-              const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-              const formatMWh = (v: number | null | undefined): string => {
-                if (v == null) return "--";
-                return (v / 1000).toFixed(2);
-              };
-              const formatPct = (v: number | null | undefined): string => {
-                if (v == null) return "--";
-                return v.toFixed(1);
-              };
-
-              const storedVal = fc?.availableStoredKWh ?? rollups?.onlineAvailableKWh;
-              const socVal = sum?.bessFleetSummary?.systemSocPct ?? rollups?.averageSoc;
-              const chargeVal = fc?.availableChargeKW ?? rollups?.availableChargeKW;
-              const dischargeVal = fc?.availableDischargeKW ?? rollups?.availableDischargeKW;
-
-              return (
-                <div className="mt-4 pt-3 border-t border-prizm-border text-[11px] font-mono space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-prizm-text-muted">Stored:</span>
-                    <span className="text-prizm-text font-bold">
-                      {formatMWh(storedVal)} MWh ({formatPct(socVal)}%)
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-prizm-text-muted">Limits:</span>
-                    <span className="text-emerald-400 font-bold">
-                      {formatMWh(chargeVal)} / {formatMWh(dischargeVal)} MW
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <Cpu
-                size={14}
-                className={
-                  (sum?.bessFleetSummary?.warningStrings || 0) +
-                    (sum?.bessFleetSummary?.alarmStrings || 0) >
-                  0
-                    ? "text-prizm-warning"
-                    : "text-prizm-primary"
-                }
-              />{" "}
-              String Fleet Status
-            </h3>
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <div>
-                <div className="text-xl font-bold text-prizm-warning font-mono">
-                  {sum?.bessFleetSummary?.warningStrings ??
-                    rollups.warnings ??
-                    "--"}
-                </div>
-                <div className="text-[10px] text-prizm-text-muted uppercase">
-                  Strings Warn
-                </div>
-              </div>
-              <div>
-                <div className="text-xl font-bold text-red-500 font-mono">
-                  {sum?.bessFleetSummary?.alarmStrings ??
-                    rollups.alarms ??
-                    "--"}
-                </div>
-                <div className="text-[10px] text-prizm-text-muted uppercase">
-                  Strings Alarm
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 pt-3 border-t border-prizm-border flex justify-between items-baseline">
-            <span className="text-[10px] text-prizm-text-muted uppercase">
-              Total Active
-            </span>
-            <span className="text-lg font-bold text-prizm-text font-mono">
-              {sum?.bessFleetSummary?.totalStrings || 0}
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <Activity size={14} className="text-prizm-primary" /> Cell Metrics
-              Average
-            </h3>
-            <div className="space-y-2 mt-4">
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">
-                  Voltage
-                </span>
-                <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.avgCellVoltageMv != null && normalizeVoltage(sum.bessFleetSummary.avgCellVoltageMv) !== null
-                    ? `${normalizeVoltage(sum.bessFleetSummary.avgCellVoltageMv)!.toFixed(1)} mV`
-                    : "--"}
-                </div>
-              </div>
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">
-                  Max Δ
-                </span>
-                <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.maxCellVoltageDeltaMv != null && normalizeDeltaVoltage(sum.bessFleetSummary.maxCellVoltageDeltaMv) !== null
-                    ? `Δ ${normalizeDeltaVoltage(sum.bessFleetSummary.maxCellVoltageDeltaMv)!.toFixed(0)} mV`
-                    : "--"}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
-          <div>
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
-              <Thermometer size={14} className="text-prizm-danger" /> Thermal
-              Average
-            </h3>
-            <div className="space-y-2 mt-4">
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">
-                  Cells
-                </span>
-                <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.avgCellTempC != null
-                    ? formatTemperatureF(sum.bessFleetSummary.avgCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-                    : "--"}
-                </div>
-              </div>
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">
-                  Max Δ
-                </span>
-                <div className="text-sm font-bold text-prizm-text font-mono">
-                  {sum?.bessFleetSummary?.maxCellTempDeltaC != null
-                    ? `Δ ${(sum.bessFleetSummary.maxCellTempDeltaC * 1.8).toFixed(1)}°F`
-                    : "--"}
-                </div>
-              </div>
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[11px] text-prizm-text-muted uppercase font-bold tracking-wider">
-                  Cell Max
-                </span>
-                <div className="text-sm font-bold text-prizm-text font-mono">
-                  {(() => {
-                    const valA = sum?.bessFleetSummary?.maxCellTempC;
-                    const valB = sum?.featherSummary?.maxCellTempC;
-                    if (valA != null && valB != null)
-                      return formatTemperatureF(Math.max(valA, valB), { decimals: 1, showUnit: true, sourceUnit: "C" });
-                    if (valA != null) return formatTemperatureF(valA, { decimals: 1, showUnit: true, sourceUnit: "C" });
-                    if (valB != null) return formatTemperatureF(valB, { decimals: 1, showUnit: true, sourceUnit: "C" });
-                    return "--";
+                      </>
+                    );
                   })()}
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* DASHBOARD CORE SUMMARIES ROW */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
-        <div>
-          {/* Corrective Actions */}
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border">
-              <TriangleAlert size={14} className="text-prizm-danger" />{" "}
-              CORRECTIVE ACTIONS (DATA-BASED FAULTS)
-            </h3>
-            <div className="overflow-x-auto no-scrollbar flex-1">
-              <div className="max-h-[350px] overflow-y-auto no-scrollbar">
-                {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
-                  <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                    <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0">
-                      <tr>
-                        <th className="py-1 px-2 font-bold w-1/8">Level</th>
-                        <th className="py-1 px-2 font-bold w-1/6">
-                          Fault / ID
-                        </th>
-                        <th className="py-1 px-2 font-bold w-1/6">Affected</th>
-                        <th className="py-1 px-2 font-bold w-1/3">
-                          Suggested Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-prizm-border">
-                      {sum.correctiveActions.map((issue: any, i: number) => {
-                        const hasOccurrences =
-                          (Array.isArray(issue.occurrences) &&
-                            issue.occurrences.length > 0) ||
-                          (Array.isArray(issue.affected) &&
-                            issue.affected.length > 0);
-                        const isExpanded = !!expandedCorrectiveActions[i];
-                        return (
-                          <React.Fragment key={i}>
-                            <tr
-                              className={`${hasOccurrences ? "cursor-pointer hover:bg-prizm-surface-strong/70" : "hover:bg-prizm-surface"} transition-colors`}
-                              onClick={() =>
-                                hasOccurrences && toggleCorrectiveAction(i)
-                              }
-                            >
-                              <td className="py-1 px-2">
-                                <span
-                                  className={`px-2 py-[2px] rounded font-bold ${issue.level === "FAULT" || issue.level === "ALARM" ? "bg-prizm-danger/10 text-prizm-danger" : "bg-prizm-warning/10 text-prizm-warning"}`}
-                                >
-                                  {issue.level}
-                                </span>
-                              </td>
-                              <td className="py-1 px-2 text-prizm-primary font-bold">
-                                <div className="flex items-center gap-1">
-                                  {hasOccurrences && (
-                                    <span className="inline-flex items-center">
-                                      {isExpanded ? (
-                                        <ChevronDown
-                                          size={11}
-                                          className="text-prizm-text-muted"
-                                        />
-                                      ) : (
-                                        <ChevronRight
-                                          size={11}
-                                          className="text-prizm-text-muted"
-                                        />
-                                      )}
-                                    </span>
-                                  )}
-                                  <span>{issue.faultName || issue.fault}</span>
-                                </div>
-                              </td>
-                              <td className="py-1 px-2 text-prizm-text">
-                                {issue.affectedSummary || issue.object}
-                              </td>
-                              <td className="py-1 px-2 text-prizm-text">
-                                {issue.suggestedAction}
-                                {issue.suggestedAction
-                                  ?.toLowerCase()
-                                  .includes("balance") ||
-                                issue.suggestedAction
-                                  ?.toLowerCase()
-                                  .includes("balancing") ? (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.dispatchEvent(
-                                        new CustomEvent("navigate-tab", {
-                                          detail: "arrays-strings",
-                                        }),
-                                      );
-                                    }}
-                                    className="ml-2 px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors"
-                                  >
-                                    Open in String List
-                                  </button>
-                                ) : null}
-                              </td>
-                            </tr>
-                            {hasOccurrences && isExpanded && (
-                              <tr className="bg-black/25">
-                                <td
-                                  colSpan={4}
-                                  className="py-2.5 px-3 border-l-2 border-prizm-danger"
-                                >
-                                  <div className="text-[10px] uppercase tracking-wider text-prizm-text-muted mb-2 font-bold font-sans flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-prizm-danger animate-pulse"></span>
-                                    All Affected targets (
-                                    {issue.affected
-                                      ? issue.affected.length
-                                      : issue.occurrences.length}
-                                    ):
-                                  </div>
-                                  {issue.affected &&
-                                  issue.affected.length > 0 ? (
-                                    <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[160px] overflow-y-auto no-scrollbar">
-                                      <table className="w-full text-[9px] font-mono text-left whitespace-nowrap bg-prizm-surface-strong/30">
-                                        <thead className="bg-prizm-surface-strong/80 text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border/30 sticky top-0">
-                                          <tr>
-                                            <th className="py-1 px-2 font-bold">
-                                              Block
-                                            </th>
-                                            <th className="py-1 px-2 font-bold">
-                                              Array
-                                            </th>
-                                            <th className="py-1 px-2 font-bold">
-                                              String/Segment
-                                            </th>
-                                            <th className="py-1 px-2 font-bold">
-                                              Device IP / Callout
-                                            </th>
-                                            <th className="py-1 px-2 font-bold">
-                                              Source
-                                            </th>
-                                            <th className="py-1 px-2 font-bold">
-                                              Raw Fault/Code
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-prizm-border/20">
-                                          {issue.affected.map(
-                                            (aff: any, affIdx: number) => (
-                                              <tr
-                                                key={affIdx}
-                                                className="hover:bg-prizm-surface/40"
-                                              >
-                                                <td className="py-1 px-2 text-prizm-text-muted">
-                                                  B{aff.blockIndex ?? 1}
-                                                </td>
-                                                <td className="py-1 px-2 text-prizm-text">
-                                                  A
-                                                  {aff.arrayIndex ??
-                                                    aff.arrayNumber ??
-                                                    "N/A"}
-                                                </td>
-                                                <td className="py-1 px-2 text-prizm-text">
-                                                  {(() => {
-                                                    const sNum = aff.stringNumber ?? aff.stringIndex;
-                                                    if (sNum && sNum > 0) {
-                                                      return formatStringEsLabel({ stringNumber: sNum });
-                                                    }
-                                                    return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
-                                                  })()}
-                                                </td>
-                                                <td className="py-1 px-2 text-prizm-primary font-semibold">
-                                                  {aff.displayLabel || aff.ip || "N/A"}
-                                                </td>
-                                                <td className="py-1 px-2 text-prizm-text">
-                                                  <span
-                                                    className={`px-1 rounded text-[8px] font-bold ${aff.source === "ems" ? "bg-indigo-500/10 text-indigo-400" : "bg-teal-500/10 text-teal-400"}`}
-                                                  >
-                                                    {aff.source === "ems"
-                                                      ? "EMS"
-                                                      : "HVAC"}
-                                                  </span>
-                                                </td>
-                                                <td
-                                                  className="py-1 px-2 text-prizm-danger truncate max-w-[200px]"
-                                                  title={
-                                                    aff.rawFault || aff.rawCode
-                                                  }
-                                                >
-                                                  {aff.rawFault ||
-                                                    aff.rawCode ||
-                                                    "N/A"}
-                                                </td>
-                                              </tr>
-                                            ),
-                                          )}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 py-0.5 max-h-[120px] overflow-y-auto no-scrollbar">
-                                      {(issue.occurrences || []).map(
-                                        (occ: any, oIdx: number) => {
-                                          const label =
-                                            occ.enclosureLabel ||
-                                            occ.deviceIp ||
-                                            occ.endpoint ||
-                                            "Unknown Unit";
-                                          return (
-                                            <div
-                                              key={oIdx}
-                                              className="flex items-center gap-1.5 px-1.5 py-0.5 bg-prizm-surface rounded border border-prizm-border/30 text-[9px] text-prizm-text font-mono"
-                                            >
-                                              <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse flex-shrink-0"></span>
-                                              <span
-                                                className="truncate"
-                                                title={label}
-                                              >
-                                                {label}
-                                              </span>
-                                            </div>
-                                          );
-                                        },
-                                      )}
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">
-                    No active corrective actions detected.
+            {/* 3. Cell Metrics (Consolidated) */}
+            <div className="bg-prizm-surface p-4 rounded-lg border border-prizm-border flex flex-col justify-between">
+              <div>
+                <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-prizm-border pb-2">
+                  <Activity size={14} className="text-prizm-primary" /> Cell Metrics
+                </h3>
+                <div className="space-y-2 mt-4 font-mono text-[10px]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-prizm-text-muted uppercase font-bold tracking-wider">
+                      Avg Voltage
+                    </span>
+                    <div className="font-bold text-prizm-text">
+                      {metrics.avgCellVoltage != null && normalizeVoltage(metrics.avgCellVoltage) !== null
+                        ? `${normalizeVoltage(metrics.avgCellVoltage)!.toFixed(1)} mV`
+                        : "--"}
+                    </div>
                   </div>
-                )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-prizm-text-muted uppercase font-bold tracking-wider">
+                      Volt Max Δ
+                    </span>
+                    <div className="font-bold text-prizm-text">
+                      {metrics.maxCellVoltageDelta != null && normalizeDeltaVoltage(metrics.maxCellVoltageDelta) !== null
+                        ? `Δ ${normalizeDeltaVoltage(metrics.maxCellVoltageDelta)!.toFixed(0)} mV`
+                        : "--"}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center border-t border-prizm-border/40 pt-1.5 mt-1.5">
+                    <span className="text-prizm-text-muted uppercase font-bold tracking-wider">
+                      Avg Temp
+                    </span>
+                    <div className="font-bold text-prizm-text">
+                      {metrics.avgCellTemp != null
+                        ? formatTemperatureF(metrics.avgCellTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })
+                        : "--"}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-prizm-text-muted uppercase font-bold tracking-wider">
+                      Temp Max Δ
+                    </span>
+                    <div className="font-bold text-prizm-text">
+                      {metrics.maxCellTempDelta != null
+                        ? `Δ ${(metrics.maxCellTempDelta * 1.8).toFixed(1)}°F`
+                        : "--"}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-prizm-text-muted uppercase font-bold tracking-wider">
+                      Max Temp
+                    </span>
+                    <div className="font-bold text-prizm-danger">
+                      {metrics.highCellTemp != null
+                        ? formatTemperatureF(metrics.highCellTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })
+                        : "--"}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div>
-          {/* String Summary */}
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
-            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center gap-2 border-b border-prizm-border">
+
+      {/* STRING SUMMARY TABLE */}
+      <div className="lg:col-span-6 flex flex-col">
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col h-full">
+          <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center justify-between border-b border-prizm-border">
+            <span className="flex items-center gap-2">
               <Rows4 size={14} className="text-prizm-text" /> STRING SUMMARY
-            </h3>
-            <div className="overflow-x-auto no-scrollbar flex-1">
-              {sum?.stringSummary &&
-              ((sum.stringSummary.tableRows &&
-                sum.stringSummary.tableRows.length > 0) ||
-                (sum.stringSummary.buckets &&
-                  Object.values(sum.stringSummary.buckets).some(
-                    (v) => Number(v) > 0,
-                  ))) ? (
-                <div className="overflow-x-auto overflow-y-auto max-h-[350px] w-full no-scrollbar">
-                  <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                    <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
-                      <tr>
-                        <th className="py-1 px-2 font-bold min-w-[200px]">
-                          Parameter
-                        </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-data-green">
-                          Online
-                        </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-[#166534]">
-                          Nearline
-                        </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">
-                          Offline
-                        </th>
-                        <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-danger">
-                          Not Comm
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-prizm-border">
-                      {(() => {
-                        const formatVal = (
-                          v: any,
-                          suffix = "",
-                          toFixed = 1,
-                        ) => {
-                          if (v === null || v === undefined) return "--";
-                          const num = Number(v);
-                          if (isNaN(num)) return "--";
-                          return (
-                            num.toFixed(toFixed).replace(/\.0+$/, "") +
-                            (suffix ? " " + suffix : "")
-                          );
-                        };
-                        const buckets = [
-                          "online",
-                          "nearline",
-                          "offline",
-                          "notCommunicating",
-                        ];
-                        const renderRow = (
-                          label: string,
-                          field: string,
-                          suffix = "",
-                          toFixed = 1,
-                        ) => {
-                          const isTemp = field.endsWith("TempC") || field.endsWith("TemperatureC");
-                          const isTempDelta = field.endsWith("TempDeltaC") || field.endsWith("TemperatureDeltaC");
-                          const isVoltage = field.toLowerCase().includes("voltage") || field.toLowerCase().includes("volt");
-                          const isVoltageDelta = isVoltage && field.toLowerCase().includes("delta");
-                          const displaySuffix = (isTemp || isTempDelta) ? "°F" : suffix;
+            </span>
+            <button
+              onClick={() => navigate("arrays-strings")}
+              className="text-[9px] px-2 py-0.5 uppercase tracking-widest text-prizm-primary hover:bg-prizm-primary/10 rounded border border-prizm-primary/30 transition-colors"
+            >
+              Detailed View
+            </button>
+          </h3>
+          <div className="overflow-x-auto no-scrollbar flex-1">
+            {(sum?.stringSummary?.tableRows && sum.stringSummary.tableRows.length > 0) ||
+            (sum?.stringSummary?.buckets &&
+              Object.values(sum.stringSummary.buckets).some((v) => Number(v) > 0)) ? (
+              <div className="overflow-x-auto overflow-y-auto max-h-[350px] w-full no-scrollbar">
+                <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+                  <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
+                    <tr>
+                      <th className="py-1 px-2 font-bold min-w-[200px]">
+                        Parameter
+                      </th>
+                      <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-data-green">
+                        Online
+                      </th>
+                      <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-[#166534]">
+                        Nearline
+                      </th>
+                      <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-text-muted">
+                        Offline
+                      </th>
+                      <th className="py-1 px-2 font-bold text-center border-l border-prizm-border text-prizm-danger">
+                        Not Comm
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-prizm-border">
+                    {(() => {
+                      const formatVal = (
+                        v: any,
+                        suffix = "",
+                        toFixed = 1,
+                      ) => {
+                        if (v === null || v === undefined) return "--";
+                        const num = Number(v);
+                        if (isNaN(num)) return "--";
+                        return (
+                          num.toFixed(toFixed).replace(/\.0+$/, "") +
+                          (suffix ? " " + suffix : "")
+                        );
+                      };
+                      const buckets = [
+                        "online",
+                        "nearline",
+                        "offline",
+                        "notCommunicating",
+                      ];
+                      const renderRow = (
+                        label: string,
+                        field: string,
+                        suffix = "",
+                        toFixed = 1,
+                      ) => {
+                        const isTemp = field.endsWith("TempC") || field.endsWith("TemperatureC");
+                        const isTempDelta = field.endsWith("TempDeltaC") || field.endsWith("TemperatureDeltaC");
+                        const isVoltage = field.toLowerCase().includes("voltage") || field.toLowerCase().includes("volt");
+                        const isVoltageDelta = isVoltage && field.toLowerCase().includes("delta");
+                        const displaySuffix = (isTemp || isTempDelta) ? "°F" : suffix;
 
-                          return (
-                            <tr className="hover:bg-prizm-surface transition-colors">
-                              <td className="py-1 px-2 text-prizm-text-muted">
-                                {label}
-                              </td>
-                              {buckets.map((b, i) => {
-                                let val = sum.stringSummary.rollups?.[b]?.[field];
-                                if (val !== null && val !== undefined && !isNaN(Number(val))) {
-                                  if (isTemp) {
-                                    val = Number(val) * 1.8 + 32;
-                                  } else if (isTempDelta) {
-                                    val = Number(val) * 1.8;
-                                  } else if (isVoltageDelta) {
-                                    val = normalizeDeltaVoltage(Number(val));
-                                  } else if (isVoltage) {
-                                    val = normalizeVoltage(Number(val));
-                                  }
-                                }
-                                return (
-                                  <td
-                                    key={i}
-                                    className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                                  >
-                                    {formatVal(val, displaySuffix, toFixed)}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        };
-
-                        const renderSocRow = () => (
+                        return (
                           <tr className="hover:bg-prizm-surface transition-colors">
                             <td className="py-1 px-2 text-prizm-text-muted">
-                              SOC (kWh)
+                              {label}
                             </td>
                             {buckets.map((b, i) => {
-                              let soc =
-                                sum.stringSummary.rollups?.[b]?.socPctAvg;
-                              let kwh = sum.stringSummary.rollups?.[b]?.kWhAvg;
-                              let txt = "--";
-                              if (soc !== null && soc !== undefined)
-                                txt = formatVal(soc, "%");
-                              if (kwh !== null && kwh !== undefined)
-                                txt += " (" + formatVal(kwh, "kWh") + ")";
-                              const finalTxt =
-                                txt === "--"
-                                  ? "--"
-                                  : txt
-                                      .replace(/^-- \((.*?)\)$/, "$1")
-                                      .replace(/^(.*?) \(--\)$/, "$1");
+                              let val = sum.stringSummary.rollups?.[b]?.[field];
+                              if (val !== null && val !== undefined && !isNaN(Number(val))) {
+                                if (isTemp) {
+                                  val = Number(val) * 1.8 + 32;
+                                } else if (isTempDelta) {
+                                  val = Number(val) * 1.8;
+                                } else if (isVoltageDelta) {
+                                  val = normalizeDeltaVoltage(Number(val));
+                                } else if (isVoltage) {
+                                  val = normalizeVoltage(Number(val));
+                                }
+                              }
                               return (
                                 <td
                                   key={i}
                                   className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
                                 >
-                                  {finalTxt}
+                                  {formatVal(val, displaySuffix, toFixed)}
                                 </td>
                               );
                             })}
                           </tr>
                         );
+                      };
 
-                        return (
-                          <>
-                            <tr className="hover:bg-prizm-surface transition-colors">
-                              <td className="py-1 px-2 text-prizm-text-muted">
-                                Strings
+                      const renderSocRow = () => (
+                        <tr className="hover:bg-prizm-surface transition-colors">
+                          <td className="py-1 px-2 text-prizm-text-muted">
+                            SOC (kWh)
+                          </td>
+                          {buckets.map((b, i) => {
+                            let soc =
+                              sum.stringSummary.rollups?.[b]?.socPctAvg;
+                            let kwh = sum.stringSummary.rollups?.[b]?.kWhAvg;
+                            let txt = "--";
+                            if (soc !== null && soc !== undefined)
+                              txt = formatVal(soc, "%");
+                            if (kwh !== null && kwh !== undefined)
+                              txt += " (" + formatVal(kwh, "kWh") + ")";
+                            const finalTxt =
+                              txt === "--"
+                                ? "--"
+                                : txt
+                                    .replace(/^-- \((.*?)\)$/, "$1")
+                                    .replace(/^(.*?) \(--\)$/, "$1");
+                            return (
+                              <td
+                                key={i}
+                                className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                              >
+                                {finalTxt}
                               </td>
-                              {buckets.map((b, i) => (
-                                <td
-                                  key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                                >
-                                  {sum.stringSummary.buckets?.[b] ??
+                            );
+                          })}
+                        </tr>
+                      );
+
+                      return (
+                        <>
+                          <tr className="hover:bg-prizm-surface transition-colors">
+                            <td className="py-1 px-2 text-prizm-text-muted">
+                              Strings
+                            </td>
+                            {buckets.map((b, i) => (
+                              <td
+                                key={i}
+                                className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                              >
+                                {sum.stringSummary.buckets?.[b] ??
+                                  sum.stringSummary.rollups?.[b]?.count ??
+                                  0}
+                              </td>
+                            ))}
+                          </tr>
+                          <tr className="hover:bg-prizm-surface transition-colors">
+                            <td className="py-1 px-2 text-prizm-text-muted">
+                              Connection Permitted
+                            </td>
+                            {buckets.map((b, i) => (
+                              <td
+                                key={i}
+                                className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
+                              >
+                                {b === "online" || b === "nearline"
+                                  ? (sum.stringSummary.buckets?.[b] ??
                                     sum.stringSummary.rollups?.[b]?.count ??
-                                    0}
-                                </td>
-                              ))}
-                            </tr>
-                            <tr className="hover:bg-prizm-surface transition-colors">
-                              <td className="py-1 px-2 text-prizm-text-muted">
-                                Connection Permitted
+                                    0)
+                                  : "--"}
                               </td>
-                              {buckets.map((b, i) => (
-                                <td
-                                  key={i}
-                                  className={`py-1 px-2 text-center border-l border-prizm-border ${b === "online" ? "text-prizm-data-green font-bold" : b === "nearline" ? "text-[#166534] font-medium" : b === "notCommunicating" ? "text-prizm-danger font-bold" : "text-prizm-text-muted"}`}
-                                >
-                                  {b === "online" || b === "nearline"
-                                    ? (sum.stringSummary.buckets?.[b] ??
-                                      sum.stringSummary.rollups?.[b]?.count ??
-                                      0)
-                                    : "--"}
-                                </td>
-                              ))}
-                            </tr>
-                            {renderSocRow()}
-                            {renderRow(
-                              "Max Current (A)",
-                              "maxCurrentA",
-                              "A",
-                              1,
-                            )}
-                            {renderRow(
-                              "Min Current (A)",
-                              "minCurrentA",
-                              "A",
-                              1,
-                            )}
-                            {renderRow(
-                              "Max Cell Voltage (mV)",
-                              "maxCellVoltageMv",
-                              "mV",
-                              0,
-                            )}
-                            {renderRow(
-                              "Average Cell Voltage (mV)",
-                              "avgCellVoltageMv",
-                              "mV",
-                              0,
-                            )}
-                            {renderRow(
-                              "Min Cell Voltage (mV)",
-                              "minCellVoltageMv",
-                              "mV",
-                              0,
-                            )}
-                            {renderRow(
-                              "Max Cell Voltage Delta (mV)",
-                              "maxCellVoltageDeltaMv",
-                              "mV",
-                              0,
-                            )}
-                            {renderRow(
-                              "High Cell Temp (°F)",
-                              "highCellTempC",
-                              "°F",
-                              1,
-                            )}
-                            {renderRow(
-                              "Average Cell Temp (°F)",
-                              "avgCellTempC",
-                              "°F",
-                              1,
-                            )}
-                            {renderRow(
-                              "Low Cell Temp (°F)",
-                              "lowCellTempC",
-                              "°F",
-                              1,
-                            )}
-                            {renderRow(
-                              "Max Cell Temp Delta (°F)",
-                              "maxCellTempDeltaC",
-                              "°F",
-                              1,
-                            )}
-                          </>
-                        );
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
-                  No String Summary available
-                </div>
-              )}
-            </div>
+                            ))}
+                          </tr>
+                          {renderSocRow()}
+                          {renderRow(
+                            "Max Current (A)",
+                            "maxCurrentA",
+                            "A",
+                            1,
+                          )}
+                          {renderRow(
+                            "Min Current (A)",
+                            "minCurrentA",
+                            "A",
+                            1,
+                          )}
+                          {renderRow(
+                            "Max Cell Voltage (mV)",
+                            "maxCellVoltageMv",
+                            "mV",
+                            0,
+                          )}
+                          {renderRow(
+                            "Average Cell Voltage (mV)",
+                            "avgCellVoltageMv",
+                            "mV",
+                            0,
+                          )}
+                          {renderRow(
+                            "Min Cell Voltage (mV)",
+                            "minCellVoltageMv",
+                            "mV",
+                            0,
+                          )}
+                          {renderRow(
+                            "Max Cell Voltage Delta (mV)",
+                            "maxCellVoltageDeltaMv",
+                            "mV",
+                            0,
+                          )}
+                          {renderRow(
+                            "High Cell Temp (°F)",
+                            "highCellTempC",
+                            "°F",
+                            1,
+                          )}
+                          {renderRow(
+                            "Average Cell Temp (°F)",
+                            "avgCellTempC",
+                            "°F",
+                            1,
+                          )}
+                          {renderRow(
+                            "Low Cell Temp (°F)",
+                            "lowCellTempC",
+                            "°F",
+                            1,
+                          )}
+                          {renderRow(
+                            "Max Cell Temp Delta (°F)",
+                            "maxCellTempDeltaC",
+                            "°F",
+                            1,
+                          )}
+                        </>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
+                No String Summary available
+              </div>
+            )}
           </div>
         </div>
       </div>
+    </div>
+
+    {/* FULL-WIDTH CORRECTIVE ACTIONS CARD */}
+    <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col w-full">
+      <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center justify-between border-b border-prizm-border">
+        <span className="flex items-center gap-2">
+          <TriangleAlert size={14} className="text-prizm-danger" />{" "}
+          CORRECTIVE ACTIONS (DATA-BASED FAULTS)
+        </span>
+        <span className="text-[9px] text-prizm-text-muted tracking-wider uppercase font-mono">
+          Click row to expand • Click target to drill-down
+        </span>
+      </h3>
+      <div className="overflow-x-auto no-scrollbar flex-1">
+        <div className="max-h-[450px] overflow-y-auto no-scrollbar">
+          {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (
+            <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
+              <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
+                <tr>
+                  <th className="py-2 px-3 font-bold w-1/12">Level</th>
+                  <th className="py-2 px-3 font-bold w-2/12">Fault / ID</th>
+                  <th className="py-2 px-3 font-bold w-2/12">Affected Summary</th>
+                  <th className="py-2 px-3 font-bold w-7/12">Suggested Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-prizm-border">
+                {sum.correctiveActions
+                  .filter((issue: any) => {
+                    const name = (issue.faultName || issue.fault || "").toLowerCase();
+                    const code = String(issue.code || issue.faultId || "");
+                    if (code === "2534" || code === "2561" || name.includes("2534") || name.includes("2561")) {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .map((issue: any, i: number) => {
+                  const hasOccurrences =
+                    (Array.isArray(issue.occurrences) &&
+                      issue.occurrences.length > 0) ||
+                    (Array.isArray(issue.affected) &&
+                      issue.affected.length > 0);
+                  const isExpanded = !!expandedCorrectiveActions[i];
+                  return (
+                    <React.Fragment key={i}>
+                      <tr
+                        className={`${hasOccurrences ? "cursor-pointer hover:bg-prizm-surface-strong/70" : "hover:bg-prizm-surface"} transition-colors`}
+                        onClick={() =>
+                          hasOccurrences && toggleCorrectiveAction(i)
+                        }
+                      >
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-2 py-[2px] rounded font-bold ${issue.level === "FAULT" || issue.level === "ALARM" ? "bg-prizm-danger/10 text-prizm-danger" : "bg-prizm-warning/10 text-prizm-warning"}`}
+                          >
+                            {issue.level}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-prizm-primary font-bold">
+                          <div className="flex items-center gap-1.5">
+                            {hasOccurrences && (
+                              <span className="inline-flex items-center">
+                                {isExpanded ? (
+                                  <ChevronDown
+                                    size={12}
+                                    className="text-prizm-text-muted"
+                                  />
+                                ) : (
+                                  <ChevronRight
+                                    size={12}
+                                    className="text-prizm-text-muted"
+                                  />
+                                )}
+                              </span>
+                            )}
+                            <span>{issue.faultName || issue.fault}</span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-prizm-text font-bold">
+                          {issue.affectedSummary || issue.object}
+                        </td>
+                        <td className="py-2 px-3 text-prizm-text flex items-center justify-between gap-4">
+                          <span>{issue.suggestedAction}</span>
+                          {issue.suggestedAction
+                            ?.toLowerCase()
+                            .includes("balance") ||
+                          issue.suggestedAction
+                            ?.toLowerCase()
+                            .includes("balancing") ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(issue);
+                              }}
+                              className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors"
+                            >
+                              Inspect Strings
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                      {hasOccurrences && isExpanded && (
+                        <tr className="bg-black/25">
+                          <td
+                            colSpan={4}
+                            className="py-3 px-4 border-l-2 border-prizm-danger"
+                          >
+                            <div className="text-[10px] uppercase tracking-wider text-prizm-text-muted mb-2 font-bold font-sans flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-prizm-danger animate-pulse"></span>
+                              All Affected targets ({issue.affected ? issue.affected.length : issue.occurrences.length}):
+                              <span className="text-[9px] lowercase font-normal italic text-prizm-text-muted">(click row/target to drill down directly)</span>
+                            </div>
+                            {issue.affected &&
+                            issue.affected.length > 0 ? (
+                              <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[220px] overflow-y-auto no-scrollbar">
+                                <table className="w-full text-[9px] font-mono text-left whitespace-nowrap bg-prizm-surface-strong/30">
+                                  <thead className="bg-prizm-surface-strong/80 text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border/30 sticky top-0">
+                                    <tr>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        Block
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        Array
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        String/Segment
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        Device IP / Callout
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        Source
+                                      </th>
+                                      <th className="py-1.5 px-3 font-bold">
+                                        Raw Fault/Code
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-prizm-border/20">
+                                    {issue.affected.map(
+                                      (aff: any, affIdx: number) => (
+                                        <tr
+                                          key={affIdx}
+                                          className="hover:bg-prizm-primary/10 cursor-pointer transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleActionClick(aff);
+                                          }}
+                                        >
+                                          <td className="py-1.5 px-3 text-prizm-text-muted">
+                                            B{aff.blockIndex ?? 1}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-prizm-text">
+                                            A{aff.arrayIndex ?? aff.arrayNumber ?? "N/A"}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-prizm-text">
+                                            {(() => {
+                                              const sNum = aff.stringNumber ?? aff.stringIndex;
+                                              if (sNum && sNum > 0) {
+                                                return formatStringEsLabel({ stringNumber: sNum });
+                                              }
+                                              return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
+                                            })()}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-prizm-primary font-semibold">
+                                            {aff.displayLabel || aff.ip || "N/A"}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-prizm-text">
+                                            <span
+                                              className={`px-1 rounded text-[8px] font-bold ${aff.source === "ems" ? "bg-indigo-500/10 text-indigo-400" : "bg-teal-500/10 text-teal-400"}`}
+                                            >
+                                              {aff.source === "ems"
+                                                ? "EMS"
+                                                : "HVAC"}
+                                            </span>
+                                          </td>
+                                          <td
+                                            className="py-1.5 px-3 text-prizm-danger truncate max-w-[200px]"
+                                            title={
+                                              aff.rawFault || aff.rawCode
+                                            }
+                                          >
+                                            {aff.rawFault ||
+                                              aff.rawCode ||
+                                              "N/A"}
+                                          </td>
+                                        </tr>
+                                      ),
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 py-1 max-h-[160px] overflow-y-auto no-scrollbar">
+                                {(issue.occurrences || []).map(
+                                  (occ: any, oIdx: number) => {
+                                    const label =
+                                      occ.enclosureLabel ||
+                                      occ.deviceIp ||
+                                      occ.endpoint ||
+                                      "Unknown Unit";
+                                    return (
+                                      <div
+                                        key={oIdx}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleActionClick({
+                                            ...occ,
+                                            ip: occ.deviceIp || occ.endpoint,
+                                            source: issue.source || (occ.deviceIp ? "hvac" : "ems")
+                                          });
+                                        }}
+                                        className="flex items-center gap-1.5 px-2 py-1 bg-prizm-surface rounded border border-prizm-border/30 text-[9px] text-prizm-text font-mono hover:bg-prizm-primary/15 hover:border-prizm-primary/60 cursor-pointer transition-all"
+                                        title={`${label} - Click to Inspect`}
+                                      >
+                                        <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse flex-shrink-0"></span>
+                                        <span
+                                          className="truncate font-semibold"
+                                          title={label}
+                                        >
+                                          {label}
+                                        </span>
+                                      </div>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-4 text-[10px] text-prizm-text-muted uppercase font-mono">
+              No active corrective actions detected.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
 
       {/* ARRAY SUMMARY ROW */}
       <div className="mt-2 text-prizm-text">
@@ -1571,12 +1526,14 @@ export default function SiteOperationsDashboard({
       </div>
 
       {/* EMS Apps */}
-      <CollapsibleSection
-        title="Operating Context (EMS Apps)"
-        icon={BoxSelect}
-        defaultExpanded={false}
-      >
-        <div className="flex justify-end p-2 bg-prizm-surface border-b border-prizm-border">
+      <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-4">
+        <div className="flex items-center justify-between p-3 border-b border-prizm-border">
+          <div className="flex items-center gap-2">
+            <BoxSelect size={14} className="text-prizm-primary" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-text">
+              EMS APPS
+            </span>
+          </div>
           <button
             onClick={() => setIsAdvancedMode(!isAdvancedMode)}
             className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors ${
@@ -1702,426 +1659,7 @@ export default function SiteOperationsDashboard({
             No EMS Apps data discovered
           </div>
         )}
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Equipment: Block Meters"
-        icon={RadioTower}
-        defaultExpanded={false}
-      >
-        {(state.overviewDiscovery?.discoveredSections || {}).blockMeters
-          ?.sampleItems?.length > 0 ? (
-          <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-            <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-              <tr>
-                <th className="py-1 px-2 font-bold">Meter ID</th>
-                <th className="py-1 px-2 font-bold">kW</th>
-                <th className="py-1 px-2 font-bold">Voltage</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-prizm-border">
-              {(
-                state.overviewDiscovery?.discoveredSections || {}
-              ).blockMeters.sampleItems.map((item: any, idx: number) => (
-                <tr
-                  key={idx}
-                  className="hover:bg-prizm-surface transition-colors"
-                >
-                  <td className="py-1 px-2 text-prizm-primary font-bold">
-                    {item.id || item.name || "--"}
-                  </td>
-                  <td className="py-1 px-2 text-prizm-text">
-                    {item.kw !== undefined ? item.kw : "--"}
-                  </td>
-                  <td className="py-1 px-2 text-prizm-text-muted">
-                    {item.voltage !== undefined ? item.voltage : "--"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
-            No Block Meters data discovered
-          </div>
-        )}
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Equipment: PCS Summary"
-        icon={Zap}
-        defaultExpanded={false}
-      >
-        {pcsData.length > 0 ? (
-          <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-              <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                <tr>
-                  <th className="py-1 px-2 font-bold min-w-[80px]">
-                    PCS Identity
-                  </th>
-                  <th className="py-1 px-2 font-bold min-w-[80px]">
-                    Array Index
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    DC V
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    DC A
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    AC V
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    AC A
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    Real P (kW)
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    Reactive (kVAR)
-                  </th>
-                  <th className="py-1 px-2 font-bold text-right min-w-[80px]">
-                    Freq (Hz)
-                  </th>
-                  <th className="py-1 px-2 font-bold text-center min-w-[120px]">
-                    Rotation Status
-                  </th>
-                  <th className="py-1 px-2 font-bold text-center min-w-[120px]">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-prizm-border">
-                {pcsData.map((item: any, idx: number) => {
-                  const inRotation =
-                    item.rotation === "IN" ||
-                    item.rotation === "true" ||
-                    item.inRotation === true;
-                  const outRotation =
-                    item.rotation === "OUT" ||
-                    item.rotation === "false" ||
-                    item.inRotation === false;
-                  const isUnknown = !inRotation && !outRotation;
-                  const pIndex = hasVal(item.pcsIndex)
-                    ? Number(item.pcsIndex)
-                    : idx + 1;
-                  const aIndex = hasVal(item.arrayIndex)
-                    ? Number(item.arrayIndex)
-                    : 1;
-                  return (
-                    <tr
-                      key={idx}
-                      className="hover:bg-prizm-surface transition-colors"
-                    >
-                      <td className="py-1 px-2 text-prizm-primary font-bold">
-                        {hasVal(item.pcsIndex)
-                          ? `PCS ${item.pcsIndex}`
-                          : `PCS ${item.id || item.name || "--"}`}
-                      </td>
-                      <td className="py-1 px-2 text-prizm-text">
-                        {hasVal(item.arrayIndex) ? item.arrayIndex : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right">
-                        {hasVal(item.dcVoltage)
-                          ? Number(item.dcVoltage).toFixed(1)
-                          : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right">
-                        {hasVal(item.dcCurrent)
-                          ? Number(item.dcCurrent).toFixed(1)
-                          : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right text-prizm-text">
-                        {item.acVoltageDisplay !== "-- / -- / --"
-                          ? item.acVoltageDisplay
-                          : hasVal(item.acVoltage)
-                            ? Number(item.acVoltage).toFixed(1)
-                            : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right">
-                        {hasVal(item.acCurrent)
-                          ? Number(item.acCurrent).toFixed(1)
-                          : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right text-prizm-text font-bold">
-                        {hasVal(item.acRealPowerKw)
-                          ? Number(item.acRealPowerKw).toFixed(1)
-                          : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right">
-                        {hasVal(item.acReactivePowerKvar)
-                          ? Number(item.acReactivePowerKvar).toFixed(1)
-                          : "--"}
-                      </td>
-                      <td className="py-1 px-2 text-right text-prizm-text-muted">
-                        {hasVal(item.frequencyHz)
-                          ? Number(item.frequencyHz).toFixed(2)
-                          : "--"}
-                      </td>
-
-                      <td className="py-1 px-2 text-center">
-                        <div className="flex justify-center items-center gap-1.5">
-                          <div
-                            className={`w-2 h-2 rounded-full ${inRotation ? "bg-emerald-500" : outRotation ? "bg-slate-400" : "bg-prizm-warning"}`}
-                          ></div>
-                          <span
-                            className={`text-[9px] font-bold uppercase ${inRotation ? "text-emerald-500" : outRotation ? "text-slate-400" : "text-prizm-warning"}`}
-                          >
-                            {inRotation
-                              ? "IN ROTATION"
-                              : outRotation
-                                ? "OUT OF ROTATION"
-                                : "UNKNOWN"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-1 px-2 text-center">
-                        <div
-                          className="flex justify-center items-center gap-2"
-                          title={
-                            !rotationCapabilities?.pcs?.single
-                              ? "PCS Rotation Control capability not verified on local EMS"
-                              : ""
-                          }
-                        >
-                          <button
-                            disabled={
-                              inRotation || !rotationCapabilities?.pcs?.single
-                            }
-                            onClick={() => {
-                              setPcsModalAction("in");
-                              setPcsModalTargets([
-                                { array: aIndex, pcs: pIndex },
-                              ]);
-                              setPcsModalOpen(true);
-                            }}
-                            className="px-2 py-0.5 border border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
-                          >
-                            In
-                          </button>
-                          <button
-                            disabled={
-                              outRotation || !rotationCapabilities?.pcs?.single
-                            }
-                            onClick={() => {
-                              setPcsModalAction("out");
-                              setPcsModalTargets([
-                                { array: aIndex, pcs: pIndex },
-                              ]);
-                              setPcsModalOpen(true);
-                            }}
-                            className="px-2 py-0.5 border border-slate-500/50 bg-slate-500/10 text-slate-300 hover:bg-slate-500/30 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
-                          >
-                            Out
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
-            No PCS data available from local EMS source.
-          </div>
-        )}
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Equipment: Humidity & Temp Sensors"
-        icon={Thermometer}
-        defaultExpanded={false}
-      >
-        {htsData.length > 0 ? (
-          (() => {
-            const parseIp = (ipStr: string): number[] => {
-              if (!ipStr) return [999, 999, 999, 999];
-              const clean = ipStr.replace(/[^0-9.]/g, "");
-              const parts = clean.split(".").map(Number);
-              while (parts.length < 4) parts.push(0);
-              return parts;
-            };
-
-            const compareIps = (ipA: string, ipB: string): number => {
-              const a = parseIp(ipA);
-              const b = parseIp(ipB);
-              for (let i = 0; i < 4; i++) {
-                if (a[i] !== b[i]) {
-                  return a[i] - b[i];
-                }
-              }
-              return 0;
-            };
-
-            const sortedHtsData = [...htsData].sort((a, b) => {
-              return compareIps(
-                a.sourceIp || a.sensorId || "",
-                b.sourceIp || b.sensorId || "",
-              );
-            });
-
-            return (
-              <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
-                <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
-                  <tr>
-                    <th className="py-1 px-2 font-bold">
-                      Enclosure / Location
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Space Temp
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Supply Air Temp
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Cell Temp
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Cooling SP
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Heating SP
-                    </th>
-                    <th className="py-1 px-2 font-bold text-center">
-                      Humidity
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-prizm-border">
-                  {sortedHtsData.map((item, idx) => {
-                    const ip = item.sourceIp || item.sensorId || "";
-                    const isDotThree = ip.endsWith(".3");
-                    return (
-                      <tr
-                        key={idx}
-                        className="hover:bg-prizm-surface transition-colors"
-                      >
-                        <td className="py-1 px-2 text-prizm-primary font-bold">
-                          {item.enclosureLabel || "--"}
-                        </td>
-                        <td className="py-1 px-2 text-cyan-400 font-bold text-center">
-                          {item.temperatureC !== undefined &&
-                          item.temperatureC !== null
-                            ? formatTemperatureF(item.temperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-                            : "--"}
-                        </td>
-                        <td className="py-1 px-2 text-sky-400/80 text-center">
-                          {item.supplyAirTempC !== undefined &&
-                          item.supplyAirTempC !== null
-                            ? formatTemperatureF(item.supplyAirTempC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-                            : "--"}
-                        </td>
-                        <td className="py-1 px-2 text-center font-semibold">
-                          {isDotThree ? (
-                            <span className="text-prizm-text-muted">N/A</span>
-                          ) : item.cellTemperatureC !== undefined &&
-                            item.cellTemperatureC !== null ? (
-                            <span className="text-pink-400">
-                              {formatTemperatureF(item.cellTemperatureC, { decimals: 1, showUnit: true, sourceUnit: "C" })}
-                            </span>
-                          ) : (
-                            <span className="text-prizm-text-muted">--</span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-amber-400 font-semibold text-center">
-                          {item.coolingSetpointC !== undefined &&
-                          item.coolingSetpointC !== null
-                            ? formatTemperatureF(item.coolingSetpointC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-                            : "--"}
-                        </td>
-                        <td className="py-1 px-2 text-orange-400 font-semibold text-center">
-                          {item.heatingSetpointC !== undefined &&
-                          item.heatingSetpointC !== null
-                            ? formatTemperatureF(item.heatingSetpointC, { decimals: 1, showUnit: true, sourceUnit: "C" })
-                            : "--"}
-                        </td>
-                        <td className="py-1 px-2 text-emerald-400 font-bold text-center">
-                          {item.humidityPct !== undefined &&
-                          item.humidityPct !== null
-                            ? `${Number(item.humidityPct).toFixed(1)}%`
-                            : "--"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            );
-          })()
-        ) : (
-          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted">
-            No HTS data discovered
-          </div>
-        )}
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Feather / HVAC Health"
-        icon={Wind}
-        defaultExpanded={false}
-      >
-        {sum?.featherSummary?.totalDevices === null ? (
-          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border flex justify-center">
-            Feather API Unavailable
-          </div>
-        ) : !sum?.featherSummary ? (
-          <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border flex justify-center">
-            Feather API Unavailable
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-px bg-prizm-border flex-1">
-            <div className="bg-prizm-surface p-4 text-center">
-              <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">
-                Total Devices
-              </div>
-              <div className="text-xl font-bold font-mono text-prizm-text">
-                {featherTotal}
-              </div>
-            </div>
-            <div className="bg-prizm-surface p-4 text-center">
-              <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">
-                Lost Comms
-              </div>
-              <div
-                className={`text-xl font-bold font-mono ${featherLostComms > 0 ? "text-prizm-warning" : "text-prizm-text"}`}
-              >
-                {featherLostComms}
-              </div>
-            </div>
-            <div className="bg-prizm-surface p-4 text-center">
-              <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">
-                FSS Invalid
-              </div>
-              <div
-                className={`text-xl font-bold font-mono ${featherFssInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}
-              >
-                {featherFssInvalid}
-              </div>
-            </div>
-            <div className="bg-prizm-surface p-4 text-center">
-              <div className="text-[10px] text-prizm-text-muted uppercase font-bold tracking-wider mb-1">
-                Doors Invalid
-              </div>
-              <div
-                className={`text-xl font-bold font-mono ${featherDoorsInvalid > 0 ? "text-prizm-danger" : "text-prizm-text"}`}
-              >
-                {featherDoorsInvalid}
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="bg-prizm-surface border-t border-prizm-border p-3 flex justify-end">
-          <button
-            onClick={() => navigate("feather-hvac")}
-            className="text-[10px] font-bold uppercase tracking-widest font-mono bg-prizm-primary/10 text-prizm-primary px-4 py-2 hover:bg-prizm-primary/20 transition-colors border border-prizm-primary/30 rounded"
-          >
-            Open Feather/HVAC
-          </button>
-        </div>
-      </CollapsibleSection>
+      </div>
 
       {/* Safety & Source Health */}
       <CollapsibleSection

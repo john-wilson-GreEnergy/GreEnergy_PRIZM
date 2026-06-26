@@ -638,11 +638,11 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   // Calculate installed capacity based on profile
   const activeProfile = ProfileStore.getActiveProfile();
   const capacityProfile = activeProfile?.capacityProfile || {
-    energySegmentCapacityKWh: 750,
+    energySegmentCapacityKWh: 742.5,
     stringsPerEnergySegment: 2
   };
   
-  const esCapacity = capacityProfile.energySegmentCapacityKWh || 750;
+  const esCapacity = capacityProfile.energySegmentCapacityKWh || 742.5;
   const stringsPerES = capacityProfile.stringsPerEnergySegment || 2;
   
   // Default installed capacity calculation

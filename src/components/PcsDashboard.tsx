@@ -58,6 +58,15 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         return pcsList.find(p => p.id === selectedPcsId) || null;
     }, [pcsList, selectedPcsId]);
 
+    useEffect(() => {
+        // Read selected PCS ID from localStorage
+        const targetPcsId = localStorage.getItem("prizm_selected_pcs_id");
+        if (targetPcsId) {
+            setSelectedPcsId(targetPcsId);
+            localStorage.removeItem("prizm_selected_pcs_id");
+        }
+    }, [pcsList]);
+
     const refreshData = async () => {
         const t0 = performance.now();
         if (pcsList.length > 0) setRefreshing(true);
@@ -610,6 +619,17 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             action={modalAction}
             targetType="pcs"
         />
+
+        {/* Array Summary Placeholder */}
+        <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col p-4 mt-6">
+            <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 pb-2 border-b border-prizm-border">
+                <span className="w-1.5 h-1.5 rounded-full bg-prizm-primary"></span>
+                ARRAY SUMMARY (FUTURE INTEGRATION)
+            </h3>
+            <p className="text-[10px] text-prizm-text-muted font-mono leading-relaxed uppercase">
+                This section is reserved for the future integration of aggregated Array diagnostics, power flows, and automated balancing controls directly matching selected PCS lineup states.
+            </p>
+        </div>
             </div>
         </div>
     );

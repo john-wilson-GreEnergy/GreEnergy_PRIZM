@@ -1361,7 +1361,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                         value={formProfile.capacityProfile?.profileName || ""}
                         onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, profileName: e.target.value } }))}
                         className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        placeholder="e.g., Default 750kWh Energy Segment"
+                        placeholder="e.g., Default 742.5kWh Operational Energy Segment"
                       />
                     </div>
                     
@@ -1369,7 +1369,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                       <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">ES Capacity (kWh)</label>
                       <input
                         type="number"
-                        value={formProfile.capacityProfile?.energySegmentCapacityKWh ?? 750}
+                        value={formProfile.capacityProfile?.energySegmentCapacityKWh ?? 742.5}
                         onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, energySegmentCapacityKWh: Number(e.target.value) } }))}
                         className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
                         min={0}
