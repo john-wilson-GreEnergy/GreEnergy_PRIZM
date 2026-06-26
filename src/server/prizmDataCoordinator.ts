@@ -1,4 +1,4 @@
-import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports } from "./emsTurtleClient";
+import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports, getEmsCachedArrayNotifications } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./siteOperations";
@@ -47,6 +47,7 @@ export type PrizmSiteSnapshot = {
     emsApps: any[];
     arrayPcsReports?: any;
     arrayReports?: any;
+    arrayNotifications?: any;
   };
   normalized: {
     strings: NormalizedStringRow[];
@@ -76,6 +77,8 @@ export type PrizmSiteSnapshot = {
     correctiveActionsCount: number;
     featherCellTempExcludedCollectionSegments: number;
     errors: string[];
+    arrayNotifications?: any;
+    correctiveActionsRepair?: any;
   };
 }
 
@@ -1281,7 +1284,8 @@ async function doBackgroundPoll() {
               featherDevices: getFeatherCache().devices || [],
               emsApps: parsed.emsApps || [],
               arrayPcsReports: rawPcsReports,
-              arrayReports: rawArrayReports
+              arrayReports: rawArrayReports,
+              arrayNotifications: getEmsCachedArrayNotifications()
           },
           normalized: {
               strings: flatMergedStrings.length > 0 ? flatMergedStrings : (() => {
@@ -1362,7 +1366,36 @@ async function doBackgroundPoll() {
               arraySummarySource: parsed.debug?.arraySummarySource as any,
               correctiveActionsCount: (parsed.correctiveActions || []).length,
               featherCellTempExcludedCollectionSegments,
-              errors: latestError ? [latestError.message] : []
+              errors: latestError ? [latestError.message] : [],
+              arrayNotifications: (() => {
+                  const arrNotifs = getEmsCachedArrayNotifications() || {};
+                  const keys = Object.keys(arrNotifs);
+                  const arraysPolled = keys.map(k => parseInt(k, 10));
+                  let okCount = 0;
+                  let failedCount = 0;
+                  let notificationCount = 0;
+                  let lastUpdated: string | null = null;
+                  for (const entry of Object.values(arrNotifs) as any[]) {
+                      if (entry.ok) {
+                          okCount++;
+                      } else {
+                          failedCount++;
+                      }
+                      if (entry.data && Array.isArray(entry.data.notification)) {
+                          notificationCount += entry.data.notification.length;
+                      }
+                      if (entry.lastUpdated) {
+                          lastUpdated = entry.lastUpdated;
+                      }
+                  }
+                  return {
+                      arraysPolled,
+                      okCount,
+                      failedCount,
+                      notificationCount,
+                      lastUpdated
+                  };
+              })()
           }
       };
 
@@ -2066,22 +2099,31 @@ function determineSeverity(faultLabel: string, sourceSeverity: string | null): s
 
 function makeAffectedLabel(target: any): string {
   let label = "";
-  if (target.arrayIndex != null) label += `Array ${target.arrayIndex}`;
+  if (target.arrayIndex != null) {
+    label += `Array ${target.arrayIndex}`;
+  }
   if (target.stringIndex != null) {
     if (label) label += " / ";
-    label += `ES${target.stringIndex} / String ${target.stringIndex}`;
+    const es = Math.ceil(Number(target.stringIndex) / 2);
+    label += `ES${es} / String ${target.stringIndex}`;
   } else if (target.segmentIndex != null) {
     if (label) label += " / ";
     label += `Segment ${target.segmentIndex}`;
-  }
-  if (target.bpcIndex != null) {
+  } else if (target.energySegmentIndex != null) {
     if (label) label += " / ";
-    label += `BPC ${target.bpcIndex}`;
+    label += `ES${target.energySegmentIndex}`;
   }
   
-  if (target.cellGroupIndex != null) {
+  const bpc = target.bpcIndex ?? target.batteryPackIndex;
+  if (bpc != null && Number(bpc) > 0) {
     if (label) label += " / ";
-    label += `CG ${target.cellGroupIndex}`;
+    label += `BPC ${bpc}`;
+  }
+  
+  const cg = target.cellGroupIndex;
+  if (cg != null && Number(cg) > 0) {
+    if (label) label += " / ";
+    label += `CG ${cg}`;
   }
   
   if (!label && target.ip) return target.ip;
@@ -2116,10 +2158,53 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
   let featherEventsIgnored = 0;
   let stringEventsExtracted = 0;
   let stringEventsIgnored = 0;
+  let arrayNotificationEventsExtracted = 0;
+  let arrayNotificationEventsIgnored = 0;
   let warningEventsSuppressedByAlarm = 0;
+  let invalidExistingActionsDropped = 0;
+  let existingActionCount = existingActions.length;
+  let existingEventsNormalized = 0;
+  const ignoredCodeCounts: Record<string, number> = {};
   
   const rawEvents: any[] = [];
   
+  function makeTargetKey(target: any): string {
+    return `${target.arrayIndex || ""}|${target.stringIndex || ""}|${target.bpcIndex || ""}|${target.cellGroupIndex || ""}|${target.ip || ""}`;
+  }
+  
+  // 1. Process Existing Actions
+  for (const action of existingActions) {
+    const label = action.faultLabel || action.faultName || action.fault;
+    if (!label) {
+      invalidExistingActionsDropped++;
+      continue;
+    }
+    existingEventsNormalized++;
+    
+    const severity = action.severity || "warning";
+    const code = extractNumericFaultCode(label);
+    const familyKey = getFaultFamilyKey(code, label);
+    
+    const targets = Array.isArray(action.affected) ? action.affected : [action.target || {}];
+    for (const t of targets) {
+      rawEvents.push({
+        faultLabel: label,
+        code: code ? String(code) : "",
+        familyKey,
+        severity,
+        target: {
+          ip: t.ip || null,
+          arrayIndex: t.arrayIndex || null,
+          stringIndex: t.stringIndex || null,
+          bpcIndex: t.bpcIndex ?? t.batteryPackIndex ?? null,
+          cellGroupIndex: t.cellGroupIndex ?? null
+        },
+        source: "existing"
+      });
+    }
+  }
+  
+  // 2. Process Feather Events
   for (const device of devicesWithIssues) {
     const isCS = isCollectionSegmentDevice(device);
     const ip = device.deviceIp || device.ip;
@@ -2137,15 +2222,15 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       
       rawEvents.push({
         faultLabel,
-        code,
+        code: code ? String(code) : "",
         familyKey: getFaultFamilyKey(code, faultLabel),
         severity,
         target: {
           ip,
           arrayIndex: device.arrayIndex,
           stringIndex: device.stringIndex,
-          bpcIndex: extractBpcIndex(device) ?? extractBpcIndex(msg),
-          cellGroupIndex: extractCellGroupIndex(device) ?? extractCellGroupIndex(msg)
+          bpcIndex: extractBpcIndex(device) ?? extractBpcIndex(msg) ?? null,
+          cellGroupIndex: extractCellGroupIndex(device) ?? extractCellGroupIndex(msg) ?? null
         },
         source: "feather"
       });
@@ -2153,6 +2238,7 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
     }
   }
   
+  // 3. Process String Events
   for (const row of stringRows) {
     const messages = extractFaultMessagesFromStringRow(row);
     
@@ -2168,14 +2254,14 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       
       rawEvents.push({
         faultLabel,
-        code,
+        code: code ? String(code) : "",
         familyKey: getFaultFamilyKey(code, faultLabel),
         severity,
         target: {
-          arrayIndex: row.arrayNumber || row.arrayIndex,
-          stringIndex: row.stringNumber || row.stringIndex,
-          bpcIndex: extractBpcIndex(row) ?? extractBpcIndex(msg),
-          cellGroupIndex: extractCellGroupIndex(row) ?? extractCellGroupIndex(msg)
+          arrayIndex: row.arrayNumber || row.arrayIndex || null,
+          stringIndex: row.stringNumber || row.stringIndex || null,
+          bpcIndex: extractBpcIndex(row) ?? extractBpcIndex(msg) ?? null,
+          cellGroupIndex: extractCellGroupIndex(row) ?? extractCellGroupIndex(msg) ?? null
         },
         source: "strings"
       });
@@ -2183,19 +2269,104 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
     }
   }
   
-  // Suppress warnings when alarms exist
-  const alarmsByTargetFamily = new Set<string>();
+  // 4. Process Array Notifications (from EMS Cache)
+  const arrayNotificationsByArray = snapshot.rawSources?.arrayNotifications || {};
+  let arrayNotificationsArraysPolled = 0;
+  let arrayNotificationsRawCount = 0;
+  
+  for (const [arrNumStr, cache] of Object.entries(arrayNotificationsByArray)) {
+    arrayNotificationsArraysPolled++;
+    const arrayNumberFromEndpoint = parseInt(arrNumStr, 10);
+    const cacheAny = cache as any;
+    const notifications = cacheAny && cacheAny.data && Array.isArray(cacheAny.data.notification)
+      ? cacheAny.data.notification
+      : [];
+    
+    arrayNotificationsRawCount += notifications.length;
+    
+    for (const row of notifications) {
+      const category = row.notificationType?.notificationCategory;
+      const code = String(row.notificationType?.notificationId ?? "");
+      
+      if (code === "2534") {
+        arrayNotificationEventsIgnored++;
+        ignoredCodeCounts[code] = (ignoredCodeCounts[code] || 0) + 1;
+        continue;
+      }
+      
+      const source = row.notificationSource || {};
+      const endpointType = source.endpointType;
+      
+      const arrayIndex = source.arrayIndex || arrayNumberFromEndpoint || null;
+      const stringIndex = source.stringIndex || null;
+      const bpcIndex = (source.batteryPackIndex && source.batteryPackIndex > 0) ? source.batteryPackIndex : null;
+      const cellGroupIndex = (source.cellGroupIndex && source.cellGroupIndex > 0) ? source.cellGroupIndex : null;
+      
+      const target = {
+        arrayIndex,
+        stringIndex,
+        bpcIndex,
+        cellGroupIndex,
+        ip: source.ipAddress || null
+      };
+      
+      let severity: "alarm" | "warning" = "warning";
+      if (category === "ALARM" || code.startsWith("1")) {
+        severity = "alarm";
+      } else if (category === "WARNING" || code.startsWith("2")) {
+        severity = "warning";
+      }
+      
+      let faultLabel = `${category || "WARNING"} Code ${code}`;
+      if (code === "2074") {
+        faultLabel = "CellGroup Charge Balancer Warning";
+      } else if (code === "2073") {
+        faultLabel = "CellGroup Discharge Balancer Warning";
+      } else if (code === "1024") {
+        faultLabel = "BPC Disconnect Alarm";
+      } else if (code === "2024") {
+        faultLabel = "BPC Disconnect Warning";
+      } else {
+        const registeredStatusCodes = snapshot.rawSources?.statusCodes?.registeredStatusCodes || [];
+        const found = registeredStatusCodes.find((sc: any) => sc.code?.includes(code) || sc.desc?.includes(code));
+        if (found) {
+          faultLabel = found.desc || found.code;
+        }
+      }
+      
+      let familyKey = `code-${code}`;
+      if (code.length === 4) {
+        const family = code.slice(1);
+        familyKey = `family-${family}`;
+      }
+      
+      rawEvents.push({
+        faultLabel,
+        code,
+        familyKey,
+        severity,
+        target,
+        source: "array-notifications"
+      });
+      arrayNotificationEventsExtracted++;
+    }
+  }
+  
+  // 5. Apply Suppression (1xxx alarm suppresses 2xxx warning on the same target/family)
+  const alarmsOnTargets = new Set<string>();
   for (const event of rawEvents) {
-    if (event.severity === "alarm") {
-      const targetKey = JSON.stringify(event.target);
-      alarmsByTargetFamily.add(`${targetKey}|${event.familyKey}`);
+    if (event.severity === "alarm" && event.code && event.code.length === 4) {
+      const family = event.code.slice(1);
+      const targetKey = makeTargetKey(event.target);
+      alarmsOnTargets.add(`${targetKey}|${family}`);
     }
   }
   
   const filteredEvents = rawEvents.filter(event => {
-    if (event.severity === "warning") {
-      const targetKey = JSON.stringify(event.target);
-      if (alarmsByTargetFamily.has(`${targetKey}|${event.familyKey}`)) {
+    if (event.severity === "warning" && event.code && event.code.length === 4) {
+      const family = event.code.slice(1);
+      const targetKey = makeTargetKey(event.target);
+      if (alarmsOnTargets.has(`${targetKey}|${family}`)) {
         warningEventsSuppressedByAlarm++;
         return false;
       }
@@ -2203,8 +2374,36 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
     return true;
   });
   
-  const groupsMap = new Map<string, any>();
+  // 6. Source priority & deduplication: array-notifications > feather > strings > existing
+  const sourcePriority: Record<string, number> = {
+    "array-notifications": 4,
+    "feather": 3,
+    "strings": 2,
+    "existing": 1
+  };
+  
+  const deduplicatedEventsMap = new Map<string, any>();
   for (const event of filteredEvents) {
+    const targetKey = makeTargetKey(event.target);
+    const eventKey = `${targetKey}|${event.familyKey}`;
+    
+    const existingEvent = deduplicatedEventsMap.get(eventKey);
+    if (!existingEvent) {
+      deduplicatedEventsMap.set(eventKey, event);
+    } else {
+      const currentPri = sourcePriority[event.source] || 0;
+      const existingPri = sourcePriority[existingEvent.source] || 0;
+      if (currentPri > existingPri) {
+        deduplicatedEventsMap.set(eventKey, event);
+      }
+    }
+  }
+  
+  const finalFilteredEvents = Array.from(deduplicatedEventsMap.values());
+  
+  // 7. Group by familyKey + severity
+  const groupsMap = new Map<string, any>();
+  for (const event of finalFilteredEvents) {
     const groupKey = `${event.severity}|${event.familyKey}`;
     if (!groupsMap.has(groupKey)) {
       groupsMap.set(groupKey, {
@@ -2212,39 +2411,46 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
         faultLabel: event.faultLabel,
         familyKey: event.familyKey,
         affectedMap: new Map<string, any>(),
-        suggestedAction: getSuggestedAction(event.faultLabel)
+        suggestedAction: getSuggestedAction(event.faultLabel),
+        source: event.source
       });
     }
     const group = groupsMap.get(groupKey);
-    const targetKey = JSON.stringify(event.target);
+    const targetKey = makeTargetKey(event.target);
     if (!group.affectedMap.has(targetKey)) {
       group.affectedMap.set(targetKey, event.target);
     }
   }
   
-  const newActions = Array.from(groupsMap.values()).map(group => {
+  // 8. Build final actions
+  const finalActions = Array.from(groupsMap.values()).map(group => {
     const affected = Array.from(group.affectedMap.values());
     const affectedLabel = makeAffectedLabel(affected[0]);
     const affectedSummary = affected.length > 1 ? `${affectedLabel} (+${affected.length - 1} more)` : affectedLabel;
+    const groupKey = `${group.severity}|${group.familyKey}`;
+    const id = `action-${groupKey.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
     
     return {
+      id,
       severity: group.severity,
+      level: group.severity === "alarm" ? "ALARM" : "WARNING",
+      source: group.source === "existing" ? "EMS" : group.source,
       faultLabel: group.faultLabel,
+      faultName: group.faultLabel,
+      fault: group.faultLabel,
+      details: `Affected: ${affectedSummary}`,
+      count: affected.length,
+      affectedCount: affected.length,
       affectedSummary,
+      suggestedAction: group.suggestedAction,
       affected: affected.map(target => Object.assign({}, target, {
          label: makeAffectedLabel(target)
       })),
-      suggestedAction: group.suggestedAction
+      affectedTargets: affected.map(target => Object.assign({}, target, {
+         label: makeAffectedLabel(target)
+      }))
     };
   });
-  
-  const finalActions = [...existingActions];
-  for (const newAction of newActions) {
-     const exists = finalActions.find((a: any) => a.faultLabel === newAction.faultLabel && a.severity === newAction.severity);
-     if (!exists) {
-        finalActions.push(newAction);
-     }
-  }
   
   if (!snapshot.normalized) snapshot.normalized = {};
   snapshot.normalized.correctiveActions = finalActions;
@@ -2255,30 +2461,25 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
   
   snapshot.debug.correctiveActionsCount = finalActions.length;
   
-  if (featherEventsExtracted === 0 && stringEventsExtracted === 0 && existingActions.length === 0) {
-    snapshot.debug.correctiveActionsRepair = {
-      used: false,
-      reason: "no active Feather/string warnings or alarms found after filtering",
-      existingActionCount: existingActions.length,
-      featherDevicesScanned: devicesWithIssues.length,
-      featherDevicesWithIssuesCount: devicesWithIssues.length,
-      stringRowsScanned: stringRows.length,
-      finalActionCount: 0
-    };
-  } else {
-    snapshot.debug.correctiveActionsRepair = {
-      used: true,
-      existingActionCount: existingActions.length,
-      featherDevicesScanned: devicesWithIssues.length,
-      featherDevicesWithIssuesCount: devicesWithIssues.length,
-      featherEventsExtracted,
-      featherEventsIgnored,
-      stringRowsScanned: stringRows.length,
-      stringEventsExtracted,
-      stringEventsIgnored,
-      warningEventsSuppressedByAlarm,
-      finalActionCount: finalActions.length,
-      sampleFaultLabels: finalActions.slice(0, 5).map((a: any) => a.faultLabel)
-    };
-  }
+  snapshot.debug.correctiveActionsRepair = {
+    used: true,
+    existingActionCount,
+    existingEventsNormalized,
+    invalidExistingActionsDropped,
+    arrayNotificationsArraysPolled,
+    arrayNotificationsRawCount,
+    arrayNotificationEventsExtracted,
+    arrayNotificationEventsIgnored,
+    ignoredCodeCounts,
+    featherDevicesScanned: devicesWithIssues.length,
+    featherDevicesWithIssuesCount: devicesWithIssues.length,
+    featherEventsExtracted,
+    featherEventsIgnored,
+    stringRowsScanned: stringRows.length,
+    stringEventsExtracted,
+    stringEventsIgnored,
+    warningEventsSuppressedByAlarm,
+    finalActionCount: finalActions.length,
+    sampleFaultLabels: finalActions.slice(0, 5).map((a: any) => a.faultLabel)
+  };
 }

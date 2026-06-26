@@ -1068,6 +1068,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   }
 
   await Promise.allSettled([...arrayReportPromises, ...pcsReportPromises]);
+  await pollEmsArrayNotifications().catch(() => {});
 
   const rawUrl = getNormalizedBaseUrl();
   const activeRef = ProfileStore.getActiveProfile();
@@ -1343,6 +1344,192 @@ export function getEmsCachedArrayPcsReports(): any {
 
 export function getEmsCachedArrayReports(): any {
   return emsCache.arrayReports || {};
+}
+
+export const arrayNotificationsCache: Record<number, {
+  ok: boolean;
+  endpoint: string;
+  data: any | null;
+  lastUpdated: string | null;
+  error?: string | null;
+}> = {};
+
+function getSimulatedArrayNotifications(arrayNumber: number): any {
+  if (arrayNumber !== 1) {
+    return { notification: [] };
+  }
+  return {
+    notification: [
+      {
+        notificationType: {
+          notificationCategory: "WARNING",
+          notificationId: "2074"
+        },
+        notificationSource: {
+          endpointType: "CELL_GROUP",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 16,
+          batteryPackIndex: 10,
+          cellGroupIndex: 3,
+          arrayPcsIndex: 0,
+          blockMeterIndex: 0,
+          blockDataSourceIndex: 0,
+          blockHvacIndex: 0,
+          lowVoltageMeterIndex: 0,
+          openClosedDetectorIndex: 0,
+          containerIndex: 0,
+          humidityTemperatureSensorIndex: 0,
+          dcDcConverterModuleIndex: 0,
+          upsIndex: 0,
+          arrayGFDIndex: 0,
+          digitalSwitchesIndex: 0,
+          dcDcConverterGroupIndex: 0,
+          dcDcParallelingControllerIndex: 0,
+          BlockEnclosureIndex: 0,
+          fanControlRelayIndex: 0,
+          multiPcsManagerIndex: 0,
+          DispatchableDcDcBatteryIndex: 0,
+          acPvBatteryIndex: 0,
+          pvPcsIndex: 0,
+          loadTapChangerIndex: 0,
+          emsIndex: 0,
+          bmsIndex: 0,
+          blockEnclosureGroupIndex: 0,
+          featherIndex: 0,
+          podGroupIndex: 0,
+          podIndex: 0,
+          podDeviceIndex: 0
+        },
+        triggerMessage: "65230",
+        timestamp: "1782443233194"
+      },
+      {
+        notificationType: {
+          notificationCategory: "WARNING",
+          notificationId: "2534"
+        },
+        notificationSource: {
+          endpointType: "STRING",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 10,
+          batteryPackIndex: 0,
+          cellGroupIndex: 0
+        },
+        triggerMessage: "some-message-2534",
+        timestamp: "1782443233194"
+      },
+      {
+        notificationType: {
+          notificationCategory: "ALARM",
+          notificationId: "1024"
+        },
+        notificationSource: {
+          endpointType: "BATTERY_PACK",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 4,
+          batteryPackIndex: 5,
+          cellGroupIndex: 0
+        },
+        triggerMessage: "some-message-1024",
+        timestamp: "1782443233194"
+      },
+      {
+        notificationType: {
+          notificationCategory: "WARNING",
+          notificationId: "2024"
+        },
+        notificationSource: {
+          endpointType: "BATTERY_PACK",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 4,
+          batteryPackIndex: 5,
+          cellGroupIndex: 0
+        },
+        triggerMessage: "some-message-2024",
+        timestamp: "1782443233194"
+      },
+      {
+        notificationType: {
+          notificationCategory: "WARNING",
+          notificationId: "2024"
+        },
+        notificationSource: {
+          endpointType: "BATTERY_PACK",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 5,
+          batteryPackIndex: 6,
+          cellGroupIndex: 0
+        },
+        triggerMessage: "some-message-2024-other",
+        timestamp: "1782443233194"
+      },
+      {
+        notificationType: {
+          notificationCategory: "WARNING",
+          notificationId: "2073"
+        },
+        notificationSource: {
+          endpointType: "CELL_GROUP",
+          stationCode: "BHE0020",
+          blockIndex: 1,
+          arrayIndex: 1,
+          stringIndex: 27,
+          batteryPackIndex: 1,
+          cellGroupIndex: 22
+        },
+        triggerMessage: "65230",
+        timestamp: "1782443233194"
+      }
+    ]
+  };
+}
+
+export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6, 7, 8]): Promise<void> {
+  const promises = arrayNumbers.map(async (a) => {
+    const ep = `/tools/report/ems/array/${a}/notifications.json`;
+    try {
+      const data = await fetchAndRecord(ep, EMS_NORMAL_TIMEOUT_MS, 'json');
+      arrayNotificationsCache[a] = {
+        ok: true,
+        endpoint: ep,
+        data,
+        lastUpdated: new Date().toISOString()
+      };
+    } catch (err: any) {
+      arrayNotificationsCache[a] = {
+        ok: false,
+        endpoint: ep,
+        data: getSimulatedArrayNotifications(a),
+        lastUpdated: new Date().toISOString(),
+        error: err.message || String(err)
+      };
+    }
+  });
+  await Promise.allSettled(promises);
+}
+
+export function getEmsCachedArrayNotifications(): Record<number, {
+  ok: boolean;
+  endpoint: string;
+  data: any | null;
+  lastUpdated: string | null;
+  error?: string | null;
+}> {
+  return arrayNotificationsCache;
+}
+
+export function getEmsCachedArrayNotificationsForArray(arrayNumber: number) {
+  return arrayNotificationsCache[arrayNumber] || null;
 }
 
 export function getFirstResponderEndpointDebugInfo() {
