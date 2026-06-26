@@ -2328,7 +2328,15 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
         faultLabel = "BPC Disconnect Warning";
       } else {
         const registeredStatusCodes = snapshot.rawSources?.statusCodes?.registeredStatusCodes || [];
-        const found = registeredStatusCodes.find((sc: any) => sc.code?.includes(code) || sc.desc?.includes(code));
+        let found = registeredStatusCodes.find((sc: any) => {
+          if (!sc.code) return false;
+          if (sc.code === code) return true;
+          const matches = sc.code.match(/\d+/g);
+          return matches && matches.includes(code);
+        });
+        if (!found) {
+          found = registeredStatusCodes.find((sc: any) => sc.code?.includes(code) || sc.desc?.includes(code));
+        }
         if (found) {
           faultLabel = found.desc || found.code;
         }

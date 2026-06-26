@@ -1506,10 +1506,11 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
         lastUpdated: new Date().toISOString()
       };
     } catch (err: any) {
+      const useSimulated = process.env.PRIZM_USE_SIMULATED_ARRAY_NOTIFICATIONS === "true";
       arrayNotificationsCache[a] = {
         ok: false,
         endpoint: ep,
-        data: getSimulatedArrayNotifications(a),
+        data: useSimulated ? getSimulatedArrayNotifications(a) : { notification: [] },
         lastUpdated: new Date().toISOString(),
         error: err.message || String(err)
       };
