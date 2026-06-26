@@ -16,6 +16,9 @@ export interface SiteStringDistributionRow {
   stackVoltage?: number;
   stackVoltageVdc?: number;
   dcVoltage?: number;
+  minCellVoltage?: number;
+  maxCellVoltage?: number;
+  avgCellVoltage?: number;
   maxCellTempC?: number;
   minCellTempC?: number;
   avgCellTempC?: number;
@@ -235,6 +238,30 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       dashRow?.temperatureC
     );
 
+    const minCellVoltage = firstNumeric(
+      row.minCellVoltage,
+      row.minCellVoltageMv !== undefined ? row.minCellVoltageMv / 1000 : undefined,
+      tryGetField(row, normalizedObject, ["mincellvoltage", "mincellvolts", "mincellgroupvoltage"]),
+      dashRow?.minCellVoltage,
+      dashRow?.minCellVoltageMv !== undefined ? dashRow.minCellVoltageMv / 1000 : undefined
+    );
+
+    const maxCellVoltage = firstNumeric(
+      row.maxCellVoltage,
+      row.maxCellVoltageMv !== undefined ? row.maxCellVoltageMv / 1000 : undefined,
+      tryGetField(row, normalizedObject, ["maxcellvoltage", "maxcellvolts", "maxcellgroupvoltage"]),
+      dashRow?.maxCellVoltage,
+      dashRow?.maxCellVoltageMv !== undefined ? dashRow.maxCellVoltageMv / 1000 : undefined
+    );
+
+    const avgCellVoltage = firstNumeric(
+      row.avgCellVoltage,
+      row.avgCellVoltageMv !== undefined ? row.avgCellVoltageMv / 1000 : undefined,
+      tryGetField(row, normalizedObject, ["avgcellvoltage", "avgcellvolts", "avgcellgroupvoltage"]),
+      dashRow?.avgCellVoltage,
+      dashRow?.avgCellVoltageMv !== undefined ? dashRow.avgCellVoltageMv / 1000 : undefined
+    );
+
     const socPct = pN(row.soc ?? row.Soc ?? row.powerSoc ?? tryGetField(row, normalizedObject, ["soc", "powersoc", "socpct"]) ?? dashRow?.socPct);
 
     let communicating = getCommunicating(row);
@@ -294,6 +321,9 @@ export function buildSiteDistributionRows(): SiteStringDistributionRow[] {
       stackVoltage,
       stackVoltageVdc: stackVoltage,
       dcVoltage: stackVoltage,
+      minCellVoltage,
+      maxCellVoltage,
+      avgCellVoltage,
       maxCellTempC,
       minCellTempC,
       avgCellTempC,
@@ -497,12 +527,14 @@ function getPointStatus(
   t: number | undefined,
   communicating: boolean,
   inRotation: boolean,
-  lowVolt: number = 900,
-  warningVolt: number = 1200,
-  alarmVolt: number = 1400,
-  lowTemp: number = 5,
-  warningTemp: number = 45,
-  alarmTemp: number = 55
+  lowVolt: number = 1250,
+  lowAlarmVolt: number = 1099,
+  warningVolt: number = 1400,
+  alarmVolt: number = 1450,
+  lowTemp: number = 20,
+  lowAlarmTemp: number = 10,
+  warningTemp: number = 40,
+  alarmTemp: number = 50
 ) {
   if (!communicating) {
     return {
@@ -518,13 +550,17 @@ function getPointStatus(
     };
   }
 
-  const isVoltageAlarm = v !== undefined && v >= alarmVolt;
-  const isTempAlarm = t !== undefined && t >= alarmTemp;
+  const isVoltageAlarmHigh = v !== undefined && v >= alarmVolt;
+  const isVoltageAlarmLow = v !== undefined && v <= lowAlarmVolt;
+  const isTempAlarmHigh = t !== undefined && t >= alarmTemp;
+  const isTempAlarmLow = t !== undefined && t <= lowAlarmTemp;
 
-  if (isVoltageAlarm || isTempAlarm) {
+  if (isVoltageAlarmHigh || isVoltageAlarmLow || isTempAlarmHigh || isTempAlarmLow) {
     const reasons: string[] = [];
-    if (isVoltageAlarm) reasons.push(`Overvoltage Alarm (>= ${alarmVolt}V)`);
-    if (isTempAlarm) reasons.push(`Overtemp Alarm (>= ${alarmTemp}°C)`);
+    if (isVoltageAlarmHigh) reasons.push(`Overvoltage Alarm (>= ${alarmVolt} Vdc)`);
+    if (isVoltageAlarmLow) reasons.push(`Undervoltage Alarm (<= ${lowAlarmVolt} Vdc)`);
+    if (isTempAlarmHigh) reasons.push(`Overtemp Alarm (>= ${alarmTemp}°C)`);
+    if (isTempAlarmLow) reasons.push(`Low Temp Alarm (<= ${lowAlarmTemp}°C)`);
     return {
       statusColor: "red" as const,
       statusLabel: reasons.join(", ")
@@ -538,8 +574,8 @@ function getPointStatus(
 
   if (isVoltageWarningHigh || isVoltageWarningLow || isTempWarningHigh || isTempWarningLow) {
     const reasons: string[] = [];
-    if (isVoltageWarningHigh) reasons.push(`Voltage Warning High (>= ${warningVolt}V)`);
-    if (isVoltageWarningLow) reasons.push(`Voltage Warning Low (<= ${lowVolt}V)`);
+    if (isVoltageWarningHigh) reasons.push(`Voltage Warning High (>= ${warningVolt} Vdc)`);
+    if (isVoltageWarningLow) reasons.push(`Voltage Warning Low (<= ${lowVolt} Vdc)`);
     if (isTempWarningHigh) reasons.push(`Temp Warning High (>= ${warningTemp}°C)`);
     if (isTempWarningLow) reasons.push(`Temp Warning Low (<= ${lowTemp}°C)`);
     return {
@@ -685,13 +721,15 @@ router.get("/graph", async (req, res) => {
     }
   }
 
-  const lowVolt = req.query.lowVolt ? Number(req.query.lowVolt) : 900;
-  const warningVolt = req.query.warningVolt ? Number(req.query.warningVolt) : 1200;
-  const alarmVolt = req.query.alarmVolt ? Number(req.query.alarmVolt) : 1400;
+  const lowVolt = req.query.lowVolt ? Number(req.query.lowVolt) : 1250;
+  const lowAlarmVolt = req.query.lowAlarmVolt ? Number(req.query.lowAlarmVolt) : 1099;
+  const warningVolt = req.query.warningVolt ? Number(req.query.warningVolt) : 1400;
+  const alarmVolt = req.query.alarmVolt ? Number(req.query.alarmVolt) : 1450;
 
-  const lowTemp = req.query.lowTemp ? Number(req.query.lowTemp) : 5;
-  const warningTemp = req.query.warningTemp ? Number(req.query.warningTemp) : 45;
-  const alarmTemp = req.query.alarmTemp ? Number(req.query.alarmTemp) : 55;
+  const lowTemp = req.query.lowTemp ? Number(req.query.lowTemp) : 20;
+  const lowAlarmTemp = req.query.lowAlarmTemp ? Number(req.query.lowAlarmTemp) : 10;
+  const warningTemp = req.query.warningTemp ? Number(req.query.warningTemp) : 40;
+  const alarmTemp = req.query.alarmTemp ? Number(req.query.alarmTemp) : 50;
 
   const points: any[] = [];
 
@@ -734,9 +772,11 @@ router.get("/graph", async (req, res) => {
       communicating,
       inRotation,
       lowVolt,
+      lowAlarmVolt,
       warningVolt,
       alarmVolt,
       lowTemp,
+      lowAlarmTemp,
       warningTemp,
       alarmTemp
     );

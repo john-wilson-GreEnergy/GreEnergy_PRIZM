@@ -16,12 +16,14 @@ import {
   Zap,
   Sliders,
   Check,
-  Shield
+  Shield,
+  FileText
 } from "lucide-react";
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import { useSiteData } from "../context/SiteDataContext";
 import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
 import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
+import { jsPDF } from "jspdf";
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -45,6 +47,9 @@ export interface SiteStringDistributionRow {
   stackVoltage?: number;
   stackVoltageVdc?: number;
   dcVoltage?: number;
+  minCellVoltage?: number;
+  maxCellVoltage?: number;
+  avgCellVoltage?: number;
   maxCellTempC?: number;
   minCellTempC?: number;
   avgCellTempC?: number;
@@ -163,13 +168,15 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [tempMetric, setTempMetric] = useState<"max" | "avg">("max");
 
   // Threshold controls (Interactively adjustable!)
-  const [warningTemp, setWarningTemp] = useState<number>(45);
-  const [alarmTemp, setAlarmTemp] = useState<number>(55);
-  const [lowTemp, setLowTemp] = useState<number>(5);
+  const [alarmTemp, setAlarmTemp] = useState<number>(50);
+  const [warningTemp, setWarningTemp] = useState<number>(40);
+  const [lowTemp, setLowTemp] = useState<number>(20);
+  const [lowAlarmTemp, setLowAlarmTemp] = useState<number>(10);
 
-  const [warningVolt, setWarningVolt] = useState<number>(1200);
-  const [alarmVolt, setAlarmVolt] = useState<number>(1400);
-  const [lowVolt, setLowVolt] = useState<number>(900);
+  const [alarmVolt, setAlarmVolt] = useState<number>(1450);
+  const [warningVolt, setWarningVolt] = useState<number>(1400);
+  const [lowVolt, setLowVolt] = useState<number>(1250);
+  const [lowAlarmVolt, setLowAlarmVolt] = useState<number>(1099);
 
   // Load graph specific telemetry data
   const loadGraphData = async (refresh = false, useSample = false) => {
@@ -180,9 +187,11 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       const params = new URLSearchParams();
       
       params.append("lowVolt", String(lowVolt));
+      params.append("lowAlarmVolt", String(lowAlarmVolt));
       params.append("warningVolt", String(warningVolt));
       params.append("alarmVolt", String(alarmVolt));
       params.append("lowTemp", String(lowTemp));
+      params.append("lowAlarmTemp", String(lowAlarmTemp));
       params.append("warningTemp", String(warningTemp));
       params.append("alarmTemp", String(alarmTemp));
       
@@ -342,6 +351,46 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     }).length;
   }, [filteredStrings, activeTab, tempMetric, warningTemp, lowTemp, warningVolt, lowVolt]);
 
+  const siteRangeMetrics = useMemo(() => {
+    // Voltage: stackVoltage
+    const voltValues = filteredStrings.map(s => s.stackVoltage).filter((v): v is number => v !== undefined && v !== null);
+    const voltMin = voltValues.length > 0 ? Math.min(...voltValues) : null;
+    const voltMax = voltValues.length > 0 ? Math.max(...voltValues) : null;
+    const voltAvg = voltValues.length > 0 ? Math.round(voltValues.reduce((a, b) => a + b, 0) / voltValues.length) : null;
+
+    // Temperature: maxCellTempC, minCellTempC, avgCellTempC
+    const tempMinValues = filteredStrings.map(s => s.minCellTempC).filter((t): t is number => t !== undefined && t !== null);
+    const tempMaxValues = filteredStrings.map(s => s.maxCellTempC).filter((t): t is number => t !== undefined && t !== null);
+    const tempAvgValues = filteredStrings.map(s => s.avgCellTempC).filter((t): t is number => t !== undefined && t !== null);
+
+    const tempMin = tempMinValues.length > 0 ? Math.min(...tempMinValues) : null;
+    const tempMax = tempMaxValues.length > 0 ? Math.max(...tempMaxValues) : null;
+    const tempAvg = tempAvgValues.length > 0 ? Number((tempAvgValues.reduce((a, b) => a + b, 0) / tempAvgValues.length).toFixed(1)) : null;
+
+    // Counts
+    const totalCount = strings.length;
+    const includedCount = filteredStrings.length;
+    const excludedCount = totalCount - includedCount;
+    const alarmCount = filteredStrings.filter(s => s.statusColor === "red").length;
+    const warningCount = filteredStrings.filter(s => s.statusColor === "amber" || s.statusColor === "yellow").length;
+    const idealCount = filteredStrings.filter(s => s.statusColor === "green").length;
+
+    return {
+      voltMin,
+      voltMax,
+      voltAvg,
+      tempMin,
+      tempMax,
+      tempAvg,
+      totalCount,
+      includedCount,
+      excludedCount,
+      alarmCount,
+      warningCount,
+      idealCount
+    };
+  }, [strings, filteredStrings]);
+
   // CSV Data Export functionality
   const handleExportCsv = () => {
     if (filteredStrings.length === 0) return;
@@ -408,6 +457,289 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // PDF Data Export Functionality
+  const formatTimestampForFilename = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    return `${year}${month}${day}_${hours}${mins}`;
+  };
+
+  const handleExportPdf = () => {
+    const doc = new jsPDF();
+    const station = data?.stationCode || "BHE0021";
+    const block = data?.blockIndex || 1;
+    const dateStr = new Date().toLocaleDateString();
+    const timeStr = new Date().toLocaleTimeString();
+
+    // 1. Page 1: Executive Summary & Legend
+    doc.setFillColor(20, 30, 45); // Dark Slate background header
+    doc.rect(0, 0, 210, 30, "F");
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.setFont("Helvetica", "Bold");
+    doc.text("GreEnergy PRIZM", 15, 12);
+    
+    doc.setFontSize(10);
+    doc.setFont("Helvetica", "Normal");
+    doc.text("SITE HEALTH DIAGNOSTICS & TELEMETRY REPORT", 15, 22);
+
+    doc.setTextColor(100, 110, 120);
+    doc.setFontSize(9);
+    doc.text(`Station: ${station}  |  Block: ${block}  |  Generated: ${dateStr} ${timeStr}`, 15, 38);
+    doc.text(`Selected Chart Spread Mode: ${activeTab.toUpperCase()}`, 15, 43);
+
+    // Divider Line
+    doc.setDrawColor(220, 225, 230);
+    doc.line(15, 47, 195, 47);
+
+    // Section 1: Site-wide Metrics
+    doc.setFontSize(12);
+    doc.setTextColor(20, 30, 45);
+    doc.setFont("Helvetica", "Bold");
+    doc.text("1. EXECUTIVE SUMMARY & RANGE LIMITS", 15, 55);
+
+    // Draw box for site limits
+    doc.setFillColor(245, 247, 250);
+    doc.rect(15, 60, 180, 40, "F");
+    doc.setDrawColor(210, 215, 220);
+    doc.rect(15, 60, 180, 40, "D");
+
+    doc.setFontSize(10);
+    doc.setTextColor(50, 60, 70);
+    doc.setFont("Helvetica", "Bold");
+    doc.text("Site-Wide Distribution Range Limits (Filtered Dataset)", 20, 67);
+
+    doc.setFont("Helvetica", "Normal");
+    doc.setFontSize(9);
+    doc.text(`Total Filtered Strings Listed: ${siteRangeMetrics.includedCount} (of ${siteRangeMetrics.totalCount} total)`, 20, 74);
+    
+    // Volt / Temp metrics
+    doc.text(`Voltage Stack Range: Min: ${siteRangeMetrics.voltMin ?? "--"} Vdc  |  Avg: ${siteRangeMetrics.voltAvg ?? "--"} Vdc  |  Max: ${siteRangeMetrics.voltMax ?? "--"} Vdc`, 20, 81);
+    doc.text(`Temperature Celsius: Min: ${siteRangeMetrics.tempMin !== null ? siteRangeMetrics.tempMin.toFixed(1) : "--"} °C  |  Avg: ${siteRangeMetrics.tempAvg !== null ? siteRangeMetrics.tempAvg.toFixed(1) : "--"} °C  |  Max: ${siteRangeMetrics.tempMax !== null ? siteRangeMetrics.tempMax.toFixed(1) : "--"} °C`, 20, 88);
+    doc.text(`Temperature Fahrenheit: Min: ${siteRangeMetrics.tempMin !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMin)) : "--"} °F  |  Avg: ${siteRangeMetrics.tempAvg !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempAvg)) : "--"} °F  |  Max: ${siteRangeMetrics.tempMax !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMax)) : "--"} °F`, 20, 95);
+
+    // Section 2: Threshold Definitions (Legend)
+    doc.setFontSize(12);
+    doc.setFont("Helvetica", "Bold");
+    doc.setTextColor(20, 30, 45);
+    doc.text("2. OPERATIONAL THRESHOLD LEGEND", 15, 112);
+
+    doc.setFontSize(9);
+    doc.setFont("Helvetica", "Normal");
+    doc.text(`- VOLTAGE BOUNDS (Stack/String):`, 15, 120);
+    doc.text(`  • OVERVOLTAGE ALARM: >= ${alarmVolt} Vdc`, 20, 126);
+    doc.text(`  • HIGH VOLTAGE WARNING: ${warningVolt} to ${alarmVolt - 1} Vdc`, 20, 131);
+    doc.text(`  • IDEAL BAND: ${lowVolt + 1} to ${warningVolt - 1} Vdc`, 20, 136);
+    doc.text(`  • LOW VOLTAGE WARNING: ${lowAlarmVolt + 1} to ${lowVolt} Vdc`, 20, 141);
+    doc.text(`  • UNDERVOLTAGE ALARM: <= ${lowAlarmVolt} Vdc`, 20, 146);
+
+    doc.text(`- TEMPERATURE BOUNDS (Cell Maximum):`, 110, 120);
+    doc.text(`  • HIGH TEMP ALARM: >= ${alarmTemp}°C (${Math.round(celsiusToFahrenheit(alarmTemp))}°F)`, 115, 126);
+    doc.text(`  • HIGH TEMP WARNING: ${warningTemp} to ${alarmTemp - 1}°C (${Math.round(celsiusToFahrenheit(warningTemp))}-${Math.round(celsiusToFahrenheit(alarmTemp - 1))}°F)`, 115, 131);
+    doc.text(`  • IDEAL BAND: ${lowTemp + 1} to ${warningTemp - 1}°C (${Math.round(celsiusToFahrenheit(lowTemp + 1))}-${Math.round(celsiusToFahrenheit(warningTemp - 1))}°F)`, 115, 136);
+    doc.text(`  • LOW TEMP WARNING: ${lowAlarmTemp + 1} to ${lowTemp}°C (${Math.round(celsiusToFahrenheit(lowAlarmTemp + 1))}-${Math.round(celsiusToFahrenheit(lowTemp))}°F)`, 115, 141);
+    doc.text(`  • LOW TEMP ALARM: <= ${lowAlarmTemp}°C (${Math.round(celsiusToFahrenheit(lowAlarmTemp))}°F)`, 115, 146);
+
+    // Section 3: Overall Outliers & Counts
+    doc.setFontSize(12);
+    doc.setFont("Helvetica", "Bold");
+    doc.text("3. SITE STRING COUNTS & ANOMALIES", 15, 160);
+
+    // Box for Counts
+    doc.setFillColor(250, 251, 252);
+    doc.rect(15, 165, 180, 22, "F");
+    doc.rect(15, 165, 180, 22, "D");
+
+    doc.setFontSize(9);
+    doc.setFont("Helvetica", "Normal");
+    doc.setTextColor(50, 60, 70);
+    doc.text(`Alarm (Red): ${siteRangeMetrics.alarmCount}   |   Warning (Amber/Yellow): ${siteRangeMetrics.warningCount}   |   Ideal (Green): ${siteRangeMetrics.idealCount}`, 20, 172);
+    doc.text(`Communicating Strings: ${strings.filter(s => s.communicating).length}   |   Communications Lost: ${strings.filter(s => !s.communicating).length}  |  Out of Rotation: ${strings.filter(s => !s.inRotation).length}`, 20, 178);
+
+    // Top Outliers table on Page 1
+    doc.setFontSize(10);
+    doc.setFont("Helvetica", "Bold");
+    doc.setTextColor(20, 30, 45);
+    doc.text("Top Detected Outliers / Bypassed Strings", 15, 196);
+
+    const outliers = filteredStrings.filter(s => s.statusColor !== "green" || !s.inRotation || !s.communicating).slice(0, 5);
+    
+    // Draw tiny table header
+    doc.setFillColor(235, 240, 245);
+    doc.rect(15, 201, 180, 6, "F");
+    doc.setFontSize(8);
+    doc.text("Device Label", 18, 205);
+    doc.text("IP Address", 55, 205);
+    doc.text("Stack Volt", 95, 205);
+    doc.text("Temp Min/Max/Avg", 125, 205);
+    doc.text("Status Category", 165, 205);
+
+    doc.setFont("Helvetica", "Normal");
+    let outlierY = 211;
+    if (outliers.length === 0) {
+      doc.text("All active strings are healthy and operating in the Ideal bands.", 18, 211);
+    } else {
+      outliers.forEach(ot => {
+        doc.text(ot.displayLabel || `--`, 18, outlierY);
+        doc.text(ot.ip || `Unknown`, 55, outlierY);
+        doc.text(`${ot.stackVoltage ?? "--"} Vdc`, 95, outlierY);
+        doc.text(`${ot.minCellTempC ?? "--"}/${ot.maxCellTempC ?? "--"}/${ot.avgCellTempC ?? "--"} C`, 125, outlierY);
+        doc.text(ot.statusLabel || `Healthy`, 165, outlierY);
+        outlierY += 6;
+      });
+    }
+
+    // Page footer
+    doc.setFontSize(8);
+    doc.setTextColor(150, 155, 160);
+    doc.text(`GreEnergy PRIZM Site Health Diagnostics  |  Page 1 of 2`, 15, 285);
+
+    // 2. Page 2: Per-Array Summaries & Detailed Tables & Notes
+    doc.addPage();
+    
+    doc.setFillColor(20, 30, 45);
+    doc.rect(0, 0, 210, 18, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont("Helvetica", "Bold");
+    doc.text(`GreEnergy PRIZM - SITE HEALTH DETAILED ARRAY SUMMARIES`, 15, 12);
+
+    doc.setTextColor(20, 30, 45);
+    doc.setFontSize(12);
+    doc.text("4. PER-ARRAY DETAILED TELEMETRY SUMMARIES", 15, 28);
+
+    // Calculate array summaries
+    const arraysMap = new Map<number, any[]>();
+    for (const s of strings) {
+      const arrIdx = s.arrayIndex;
+      if (!arraysMap.has(arrIdx)) {
+        arraysMap.set(arrIdx, []);
+      }
+      arraysMap.get(arrIdx)!.push(s);
+    }
+
+    const arraySummaries = Array.from(arraysMap.keys()).sort((a, b) => a - b).map(arrIdx => {
+      const arrStrings = arraysMap.get(arrIdx)!;
+      
+      const volts = arrStrings.map(s => s.stackVoltage).filter((v): v is number => v !== undefined && v !== null);
+      const voltMin = volts.length > 0 ? Math.min(...volts) : null;
+      const voltMax = volts.length > 0 ? Math.max(...volts) : null;
+      const voltAvg = volts.length > 0 ? Math.round(volts.reduce((a, b) => a + b, 0) / volts.length) : null;
+      
+      const temps = arrStrings.map(s => s.maxCellTempC).filter((t): t is number => t !== undefined && t !== null);
+      const tempMin = temps.length > 0 ? Math.min(...temps) : null;
+      const tempMax = temps.length > 0 ? Math.max(...temps) : null;
+      const tempAvg = temps.length > 0 ? Number((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)) : null;
+
+      let lowestVoltStr = "--";
+      let highestVoltStr = "--";
+      if (volts.length > 0) {
+        const sortedByVolt = [...arrStrings].filter(s => s.stackVoltage !== undefined && s.stackVoltage !== null)
+          .sort((a, b) => (a.stackVoltage || 0) - (b.stackVoltage || 0));
+        lowestVoltStr = sortedByVolt[0]?.displayLabel || "--";
+        highestVoltStr = sortedByVolt[sortedByVolt.length - 1]?.displayLabel || "--";
+      }
+
+      let lowestTempStr = "--";
+      let highestTempStr = "--";
+      if (temps.length > 0) {
+        const sortedByTemp = [...arrStrings].filter(s => s.maxCellTempC !== undefined && s.maxCellTempC !== null)
+          .sort((a, b) => (a.maxCellTempC || 0) - (b.maxCellTempC || 0));
+        lowestTempStr = sortedByTemp[0]?.displayLabel || "--";
+        highestTempStr = sortedByTemp[sortedByTemp.length - 1]?.displayLabel || "--";
+      }
+
+      const greenCount = arrStrings.filter(s => s.statusColor === "green").length;
+      const yellowCount = arrStrings.filter(s => s.statusColor === "yellow" || s.statusColor === "amber").length;
+      const redCount = arrStrings.filter(s => s.statusColor === "red").length;
+
+      return {
+        arrayIndex: arrIdx,
+        stringCount: arrStrings.length,
+        voltMin,
+        voltMax,
+        voltAvg,
+        tempMin,
+        tempMax,
+        tempAvg,
+        lowestVoltStr,
+        highestVoltStr,
+        lowestTempStr,
+        highestTempStr,
+        greenCount,
+        yellowCount,
+        redCount
+      };
+    });
+
+    // Render Array Summaries Table
+    doc.setFillColor(240, 242, 245);
+    doc.rect(15, 33, 180, 6, "F");
+    doc.setFontSize(8);
+    doc.setFont("Helvetica", "Bold");
+    doc.text("Arr", 17, 37);
+    doc.text("Count", 25, 37);
+    doc.text("Volt Range (Min/Avg/Max)", 38, 37);
+    doc.text("Temp Range (Min/Avg/Max)", 78, 37);
+    doc.text("Highest/Lowest String Key", 118, 37);
+    doc.text("Status (I/W/A)", 165, 37);
+
+    doc.setFont("Helvetica", "Normal");
+    let arrY = 44;
+    arraySummaries.forEach(arr => {
+      doc.setFont("Helvetica", "Bold");
+      doc.text(`A${arr.arrayIndex}`, 17, arrY);
+      doc.setFont("Helvetica", "Normal");
+      doc.text(String(arr.stringCount), 25, arrY);
+      doc.text(`${arr.voltMin ?? "--"}/${arr.voltAvg ?? "--"}/${arr.voltMax ?? "--"} Vdc`, 38, arrY);
+      doc.text(`${arr.tempMin !== null ? arr.tempMin.toFixed(0) : "--"}/${arr.tempAvg !== null ? arr.tempAvg.toFixed(0) : "--"}/${arr.tempMax !== null ? arr.tempMax.toFixed(0) : "--"} C`, 78, arrY);
+      doc.text(`V: ${arr.lowestVoltStr} | T: ${arr.highestTempStr}`, 118, arrY);
+      doc.text(`G:${arr.greenCount} Y:${arr.yellowCount} R:${arr.redCount}`, 165, arrY);
+      
+      doc.setDrawColor(240, 242, 245);
+      doc.line(15, arrY + 2, 195, arrY + 2);
+      arrY += 7;
+    });
+
+    // Notes/interpretation section at the bottom
+    doc.setFontSize(11);
+    doc.setFont("Helvetica", "Bold");
+    doc.setTextColor(20, 30, 45);
+    doc.text("5. OPERATIONAL RECOMMENDATIONS & INTERPRETATION", 15, 185);
+
+    doc.setFontSize(9);
+    doc.setFont("Helvetica", "Normal");
+    doc.setTextColor(60, 70, 80);
+    
+    doc.text("• COMMUNICATIONS VERIFICATION: Inspect strings with lost/inactive communications (gray indicators).", 15, 195);
+    doc.text("  Verify that the controller card IP addresses are reachable on the localized site network subnets.", 15, 200);
+
+    doc.text("• VOLTAGE CORRECTION: For strings exhibiting OVERVOLTAGE or UNDERVOLTAGE alarms/warnings, coordinate", 15, 208);
+    doc.text("  with field technicians to perform voltage balancing and test contactor engagement states.", 15, 213);
+
+    doc.text("• THERMAL OPTIMIZATION: High temperature values (amber or red alarms) indicate localized hot-spots.", 15, 221);
+    doc.text("  Ensure the battery enclosure climate system is cooling properly and check ventilation ducts for blockage.", 15, 226);
+
+    doc.text("• EXPORT COMPLIANCE: This report is certified by the GreEnergy PRIZM diagnostic automation platform.", 15, 234);
+    doc.text("  Please store these findings as part of the formal maintenance record for this energy storage facility.", 15, 239);
+
+    // Page footer
+    doc.setFontSize(8);
+    doc.setTextColor(150, 155, 160);
+    doc.text(`GreEnergy PRIZM Site Health Diagnostics  |  Page 2 of 2`, 15, 285);
+
+    // Filename generation
+    const formattedTimestamp = formatTimestampForFilename();
+    const filename = `GreEnergy_PRIZM_Site_Health_${station}_Block_${block}_${formattedTimestamp}.pdf`;
+    
+    doc.save(filename);
   };
 
   // Site Health Anomaly Graph points filtered according to selected UI controls
@@ -655,20 +987,54 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             <span className="text-[9px] text-slate-500 leading-tight">NOT RESPONDING</span>
           </div>
 
-          <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 col-span-2 md:col-span-1">
-            <span className="text-[9px] text-prizm-text-muted uppercase block">Site Range Limits</span>
-            <div className="text-[10px] space-y-0.5 mt-1 font-bold text-prizm-text">
-              <div className="flex justify-between">
-                <span>VOLT:</span>
-                <span className="text-prizm-info">
-                  {data?.rollups?.voltageMin ?? "0"}-{data?.rollups?.voltageMax ?? "0"} V
-                </span>
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 col-span-2 md:col-span-1" id="site-range-limits-panel">
+            <span className="text-[9px] text-prizm-text-muted uppercase block font-extrabold border-b border-prizm-border/40 pb-1 mb-1">Site Range Limits & Counts</span>
+            
+            <div className="text-[10px] space-y-2 mt-1 text-prizm-text">
+              {/* Voltage Min/Max/Avg */}
+              <div className="space-y-0.5">
+                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold">Voltage (Min/Avg/Max)</span>
+                <div className="font-mono font-bold text-prizm-info flex justify-between">
+                  <span>Vdc:</span>
+                  <span>
+                    {siteRangeMetrics.voltMin !== null ? siteRangeMetrics.voltMin : "--"} / {siteRangeMetrics.voltAvg !== null ? siteRangeMetrics.voltAvg : "--"} / {siteRangeMetrics.voltMax !== null ? siteRangeMetrics.voltMax : "--"}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>TEMP:</span>
-                <span className="text-orange-600 font-extrabold">
-                  {data?.rollups?.temperatureMin !== undefined && data?.rollups?.temperatureMin !== null ? formatTemperatureF(data.rollups.temperatureMin, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"} - {data?.rollups?.temperatureMax !== undefined && data?.rollups?.temperatureMax !== null ? formatTemperatureF(data.rollups.temperatureMax, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"}
-                </span>
+
+              {/* Temperature Min/Max/Avg */}
+              <div className="space-y-0.5 border-t border-prizm-border/20 pt-1">
+                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold font-mono">Temp (Min/Avg/Max)</span>
+                <div className="font-mono font-semibold text-orange-400 flex flex-col gap-0.5">
+                  <div className="flex justify-between font-bold">
+                    <span>C:</span>
+                    <span>
+                      {siteRangeMetrics.tempMin !== null ? siteRangeMetrics.tempMin.toFixed(1) : "--"} /{" "}
+                      {siteRangeMetrics.tempAvg !== null ? siteRangeMetrics.tempAvg.toFixed(1) : "--"} /{" "}
+                      {siteRangeMetrics.tempMax !== null ? siteRangeMetrics.tempMax.toFixed(1) : "--"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[8px] text-prizm-text-muted">
+                    <span>F:</span>
+                    <span>
+                      {siteRangeMetrics.tempMin !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMin)) : "--"} /{" "}
+                      {siteRangeMetrics.tempAvg !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempAvg)) : "--"} /{" "}
+                      {siteRangeMetrics.tempMax !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMax)) : "--"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* String Counts */}
+              <div className="space-y-0.5 border-t border-prizm-border/20 pt-1 text-[8.5px] leading-snug">
+                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold font-mono mb-0.5">String Metrics</span>
+                <div className="grid grid-cols-2 gap-x-2 font-mono">
+                  <div className="flex justify-between"><span className="text-prizm-text-muted">Included:</span> <span className="font-bold text-prizm-text">{siteRangeMetrics.includedCount}</span></div>
+                  <div className="flex justify-between"><span className="text-prizm-text-muted">Excluded:</span> <span className="font-bold text-prizm-text">{siteRangeMetrics.excludedCount}</span></div>
+                  <div className="flex justify-between"><span className="text-prizm-danger">Alarm:</span> <span className="font-bold text-prizm-danger">{siteRangeMetrics.alarmCount}</span></div>
+                  <div className="flex justify-between"><span className="text-prizm-warning">Warning:</span> <span className="font-bold text-prizm-warning">{siteRangeMetrics.warningCount}</span></div>
+                  <div className="flex justify-between col-span-2 border-t border-prizm-border/10 mt-0.5 pt-0.5"><span className="text-emerald-500">Ideal:</span> <span className="font-extrabold text-emerald-500">{siteRangeMetrics.idealCount}</span></div>
+                </div>
               </div>
             </div>
           </div>
@@ -835,7 +1201,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
           {/* DYNAMIC EXPORT CONTROL BLOCK */}
           <div className="space-y-2 pt-4 border-t border-prizm-border/60">
-            <span className="text-[10px] text-prizm-text-muted font-bold uppercase block">Export Spread Logs</span>
+            <span className="text-[10px] text-prizm-text-muted font-bold uppercase block">Export Spread Logs & Reports</span>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleExportCsv}
@@ -854,6 +1220,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 Export JSON
               </button>
             </div>
+            <button
+              onClick={handleExportPdf}
+              disabled={filteredStrings.length === 0}
+              className="w-full py-1.5 px-2 bg-prizm-primary/20 hover:bg-prizm-primary/30 text-prizm-primary border border-prizm-primary/40 rounded flex items-center justify-center gap-1.5 font-bold text-[9px] uppercase cursor-pointer disabled:opacity-50 transition"
+            >
+              <FileText size={10} />
+              Export PDF Diagnostic Report
+            </button>
             <span className="text-[8.5px] text-prizm-text-muted text-center block leading-tight">
               Downloads current filtered dataset ({filteredStrings.length} keys).
             </span>
@@ -872,7 +1246,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                   </div>
                   <input
                     type="range"
-                    min="35"
+                    min="45"
                     max="75"
                     step="1"
                     value={alarmTemp}
@@ -897,17 +1271,32 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 </div>
                 <div>
                   <div className="flex justify-between font-bold mb-1">
-                    <span>Low threshold temp:</span>
+                    <span>Low warning temp:</span>
                     <span className="text-prizm-info">{formatTemperatureF(lowTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
                   </div>
                   <input
                     type="range"
-                    min="-10"
-                    max="20"
+                    min="15"
+                    max="25"
                     step="1"
                     value={lowTemp}
                     onChange={e => setLowTemp(Number(e.target.value))}
                     className="w-full accent-prizm-info h-1 bg-prizm-bg-muted rounded"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between font-bold mb-1">
+                    <span>Low alarm temp:</span>
+                    <span className="text-prizm-danger">{formatTemperatureF(lowAlarmTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="15"
+                    step="1"
+                    value={lowAlarmTemp}
+                    onChange={e => setLowAlarmTemp(Number(e.target.value))}
+                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
                   />
                 </div>
               </div>
@@ -920,7 +1309,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                   </div>
                   <input
                     type="range"
-                    min="1100"
+                    min="1400"
                     max="1600"
                     step="10"
                     value={alarmVolt}
@@ -935,8 +1324,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                   </div>
                   <input
                     type="range"
-                    min="1000"
-                    max="1400"
+                    min="1200"
+                    max="1440"
                     step="10"
                     value={warningVolt}
                     onChange={e => setWarningVolt(Number(e.target.value))}
@@ -945,17 +1334,32 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 </div>
                 <div>
                   <div className="flex justify-between font-bold mb-1">
-                    <span>Low threshold volt:</span>
+                    <span>Low warning volt:</span>
                     <span className="text-prizm-info">{lowVolt} Vdc</span>
                   </div>
                   <input
                     type="range"
-                    min="700"
-                    max="1100"
+                    min="1100"
+                    max="1300"
                     step="10"
                     value={lowVolt}
                     onChange={e => setLowVolt(Number(e.target.value))}
                     className="w-full accent-prizm-info h-1 bg-prizm-bg-muted rounded"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between font-bold mb-1">
+                    <span>Low alarm volt:</span>
+                    <span className="text-prizm-danger">{lowAlarmVolt} Vdc</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="900"
+                    max="1100"
+                    step="10"
+                    value={lowAlarmVolt}
+                    onChange={e => setLowAlarmVolt(Number(e.target.value))}
+                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
                   />
                 </div>
               </div>
@@ -1153,21 +1557,28 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           stroke="#EF4444" 
                           strokeDasharray="5 5" 
                           strokeWidth={1.5} 
-                          label={{ value: `HIGH ALARM (${formatTemperatureF(alarmTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `HIGH TEMP ALARM (≥${alarmTemp}°C / ${Math.round(celsiusToFahrenheit(alarmTemp))}°F)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={celsiusToFahrenheit(warningTemp)} 
                           stroke="#F59E0B" 
                           strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `HIGH WARNING (${formatTemperatureF(warningTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `HIGH TEMP WARNING (${warningTemp}–${alarmTemp}°C)`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={celsiusToFahrenheit(lowTemp)} 
-                          stroke="#0284C7" 
-                          strokeDasharray="4 4" 
+                          stroke="#3B82F6" 
+                          strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `LOW CRITICAL (${formatTemperatureF(lowTemp, { decimals: 0, showUnit: true, sourceUnit: "C" })})`, fill: "#0284C7", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                          label={{ value: `LOW TEMP WARNING (${lowAlarmTemp}–${lowTemp}°C)`, fill: "#3B82F6", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                        />
+                        <ReferenceLine 
+                          y={celsiusToFahrenheit(lowAlarmTemp)} 
+                          stroke="#EF4444" 
+                          strokeDasharray="5 5" 
+                          strokeWidth={1.5} 
+                          label={{ value: `LOW TEMP ALARM (≤${lowAlarmTemp}°C / ${Math.round(celsiusToFahrenheit(lowAlarmTemp))}°F)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
                         />
                       </>
                     ) : (
@@ -1177,21 +1588,28 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           stroke="#EF4444" 
                           strokeDasharray="5 5" 
                           strokeWidth={1.5} 
-                          label={{ value: `OVERVOLTAGE ALARM (${alarmVolt}V)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `OVERVOLTAGE ALARM (≥${alarmVolt} Vdc)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={warningVolt} 
                           stroke="#F59E0B" 
                           strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `CELL HIGH WARNING (${warningVolt}V)`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: `HIGH VOLTAGE WARNING (${warningVolt}–${alarmVolt - 1} Vdc)`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={lowVolt} 
-                          stroke="#0284C7" 
-                          strokeDasharray="4 4" 
+                          stroke="#3B82F6" 
+                          strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `UNDERVOLTAGE LIMIT (${lowVolt}V)`, fill: "#0284C7", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                          label={{ value: `LOW VOLTAGE WARNING (${lowAlarmVolt + 1}–${lowVolt} Vdc)`, fill: "#3B82F6", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                        />
+                        <ReferenceLine 
+                          y={lowAlarmVolt} 
+                          stroke="#EF4444" 
+                          strokeDasharray="5 5" 
+                          strokeWidth={1.5} 
+                          label={{ value: `UNDERVOLTAGE ALARM (≤${lowAlarmVolt} Vdc)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
                         />
                       </>
                     )}
@@ -1223,21 +1641,19 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               <table className="w-full text-left border-collapse text-[10.5px]">
                 <thead>
                   <tr className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted font-bold text-[9.5px]">
-                    <th className="p-2 border-r border-prizm-border">Array</th>
-                    <th className="p-2 border-r border-prizm-border">String</th>
+                    <th className="p-2 border-r border-prizm-border text-center">Array</th>
+                    <th className="p-2 border-r border-prizm-border text-center">String</th>
                     <th className="p-2 border-r border-prizm-border">Label</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Voltage</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Max Cell Temp (°F)</th>
-                    <th className="p-2 border-r border-prizm-border text-right">Avg Cell Temp (°F)</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Voltage Min/Max/Avg</th>
+                    <th className="p-2 border-r border-prizm-border text-right">Temp Min/Max/Avg</th>
                     <th className="p-2 border-r border-prizm-border">Controller IP</th>
-                    <th className="p-2 border-r border-prizm-border">Status Category</th>
-                    <th className="p-2">Data Source File</th>
+                    <th className="p-2">Status Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-prizm-border/50">
                   {filteredStrings.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
+                      <td colSpan={7} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
                         {outliersOnly 
                           ? "🎉 ALL site controllers are normal. No active threshold breach or off-line rotations detected."
                           : "🔍 No controller strings match your current active filters."}
@@ -1258,14 +1674,29 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           <td className="p-2 font-bold text-center text-prizm-text">{s.arrayIndex}</td>
                           <td className="p-2 font-bold text-center text-prizm-text">{s.stringIndex}</td>
                           <td className="p-2 font-bold text-prizm-text-muted">{s.displayLabel}</td>
-                          <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-500'}`}>
-                            {s.stackVoltage !== undefined && s.stackVoltage !== null ? `${s.stackVoltage} V` : "--"}
+                          <td className="p-2 text-right">
+                            <div className={`font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
+                              {s.stackVoltage !== undefined && s.stackVoltage !== null ? `${s.stackVoltage} Vdc` : "--"}
+                            </div>
+                            {(s.minCellVoltage !== undefined || s.maxCellVoltage !== undefined || s.avgCellVoltage !== undefined) && (
+                              <div className="text-[9px] text-prizm-text-muted">
+                                Cell: {s.minCellVoltage !== undefined ? (s.minCellVoltage * 1000).toFixed(0) : "--"}/
+                                {s.maxCellVoltage !== undefined ? (s.maxCellVoltage * 1000).toFixed(0) : "--"}/
+                                {s.avgCellVoltage !== undefined ? (s.avgCellVoltage * 1000).toFixed(0) : "--"} mV
+                              </div>
+                            )}
                           </td>
-                          <td className={`p-2 text-right font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-500'}`}>
-                            {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? formatTemperatureF(s.maxCellTempC, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}
-                          </td>
-                          <td className="p-2 text-right text-prizm-text-muted">
-                            {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? formatTemperatureF(s.avgCellTempC, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}
+                          <td className="p-2 text-right">
+                            <div className={`font-bold ${isHighTemp ? 'text-orange-500' : 'text-slate-300'}`}>
+                              {s.minCellTempC !== undefined && s.minCellTempC !== null ? s.minCellTempC.toFixed(1) : "--"} / {" "}
+                              {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? s.maxCellTempC.toFixed(1) : "--"} / {" "}
+                              {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? s.avgCellTempC.toFixed(1) : "--"} °C
+                            </div>
+                            <div className="text-[9px] text-prizm-text-muted">
+                              {s.minCellTempC !== undefined && s.minCellTempC !== null ? Math.round(celsiusToFahrenheit(s.minCellTempC)) : "--"} / {" "}
+                              {s.maxCellTempC !== undefined && s.maxCellTempC !== null ? Math.round(celsiusToFahrenheit(s.maxCellTempC)) : "--"} / {" "}
+                              {s.avgCellTempC !== undefined && s.avgCellTempC !== null ? Math.round(celsiusToFahrenheit(s.avgCellTempC)) : "--"} °F
+                            </div>
                           </td>
                           <td className="p-2 text-prizm-text truncate" title={s.ip}>{s.ip || "Unknown"}</td>
                           <td className="p-2">
@@ -1280,9 +1711,6 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: getStatusColorHex(s.statusColor) }} />
                               {s.statusLabel}
                             </span>
-                          </td>
-                          <td className="p-2 text-[9px] text-prizm-text-muted font-sans truncate max-w-[120px]" title={s.sourcePath}>
-                            {s.sourcePath.split("/").pop()}
                           </td>
                         </tr>
                       );

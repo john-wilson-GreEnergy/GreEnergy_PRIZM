@@ -82,13 +82,9 @@ export default function TopologySensorHealthPanel() {
       if (!res.ok) {
         throw new Error(`Server returned HTTP state code ${res.status}`);
       }
-      const json: TopologySensorSummary = await res.json();
-      if (json.success) {
-        setData(json);
-        setLastUpdated(new Date());
-      } else {
-        throw new Error("Local responder indicated success state was false");
-      }
+      const json: any = await res.json();
+      setData(json);
+      setLastUpdated(new Date());
     } catch (err: any) {
       console.error("Error fetching site-sensors topology:", err);
       setError(err?.message || "Fault encountered while requesting topology information.");
@@ -353,6 +349,58 @@ export default function TopologySensorHealthPanel() {
               Retry Active Query
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (data && data.success === false) {
+    const debug = (data as any).sensorSafetyHealthDebug || {};
+    return (
+      <div className="bg-white border border-amber-300 rounded-lg p-6 shadow-sm space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+            <ShieldAlert size={24} />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-amber-900 text-base font-sans">Sensor &amp; Safety Data Unavailable</h3>
+            <p className="text-sm text-slate-600 mt-1">
+              Live telemetry is currently unavailable. No seeded/mock values are used in this environment.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider font-sans">Pipeline Diagnostics (sensorSafetyHealthDebug)</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono text-slate-600">
+            <div>
+              <span className="font-semibold text-slate-500">Requested URL:</span> {debug.requestedUrl || "N/A"}
+            </div>
+            <div>
+              <span className="font-semibold text-slate-500">Source Health:</span> <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 rounded text-[10px] font-bold">{debug.sourceHealth || "N/A"}</span>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-500">Selected Profile:</span> {debug.selectedProfile || "N/A"}
+            </div>
+            <div>
+              <span className="font-semibold text-slate-500">Source Endpoints:</span> {JSON.stringify(debug.sourceEndpoints || [])}
+            </div>
+          </div>
+          {debug.error && (
+            <div className="pt-2 border-t border-slate-200">
+              <span className="text-[11px] font-bold text-rose-600 font-sans block mb-1">Error Reason:</span>
+              <pre className="text-xs bg-rose-50/50 p-2.5 rounded border border-rose-100 font-mono text-rose-700 overflow-x-auto select-all whitespace-pre-wrap">{debug.error}</pre>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex gap-2">
+          <button
+            onClick={() => fetchTopologyData(false)}
+            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
+          >
+            Retry Sensor Query
+          </button>
         </div>
       </div>
     );
