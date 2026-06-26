@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Info, Layers } from "lucide-react";
 import {
   PhysicalCellSlot,
@@ -14,26 +14,173 @@ type ArrayCellHeatmapGridProps = {
   arrayDetailsByArray: Record<string, any>;
 };
 
+function getPairedStringNumbers(stringNumber: number): number[] {
+  if (!Number.isFinite(stringNumber) || stringNumber < 1) return [];
+  const n = Math.trunc(stringNumber);
+  return n % 2 === 0 ? [n - 1, n] : [n, n + 1];
+}
+
+function parseSearchQuery(query: string): { array?: number; strings?: number[] } {
+  const q = query.trim().toLowerCase();
+  if (!q) return {};
+
+  // Pattern A: Match "A[number]-S[number]" or "A[number] S[number]" or similar
+  const arrayStringMatch = q.match(/^a(\d+)[-\s]*s(\d+)$/);
+  if (arrayStringMatch) {
+    const arrNum = parseInt(arrayStringMatch[1], 10);
+    const strNum = parseInt(arrayStringMatch[2], 10);
+    return {
+      array: arrNum,
+      strings: getPairedStringNumbers(strNum)
+    };
+  }
+
+  // Pattern B: Match "A[number]" (array only)
+  const arrayOnlyMatch = q.match(/^a(\d+)$/);
+  if (arrayOnlyMatch) {
+    return {
+      array: parseInt(arrayOnlyMatch[1], 10)
+    };
+  }
+
+  // Pattern C: Match "S[number]" (string only)
+  const stringOnlyMatch = q.match(/^s(\d+)$/);
+  if (stringOnlyMatch) {
+    const strNum = parseInt(stringOnlyMatch[1], 10);
+    return {
+      strings: getPairedStringNumbers(strNum)
+    };
+  }
+
+  // Pattern D: Just a plain number
+  const plainNumberMatch = q.match(/^(\d+)$/);
+  if (plainNumberMatch) {
+    const strNum = parseInt(plainNumberMatch[1], 10);
+    return {
+      strings: getPairedStringNumbers(strNum)
+    };
+  }
+
+  return {};
+}
+
 export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: ArrayCellHeatmapGridProps) {
   const [mode, setMode] = useState<"voltage" | "temperature">("voltage");
   const [tempUnit, setTempUnit] = useState<"C" | "F">("F");
   const [selectedArray, setSelectedArray] = useState<string | "all">("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  const topRef = useRef<HTMLDivElement | null>(null);
 
   const arrayKeys = useMemo(() => {
     const details = arrayDetailsByArray || {};
     return Object.keys(details).sort((a, b) => Number(a) - Number(b));
   }, [arrayDetailsByArray]);
 
+  const parsedSearch = useMemo(() => {
+    return parseSearchQuery(searchQuery);
+  }, [searchQuery]);
+
   const arraysToRender = useMemo(() => {
     const details = arrayDetailsByArray || {};
+    
+    // 1. Initial selection of arrays
+    let selected: any[] = [];
     if (selectedArray === "all") {
-      return arrayKeys.map((k) => details[k]).filter(Boolean);
+      selected = arrayKeys.map((k) => details[k]).filter(Boolean);
+    } else {
+      selected = [details[selectedArray]].filter(Boolean);
     }
-    return [details[selectedArray]].filter(Boolean);
-  }, [selectedArray, arrayKeys, arrayDetailsByArray]);
+
+    // 2. Filter arrays and strings based on parsed search query
+    const results: any[] = [];
+    
+    for (const arr of selected) {
+      const arrNum = Number(arr.arrayNumber);
+      
+      // If search query specifies an array, it must match
+      if (parsedSearch.array !== undefined && parsedSearch.array !== arrNum) {
+        continue;
+      }
+
+      const originalStrings = Array.isArray(arr.strings) ? arr.strings : [];
+      let filteredStrings = originalStrings;
+
+      // If search query specifies specific string numbers
+      if (parsedSearch.strings && parsedSearch.strings.length > 0) {
+        filteredStrings = originalStrings.filter((s) => {
+          const sNum = Number(s.stringNumber ?? s.stringIndex ?? 0);
+          return parsedSearch.strings!.includes(sNum);
+        });
+      }
+
+      // If search is non-empty but didn't match our regex patterns, fallback to substring match
+      if (searchQuery.trim() !== "" && parsedSearch.array === undefined && (!parsedSearch.strings || parsedSearch.strings.length === 0)) {
+        const queryLower = searchQuery.toLowerCase().trim();
+        filteredStrings = originalStrings.filter((s) => {
+          const label = String(s.displayLabel || s.id || "").toLowerCase();
+          const ip = String(s.ip || s.stringControllerIp || "").toLowerCase();
+          return label.includes(queryLower) || ip.includes(queryLower);
+        });
+      }
+
+      // Only render arrays that have strings matching our filter, unless they had no strings initially
+      if (filteredStrings.length > 0 || originalStrings.length === 0) {
+        results.push({
+          ...arr,
+          strings: filteredStrings
+        });
+      }
+    }
+
+    return results;
+  }, [selectedArray, arrayKeys, arrayDetailsByArray, parsedSearch, searchQuery]);
+
+  const isFilterActive = selectedArray !== "all" || searchQuery.trim() !== "";
+
+  const filterSummary = useMemo(() => {
+    const isArrayFiltered = selectedArray !== "all";
+    const isStringFiltered = parsedSearch.strings && parsedSearch.strings.length > 0;
+    const isSearchActive = searchQuery.trim() !== "";
+
+    if (isArrayFiltered && isStringFiltered) {
+      const minStr = Math.min(...parsedSearch.strings!);
+      const maxStr = Math.max(...parsedSearch.strings!);
+      return `Showing Array ${selectedArray} / Strings ${minStr}–${maxStr}`;
+    }
+    if (isArrayFiltered && parsedSearch.array !== undefined && parsedSearch.strings && parsedSearch.strings.length > 0) {
+      const minStr = Math.min(...parsedSearch.strings!);
+      const maxStr = Math.max(...parsedSearch.strings!);
+      return `Showing Array ${parsedSearch.array} / Strings ${minStr}–${maxStr}`;
+    }
+    if (parsedSearch.array !== undefined && parsedSearch.strings && parsedSearch.strings.length > 0) {
+      const minStr = Math.min(...parsedSearch.strings!);
+      const maxStr = Math.max(...parsedSearch.strings!);
+      return `Showing Array ${parsedSearch.array} / Strings ${minStr}–${maxStr}`;
+    }
+    if (isStringFiltered) {
+      const minStr = Math.min(...parsedSearch.strings!);
+      const maxStr = Math.max(...parsedSearch.strings!);
+      return `Showing all arrays / Strings ${minStr}–${maxStr}`;
+    }
+    if (isArrayFiltered) {
+      return `Showing Array ${selectedArray} / All Strings`;
+    }
+    if (isSearchActive) {
+      return `Showing results for search: "${searchQuery}"`;
+    }
+    return "Showing all heatmaps";
+  }, [selectedArray, parsedSearch, searchQuery]);
+
+  const handleResetFilters = () => {
+    setSelectedArray("all");
+    setSearchQuery("");
+  };
 
   return (
-    <div className="space-y-6 font-mono text-[9px] w-full select-none" id="array-cell-heatmap-grid">
+    <div className="space-y-6 font-mono text-[9px] w-full select-none relative" id="array-cell-heatmap-grid">
+      <div ref={topRef} id="array-cell-heatmap-top" />
+
       {/* Header Controls Bar */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -77,24 +224,71 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
               Fixed: °F
             </div>
           )}
-
-          {/* Array Dropdown Filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-prizm-text-muted text-[8px] uppercase font-bold">Filter:</span>
-            <select
-              value={selectedArray}
-              onChange={(e) => setSelectedArray(e.target.value)}
-              className="bg-prizm-surface-strong text-prizm-text border border-prizm-border rounded px-2.5 py-1 text-[8.5px] font-bold uppercase cursor-pointer outline-none focus:border-prizm-primary text-center"
-            >
-              <option value="all">All Arrays</option>
-              {arrayKeys.map((k) => (
-                <option key={k} value={k}>
-                  Array {k}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
+      </div>
+
+      {/* Horizontal Filter Bar */}
+      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-[9px] uppercase tracking-wider">
+        {/* Array Filter */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-prizm-text-muted font-bold block">Filter Array</label>
+          <select
+            value={selectedArray}
+            onChange={(e) => setSelectedArray(e.target.value)}
+            className="w-full bg-prizm-surface-strong border border-prizm-border text-prizm-text text-[11px] p-1.5 rounded outline-none focus:border-prizm-primary font-bold cursor-pointer"
+          >
+            <option value="all">Any Array (All)</option>
+            {arrayKeys.map((k) => (
+              <option key={k} value={k}>
+                Array {k}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Status Filter (Disabled) */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-prizm-text-muted font-bold block">Filter Status</label>
+          <select
+            disabled
+            title="Status filtering pending normalized health flags."
+            className="w-full bg-prizm-surface-strong/50 border border-prizm-border/60 text-prizm-text-muted text-[11px] p-1.5 rounded outline-none cursor-not-allowed font-bold"
+          >
+            <option value="all">Any Status (All)</option>
+            <option value="normal">Healthy / Normal</option>
+            <option value="warning">Warning</option>
+            <option value="alarm">Alarm</option>
+            <option value="missing">Not Communicating / Missing Data</option>
+          </select>
+          <span className="text-[8px] text-amber-500/80 normal-case block mt-0.5">
+            Status filtering pending normalized health flags.
+          </span>
+        </div>
+
+        {/* Search Input */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-prizm-text-muted font-bold block">Search String IP / Label</label>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="e.g. A1-S3, S10, 10, Array 5 String 28..."
+            className="w-full bg-prizm-surface-strong border border-prizm-border text-prizm-text text-[11px] p-1.5 rounded outline-none focus:border-prizm-primary placeholder:text-prizm-text-muted/50 placeholder:normal-case font-bold"
+          />
+        </div>
+      </div>
+
+      {/* Filter Summary & Reset Option */}
+      <div className="bg-prizm-surface/40 border border-prizm-border/40 px-4 py-2.5 rounded-lg flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] uppercase font-bold text-prizm-text-muted shadow-sm">
+        <span>{filterSummary}</span>
+        {isFilterActive && (
+          <button
+            onClick={handleResetFilters}
+            className="px-3 py-1 rounded bg-prizm-surface-strong border border-prizm-border hover:bg-prizm-surface hover:text-white transition text-[9px] tracking-wider cursor-pointer"
+          >
+            Reset Filters
+          </button>
+        )}
       </div>
 
       {/* Caution Box */}
@@ -157,6 +351,15 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
           );
         })}
       </div>
+
+      {/* Persistent Back to Top Button */}
+      <button
+        type="button"
+        onClick={() => topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-1.5 bg-prizm-surface-strong hover:bg-prizm-surface border border-prizm-border px-4 py-2 rounded-full text-[10px] font-bold text-prizm-text shadow-xl hover:text-white hover:border-prizm-primary/60 transition-all cursor-pointer"
+      >
+        ↑ Top
+      </button>
     </div>
   );
 }

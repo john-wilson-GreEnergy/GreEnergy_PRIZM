@@ -825,7 +825,14 @@ router.get("/graph", async (req, res) => {
         voltage: voltRes.source,
         temperature: tempRes.source
       },
-      sourcePath: row.sourcePath
+      sourcePath: row.sourcePath,
+      minCellVoltage: row.minCellVoltage !== undefined ? row.minCellVoltage : (dSample?.minCellVoltage ?? dEnriched?.minCellVoltage ?? dBase?.minCellVoltage),
+      avgCellVoltage: row.avgCellVoltage !== undefined ? row.avgCellVoltage : (dSample?.avgCellVoltage ?? dEnriched?.avgCellVoltage ?? dBase?.avgCellVoltage),
+      maxCellVoltage: row.maxCellVoltage !== undefined ? row.maxCellVoltage : (dSample?.maxCellVoltage ?? dEnriched?.maxCellVoltage ?? dBase?.maxCellVoltage),
+      minCellTempC: row.minCellTempC !== undefined ? row.minCellTempC : (dSample?.minCellTempC ?? dSample?.minCellTemperature ?? dEnriched?.minCellTempC ?? dEnriched?.minCellTemperature ?? dBase?.minCellTempC ?? dBase?.minCellTemperature),
+      avgCellTempC: row.avgCellTempC !== undefined ? row.avgCellTempC : (dSample?.avgCellTempC ?? dSample?.avgCellTemperature ?? dEnriched?.avgCellTempC ?? dEnriched?.avgCellTemperature ?? dBase?.avgCellTempC ?? dBase?.avgCellTemperature),
+      maxCellTempC: row.maxCellTempC !== undefined ? row.maxCellTempC : (dSample?.maxCellTempC ?? dSample?.maxCellTemperature ?? dEnriched?.maxCellTempC ?? dEnriched?.maxCellTemperature ?? dBase?.maxCellTempC ?? dBase?.maxCellTemperature),
+      stackVoltage: voltRes.value
     };
 
     if (req.query.includeRaw === "true") {

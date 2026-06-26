@@ -38,6 +38,24 @@ import {
 } from "recharts";
 import { SITE_HEALTH_THRESHOLDS } from "../lib/thresholds";
 
+export function normalizeCellVoltageMv(v: unknown): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  // Values like 3.272 are volts-per-cell and should become 3272 mV.
+  if (n > 0 && n < 10) return Math.round(n * 1000);
+  // Values like 3272 are already mV.
+  if (n >= 1000 && n <= 5000) return Math.round(n);
+  // Values like 3272000 are accidentally over-scaled display artifacts.
+  // Convert back to mV when clearly over-scaled.
+  if (n >= 1000000 && n <= 5000000) return Math.round(n / 1000);
+  return Math.round(n);
+}
+
+export function formatCellVoltageMv(v: unknown): string {
+  const mv = normalizeCellVoltageMv(v);
+  return mv === null ? "--" : `${mv} mV`;
+}
+
 export interface SiteStringDistributionRow {
   stationCode?: string;
   blockIndex?: number;
@@ -107,6 +125,13 @@ export interface SiteHealthGraphPoint {
     temperature: string;
   };
   sourcePath: string;
+  minCellVoltage?: number;
+  avgCellVoltage?: number;
+  maxCellVoltage?: number;
+  minCellTempC?: number;
+  avgCellTempC?: number;
+  maxCellTempC?: number;
+  stackVoltage?: number;
 }
 
 export interface SiteHealthGraphResponse {
@@ -801,10 +826,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
         : (row.temperature !== undefined && row.temperature !== null ? celsiusToFahrenheit(row.temperature) : null);
       return {
         ...row,
-        stackVoltage: row.voltage, // mapped for tooltip
-        maxCellTempC: row.temperature, // mapped for tooltip
-        avgCellTempC: row.temperature, // mapped for tooltip
-        xIndex: index + 1, // continuous ordered X sequence
+        stackVoltage: row.voltage,
+        minCellVoltage: row.minCellVoltage,
+        avgCellVoltage: row.avgCellVoltage,
+        maxCellVoltage: row.maxCellVoltage,
+        minCellTempC: row.minCellTempC,
+        avgCellTempC: row.avgCellTempC,
+        maxCellTempC: row.maxCellTempC,
+        xIndex: index + 1,
         metricVal: value,
         name: row.displayLabel
       };
@@ -835,16 +864,58 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             </div>
           </div>
 
-          <div className="pt-1 grid grid-cols-2 gap-2 text-[10.5px]">
-            <div>
-              <span className="text-slate-400 block font-sans">Max Cell Temp:</span>
-              <span className="text-orange-400 font-bold text-xs">{d.maxCellTempC !== undefined && d.maxCellTempC !== null ? formatTemperatureF(d.maxCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
+          {activeTab === "voltage" ? (
+            <div className="pt-1 grid grid-cols-3 gap-1 text-[9.5px] border-t border-prizm-border/40 my-1">
+              <div>
+                <span className="text-slate-400 block font-sans">Cell Volt Min:</span>
+                <span className="text-cyan-400 font-bold">{d.minCellVoltage !== undefined && d.minCellVoltage !== null ? formatCellVoltageMv(d.minCellVoltage) : "N/A"}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block font-sans">Cell Volt Avg:</span>
+                <span className="text-cyan-400 font-bold">{d.avgCellVoltage !== undefined && d.avgCellVoltage !== null ? formatCellVoltageMv(d.avgCellVoltage) : "N/A"}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block font-sans">Cell Volt Max:</span>
+                <span className="text-cyan-400 font-bold">{d.maxCellVoltage !== undefined && d.maxCellVoltage !== null ? formatCellVoltageMv(d.maxCellVoltage) : "N/A"}</span>
+              </div>
             </div>
-            <div>
-              <span className="text-slate-400 block font-sans">Avg Cell Temp:</span>
-              <span className="text-yellow-400 font-bold text-xs">{d.avgCellTempC !== undefined && d.avgCellTempC !== null ? formatTemperatureF(d.avgCellTempC, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "N/A"}</span>
+          ) : (
+            <div className="pt-1 grid grid-cols-3 gap-1 text-[9.5px] border-t border-prizm-border/40 my-1">
+              <div>
+                <span className="text-slate-400 block font-sans">Temp Min:</span>
+                <span className="text-orange-400 font-bold">
+                  {d.minCellTempC !== undefined && d.minCellTempC !== null 
+                    ? `${Math.round(celsiusToFahrenheit(d.minCellTempC))}°F` 
+                    : "N/A"}
+                </span>
+                {d.minCellTempC !== undefined && d.minCellTempC !== null && (
+                  <span className="text-slate-400 block text-[9px]">({d.minCellTempC.toFixed(1)}°C)</span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-400 block font-sans">Temp Avg:</span>
+                <span className="text-yellow-400 font-bold">
+                  {d.avgCellTempC !== undefined && d.avgCellTempC !== null 
+                    ? `${Math.round(celsiusToFahrenheit(d.avgCellTempC))}°F` 
+                    : "N/A"}
+                </span>
+                {d.avgCellTempC !== undefined && d.avgCellTempC !== null && (
+                  <span className="text-slate-400 block text-[9px]">({d.avgCellTempC.toFixed(1)}°C)</span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-400 block font-sans">Temp Max:</span>
+                <span className="text-orange-400 font-bold">
+                  {d.maxCellTempC !== undefined && d.maxCellTempC !== null 
+                    ? `${Math.round(celsiusToFahrenheit(d.maxCellTempC))}°F` 
+                    : "N/A"}
+                </span>
+                {d.maxCellTempC !== undefined && d.maxCellTempC !== null && (
+                  <span className="text-slate-400 block text-[9px]">({d.maxCellTempC.toFixed(1)}°C)</span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="pt-1.5 border-t border-prizm-border flex items-center gap-1.5 font-bold" style={{ color: getStatusColorHex(d.statusColor) }}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: getStatusColorHex(d.statusColor) }} />
@@ -854,6 +925,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       );
     }
     return null;
+  };
+
+  const fmtF = (c: number) => `${Math.round(celsiusToFahrenheit(c))}°F`;
+  const tempBandLabels = {
+    highAlarm: `HIGH TEMP ALARM (≥${fmtF(alarmTemp)})`,
+    highWarning: `HIGH TEMP WARNING (${fmtF(warningTemp)}–${fmtF(alarmTemp)})`,
+    lowWarning: `LOW TEMP WARNING (${fmtF(lowAlarmTemp)}–${fmtF(lowTemp)})`,
+    lowAlarm: `LOW TEMP ALARM (≤${fmtF(lowAlarmTemp)})`
   };
 
   return (
@@ -1560,28 +1639,28 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           stroke="#EF4444" 
                           strokeDasharray="5 5" 
                           strokeWidth={1.5} 
-                          label={{ value: `HIGH TEMP ALARM (≥${alarmTemp}°C / ${Math.round(celsiusToFahrenheit(alarmTemp))}°F)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: tempBandLabels.highAlarm, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={celsiusToFahrenheit(warningTemp)} 
                           stroke="#F59E0B" 
                           strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `HIGH TEMP WARNING (${warningTemp}–${alarmTemp}°C)`, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
+                          label={{ value: tempBandLabels.highWarning, fill: "#F59E0B", fontSize: 9, fontWeight: "bold", position: "insideTopLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={celsiusToFahrenheit(lowTemp)} 
                           stroke="#3B82F6" 
                           strokeDasharray="3 3" 
                           strokeWidth={1} 
-                          label={{ value: `LOW TEMP WARNING (${lowAlarmTemp}–${lowTemp}°C)`, fill: "#3B82F6", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                          label={{ value: tempBandLabels.lowWarning, fill: "#3B82F6", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
                         />
                         <ReferenceLine 
                           y={celsiusToFahrenheit(lowAlarmTemp)} 
                           stroke="#EF4444" 
                           strokeDasharray="5 5" 
                           strokeWidth={1.5} 
-                          label={{ value: `LOW TEMP ALARM (≤${lowAlarmTemp}°C / ${Math.round(celsiusToFahrenheit(lowAlarmTemp))}°F)`, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
+                          label={{ value: tempBandLabels.lowAlarm, fill: "#EF4444", fontSize: 9, fontWeight: "bold", position: "insideBottomLeft", offset: 8 }} 
                         />
                       </>
                     ) : (
@@ -1678,19 +1757,19 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
                       // Derive Voltage Min, Max, Avg: use stackVoltage if no cell voltage is available
                       const renderVoltMin = s.minCellVoltage !== undefined && s.minCellVoltage !== null
-                        ? `${(s.minCellVoltage * 1000).toFixed(0)} mV`
+                        ? formatCellVoltageMv(s.minCellVoltage)
                         : s.stackVoltage !== undefined && s.stackVoltage !== null
                           ? `${s.stackVoltage} Vdc`
                           : "--";
 
                       const renderVoltMax = s.maxCellVoltage !== undefined && s.maxCellVoltage !== null
-                        ? `${(s.maxCellVoltage * 1000).toFixed(0)} mV`
+                        ? formatCellVoltageMv(s.maxCellVoltage)
                         : s.stackVoltage !== undefined && s.stackVoltage !== null
                           ? `${s.stackVoltage} Vdc`
                           : "--";
 
                       const renderVoltAvg = s.avgCellVoltage !== undefined && s.avgCellVoltage !== null
-                        ? `${(s.avgCellVoltage * 1000).toFixed(0)} mV`
+                        ? formatCellVoltageMv(s.avgCellVoltage)
                         : s.stackVoltage !== undefined && s.stackVoltage !== null
                           ? `${s.stackVoltage} Vdc`
                           : "--";
