@@ -1,5 +1,69 @@
 [
   {
+    "runId": "hold-1782446926999-xj5tp10-1782446927085",
+    "holdId": "hold-1782446926999-xj5tp10",
+    "timestamp": "2026-06-26T04:08:47.085Z",
+    "fanSpeedPercent": 80,
+    "durationSeconds": 60,
+    "operator": "Test Tech Stop",
+    "targetsCount": 2,
+    "state": "STOPPED",
+    "verificationResults": [
+      {
+        "holdId": "hold-1782446926999-xj5tp10",
+        "targetId": "hold-1782446926999-xj5tp10-A2-S5",
+        "controller": "ems",
+        "arrayNumber": 2,
+        "stringNumber": 5,
+        "energySegmentNumber": 3,
+        "label": "A2 / ES3 / S5",
+        "commandedSpeedPercent": 80,
+        "commandedState": "ON",
+        "actualFanState": "UNKNOWN",
+        "actualFanSpeedPercent": null,
+        "actualFanRpm": null,
+        "actualFanRpmByFan": [],
+        "actualFanPercentByFan": [],
+        "fanCount": 1,
+        "fanRatedRpm": 7500,
+        "fanStatusAvgRpm": null,
+        "fanStatusPercent": null,
+        "feedbackTimestamp": "2026-06-26T04:08:47.063Z",
+        "telemetryAgeMs": 22,
+        "result": "UNKNOWN_NO_TELEMETRY",
+        "notes": [
+          "Telemetry exists but has no fan speed / RPM readings."
+        ]
+      },
+      {
+        "holdId": "hold-1782446926999-xj5tp10",
+        "targetId": "hold-1782446926999-xj5tp10-A2-S28",
+        "controller": "ems",
+        "arrayNumber": 2,
+        "stringNumber": 28,
+        "energySegmentNumber": 14,
+        "label": "A2 / ES14 / S28",
+        "commandedSpeedPercent": 80,
+        "commandedState": "ON",
+        "actualFanState": "UNKNOWN",
+        "actualFanSpeedPercent": null,
+        "actualFanRpm": null,
+        "actualFanRpmByFan": [],
+        "actualFanPercentByFan": [],
+        "fanCount": 1,
+        "fanRatedRpm": 7500,
+        "fanStatusAvgRpm": null,
+        "fanStatusPercent": null,
+        "feedbackTimestamp": "2026-06-26T04:08:47.069Z",
+        "telemetryAgeMs": 16,
+        "result": "UNKNOWN_NO_TELEMETRY",
+        "notes": [
+          "Telemetry exists but has no fan speed / RPM readings."
+        ]
+      }
+    ]
+  },
+  {
     "runId": "hold-1782443730390-umpzd6h-1782443730461",
     "holdId": "hold-1782443730390-umpzd6h",
     "timestamp": "2026-06-26T03:15:30.461Z",

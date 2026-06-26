@@ -578,55 +578,55 @@ export default function SiteOperationsDashboard({
               const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
               const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "Unavailable";
               
-              const fieldsChecked = [
-                "sum.fleetCapacity.installedCapacityKWh",
-                "sum.stringSummary.rollups.fleetCapacity.installedCapacityKWh",
-                "arraySummary[].raw.strings[].wattHourCapacity",
-                "arraySummary[].raw.strings[].ampHourCapacity",
-                "config/profile/snapshot properties"
-              ];
+              const formatMWhOrDash = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
 
               return (
-                <div className="absolute hidden group-hover:block bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-50 text-[11px] font-mono space-y-2 font-sans">
-                  <div className="font-bold border-b border-slate-700 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Installed Capacity (MWh)
+                <div className="absolute hidden group-hover:block top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-80 max-w-[min(90vw,24rem)] bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-3 shadow-2xl z-[9999] text-[11px] font-mono space-y-2 font-sans pointer-events-none whitespace-normal">
+                  <div className="font-bold border-b border-slate-700 pb-1 text-[11px] text-white uppercase tracking-wider font-mono text-center mb-2">
+                    Fleet Capacity Breakdown
+                  </div>
+                  <div className="font-bold border-b border-slate-700 pt-1 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
+                    Installed Capacity
                   </div>
                   <div className="grid grid-cols-2 gap-y-1 font-mono">
                     <span>Total:</span>
                     <span className="text-right font-bold">{formatVal(fc?.installedCapacityKWh)}</span>
-                    <span className="text-emerald-400">● Online:</span>
+                    <span className="text-emerald-400">Online Installed:</span>
                     <span className="text-right">{formatVal(fc?.onlineInstalledKWh)}</span>
-                    <span className="text-blue-400">● Nearline:</span>
+                    <span className="text-blue-400">Nearline Installed:</span>
                     <span className="text-right">{formatVal(fc?.nearlineInstalledKWh)}</span>
-                    <span className="text-rose-400">● Offline/Unavail:</span>
+                    <span className="text-rose-400">Offline/Unavail:</span>
                     <span className="text-right">{formatVal(fc?.unavailableInstalledKWh)}</span>
                   </div>
-                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Stored Energy (MWh)
-                  </div>
-                  <div className="grid grid-cols-2 gap-y-1 font-mono">
-                    <span>Available:</span>
-                    <span className="text-right font-bold">{formatVal(fc?.availableStoredKWh)}</span>
-                    <span className="text-emerald-400">Online:</span>
-                    <span className="text-right">{formatVal(fc?.onlineStoredKWh)}</span>
-                    <span className="text-blue-400">Nearline:</span>
-                    <span className="text-right">{formatVal(fc?.nearlineStoredKWh)}</span>
-                    <span className="text-amber-400">Offline:</span>
-                    <span className="text-right">{formatVal(fc?.offlineStoredKWh)}</span>
-                    <span className="text-rose-400">No Comm:</span>
-                    <span className="text-right">{formatVal(fc?.notCommunicatingStoredKWh)}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-800 font-mono">
-                    <div className="text-[9px] text-slate-400 font-bold uppercase mb-1">Checked Fields:</div>
-                    <ul className="list-disc list-inside text-[8px] text-slate-400 space-y-0.5">
-                      {fieldsChecked.map((f, i) => <li key={i}>{f}</li>)}
-                    </ul>
-                  </div>
                   {fc?.installedCapacityKWh == null && (
-                    <div className="text-[9px] text-amber-300 pt-1 border-t border-slate-800 text-center font-sans italic">
-                      Installed capacity not mapped
+                    <div className="text-[9px] text-amber-300 pt-1 text-left font-sans italic">
+                      Note: Installed capacity source is not currently mapped.
                     </div>
                   )}
+                  
+                  <div className="font-bold border-b border-slate-700 pt-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
+                    Stored Energy
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-1 font-mono">
+                    <span>Available Stored:</span>
+                    <span className="text-right font-bold">{formatMWhOrDash(fc?.availableStoredKWh)} MWh</span>
+                    <span className="text-emerald-400">Online Stored:</span>
+                    <span className="text-right">{formatMWhOrDash(fc?.onlineStoredKWh)} MWh</span>
+                    <span className="text-blue-400">Nearline Stored:</span>
+                    <span className="text-right">{formatMWhOrDash(fc?.nearlineStoredKWh)} MWh</span>
+                    <span className="text-amber-400">Offline Stored:</span>
+                    <span className="text-right">{formatMWhOrDash(fc?.offlineStoredKWh)} MWh</span>
+                    <span className="text-rose-400">No Comm Stored:</span>
+                    <span className="text-right">{formatMWhOrDash(fc?.notCommunicatingStoredKWh)} MWh</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800 font-mono">
+                    <div className="text-[9px] text-slate-400 font-bold uppercase mb-1">Source</div>
+                    <ul className="list-disc list-inside text-[8px] text-slate-400 space-y-0.5">
+                      <li>Stored energy source: normalized.strings.kwh</li>
+                      <li>Fleet SOC source: normalized.strings.socPct</li>
+                      <li>Canonical rollup: prizmDataCoordinator.finalFleetRollupRepair</li>
+                    </ul>
+                  </div>
                 </div>
               );
             })()}
@@ -634,26 +634,54 @@ export default function SiteOperationsDashboard({
             <div className="flex flex-col mt-4">
               {(() => {
                 const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
-                const formatMWh = (v: number | null | undefined): string => {
+                const formatMWhStr = (v: number | null | undefined): string => {
                   if (v == null) return "Unavailable";
                   return (v / 1000).toFixed(2);
                 };
 
+                const hasInstalledCapacity = fc?.installedCapacityKWh != null;
+                const hasStoredEnergy = fc?.availableStoredKWh != null;
                 const hasSoc = systemSoc !== null;
-                const hasCapacity = fc?.installedCapacityKWh != null;
+
+                const primaryFleetValue = hasInstalledCapacity
+                  ? (
+                    <div className="text-2xl font-bold text-prizm-text font-mono">
+                      {formatMWhStr(fc.installedCapacityKWh)}
+                      <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                    </div>
+                  )
+                  : hasStoredEnergy
+                    ? (
+                      <div className="text-2xl font-bold text-prizm-text font-mono">
+                        {formatMWhStr(fc.availableStoredKWh)}
+                        <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
+                      </div>
+                    )
+                    : hasSoc
+                      ? (
+                        <div className="text-2xl font-bold text-prizm-text font-mono">
+                          {systemSoc.toFixed(1)}
+                          <span className="text-sm text-prizm-text-muted ml-1">%</span>
+                        </div>
+                      )
+                      : (
+                        <div className="text-xl font-bold text-amber-500 font-mono">
+                          Unavailable
+                        </div>
+                      );
+
+                const primaryFleetLabel = hasInstalledCapacity
+                  ? "Installed Capacity"
+                  : hasStoredEnergy
+                    ? "Stored Energy Available"
+                    : hasSoc
+                      ? "SOC Available / Capacity Unmapped"
+                      : "Fleet Capacity";
 
                 return (
                   <>
-                    {hasCapacity ? (
-                      <div className="text-2xl font-bold text-prizm-text font-mono">
-                        {formatMWh(fc.installedCapacityKWh)}
-                        <span className="text-sm text-prizm-text-muted ml-1">MWh</span>
-                      </div>
-                    ) : (
-                      <div className="text-xl font-bold text-amber-500 font-mono">
-                        Unavailable
-                      </div>
-                    )}
+                    {primaryFleetValue}
+                    <div className="text-[10px] text-prizm-text-muted mt-0.5 mb-2 font-mono uppercase tracking-wider">{primaryFleetLabel}</div>
 
                     <div className="mt-2 space-y-1 text-[10px] font-sans">
                       <div className="flex justify-between items-center">
@@ -665,23 +693,39 @@ export default function SiteOperationsDashboard({
                       <div className="flex justify-between items-center">
                         <span className="text-prizm-text-muted">Installed Capacity:</span>
                         <span className="font-mono font-bold text-prizm-text-muted">
-                          {hasCapacity ? `${formatMWh(fc?.installedCapacityKWh)} MWh` : "Unavailable"}
+                          {hasInstalledCapacity ? `${formatMWhStr(fc?.installedCapacityKWh)} MWh` : "Unavailable"}
                         </span>
                       </div>
                       <div className="flex justify-between items-start gap-2">
                         <span className="text-prizm-text-muted">Stored MWh:</span>
                         <span className="font-mono font-bold text-prizm-text-muted text-right">
-                          {hasCapacity && fc?.availableStoredKWh != null ? (
-                            `${formatMWh(fc.availableStoredKWh)} MWh`
+                          {hasStoredEnergy ? (
+                            `${formatMWhStr(fc.availableStoredKWh)} MWh`
                           ) : hasSoc ? (
                             <span className="text-amber-500/80 text-[9px] italic">
-                              Unavailable (Capacity mapping missing)
+                              Unavailable (Stored energy mapping missing)
                             </span>
                           ) : (
                             "Unavailable"
                           )}
                         </span>
                       </div>
+                      {fc?.availableStoredKWh != null && (
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="text-prizm-text-muted">Available Stored:</span>
+                          <span className="font-mono font-bold text-prizm-text-muted text-right">
+                            {formatMWhStr(fc.availableStoredKWh)} MWh
+                          </span>
+                        </div>
+                      )}
+                      {fc?.onlineStoredKWh != null && (
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="text-prizm-text-muted">Online Stored:</span>
+                          <span className="font-mono font-bold text-prizm-text-muted text-right">
+                            {formatMWhStr(fc.onlineStoredKWh)} MWh
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </>
                 );
