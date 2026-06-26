@@ -48,6 +48,18 @@ export function getDefaultTopologyModel(): TopologyModel {
   };
 }
 
+export function getDefaultCapacityProfile() {
+  return {
+    profileName: "Default 750kWh Energy Segment",
+    energySegmentCapacityKWh: 750,
+    stringsPerEnergySegment: 2,
+    nominalStringVoltageV: 1344,
+    chemistry: "LFP",
+    manufacturerModel: "EVE/CATL/AESC/REPT compatible",
+    notes: "Default profile based on PRIZM current Clyde/BHE0020 connected site documentation"
+  };
+}
+
 function getDefaultProfile(): EmsProfile {
   const now = new Date().toISOString();
   return {
@@ -70,7 +82,8 @@ function getDefaultProfile(): EmsProfile {
     updatedAt: now,
     lastTestedAt: null,
     lastTestResult: null,
-    topologyModel: getDefaultTopologyModel()
+    topologyModel: getDefaultTopologyModel(),
+    capacityProfile: getDefaultCapacityProfile()
   };
 }
 

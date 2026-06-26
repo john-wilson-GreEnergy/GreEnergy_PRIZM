@@ -61,6 +61,13 @@ interface EmsProfile {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  capacityProfile?: {
+    profileName?: string;
+    energySegmentCapacityKWh?: number;
+    stringsPerEnergySegment?: number;
+    nominalStringVoltageV?: number;
+    notes?: string;
+  };
   lastTestedAt?: string | null;
   lastTestResult?: {
     success: boolean;
@@ -1340,6 +1347,70 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                 </div>
 
                 {/* Additional instructions/Notes */}
+                {/* Capacity Profile Section */}
+                <div className="space-y-4 md:col-span-2 pt-2 pb-2 bg-prizm-surface-strong/30 p-3 rounded border border-white/[0.01]">
+                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">
+                    Capacity Profile
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="space-y-1 sm:col-span-2 lg:col-span-4">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Profile Name</label>
+                      <input
+                        type="text"
+                        value={formProfile.capacityProfile?.profileName || ""}
+                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, profileName: e.target.value } }))}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
+                        placeholder="e.g., Default 750kWh Energy Segment"
+                      />
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">ES Capacity (kWh)</label>
+                      <input
+                        type="number"
+                        value={formProfile.capacityProfile?.energySegmentCapacityKWh ?? 750}
+                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, energySegmentCapacityKWh: Number(e.target.value) } }))}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
+                        min={0}
+                      />
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Strings per ES</label>
+                      <input
+                        type="number"
+                        value={formProfile.capacityProfile?.stringsPerEnergySegment ?? 2}
+                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, stringsPerEnergySegment: Number(e.target.value) } }))}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
+                        min={1}
+                      />
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Nominal Volts</label>
+                      <input
+                        type="number"
+                        value={formProfile.capacityProfile?.nominalStringVoltageV ?? 1344}
+                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, nominalStringVoltageV: Number(e.target.value) } }))}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
+                        min={0}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Notes</label>
+                      <input
+                        type="text"
+                        value={formProfile.capacityProfile?.notes || ""}
+                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, notes: e.target.value } }))}
+                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
+                        placeholder=""
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-1 md:col-span-2">
                   <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Notes / Site Description</label>
                   <textarea 

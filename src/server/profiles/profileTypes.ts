@@ -39,6 +39,17 @@ export interface TopologyModel {
   blocks: TopologyBlockModel[];
 }
 
+export interface CapacityProfile {
+  profileName?: string;
+  energySegmentCapacityKWh?: number;
+  stringsPerEnergySegment?: number;
+  nominalStringVoltageV?: number;
+  ratedDurationHours?: number;
+  batteryManufacturer?: string;
+  cellChemistry?: string;
+  notes?: string;
+}
+
 export interface EmsProfile {
   id: string;
   profileName: string;
@@ -58,6 +69,7 @@ export interface EmsProfile {
   createdAt: string;
   updatedAt: string;
   topologyModel?: TopologyModel;
+  capacityProfile?: CapacityProfile;
   ipLayout?: {
     arraySubnetMode?: "third-octet" | "explicit-map" | "custom";
     baseNetwork?: string;

@@ -632,13 +632,40 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.fleetCapacity.notCommunicatingStoredKWh = notCommunicatingStoredKWh;
   snapshot.rollups.fleetCapacity.availableStoredKWh = availableStoredKWh;
   
+  // Calculate installed capacity based on profile
+  const activeProfile = ProfileStore.getActiveProfile();
+  const capacityProfile = activeProfile?.capacityProfile || {
+    energySegmentCapacityKWh: 750,
+    stringsPerEnergySegment: 2
+  };
+  
+  const esCapacity = capacityProfile.energySegmentCapacityKWh || 750;
+  const stringsPerES = capacityProfile.stringsPerEnergySegment || 2;
+  
+  // Default installed capacity calculation
+  const esCount = Math.floor(totalStrings / stringsPerES);
+  const installedMWh = esCount * esCapacity;
+  
+  // Only set if not already defined from EMS
+  if (snapshot.rollups.fleetCapacity.installedCapacityKWh == null) {
+    snapshot.rollups.fleetCapacity.installedCapacityKWh = installedMWh;
+    snapshot.debug.capacityProfile = {
+       used: true,
+       source: activeProfile?.capacityProfile ? "activeProfile" : "defaultFallback",
+       energySegmentCapacityKWh: esCapacity,
+       stringsPerEnergySegment: stringsPerES,
+       esCount
+    };
+  }
+
   snapshot.rollups.stringSummary.rollups.fleetCapacity = {
     ...snapshot.rollups.stringSummary.rollups.fleetCapacity,
     onlineStoredKWh,
     nearlineStoredKWh,
     offlineStoredKWh,
     notCommunicatingStoredKWh,
-    availableStoredKWh
+    availableStoredKWh,
+    installedCapacityKWh: snapshot.rollups.fleetCapacity.installedCapacityKWh
   };
   
   snapshot.rollups.fleetCapacity.source = {
@@ -1362,6 +1389,7 @@ async function doBackgroundPoll() {
       }
 
       repairFinalFleetRollupsFromStringsAndArrays(newSnap);
+      repairFinalCorrectiveActionsFromSnapshot(newSnap);
 
       let acceptSnapshot = true;
       let rejectionReason = "";
@@ -1911,4 +1939,346 @@ export function clearSnapshot() {
 export function triggerImmediatePoll() {
     isPolling = false; // Break any locks to force immediate poll
     return doBackgroundPoll();
+}
+
+function isCollectionSegmentDevice(device: any) {
+  const ip = device?.deviceIp || device?.ip;
+  if (ip && String(ip).endsWith(".3")) return true;
+  if (device?.isCollectionSegment) return true;
+  if (device?.stringIndex === null || device?.stringIndex === undefined) {
+    if (device?.arrayIndex !== undefined && device?.arrayIndex !== null) return true;
+  }
+  return false;
+}
+
+function isEnergySegmentDevice(device: any) {
+  return !isCollectionSegmentDevice(device);
+}
+
+function normalizeFaultText(text: string) {
+  return (text || "").trim().replace(/\s+/g, " ");
+}
+
+function extractFaultMessagesFromDevice(device: any) {
+  const messages: any[] = [];
+  if (Array.isArray(device?.activeAlarms)) {
+    device.activeAlarms.forEach((msg: string) => messages.push({ text: msg, severity: "alarm" }));
+  }
+  if (Array.isArray(device?.activeWarnings)) {
+    device.activeWarnings.forEach((msg: string) => messages.push({ text: msg, severity: "warning" }));
+  }
+  if (device?.reachable === false || device?.lostComms === true || device?.operationalState === "OFFLINE") {
+    messages.push({ text: "Lost Comms with Feather", severity: "alarm" });
+  }
+  return messages;
+}
+
+function extractFaultMessagesFromStringRow(row: any) {
+  const messages: any[] = [];
+  if (Array.isArray(row?.alarmMessages)) {
+    row.alarmMessages.forEach((msg: string) => messages.push({ text: msg, severity: "alarm" }));
+  } else if (Array.isArray(row?.activeAlarms)) {
+    row.activeAlarms.forEach((msg: string) => messages.push({ text: msg, severity: "alarm" }));
+  }
+  
+  if (Array.isArray(row?.warningMessages)) {
+    row.warningMessages.forEach((msg: string) => messages.push({ text: msg, severity: "warning" }));
+  } else if (Array.isArray(row?.activeWarnings)) {
+    row.activeWarnings.forEach((msg: string) => messages.push({ text: msg, severity: "warning" }));
+  }
+  return messages;
+}
+
+function extractBpcIndex(source: any): number | null {
+  if (!source) return null;
+  const direct = source.bpc ?? source.bpcIndex ?? source.bpcNumber ?? source.batteryPackIndex ?? source.batteryPackNumber ?? source.bpIndex ?? source.packIndex ?? source.packNumber ?? source.raw?.bpcIndex ?? source.raw?.batteryPackIndex;
+  if (direct != null) return Number(direct);
+  
+  const text = String(source.text || source.label || source.id || "");
+  const m = text.match(/(?:BPC|BP|Battery Pack)\s*(\d+)/i);
+  if (m) return Number(m[1]);
+  return null;
+}
+
+function extractCellGroupIndex(source: any): number | null {
+  if (!source) return null;
+  const direct = source.cg ?? source.cgIndex ?? source.cellGroup ?? source.cellGroupIndex ?? source.cellGroupNumber ?? source.cgc ?? source.cgcIndex ?? source.raw?.cgIndex ?? source.raw?.cellGroupIndex;
+  if (direct != null) return Number(direct);
+  
+  const text = String(source.text || source.label || source.id || "");
+  const m = text.match(/(?:CG|Cell Group|CGC)\s*(\d+)/i);
+  if (m) return Number(m[1]);
+  return null;
+}
+
+function extractNumericFaultCode(messageOrObject: any): number | null {
+  if (typeof messageOrObject === "number") return messageOrObject;
+  const text = typeof messageOrObject === "string" ? messageOrObject : String(messageOrObject?.text || "");
+  const m = text.match(/^(\d{4})\b/);
+  if (m) return Number(m[1]);
+  return null;
+}
+
+function getFaultFamilyKey(code: number | null, label: string): string {
+  if (code !== null && code >= 1000 && code <= 2999) {
+    const codeStr = String(code);
+    return codeStr.substring(1);
+  }
+  return label.toLowerCase();
+}
+
+function shouldIgnoreFaultForDevice(faultLabel: string, deviceType: "CS" | "ES", ip: string | null, device: any): boolean {
+  const lower = faultLabel.toLowerCase();
+  
+  if (lower.match(/out of rotation|rotation|contactor open|contactors open|string disabled due to rotation/)) return true;
+  const code = extractNumericFaultCode(faultLabel);
+  if (code === 2534 || code === 2561) return true;
+
+  if (deviceType === "CS") {
+    if (lower.match(/battery enclosure door open|battery door open/)) return true;
+  }
+  
+  if (deviceType === "ES") {
+    if (lower.match(/dc cabinet door open/)) return true;
+    if (lower.match(/ac cabinet door open/)) return true;
+  }
+  
+  return false;
+}
+
+function determineSeverity(faultLabel: string, sourceSeverity: string | null): string {
+  const code = extractNumericFaultCode(faultLabel);
+  if (code !== null) {
+    const codeStr = String(code);
+    if (codeStr.startsWith("1")) return "alarm";
+    if (codeStr.startsWith("2")) return "warning";
+  }
+  
+  const lower = faultLabel.toLowerCase();
+  if (lower.match(/fss invalid|lost comms|door open|leak detector|communication|disconnect/)) return "alarm";
+  
+  if (sourceSeverity) return sourceSeverity;
+  
+  if (lower.match(/mio invalid|hvac/)) return "warning";
+  
+  return "warning";
+}
+
+function makeAffectedLabel(target: any): string {
+  let label = "";
+  if (target.arrayIndex != null) label += `Array ${target.arrayIndex}`;
+  if (target.stringIndex != null) {
+    if (label) label += " / ";
+    label += `ES${target.stringIndex} / String ${target.stringIndex}`;
+  } else if (target.segmentIndex != null) {
+    if (label) label += " / ";
+    label += `Segment ${target.segmentIndex}`;
+  }
+  if (target.bpcIndex != null) {
+    if (label) label += " / ";
+    label += `BPC ${target.bpcIndex}`;
+  }
+  
+  if (target.cellGroupIndex != null) {
+    if (label) label += " / ";
+    label += `CG ${target.cellGroupIndex}`;
+  }
+  
+  if (!label && target.ip) return target.ip;
+  return label || "Unknown Target";
+}
+
+function getSuggestedAction(label: string): string {
+  const lower = label.toLowerCase();
+  if (lower.match(/door/)) return "Inspect and secure enclosure door; verify door switch state, latch alignment, and input status.";
+  if (lower.match(/leak/)) return "Inspect leak detector circuit and affected enclosure for moisture or fluid intrusion.";
+  if (lower.match(/comms|communication|reachable|lost comms|disconnect/)) return "Check device power, network path, switch port, and local controller communication.";
+  if (lower.match(/fss|fire/)) return "Inspect fire safety signal chain, FSS/FDM inputs, and associated interlocks.";
+  if (lower.match(/hvac/)) return "Inspect HVAC controller, power, enable state, and local controls.";
+  if (lower.match(/mio/)) return "Inspect MIO controller validity, communication, and I/O mapping.";
+  if (lower.match(/top cap/)) return "Inspect lower top cap switch, harness, and local input status.";
+  if (lower.match(/balance/)) return "Inspect BPC balancing circuit status and cell group telemetry.";
+  if (lower.match(/cell group|cgc|bpc/)) return "Inspect BPC/cell group communication and battery pack telemetry.";
+  
+  return "Open Feather/HVAC or String List details and inspect affected device.";
+}
+
+export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
+  if (!snapshot) return;
+  if (!snapshot.debug) snapshot.debug = {};
+  
+  const existingActions = snapshot.normalized?.correctiveActions || [];
+  
+  const devicesWithIssues = snapshot.rollups?.featherSummary?.devicesWithIssues || snapshot.normalized?.feather?.filter((d: any) => d.hasActiveIssue) || [];
+  const stringRows = snapshot.normalized?.strings || snapshot.rollups?.stringSummary?.tableRows || [];
+  
+  let featherEventsExtracted = 0;
+  let featherEventsIgnored = 0;
+  let stringEventsExtracted = 0;
+  let stringEventsIgnored = 0;
+  let warningEventsSuppressedByAlarm = 0;
+  
+  const rawEvents: any[] = [];
+  
+  for (const device of devicesWithIssues) {
+    const isCS = isCollectionSegmentDevice(device);
+    const ip = device.deviceIp || device.ip;
+    const messages = extractFaultMessagesFromDevice(device);
+    
+    for (const msg of messages) {
+      const faultLabel = normalizeFaultText(msg.text);
+      if (shouldIgnoreFaultForDevice(faultLabel, isCS ? "CS" : "ES", ip, device)) {
+        featherEventsIgnored++;
+        continue;
+      }
+      
+      const code = extractNumericFaultCode(faultLabel);
+      const severity = determineSeverity(faultLabel, msg.severity);
+      
+      rawEvents.push({
+        faultLabel,
+        code,
+        familyKey: getFaultFamilyKey(code, faultLabel),
+        severity,
+        target: {
+          ip,
+          arrayIndex: device.arrayIndex,
+          stringIndex: device.stringIndex,
+          bpcIndex: extractBpcIndex(device) ?? extractBpcIndex(msg),
+          cellGroupIndex: extractCellGroupIndex(device) ?? extractCellGroupIndex(msg)
+        },
+        source: "feather"
+      });
+      featherEventsExtracted++;
+    }
+  }
+  
+  for (const row of stringRows) {
+    const messages = extractFaultMessagesFromStringRow(row);
+    
+    for (const msg of messages) {
+      const faultLabel = normalizeFaultText(msg.text);
+      if (shouldIgnoreFaultForDevice(faultLabel, "ES", null, row)) {
+        stringEventsIgnored++;
+        continue;
+      }
+      
+      const code = extractNumericFaultCode(faultLabel);
+      const severity = determineSeverity(faultLabel, msg.severity);
+      
+      rawEvents.push({
+        faultLabel,
+        code,
+        familyKey: getFaultFamilyKey(code, faultLabel),
+        severity,
+        target: {
+          arrayIndex: row.arrayNumber || row.arrayIndex,
+          stringIndex: row.stringNumber || row.stringIndex,
+          bpcIndex: extractBpcIndex(row) ?? extractBpcIndex(msg),
+          cellGroupIndex: extractCellGroupIndex(row) ?? extractCellGroupIndex(msg)
+        },
+        source: "strings"
+      });
+      stringEventsExtracted++;
+    }
+  }
+  
+  // Suppress warnings when alarms exist
+  const alarmsByTargetFamily = new Set<string>();
+  for (const event of rawEvents) {
+    if (event.severity === "alarm") {
+      const targetKey = JSON.stringify(event.target);
+      alarmsByTargetFamily.add(`${targetKey}|${event.familyKey}`);
+    }
+  }
+  
+  const filteredEvents = rawEvents.filter(event => {
+    if (event.severity === "warning") {
+      const targetKey = JSON.stringify(event.target);
+      if (alarmsByTargetFamily.has(`${targetKey}|${event.familyKey}`)) {
+        warningEventsSuppressedByAlarm++;
+        return false;
+      }
+    }
+    return true;
+  });
+  
+  const groupsMap = new Map<string, any>();
+  for (const event of filteredEvents) {
+    const groupKey = `${event.severity}|${event.familyKey}`;
+    if (!groupsMap.has(groupKey)) {
+      groupsMap.set(groupKey, {
+        severity: event.severity,
+        faultLabel: event.faultLabel,
+        familyKey: event.familyKey,
+        affectedMap: new Map<string, any>(),
+        suggestedAction: getSuggestedAction(event.faultLabel)
+      });
+    }
+    const group = groupsMap.get(groupKey);
+    const targetKey = JSON.stringify(event.target);
+    if (!group.affectedMap.has(targetKey)) {
+      group.affectedMap.set(targetKey, event.target);
+    }
+  }
+  
+  const newActions = Array.from(groupsMap.values()).map(group => {
+    const affected = Array.from(group.affectedMap.values());
+    const affectedLabel = makeAffectedLabel(affected[0]);
+    const affectedSummary = affected.length > 1 ? `${affectedLabel} (+${affected.length - 1} more)` : affectedLabel;
+    
+    return {
+      severity: group.severity,
+      faultLabel: group.faultLabel,
+      affectedSummary,
+      affected: affected.map(target => Object.assign({}, target, {
+         label: makeAffectedLabel(target)
+      })),
+      suggestedAction: group.suggestedAction
+    };
+  });
+  
+  const finalActions = [...existingActions];
+  for (const newAction of newActions) {
+     const exists = finalActions.find((a: any) => a.faultLabel === newAction.faultLabel && a.severity === newAction.severity);
+     if (!exists) {
+        finalActions.push(newAction);
+     }
+  }
+  
+  if (!snapshot.normalized) snapshot.normalized = {};
+  snapshot.normalized.correctiveActions = finalActions;
+  
+  if (!snapshot.rollups) snapshot.rollups = {};
+  snapshot.rollups.correctiveActions = finalActions;
+  snapshot.correctiveActions = finalActions;
+  
+  snapshot.debug.correctiveActionsCount = finalActions.length;
+  
+  if (featherEventsExtracted === 0 && stringEventsExtracted === 0 && existingActions.length === 0) {
+    snapshot.debug.correctiveActionsRepair = {
+      used: false,
+      reason: "no active Feather/string warnings or alarms found after filtering",
+      existingActionCount: existingActions.length,
+      featherDevicesScanned: devicesWithIssues.length,
+      featherDevicesWithIssuesCount: devicesWithIssues.length,
+      stringRowsScanned: stringRows.length,
+      finalActionCount: 0
+    };
+  } else {
+    snapshot.debug.correctiveActionsRepair = {
+      used: true,
+      existingActionCount: existingActions.length,
+      featherDevicesScanned: devicesWithIssues.length,
+      featherDevicesWithIssuesCount: devicesWithIssues.length,
+      featherEventsExtracted,
+      featherEventsIgnored,
+      stringRowsScanned: stringRows.length,
+      stringEventsExtracted,
+      stringEventsIgnored,
+      warningEventsSuppressedByAlarm,
+      finalActionCount: finalActions.length,
+      sampleFaultLabels: finalActions.slice(0, 5).map((a: any) => a.faultLabel)
+    };
+  }
 }
