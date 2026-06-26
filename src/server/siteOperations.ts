@@ -323,7 +323,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
         
         // Use the unified shared classifier!
         const classification = classifyStringOperationalState(row);
-        const bucket = classification.bucket;
+        const bucket = classification.state;
         const outRotation = !classification.inRotation;
         const inRotation = classification.inRotation;
         const contactorsClosed = classification.contactorsClosed;

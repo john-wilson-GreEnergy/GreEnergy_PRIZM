@@ -96,7 +96,7 @@ export function classifyStringOperationalState(rawString: any): {
   if (!communicating) {
     return {
       state: "notCommunicating",
-      bucket: "offline",
+      bucket: "notCommunicating",
       reason: "not_communicating",
       communicating,
       inRotation,

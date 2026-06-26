@@ -611,37 +611,37 @@ export default function SiteOperationsDashboard({
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-text-muted uppercase">Arrays</span>
                     <span className="font-bold text-prizm-text">
-                      {sum?.topologyStatus?.arrayCount ?? sum?.topologyCounts?.arrayCount ?? 8}
+                      {sum?.topologyStatus?.arrayCount ?? sum?.topologyCounts?.arrayCount ?? "--"}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-text-muted uppercase">Strings (Total)</span>
                     <span className="font-bold text-prizm-text">
-                      {sum?.topologyStatus?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? 320}
+                      {sum?.topologyStatus?.stringCount ?? sum?.bessFleetSummary?.totalStrings ?? "--"}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-text-muted uppercase">Energy Segments</span>
                     <span className="font-bold text-prizm-text">
-                      {sum?.topologyStatus?.energySegmentCount ?? 160}
+                      {sum?.topologyStatus?.energySegmentCount ?? "--"}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-warning uppercase">Strings Warn</span>
                     <span className="font-bold text-prizm-warning">
-                      {sum?.topologyStatus?.warningCount ?? sum?.correctiveActions?.filter((ca: any) => String(ca.severity || ca.level || "").toUpperCase().includes("WARN")).length ?? 11}
+                      {sum?.topologyStatus?.warningCount ?? "--"}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-danger uppercase">Strings Alarm</span>
                     <span className="font-bold text-prizm-danger">
-                      {sum?.topologyStatus?.alarmCount ?? sum?.correctiveActions?.filter((ca: any) => String(ca.severity || ca.level || "").toUpperCase().includes("ALARM")).length ?? 1}
+                      {sum?.topologyStatus?.alarmCount ?? "--"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-prizm-text-muted uppercase">PCS Units</span>
                     <span className="font-bold text-prizm-text">
-                      {sum?.topologyStatus?.pcsCount ?? sum?.topologyCounts?.pcsCount ?? 8}
+                      {sum?.topologyStatus?.pcsCount ?? sum?.topologyCounts?.pcsCount ?? "--"}
                     </span>
                   </div>
                 </div>
@@ -687,7 +687,7 @@ export default function SiteOperationsDashboard({
                         <span className="text-emerald-400">Online Stored:</span>
                         <span className="text-right">{formatMWhOrDash(fc?.onlineStoredKWh)} MWh ({sum?.topologyStatus?.onlineCount ?? 0} strings online)</span>
                         <span className="text-blue-400">Nearline Stored:</span>
-                        <span className="text-right">{formatMWhOrDash(fc?.nearlineStoredKWh)} MWh ({sum?.topologyStatus?.nearlineCount ?? 320} strings nearline)</span>
+                        <span className="text-right">{formatMWhOrDash(fc?.nearlineStoredKWh)} MWh ({sum?.topologyStatus?.nearlineCount ?? 0} strings nearline)</span>
                         <span className="text-amber-400">Offline Stored:</span>
                         <span className="text-right">{formatMWhOrDash(fc?.offlineStoredKWh)} MWh ({sum?.topologyStatus?.offlineCount ?? 0} strings offline)</span>
                         <span className="text-rose-400">No Comm Stored:</span>
@@ -750,6 +750,36 @@ export default function SiteOperationsDashboard({
                             <span className="text-prizm-text-muted">SOC Status:</span>
                             <span className={`font-mono font-bold ${hasSoc ? 'text-prizm-data-green' : 'text-prizm-text-muted'}`}>
                               {hasSoc ? `${systemSoc!.toFixed(1)}%` : "Unavailable"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-t border-prizm-border pt-1 mt-1">
+                            <span className="text-prizm-text-muted font-bold">Stored Energy:</span>
+                            <span className="font-mono font-bold text-white">
+                              {fc?.availableStoredKWh != null ? `${(fc.availableStoredKWh / 1000).toFixed(2)} MWh` : "Unavailable"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center pl-2">
+                            <span className="text-prizm-text-muted">Online Stored:</span>
+                            <span className="font-mono text-emerald-400">
+                              {fc?.onlineStoredKWh != null && fc.onlineStoredKWh > 0 ? `${(fc.onlineStoredKWh / 1000).toFixed(2)} MWh` : "0.00 MWh"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center pl-2">
+                            <span className="text-prizm-text-muted">Nearline Stored:</span>
+                            <span className="font-mono text-blue-400">
+                              {fc?.nearlineStoredKWh != null ? `${(fc.nearlineStoredKWh / 1000).toFixed(2)} MWh` : "0.00 MWh"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center pl-2">
+                            <span className="text-prizm-text-muted">Offline Stored:</span>
+                            <span className="font-mono text-amber-400">
+                              {fc?.offlineStoredKWh != null && fc.offlineStoredKWh > 0 ? `${(fc.offlineStoredKWh / 1000).toFixed(2)} MWh` : "0.00 MWh"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center pl-2 border-b border-prizm-border pb-1 mb-1">
+                            <span className="text-prizm-text-muted">Not Comm Stored:</span>
+                            <span className="font-mono text-rose-400">
+                              {fc?.notCommunicatingStoredKWh != null && fc.notCommunicatingStoredKWh > 0 ? `${(fc.notCommunicatingStoredKWh / 1000).toFixed(2)} MWh` : "0.00 MWh"}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">
@@ -913,7 +943,8 @@ export default function SiteOperationsDashboard({
                               {label}
                             </td>
                             {buckets.map((b, i) => {
-                              let val = sum.stringSummary.rollups?.[b]?.[field];
+                              const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
+                              let val = bCount === 0 ? null : sum.stringSummary.rollups?.[b]?.[field];
                               if (val !== null && val !== undefined && !isNaN(Number(val))) {
                                 if (isTemp) {
                                   val = Number(val) * 1.8 + 32;
@@ -944,9 +975,9 @@ export default function SiteOperationsDashboard({
                             SOC (kWh)
                           </td>
                           {buckets.map((b, i) => {
-                            let soc =
-                              sum.stringSummary.rollups?.[b]?.socPctAvg;
-                            let kwh = sum.stringSummary.rollups?.[b]?.kWhAvg;
+                            const bCount = sum.stringSummary.buckets?.[b] ?? sum.stringSummary.rollups?.[b]?.count ?? 0;
+                            let soc = bCount === 0 ? null : sum.stringSummary.rollups?.[b]?.socPctAvg;
+                            let kwh = bCount === 0 ? null : sum.stringSummary.rollups?.[b]?.kWhAvg;
                             let txt = "--";
                             if (soc !== null && soc !== undefined)
                               txt = formatVal(soc, "%");

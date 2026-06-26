@@ -493,35 +493,36 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   if (!snapshot.rollups.fleetCapacity) snapshot.rollups.fleetCapacity = {};
 
   const totalStrings = strings.length;
-  let onlineStrings = 0;
-  let nearlineStrings = 0;
-  let offlineStrings = 0;
-  let notCommunicatingStrings = 0;
-  
-  const fleetSocValues: number[] = [];
-  const onlineSocValues: number[] = [];
-  const nearlineSocValues: number[] = [];
-  const offlineSocValues: number[] = [];
-  const notCommunicatingSocValues: number[] = [];
-  
-  const onlineStoredKWhs: number[] = [];
-  const nearlineStoredKWhs: number[] = [];
-  const offlineStoredKWhs: number[] = [];
-  const notCommunicatingStoredKWhs: number[] = [];
-  
+  const getVal = (row: any, keys: string[]): number | null => {
+    for (const k of keys) {
+      const val = row[k];
+      if (val !== null && val !== undefined && !isNaN(Number(val))) {
+        return Number(val);
+      }
+    }
+    return null;
+  };
+
+  const bucketsRaw = {
+    online: [] as any[],
+    nearline: [] as any[],
+    offline: [] as any[],
+    notCommunicating: [] as any[]
+  };
+
   const perArray = new Map<number, any>();
-  
+
   for (const row of strings) {
     const arrNum = deriveArrayNumberFromRow(row);
     const bucket = resolveStringBucket(row);
     const soc = readSocPct(row);
     const kwh = readStoredKWh(row);
-    
-    if (bucket === "online") onlineStrings++;
-    else if (bucket === "nearline") nearlineStrings++;
-    else if (bucket === "offline") offlineStrings++;
-    else if (bucket === "notCommunicating") notCommunicatingStrings++;
-    
+
+    if (bucket === "online") bucketsRaw.online.push(row);
+    else if (bucket === "nearline") bucketsRaw.nearline.push(row);
+    else if (bucket === "offline") bucketsRaw.offline.push(row);
+    else if (bucket === "notCommunicating") bucketsRaw.notCommunicating.push(row);
+
     if (arrNum !== null) {
       if (!perArray.has(arrNum)) {
         perArray.set(arrNum, {
@@ -565,34 +566,35 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       const amps = finiteNumber(row.amps) ?? finiteNumber(row.currentA) ?? finiteNumber(row.currentAmp);
       if (amps !== null) agg.currentAmp += amps;
     }
-    
-    if (soc !== null) {
-      fleetSocValues.push(soc);
-      if (bucket === "online") onlineSocValues.push(soc);
-      else if (bucket === "nearline") nearlineSocValues.push(soc);
-      else if (bucket === "offline") offlineSocValues.push(soc);
-      else if (bucket === "notCommunicating") notCommunicatingSocValues.push(soc);
-    }
-    
-    if (kwh !== null) {
-      if (bucket === "online") onlineStoredKWhs.push(kwh);
-      else if (bucket === "nearline") nearlineStoredKWhs.push(kwh);
-      else if (bucket === "offline") offlineStoredKWhs.push(kwh);
-      else if (bucket === "notCommunicating") notCommunicatingStoredKWhs.push(kwh);
-    }
   }
-  
+
+  const onlineStrings = bucketsRaw.online.length;
+  const nearlineStrings = bucketsRaw.nearline.length;
+  const offlineStrings = bucketsRaw.offline.length;
+  const notCommunicatingStrings = bucketsRaw.notCommunicating.length;
+
+  const fleetSocValues = strings.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+  const onlineSocValues = bucketsRaw.online.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+  const nearlineSocValues = bucketsRaw.nearline.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+  const offlineSocValues = bucketsRaw.offline.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+  const notCommunicatingSocValues = bucketsRaw.notCommunicating.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+
   const fleetSocPct = average(fleetSocValues);
   const onlineSocPct = average(onlineSocValues);
   const nearlineSocPct = average(nearlineSocValues);
   const offlineSocPct = average(offlineSocValues);
   const notCommunicatingSocPct = average(notCommunicatingSocValues);
-  
+
+  const onlineStoredKWhs = bucketsRaw.online.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
+  const nearlineStoredKWhs = bucketsRaw.nearline.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
+  const offlineStoredKWhs = bucketsRaw.offline.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
+  const notCommunicatingStoredKWhs = bucketsRaw.notCommunicating.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
+
   const onlineStoredKWh = onlineStrings === 0 ? 0 : (sum(onlineStoredKWhs) ?? 0);
   const nearlineStoredKWh = nearlineStrings === 0 ? 0 : (sum(nearlineStoredKWhs) ?? 0);
   const offlineStoredKWh = offlineStrings === 0 ? 0 : (sum(offlineStoredKWhs) ?? 0);
   const notCommunicatingStoredKWh = notCommunicatingStrings === 0 ? 0 : (sum(notCommunicatingStoredKWhs) ?? 0);
-  
+
   let availableStoredKWh: number | null = null;
   if (onlineStoredKWh !== null || nearlineStoredKWh !== null) {
     availableStoredKWh = (onlineStoredKWh || 0) + (nearlineStoredKWh || 0);
@@ -610,11 +612,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   }
   
   if (onlineSocPct !== null) {
-    if (!snapshot.rollups.stringSummary.rollups.online) snapshot.rollups.stringSummary.rollups.online = {};
-    snapshot.rollups.stringSummary.rollups.online.socPctAvg = onlineSocPct;
     snapshot.rollups.stringSummary.rollups.onlineSocPctAvg = onlineSocPct;
   }
-  
   if (nearlineSocPct !== null) snapshot.rollups.stringSummary.rollups.nearlineSocPctAvg = nearlineSocPct;
   if (offlineSocPct !== null) snapshot.rollups.stringSummary.rollups.offlineSocPctAvg = offlineSocPct;
 
@@ -668,33 +667,72 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     canonicalRollup: "prizmDataCoordinator.finalFleetRollupRepair"
   };
 
-  // PART 5 - Canonical string counters
+  // PART 5 - Canonical string counters and full bucket rollups
   snapshot.rollups.stringSummary.rollups.totalStrings = totalStrings;
+
+  const calculateBucketRollup = (arr: any[], bName: string, avgKwhs: number[]) => {
+    const count = arr.length;
+    if (count === 0) return { count: 0 };
+    
+    const sumNum = (keys: string[]) => {
+      const vals = arr.map(a => getVal(a, keys)).filter(v => v !== null) as number[];
+      return vals.length > 0 ? vals.reduce((sum, v) => sum + v, 0) : null;
+    };
+    const avgNum = (keys: string[]) => {
+      const vals = arr.map(a => getVal(a, keys)).filter(v => v !== null) as number[];
+      return vals.length > 0 ? vals.reduce((sum, v) => sum + v, 0) / vals.length : null;
+    };
+    const maxNum = (keys: string[]) => {
+      const vals = arr.map(a => getVal(a, keys)).filter(v => v !== null) as number[];
+      return vals.length > 0 ? Math.max(...vals) : null;
+    };
+    const minNum = (keys: string[]) => {
+      const vals = arr.map(a => getVal(a, keys)).filter(v => v !== null) as number[];
+      return vals.length > 0 ? Math.min(...vals) : null;
+    };
+
+    const maxVoltageMv = maxNum(["maxCellVoltageMv", "maxCellGroupVoltage", "MaxCellGroupVoltage"]);
+    const minVoltageMv = minNum(["minCellVoltageMv", "minCellGroupVoltage", "MinCellGroupVoltage"]);
+    const maxTemp = maxNum(["maxTempC", "maxTemp", "highCellTempC", "MaxCellGroupTemp", "maxCellGroupTemp"]);
+    const minTemp = minNum(["minTempC", "minTemp", "lowCellTempC", "MinCellGroupTemp", "minCellGroupTemp"]);
+
+    const socPctAvg = bName === "online" ? onlineSocPct
+                     : bName === "nearline" ? nearlineSocPct
+                     : bName === "offline" ? offlineSocPct
+                     : notCommunicatingSocPct;
+
+    const kWhAvg = average(avgKwhs);
+
+    return {
+      count,
+      socPctAvg,
+      socKwhAvg: sumNum(["kWh", "kwh", "KWh", "kWhAvg"]),
+      kWhAvg,
+      maxCurrentA: maxNum(["currentA", "stringCurrent", "CtCurrent1", "amps", "ctCurrent1", "StringCurrent"]),
+      minCurrentA: minNum(["currentA", "stringCurrent", "CtCurrent1", "amps", "ctCurrent1", "StringCurrent"]),
+      maxCellVoltageMv: maxVoltageMv,
+      avgCellVoltageMv: avgNum(["avgCellVoltageMv", "avgCellGroupVoltage", "AvgCellGroupVoltage"]),
+      minCellVoltageMv: minVoltageMv,
+      maxCellVoltageDeltaMv: maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null,
+      highCellTempC: maxTemp,
+      avgCellTempC: avgNum(["avgTempC", "avgTemp", "avgCellTempC", "AvgCellGroupTemp", "avgCellGroupTemp"]),
+      lowCellTempC: minTemp,
+      maxCellTempDeltaC: maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null
+    };
+  };
+
+  snapshot.rollups.stringSummary.rollups.online = calculateBucketRollup(bucketsRaw.online, "online", onlineStoredKWhs);
+  snapshot.rollups.stringSummary.rollups.nearline = calculateBucketRollup(bucketsRaw.nearline, "nearline", nearlineStoredKWhs);
+  snapshot.rollups.stringSummary.rollups.offline = calculateBucketRollup(bucketsRaw.offline, "offline", offlineStoredKWhs);
+  snapshot.rollups.stringSummary.rollups.notCommunicating = calculateBucketRollup(bucketsRaw.notCommunicating, "notCommunicating", notCommunicatingStoredKWhs);
   
-  if (typeof snapshot.rollups.stringSummary.rollups.online === "object") {
-    snapshot.rollups.stringSummary.rollups.online.count = onlineStrings;
-  } else {
-    snapshot.rollups.stringSummary.rollups.online = { count: onlineStrings };
-  }
-  
-  if (typeof snapshot.rollups.stringSummary.rollups.nearline === "object") {
-    snapshot.rollups.stringSummary.rollups.nearline.count = nearlineStrings;
-  } else {
-    snapshot.rollups.stringSummary.rollups.nearline = { count: nearlineStrings };
-  }
-  
-  if (typeof snapshot.rollups.stringSummary.rollups.offline === "object") {
-    snapshot.rollups.stringSummary.rollups.offline.count = offlineStrings;
-  } else {
-    snapshot.rollups.stringSummary.rollups.offline = offlineStrings;
-  }
-  
-  if (typeof snapshot.rollups.stringSummary.rollups.notCommunicating === "object") {
-    snapshot.rollups.stringSummary.rollups.notCommunicating.count = notCommunicatingStrings;
-  } else {
-    snapshot.rollups.stringSummary.rollups.notCommunicating = { count: notCommunicatingStrings };
-  }
-  
+  snapshot.rollups.stringSummary.buckets = {
+    online: onlineStrings,
+    nearline: nearlineStrings,
+    offline: offlineStrings,
+    notCommunicating: notCommunicatingStrings
+  };
+
   snapshot.rollups.stringSummary.rollups.normal = onlineStrings;
   snapshot.rollups.stringSummary.rollups.onlineCount = onlineStrings;
   snapshot.rollups.stringSummary.rollups.nearlineCount = nearlineStrings;
@@ -1819,6 +1857,51 @@ export function getBlockSummaryView(): any {
         lastUpdated: snap.liveStatus.lastUpdated
     };
 
+    const correctiveActionsList = snap.normalized?.correctiveActions || [];
+    
+    // Warning groups and targets
+    const warningActions = correctiveActionsList.filter((ca: any) => {
+      const sev = String(ca.severity || ca.level || "").toUpperCase();
+      return sev.includes("WARN");
+    });
+    const warningGroupCount = warningActions.length;
+    let warningTargetCount = 0;
+    for (const ca of warningActions) {
+      if (typeof ca.affectedCount === "number") {
+        warningTargetCount += ca.affectedCount;
+      } else if (Array.isArray(ca.affected)) {
+        warningTargetCount += ca.affected.length;
+      } else {
+        warningTargetCount += 1;
+      }
+    }
+
+    // Alarm groups and targets
+    const alarmActions = correctiveActionsList.filter((ca: any) => {
+      const sev = String(ca.severity || ca.level || "").toUpperCase();
+      return sev.includes("ALARM") || sev.includes("CRIT");
+    });
+    const alarmGroupCount = alarmActions.length;
+    let alarmTargetCount = 0;
+    for (const ca of alarmActions) {
+      if (typeof ca.affectedCount === "number") {
+        alarmTargetCount += ca.affectedCount;
+      } else if (Array.isArray(ca.affected)) {
+        alarmTargetCount += ca.affected.length;
+      } else {
+        alarmTargetCount += 1;
+      }
+    }
+
+    // Dynamic counts
+    const stringCountVal = snap.rollups.stringSummary?.tableRows?.length || snap.rollups.stringSummary?.totalStrings || null;
+    const stringsPerES = ProfileStore.getActiveProfile()?.capacityProfile?.stringsPerEnergySegment || 2;
+    const energySegmentCountVal = stringCountVal ? Math.floor(stringCountVal / stringsPerES) : null;
+    
+    const pcsCountVal = (snap.rollups as any).topologyCounts?.pcsCount ?? (enrichedPcsRowsInBlockView(snap).length || null);
+    const featherDeviceCountVal = (snap.rollups as any).topologyCounts?.featherDeviceCount ?? ((snap.rollups.featherSummary?.devices || []).length || null);
+    const arrayCountVal = (snap.rollups as any).topologyCounts?.arrayCount ?? ((snap.normalized?.arrays || []).length || null);
+
     return {
         // Uniform unified models
         siteIdentity: snap.siteIdentity,
@@ -1838,7 +1921,7 @@ export function getBlockSummaryView(): any {
         bessFleetSummary: snap.rollups.bessFleetSummary,
         stringSummary: {
             ...snap.rollups.stringSummary,
-            totalStrings: snap.rollups.stringSummary?.totalStrings ?? snap.rollups.stringSummary?.rollups?.totalStrings ?? 320,
+            totalStrings: stringCountVal,
             valid: snap.rollups.stringSummary?.valid ?? true,
         },
         arraySummary: snap.normalized.arrays,
@@ -1847,22 +1930,33 @@ export function getBlockSummaryView(): any {
         humidityTemperatureSensors: htsSummary,
         safetySummary: (snap.rollups as any).safetySummary || {},
         emsApps: snap.rawSources.emsApps || [],
+        emsAppsSummary: {
+            totalApps: (snap.rawSources.emsApps || []).length,
+            enabledApps: (snap.rawSources.emsApps || []).filter((app: any) => app.enabled || app.status === "Enabled").length,
+            faultedApps: (snap.rawSources.emsApps || []).filter((app: any) => app.status === "Faulted").length,
+            warningApps: (snap.rawSources.emsApps || []).filter((app: any) => app.status === "Warning").length,
+            status: (snap.rawSources.emsApps || []).length > 0 ? "Normal" : "Unavailable"
+        },
         sourceHealth: healthRows,
         sourceHealthSummary: healthSummary,
         topologyCounts: (snap.rollups as any).topologyCounts || {},
         fleetCapacity: (snap.rollups as any).fleetCapacity || snap.rollups.stringSummary?.rollups?.fleetCapacity || null,
         topologyStatus: {
-            arrayCount: (snap.rollups as any).topologyCounts?.arrayCount ?? 8,
-            stringCount: snap.rollups.stringSummary?.totalStrings ?? snap.rollups.stringSummary?.rollups?.totalStrings ?? 320,
-            pcsCount: (snap.rollups as any).topologyCounts?.pcsCount ?? 8,
-            featherDeviceCount: (snap.rollups as any).topologyCounts?.featherDeviceCount ?? 168,
-            energySegmentCount: 160,
-            warningCount: (snap.normalized.correctiveActions || []).filter((ca: any) => String(ca.severity || ca.level || "").toUpperCase().includes("WARN")).length || (snap.rollups.bessFleetSummary?.warningStrings ?? 11),
-            alarmCount: (snap.normalized.correctiveActions || []).filter((ca: any) => String(ca.severity || ca.level || "").toUpperCase().includes("ALARM")).length || (snap.rollups.bessFleetSummary?.alarmStrings ?? 1),
-            onlineCount: snap.rollups.stringSummary?.rollups?.onlineCount ?? 0,
-            nearlineCount: snap.rollups.stringSummary?.rollups?.nearlineCount ?? 320,
-            offlineCount: snap.rollups.stringSummary?.rollups?.offlineCount ?? 0,
-            notCommunicatingCount: snap.rollups.stringSummary?.rollups?.notCommunicatingCount ?? 0
+            arrayCount: arrayCountVal,
+            stringCount: stringCountVal,
+            pcsCount: pcsCountVal,
+            featherDeviceCount: featherDeviceCountVal,
+            energySegmentCount: energySegmentCountVal,
+            warningCount: warningTargetCount,
+            alarmCount: alarmTargetCount,
+            warningGroupCount,
+            warningTargetCount,
+            alarmGroupCount,
+            alarmTargetCount,
+            onlineCount: snap.rollups.stringSummary?.rollups?.online?.count ?? snap.rollups.stringSummary?.rollups?.onlineCount ?? 0,
+            nearlineCount: snap.rollups.stringSummary?.rollups?.nearline?.count ?? snap.rollups.stringSummary?.rollups?.nearlineCount ?? 0,
+            offlineCount: snap.rollups.stringSummary?.rollups?.offline?.count ?? snap.rollups.stringSummary?.rollups?.offlineCount ?? 0,
+            notCommunicatingCount: snap.rollups.stringSummary?.rollups?.notCommunicating?.count ?? snap.rollups.stringSummary?.rollups?.notCommunicatingCount ?? 0
         },
         cellMetrics: {
             minVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageMin ?? null,
