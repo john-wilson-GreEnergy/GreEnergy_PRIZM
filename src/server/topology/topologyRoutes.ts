@@ -818,11 +818,12 @@ topologyRouter.get("/topology/profiles/:id", (req, res) => {
 topologyRouter.post("/topology/profiles", (req, res) => {
   try {
     const incoming = req.body;
-    if (!incoming.profileName) {
-      return res.status(400).json({ error: "profileName is required" });
+    if (!incoming.name && !incoming.profileName) {
+      return res.status(400).json({ error: "name is required" });
     }
+    if (!incoming.name) incoming.name = incoming.profileName;
     if (!incoming.layoutFamily) {
-      return res.status(400).json({ error: "layoutFamily is required (stack750, stack360, custom)" });
+      return res.status(400).json({ error: "layoutFamily is required" });
     }
     const saved = saveTopologyProfile(incoming);
     res.status(201).json({ success: true, profile: saved });
@@ -936,6 +937,26 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
 
       const importedDevices: EngineSiteTopologyDevice[] = [];
       const warnings: string[] = [];
+      let inferredFamily: "stack750_800" | "stack360" | "stack225_230" | "custom" = "custom";
+      let envControllerCount = 0;
+
+      if (rows.length > 0) {
+        const firstRow = rows[0];
+        const keys = Object.keys(firstRow).join(" ").toLowerCase();
+        
+        if (keys.includes("centipede")) {
+          inferredFamily = "stack750_800";
+        } else if (keys.includes("environmental controller based enclosures")) {
+          inferredFamily = "stack360";
+        } else if (
+          keys.includes("controls") || 
+          keys.includes("pcs") || 
+          (keys.includes("container") && keys.includes("env. ctrl")) ||
+          keys.includes("dhcp")
+        ) {
+          inferredFamily = "stack360";
+        }
+      }
 
       for (const row of rows) {
         // Find keys by loose match
@@ -957,6 +978,7 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
         let deviceType: any = "unknown";
         if (rawType.includes("feather") || rawType.includes("env") || rawType.includes("controller")) {
           deviceType = "feather";
+          if (rawType.includes("env")) envControllerCount++;
         } else if (rawType.includes("cs") || rawType.includes("container supervisor")) {
           deviceType = "collection-segment-feather";
         } else if (rawType.includes("es") || rawType.includes("energy supervisor") || rawType.includes("string")) {
@@ -1016,13 +1038,19 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
         });
       }
 
+      if (envControllerCount > 10) {
+        if (inferredFamily === "stack360" || inferredFamily === "custom") {
+          inferredFamily = "stack225_230";
+        }
+      }
+
       // Create a profile from imported devices
       const importedProfile: EngineSiteTopologyProfile = {
         id: "profile_" + Date.now(),
         name: profileName || `Imported ${fileName}`,
         stationCode: "IMPORTED",
         blockIndex: 1,
-        layoutFamily: "custom",
+        layoutFamily: inferredFamily,
         equipmentModel: "custom",
         uiMode: "custom",
         assumptions: {
@@ -1039,7 +1067,7 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
       };
 
       const saved = saveTopologyProfile(importedProfile);
-      return res.json({ success: true, profile: saved, warnings });
+      return res.json({ success: true, profile: saved, warnings, inferredFamily });
     }
 
     return res.status(400).json({ error: `Unsupported file format: ${fileName}` });

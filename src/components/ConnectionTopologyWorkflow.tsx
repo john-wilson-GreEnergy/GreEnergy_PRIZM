@@ -31,7 +31,7 @@ interface SiteTopologyDevice {
   id: string;
   ip: string;
   deviceType: "feather" | "cs" | "es" | "pcs" | "ups" | "moxa" | "switch" | "plc" | "custom";
-  calloutLabel: string;
+  label: string;
   displayLabel: string;
   arrayIndex?: number;
   containerIndex?: number;
@@ -50,11 +50,13 @@ interface SiteTopologyDevice {
 
 interface SiteTopologyProfile {
   id: string;
-  profileName: string;
-  layoutFamily: "stack750" | "stack360" | "custom";
-  uiMode: "stack750" | "stack360" | "custom";
+  name: string;
+  layoutFamily: "stack750_800" | "stack360" | "stack225_230" | "custom";
+  equipmentModel: "centipede" | "containerized-central-control" | "containerized-distributed-environmental" | "custom";
+  uiMode: "lineup" | "container" | "distributed-environmental" | "custom";
   ipPlan: {
-    subnets: string[];
+    subnet: string;
+    subnets?: string[];
     arrayStart?: number;
     arrayEnd?: number;
     esCountPerArray?: number;
@@ -64,8 +66,14 @@ interface SiteTopologyProfile {
     esCountPerStack?: number;
     customDevices?: SiteTopologyDevice[];
   };
-  version: number;
-  lastModifiedAt: string;
+  assumptions?: {
+    arrayCount?: number;
+    energySegmentsPerArray?: number;
+    containersPerArray?: number;
+    stacksPerContainer?: number;
+  };
+  version?: number;
+  lastModifiedAt?: string;
   isActive?: boolean;
 }
 
@@ -144,7 +152,7 @@ export default function ConnectionTopologyWorkflow() {
     setIsEditing(true);
     setEditId(null);
     setProfileName("New BESS Topology Profile");
-    setLayoutFamily("stack750");
+    setLayoutFamily("stack750_800");
     setSubnets("10.0.0.0/16");
     setArrayStart(1);
     setArrayEnd(8);
@@ -158,15 +166,15 @@ export default function ConnectionTopologyWorkflow() {
   const handleEdit = (prof: SiteTopologyProfile) => {
     setIsEditing(true);
     setEditId(prof.id);
-    setProfileName(prof.profileName);
+    setProfileName(prof.name);
     setLayoutFamily(prof.layoutFamily);
-    setSubnets(prof.ipPlan.subnets.join(", "));
+    setSubnets(prof.ipPlan.subnet || "10.0.0.0/16");
     setArrayStart(prof.ipPlan.arrayStart || 1);
-    setArrayEnd(prof.ipPlan.arrayEnd || 8);
-    setEsCountPerArray(prof.ipPlan.esCountPerArray || 20);
+    setArrayEnd(prof.assumptions?.arrayCount || prof.ipPlan.arrayEnd || 8);
+    setEsCountPerArray(prof.assumptions?.energySegmentsPerArray || prof.ipPlan.esCountPerArray || 20);
     setContainerStart(prof.ipPlan.containerStart || 1);
-    setContainerEnd(prof.ipPlan.containerEnd || 4);
-    setStacksPerContainer(prof.ipPlan.stacksPerContainer || 2);
+    setContainerEnd(prof.assumptions?.containersPerArray || prof.ipPlan.containerEnd || 4);
+    setStacksPerContainer(prof.assumptions?.stacksPerContainer || prof.ipPlan.stacksPerContainer || 2);
     setEsCountPerStack(prof.ipPlan.esCountPerStack || 12);
   };
 
@@ -183,20 +191,43 @@ export default function ConnectionTopologyWorkflow() {
     }
 
     const subnetList = subnets.split(",").map(s => s.trim()).filter(Boolean);
+    const mainSubnet = subnetList[0] || "10.0.0.0/16";
+
+    let equipmentModel: "centipede" | "containerized-central-control" | "containerized-distributed-environmental" | "custom" = "custom";
+    let uiMode: "lineup" | "container" | "distributed-environmental" | "custom" = "custom";
+    
+    if (layoutFamily === "stack750_800") {
+      equipmentModel = "centipede";
+      uiMode = "lineup";
+    } else if (layoutFamily === "stack360") {
+      equipmentModel = "containerized-central-control";
+      uiMode = "container";
+    } else if (layoutFamily === "stack225_230") {
+      equipmentModel = "containerized-distributed-environmental";
+      uiMode = "distributed-environmental";
+    }
 
     const profilePayload: Partial<SiteTopologyProfile> = {
-      profileName,
+      name: profileName,
       layoutFamily,
-      uiMode: layoutFamily,
+      equipmentModel,
+      uiMode,
+      assumptions: {
+        arrayCount: layoutFamily === "stack750_800" ? arrayEnd : layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
+        energySegmentsPerArray: layoutFamily === "stack750_800" ? esCountPerArray : undefined,
+        containersPerArray: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
+        stacksPerContainer: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? stacksPerContainer : undefined,
+      },
       ipPlan: {
+        subnet: mainSubnet,
         subnets: subnetList,
-        arrayStart: layoutFamily === "stack750" ? arrayStart : undefined,
-        arrayEnd: layoutFamily === "stack750" ? arrayEnd : undefined,
-        esCountPerArray: layoutFamily === "stack750" ? esCountPerArray : undefined,
-        containerStart: layoutFamily === "stack360" ? containerStart : undefined,
-        containerEnd: layoutFamily === "stack360" ? containerEnd : undefined,
-        stacksPerContainer: layoutFamily === "stack360" ? stacksPerContainer : undefined,
-        esCountPerStack: layoutFamily === "stack360" ? esCountPerStack : undefined,
+        arrayStart: layoutFamily === "stack750_800" ? arrayStart : undefined,
+        arrayEnd: layoutFamily === "stack750_800" ? arrayEnd : undefined,
+        esCountPerArray: layoutFamily === "stack750_800" ? esCountPerArray : undefined,
+        containerStart: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerStart : undefined,
+        containerEnd: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
+        stacksPerContainer: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? stacksPerContainer : undefined,
+        esCountPerStack: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? esCountPerStack : undefined,
         customDevices: editId ? profiles.find(p => p.id === editId)?.ipPlan.customDevices || [] : []
       }
     };
@@ -314,8 +345,19 @@ export default function ConnectionTopologyWorkflow() {
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
-            showMsg(`Successfully imported layout from ${file.name}!`, "success");
+            let msg = `Successfully imported layout from ${file.name}!`;
+            if (data.inferredFamily && data.inferredFamily !== "custom") {
+              const friendlyName = data.inferredFamily === "stack750_800" ? "Stack 750 / 800" :
+                                   data.inferredFamily === "stack360" ? "Stack 360" :
+                                   data.inferredFamily === "stack225_230" ? "Stack 225 / 230" : "Custom";
+              msg = `Inferred topology family: ${friendlyName}. Please review and save.`;
+            }
+            showMsg(msg, "success");
             fetchProfiles();
+            // Open editor immediately to let user confirm/override
+            if (data.profile) {
+              handleEdit(data.profile);
+            }
           } else {
             showMsg(data.error || "Failed to import profile", "error");
           }
@@ -480,8 +522,9 @@ export default function ConnectionTopologyWorkflow() {
                     onChange={e => setLayoutFamily(e.target.value as any)}
                     className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200 focus:outline-none font-extrabold"
                   >
-                    <option value="stack750">Stack 750 / Centipede Layout</option>
-                    <option value="stack360">Stack 360 / Containerized Layout</option>
+                    <option value="stack750_800">Stack 750 / 800 — Centipede / Lineup Based</option>
+                    <option value="stack360">Stack 360 — Containerized Central Control</option>
+                    <option value="stack225_230">Stack 225 / 230 — Containerized Distributed Environmental</option>
                     <option value="custom">Custom IP Plan Layout</option>
                   </select>
                 </div>
@@ -497,7 +540,7 @@ export default function ConnectionTopologyWorkflow() {
                   />
                 </div>
 
-                {layoutFamily === "stack750" && (
+                {layoutFamily === "stack750_800" && (
                   <>
                     <div className="space-y-1">
                       <label className="text-prizm-text-muted uppercase block font-bold">Array Start Index</label>
@@ -529,7 +572,7 @@ export default function ConnectionTopologyWorkflow() {
                   </>
                 )}
 
-                {layoutFamily === "stack360" && (
+                {(layoutFamily === "stack360" || layoutFamily === "stack225_230") && (
                   <>
                     <div className="space-y-1">
                       <label className="text-prizm-text-muted uppercase block font-bold">Container Start Index</label>
@@ -568,6 +611,14 @@ export default function ConnectionTopologyWorkflow() {
                       />
                     </div>
                   </>
+                )}
+
+                {layoutFamily === "custom" && (
+                  <div className="md:col-span-2 bg-prizm-surface-strong p-3 rounded border border-white/5">
+                    <span className="text-[11px] text-prizm-text-muted italic">
+                      Custom mapping requires importing a defined topology map CSV/XLSX, or using advanced manual JSON entry. Device roles, IPs, and arrays must be strictly defined in the imported payload.
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -745,7 +796,7 @@ export default function ConnectionTopologyWorkflow() {
 
             {/* Filter buttons */}
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
-              {["all", "cs", "es", "pcs", "feather"].map(t => (
+              {["all", "collection-segment-feather", "energy-segment-feather", "environmental-controller", "stack-controller", "pcs", "network-switch"].map(t => (
                 <button
                   key={t}
                   onClick={() => setPreviewFilterType(t)}
@@ -755,7 +806,7 @@ export default function ConnectionTopologyWorkflow() {
                       : "border-white/5 hover:border-white/10 text-prizm-text-muted hover:text-slate-200"
                   }`}
                 >
-                  {t}
+                  {t === "collection-segment-feather" ? "CS Feather" : t === "energy-segment-feather" ? "ES Feather" : t === "environmental-controller" ? "Env. Ctrl" : t === "stack-controller" ? "Stack Ctrl" : t}
                 </button>
               ))}
             </div>
@@ -767,14 +818,16 @@ export default function ConnectionTopologyWorkflow() {
               .map(d => (
                 <div key={d.id} className="p-3 bg-prizm-surface border border-prizm-border/60 rounded-md font-mono text-[10.5px] space-y-2 relative">
                   <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
-                    <span className="font-extrabold text-slate-200 truncate pr-2">{d.calloutLabel}</span>
+                    <span className="font-extrabold text-slate-200 truncate pr-2">{d.label}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] uppercase font-bold ${
-                      d.deviceType === "cs" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" :
-                      d.deviceType === "es" ? "bg-amber-400/10 text-amber-400 border border-amber-400/20" :
+                      d.deviceType === "collection-segment-feather" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" :
+                      d.deviceType === "energy-segment-feather" ? "bg-amber-400/10 text-amber-400 border border-amber-400/20" :
                       d.deviceType === "pcs" ? "bg-cyan-400/10 text-cyan-400 border border-cyan-400/20" :
+                      d.deviceType === "environmental-controller" ? "bg-purple-400/10 text-purple-400 border border-purple-400/20" :
+                      d.deviceType === "stack-controller" ? "bg-indigo-400/10 text-indigo-400 border border-indigo-400/20" :
                       "bg-blue-400/10 text-blue-400 border border-blue-400/20"
                     }`}>
-                      {d.deviceType}
+                      {d.deviceType.replace("-feather", "").replace("-controller", " ctrl")}
                     </span>
                   </div>
 
@@ -827,14 +880,27 @@ export default function ConnectionTopologyWorkflow() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-8 gap-y-2 uppercase text-[10px] text-prizm-text-muted">
-                    <div>Expected Devices: <strong className="text-slate-200">{validationResult.summary?.expectedCount || 0}</strong></div>
-                    <div>Responsive/Online: <strong className="text-emerald-400">{validationResult.summary?.onlineCount || 0}</strong></div>
-                    <div>Offline/Unresponsive: <strong className="text-red-400">{validationResult.summary?.offlineCount || 0}</strong></div>
-                    <div>Unexpected/Rogue: <strong className="text-amber-400">{validationResult.summary?.unmappedCount || 0}</strong></div>
+                    <div>Expected Devices: <strong className="text-slate-200">{validationResult.summary?.expectedDevices || 0}</strong></div>
+                    <div>Responsive/Online: <strong className="text-emerald-400">{validationResult.summary?.discoveredDevices || 0}</strong></div>
+                    <div>Offline/Unresponsive: <strong className="text-red-400">{validationResult.summary?.missingDevices || 0}</strong></div>
+                    <div>Unexpected/Rogue: <strong className="text-amber-400">{validationResult.summary?.unexpectedDevices || 0}</strong></div>
                   </div>
                 </div>
 
-                <div className="border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-6 flex flex-col justify-center text-center">
+                <div className="border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-6 flex flex-col justify-center text-center relative">
+                  {validationResult.summary?.inferredLiveFamily && (
+                    <div className="absolute top-0 right-0 p-2 text-right">
+                      <span className="block text-[9px] text-prizm-text-muted uppercase">Inferred Hardware Family</span>
+                      <span className="block text-[10px] font-bold text-cyan-400">
+                        {validationResult.summary.inferredLiveFamily === "stack750_800" ? "Stack 750 / 800" :
+                         validationResult.summary.inferredLiveFamily === "stack360" ? "Stack 360" :
+                         validationResult.summary.inferredLiveFamily === "stack225_230" ? "Stack 225 / 230" : "Custom"}
+                      </span>
+                      {validationResult.summary.inferredLiveConfidence && (
+                        <span className="block text-[8px] text-prizm-text-muted mt-0.5">{validationResult.summary.inferredLiveConfidence}% Confidence</span>
+                      )}
+                    </div>
+                  )}
                   <span className="text-[9px] text-prizm-text-muted uppercase">Site Integrity Index</span>
                   <span className={`text-3xl font-black mt-1 ${
                     (validationResult.summary?.integrityScore || 100) > 90 ? "text-emerald-400" :
@@ -853,21 +919,21 @@ export default function ConnectionTopologyWorkflow() {
                   <div className="flex items-center justify-between border-b border-white/5 pb-2">
                     <span className="text-xs font-extrabold uppercase text-red-400 flex items-center gap-1.5">
                       <AlertCircle size={14} className="text-red-400" />
-                      Expected but Unresponsive ({(validationResult.validation?.unresponsive || []).length})
+                      Expected but Unresponsive ({(validationResult.validation?.missing || []).length})
                     </span>
                     <span className="text-[8px] bg-red-400/10 text-red-400 border border-red-400/20 rounded p-0.5 px-1.5">OFFLINE</span>
                   </div>
 
                   <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.unresponsive || []).length === 0 ? (
+                    {(validationResult.validation?.missing || []).length === 0 ? (
                       <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
                         No missing devices. All expected equipment is responsive on LAN!
                       </div>
                     ) : (
-                      validationResult.validation.unresponsive.map((d: any) => (
+                      validationResult.validation.missing.map((d: any) => (
                         <div key={d.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 flex justify-between items-center">
                           <div>
-                            <strong className="text-slate-200">{d.calloutLabel}</strong>
+                            <strong className="text-slate-200">{d.label}</strong>
                             <span className="text-[9px] text-prizm-text-muted block mt-0.5">IP: {d.ip} — ROLE: {d.deviceType?.toUpperCase()}</span>
                           </div>
                           <span className="text-[9px] text-red-400 font-extrabold">NO REPLY</span>
@@ -882,21 +948,21 @@ export default function ConnectionTopologyWorkflow() {
                   <div className="flex items-center justify-between border-b border-white/5 pb-2">
                     <span className="text-xs font-extrabold uppercase text-amber-400 flex items-center gap-1.5">
                       <AlertTriangle size={14} className="text-amber-400" />
-                      Unexpected / Rogue on Site LAN ({(validationResult.validation?.rogue || []).length})
+                      Unexpected / Rogue on Site LAN ({(validationResult.validation?.unexpected || []).length})
                     </span>
                     <span className="text-[8px] bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded p-0.5 px-1.5 font-bold">UNMAPPED</span>
                   </div>
 
                   <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.rogue || []).length === 0 ? (
+                    {(validationResult.validation?.unexpected || []).length === 0 ? (
                       <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
                         No rogue devices found. Network layout perfectly matches layout profile!
                       </div>
                     ) : (
-                      validationResult.validation.rogue.map((d: any) => (
+                      validationResult.validation.unexpected.map((d: any) => (
                         <div key={d.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 flex justify-between items-center">
                           <div>
-                            <strong className="text-slate-200">{d.calloutLabel || "Unknown Host"}</strong>
+                            <strong className="text-slate-200">{d.label || "Unknown Host"}</strong>
                             <span className="text-[9px] text-prizm-text-muted block mt-0.5">IP Address: {d.ip}</span>
                           </div>
                           <span className="text-[9px] text-amber-400 font-bold">ACTIVE ROUTE</span>
@@ -911,18 +977,18 @@ export default function ConnectionTopologyWorkflow() {
                   <div className="flex items-center justify-between border-b border-white/5 pb-2">
                     <span className="text-xs font-extrabold uppercase text-orange-400 flex items-center gap-1.5">
                       <Sliders size={14} className="text-orange-400" />
-                      Type & Role Overlaps / Mismatches ({(validationResult.validation?.typeMismatches || []).length})
+                      Type & Role Overlaps / Mismatches ({(validationResult.validation?.mismatched || []).length})
                     </span>
                     <span className="text-[8px] bg-orange-400/10 text-orange-400 border border-orange-400/20 rounded p-0.5 px-1.5 font-bold">CONFLICT</span>
                   </div>
 
                   <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.typeMismatches || []).length === 0 ? (
+                    {(validationResult.validation?.mismatched || []).length === 0 ? (
                       <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
                         No type mismatch conflicts found. Equipment roles are validated.
                       </div>
                     ) : (
-                      validationResult.validation.typeMismatches.map((m: any) => (
+                      validationResult.validation.mismatched.map((m: any) => (
                         <div key={m.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 space-y-1">
                           <div className="flex justify-between">
                             <strong className="text-slate-200">Device {m.ip}</strong>
