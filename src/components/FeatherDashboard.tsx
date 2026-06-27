@@ -450,44 +450,108 @@ function getHvacSampleDetails(hvac: any) {
     return () => clearInterval(timer);
   }, [selectedDevice?.ip, selectedDeviceInterval, samples.length]);
 
-  // Helper to extract Energy Segment Index
-  const getEnergySegmentIndex = (device: any): number | null => {
-    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
-      return Number(device.energySegmentIndex);
-    }
-    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
-      return Number(device.segmentIndex);
-    }
-    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
-    for (const token of tokens) {
-      if (token) {
-        const match = token.match(/ES\s*(\d+)/i);
-        if (match) {
-          return parseInt(match[1], 10);
+  // Helper to resolve Feather Segment type, index, and display label
+  const resolveFeatherSegment = (device: any) => {
+    // 1. Direct priority check: stringIndex
+    if (device.stringIndex !== undefined && device.stringIndex !== null) {
+      const sIdx = Number(device.stringIndex);
+      if (!isNaN(sIdx)) {
+        if (sIdx >= 1 && sIdx <= 16) {
+          const esIndex = Math.ceil(sIdx / 2);
+          return {
+            segmentIndex: esIndex,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${esIndex}`
+          };
+        } else if (sIdx >= 17 && sIdx <= 18) {
+          const csIndex = sIdx - 16;
+          return {
+            segmentIndex: csIndex,
+            segmentType: "CS" as const,
+            displayLabel: `CS ${csIndex}`
+          };
         }
       }
     }
+
+    // 2. Fallback to direct energySegmentIndex or segmentIndex fields
+    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+      return {
+        segmentIndex: Number(device.energySegmentIndex),
+        segmentType: "ES" as const,
+        displayLabel: `ES ${Number(device.energySegmentIndex)}`
+      };
+    }
+    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
+      return {
+        segmentIndex: Number(device.segmentIndex),
+        segmentType: "ES" as const,
+        displayLabel: `ES ${Number(device.segmentIndex)}`
+      };
+    }
+
+    // 3. Fallback to textual tokens (segmentLabel, entityDescription, entityKeyToken, etc.)
+    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
+    for (const token of tokens) {
+      if (token) {
+        const matchES = token.match(/ES\s*(\d+)/i);
+        if (matchES) {
+          const idx = parseInt(matchES[1], 10);
+          return {
+            segmentIndex: idx,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${idx}`
+          };
+        }
+        const matchCS = token.match(/CS\s*(\d+)/i);
+        if (matchCS) {
+          const idx = parseInt(matchCS[1], 10);
+          return {
+            segmentIndex: idx,
+            segmentType: "CS" as const,
+            displayLabel: `CS ${idx}`
+          };
+        }
+      }
+    }
+
+    // 4. IP-based derivation as last resort
     if (device.ip) {
       const parts = device.ip.split(".");
       if (parts.length === 4) {
         const lastOctet = parseInt(parts[3], 10);
         if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
-          return ((lastOctet - 10) / 5) + 1;
+          const idx = ((lastOctet - 10) / 5) + 1;
+          return {
+            segmentIndex: idx,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${idx}`
+          };
         }
       }
     }
-    if (device.stringIndex !== null && device.stringIndex !== undefined) {
-      const num = Number(device.stringIndex);
-      if (!isNaN(num)) {
-        return Math.ceil(num / 2);
-      }
-    }
-    return null;
+
+    return {
+      segmentIndex: 1,
+      segmentType: "UNKNOWN" as const,
+      displayLabel: "ES 1"
+    };
+  };
+
+  const getEnergySegmentIndex = (device: any): number | null => {
+    const resolved = resolveFeatherSegment(device);
+    return resolved.segmentType === "ES" ? resolved.segmentIndex : null;
+  };
+
+  const canHavePairedStrings = (device: any): boolean => {
+    const resolved = resolveFeatherSegment(device);
+    return resolved.segmentType === "ES";
   };
 
   // Map strings associated with this feather / ES
   const pairedStrings = useMemo(() => {
     if (!selectedDevice || !snapshot?.normalized?.strings) return [];
+    if (!canHavePairedStrings(selectedDevice)) return [];
     
     const arrayNum = selectedDevice.arrayIndex;
     if (arrayNum === undefined) return [];
@@ -522,7 +586,8 @@ function getHvacSampleDetails(hvac: any) {
   const pairedStringDebug = useMemo(() => {
     if (!selectedDevice) return null;
     const arrayNum = selectedDevice.arrayIndex;
-    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    const resolved = resolveFeatherSegment(selectedDevice);
+    const energySegmentIndex = resolved.segmentType === "ES" ? resolved.segmentIndex : null;
     const strA = energySegmentIndex ? (energySegmentIndex * 2 - 1) : null;
     const strB = energySegmentIndex ? (energySegmentIndex * 2) : null;
     const allStrings = snapshot?.normalized?.strings || [];
@@ -532,7 +597,9 @@ function getHvacSampleDetails(hvac: any) {
       selectedIp: selectedDevice.ip,
       selectedArray: arrayNum,
       selectedSegmentLabel: selectedDevice.segmentLabel,
-      resolvedEnergySegmentIndex: energySegmentIndex,
+      resolvedSegmentType: resolved.segmentType,
+      resolvedSegmentIndex: resolved.segmentIndex,
+      displayLabel: resolved.displayLabel,
       expectedStrings: strA && strB ? [`A${arrayNum}-S${strA}`, `A${arrayNum}-S${strB}`] : [],
       normalizedStringCount: allStrings.length,
       matchingRowsFound: pairedStrings.length,

@@ -109,6 +109,144 @@ const checkSignalMismatch = (
   return { status: "MATCH", consecutiveCount };
 };
 
+const StringRowWithNotifications = ({ s, formatTemperatureF }: { s: any; formatTemperatureF: any; key?: any }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [stringDetail, setStringDetail] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (expanded && !stringDetail && !loading) {
+      setLoading(true);
+      const arr = s.arrayNumber ?? s.arrayIndex;
+      const str = s.stringNumber ?? s.stringIndex;
+      if (arr !== undefined && str !== undefined) {
+        fetch(`/api/local/strings/dashboard/${arr}/${str}/detail?maxAgeMs=15000`)
+          .then(r => r.json())
+          .then(data => {
+            setStringDetail(data);
+            setLoading(false);
+          })
+          .catch(err => {
+            console.error("Failed to load string detail for notifications:", err);
+            setLoading(false);
+          });
+      }
+    }
+  }, [expanded, s, stringDetail, loading]);
+
+  const inRotation = s.outRotation === false || s.inRotation === true;
+  const notifications = stringDetail?.notifications || [];
+
+  return (
+    <>
+      <tr 
+        className="hover:bg-prizm-surface-strong/50 transition-colors cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <td className="p-2.5 text-prizm-primary font-bold flex items-center gap-2 select-none">
+          <span className="text-prizm-text-muted text-[8px]">{expanded ? "▼" : "▶"}</span>
+          {s.stringKey}
+        </td>
+        <td className="p-2.5">{s.arrayNumber ?? "--"}</td>
+        <td className="p-2.5">{s.stringNumber ?? "--"}</td>
+        <td className="p-2.5 text-center">
+          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+            inRotation ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20"
+          }`}>
+            {inRotation ? "IN" : "OUT"}
+          </span>
+        </td>
+        <td className="p-2.5 text-center font-bold">{s.recloseCount ?? 0}</td>
+        <td className="p-2.5 text-right text-prizm-text font-bold">
+          {s.measuredVoltage !== undefined && s.measuredVoltage !== null 
+            ? `${(s.measuredVoltage / 1000).toFixed(1)} V` 
+            : "--"}
+        </td>
+        <td className="p-2.5 text-right">
+          <span className="text-prizm-text font-bold">{s.amps?.toFixed(1) ?? "0.0"} A</span>
+          <span className="text-prizm-text-muted mx-1">/</span>
+          <span className="text-prizm-primary font-bold">{s.kw?.toFixed(1) ?? "0.0"} kW</span>
+        </td>
+        <td className="p-2.5 text-right text-emerald-400 font-bold">{s.socPct?.toFixed(1) ?? "0.0"}%</td>
+        <td className="p-2.5 text-right text-prizm-text-muted font-mono text-[10px]">
+          <span className="text-prizm-text font-bold">{s.minCellVoltage ?? "--"}</span>
+          <span className="mx-1">/</span>
+          <span className="text-prizm-text">{s.avgCellVoltage ?? "--"}</span>
+          <span className="mx-1">/</span>
+          <span className="text-prizm-text font-bold">{s.maxCellVoltage ?? "--"}</span>
+          <span className="text-[9px] text-prizm-text-muted ml-1 font-sans">mV</span>
+        </td>
+        <td className="p-2.5 text-right text-prizm-text-muted font-mono text-[10px]">
+          <span className="text-prizm-text font-bold">{s.minCellTemperature !== undefined && s.minCellTemperature !== null ? formatTemperatureF(s.minCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
+          <span className="mx-1">/</span>
+          <span>{s.avgCellTemperature !== undefined && s.avgCellTemperature !== null ? formatTemperatureF(s.avgCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
+          <span className="mx-1">/</span>
+          <span className="text-prizm-text font-bold">{s.maxCellTemperature !== undefined && s.maxCellTemperature !== null ? formatTemperatureF(s.maxCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
+          <span className="text-[9px] text-prizm-text-muted ml-1 font-sans">°F</span>
+        </td>
+        <td className="p-2.5 text-center uppercase font-bold text-prizm-text-muted">
+          {s.balancingActive ? (
+            <span className="text-cyan-400 animate-pulse font-black">ACTIVE</span>
+          ) : "OFF"}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={11} className="bg-slate-900/60 p-4 border-l-2 border-prizm-primary">
+            <div className="space-y-3 font-sans text-xs">
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary">Paired String Active Notifications</span>
+                <span className="text-[9px] text-prizm-text-muted font-mono">Real-time DB stream</span>
+              </div>
+              
+              {loading ? (
+                <div className="flex items-center gap-2 text-prizm-text-muted font-mono text-[10px] py-1">
+                  <span className="animate-spin text-prizm-primary">&#x21bb;</span> Loading active notifications...
+                </div>
+              ) : notifications.length === 0 ? (
+                <div className="text-emerald-400 font-semibold py-1 flex items-center gap-1.5 text-[10px]">
+                  <span>●</span> No active notifications for this string.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {notifications.map((n: any, idx: number) => {
+                    const isAlarm = n.level === "ALARM" || n.category === "Alarm" || n.category === "Fault";
+                    const isCGPresent = n.batteryPackIndex !== null || n.cellGroupIndex !== null;
+                    return (
+                      <div key={idx} className="bg-black/30 border border-prizm-border/40 p-2.5 rounded flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center flex-wrap gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-wider uppercase ${
+                              isAlarm ? "bg-prizm-danger/20 text-prizm-danger" : "bg-prizm-warning/20 text-prizm-warning"
+                            }`}>
+                              {n.level || "WARN"}
+                            </span>
+                            <span className="text-prizm-text font-bold font-mono">Code {n.code}</span>
+                            <span className="text-prizm-text-muted text-[10px]">({n.category})</span>
+                            {isCGPresent && (
+                              <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold">
+                                BPC {n.batteryPackIndex ?? "?"} / CG {n.cellGroupIndex ?? "?"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-prizm-text text-[11px] leading-relaxed">{n.triggerMessage}</p>
+                        </div>
+                        <div className="text-right text-[9px] text-prizm-text-muted font-mono shrink-0">
+                          {new Date(n.timestamp).toLocaleTimeString()} {new Date(n.timestamp).toLocaleDateString()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+};
+
 export default function FeatherDetailsView({
   selectedDevice,
   onBack,
@@ -145,39 +283,100 @@ export default function FeatherDetailsView({
       });
   }, []);
 
-  const getEnergySegmentIndex = (device: any): number | null => {
-    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
-      return Number(device.energySegmentIndex);
-    }
-    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
-      return Number(device.segmentIndex);
-    }
-    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
-    for (const token of tokens) {
-      if (token) {
-        const match = token.match(/ES\s*(\d+)/i);
-        if (match) {
-          return parseInt(match[1], 10);
+  // Helper to resolve Feather Segment type, index, and display label
+  const resolveFeatherSegment = (device: any) => {
+    // 1. Direct priority check: stringIndex
+    if (device.stringIndex !== undefined && device.stringIndex !== null) {
+      const sIdx = Number(device.stringIndex);
+      if (!isNaN(sIdx)) {
+        if (sIdx >= 1 && sIdx <= 16) {
+          const esIndex = Math.ceil(sIdx / 2);
+          return {
+            segmentIndex: esIndex,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${esIndex}`
+          };
+        } else if (sIdx >= 17 && sIdx <= 18) {
+          const csIndex = sIdx - 16;
+          return {
+            segmentIndex: csIndex,
+            segmentType: "CS" as const,
+            displayLabel: `CS ${csIndex}`
+          };
         }
       }
     }
+
+    // 2. Fallback to direct energySegmentIndex or segmentIndex fields
+    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+      return {
+        segmentIndex: Number(device.energySegmentIndex),
+        segmentType: "ES" as const,
+        displayLabel: `ES ${Number(device.energySegmentIndex)}`
+      };
+    }
+    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
+      return {
+        segmentIndex: Number(device.segmentIndex),
+        segmentType: "ES" as const,
+        displayLabel: `ES ${Number(device.segmentIndex)}`
+      };
+    }
+
+    // 3. Fallback to textual tokens (segmentLabel, entityDescription, entityKeyToken, etc.)
+    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
+    for (const token of tokens) {
+      if (token) {
+        const matchES = token.match(/ES\s*(\d+)/i);
+        if (matchES) {
+          const idx = parseInt(matchES[1], 10);
+          return {
+            segmentIndex: idx,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${idx}`
+          };
+        }
+        const matchCS = token.match(/CS\s*(\d+)/i);
+        if (matchCS) {
+          const idx = parseInt(matchCS[1], 10);
+          return {
+            segmentIndex: idx,
+            segmentType: "CS" as const,
+            displayLabel: `CS ${idx}`
+          };
+        }
+      }
+    }
+
+    // 4. IP-based derivation as last resort
     if (device.ip) {
       const parts = device.ip.split(".");
       if (parts.length === 4) {
         const lastOctet = parseInt(parts[3], 10);
         if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
-          return ((lastOctet - 10) / 5) + 1;
+          const idx = ((lastOctet - 10) / 5) + 1;
+          return {
+            segmentIndex: idx,
+            segmentType: "ES" as const,
+            displayLabel: `ES ${idx}`
+          };
         }
       }
     }
-    if (device.stringIndex !== null && device.stringIndex !== undefined) {
-      const num = Number(device.stringIndex);
-      if (!isNaN(num)) {
-        return Math.ceil(num / 2);
-      }
-    }
-    return null;
+
+    return {
+      segmentIndex: 1,
+      segmentType: "UNKNOWN" as const,
+      displayLabel: "ES 1"
+    };
   };
+
+  const getEnergySegmentIndex = (device: any): number | null => {
+    const resolved = resolveFeatherSegment(device);
+    return resolved.segmentType === "ES" ? resolved.segmentIndex : null;
+  };
+
+  const resolvedSegment = useMemo(() => resolveFeatherSegment(selectedDevice), [selectedDevice]);
 
   const getArrayNumber = (displayName: string): number => {
     const m = displayName.match(/Array\s+(\d+)/i);
@@ -200,7 +399,137 @@ export default function FeatherDetailsView({
   }, [topologyData, selectedDevice]);
 
   const dynamicSensorRows = useMemo(() => {
-    if (!matchingRow) {
+    const isES = resolvedSegment.segmentType === "ES";
+
+    if (isES) {
+      const other = matchingRow?.otherSensors || {};
+      const doors = matchingRow?.doorSensors || {};
+      const emergency = matchingRow?.emergencySensors || {};
+      const comStatus = matchingRow?.comStatus || {};
+
+      const resolveDetectorState = (cell: any, fallbackVal: any, type: string) => {
+        if (cell && cell.applicable !== false) {
+          const isTripped = cell.tripped === true;
+          
+          if (cell.communicating === false || cell.applicable === false) {
+            return { tripped: null, value: null, displayValue: "UNKNOWN", cell };
+          }
+          
+          let display = "NORMAL";
+          if (isTripped) {
+            if (type === "Door") display = "OPEN";
+            else if (type === "Fault") display = "FAULT";
+            else if (type === "Alarm") display = "ALARM";
+            else if (type === "Trouble") display = "TROUBLE";
+            
+            if (cell.displayValue && cell.displayValue !== "OK" && cell.displayValue !== "NORMAL") {
+              display = cell.displayValue.toUpperCase();
+            }
+          }
+          return { tripped: isTripped, value: isTripped, displayValue: display, cell };
+        }
+        
+        if (fallbackVal !== undefined && fallbackVal !== null) {
+          const isTripped = fallbackVal === true;
+          let display = "NORMAL";
+          if (isTripped) {
+            if (type === "Door") display = "OPEN";
+            else if (type === "Fault") display = "FAULT";
+            else if (type === "Alarm") display = "ALARM";
+            else if (type === "Trouble") display = "TROUBLE";
+          }
+          return { tripped: isTripped, value: isTripped, displayValue: display, cell: null };
+        }
+        
+        return { tripped: null, value: null, displayValue: "UNKNOWN", cell: null };
+      };
+
+      return [
+        {
+          label: "Data Unavailable",
+          ...resolveDetectorState(
+            comStatus.dataCommunications,
+            selectedDevice.reachable === false ? true : (selectedDevice.reachable === true ? false : null),
+            "Fault"
+          ),
+          type: "Fault"
+        },
+        {
+          label: "Battery Doors",
+          ...resolveDetectorState(
+            doors.batteryDoors,
+            selectedDevice.doors ? !selectedDevice.doors.batteryDoorsClosed : null,
+            "Door"
+          ),
+          isDoor: true,
+          type: "Door"
+        },
+        {
+          label: "Lower Top Cap",
+          ...resolveDetectorState(
+            doors.topCapDoors,
+            selectedDevice.doors ? !selectedDevice.doors.dcDoorsClosed : null,
+            "Door"
+          ),
+          isDoor: true,
+          type: "Door"
+        },
+        {
+          label: "Emergency Ventilation",
+          ...resolveDetectorState(
+            other.envControllerVent,
+            (selectedDevice.fssSignals as any)?.envControllerVent ?? null,
+            "Alarm"
+          ),
+          type: "Alarm"
+        },
+        {
+          label: "Hydrogen Fault",
+          ...resolveDetectorState(
+            other.hydrogenFault,
+            selectedDevice.fssSignals?.hydrogenFault ?? null,
+            "Fault"
+          ),
+          type: "Fault"
+        },
+        {
+          label: "Hydrogen Alarm",
+          ...resolveDetectorState(
+            other.hydrogen,
+            selectedDevice.fssSignals?.hydrogenAlarm ?? null,
+            "Alarm"
+          ),
+          type: "Alarm"
+        },
+        {
+          label: "I/O Logic",
+          ...resolveDetectorState(
+            comStatus.io,
+            (selectedDevice.fssSignals as any)?.ioLogic ?? null,
+            "Fault"
+          ),
+          type: "Fault"
+        },
+        {
+          label: "Fire Trouble",
+          ...resolveDetectorState(
+            other.fireTrouble,
+            selectedDevice.fssSignals?.fssTrouble ?? selectedDevice.fssSignals?.fireTrouble ?? null,
+            "Trouble"
+          ),
+          type: "Trouble"
+        },
+        {
+          label: "Leak Detector",
+          ...resolveDetectorState(
+            emergency.moisture,
+            selectedDevice.fssSignals?.leakAlarm ?? null,
+            "Alarm"
+          ),
+          type: "Alarm"
+        }
+      ];
+    } else {
       return [
         { label: "FSS Alarm (Fire/Smoke Signal)", value: selectedDevice.fssSignals?.fssAlarm ?? selectedDevice.fssSignals?.smokeAlarm ?? null, type: "Alarm" },
         { label: "FSS Trouble / Pre-Alarm", value: selectedDevice.fssSignals?.fssTrouble ?? selectedDevice.fssSignals?.fireTrouble ?? null, type: "Trouble" },
@@ -209,76 +538,19 @@ export default function FeatherDetailsView({
         { label: "Water/Condensate Sensor", value: selectedDevice.fssSignals?.leakAlarm ?? null, type: "Alarm" }
       ];
     }
-
-    const other = matchingRow.otherSensors || {};
-    const doors = matchingRow.doorSensors || {};
-    const emergency = matchingRow.emergencySensors || {};
-
-    const fssAlarmCell = other.smoke?.applicable ? other.smoke : (other.fire?.applicable ? other.fire : other.heat);
-    const isFssAlarmTripped = fssAlarmCell?.tripped ?? (other.smoke?.tripped || other.fire?.tripped || other.heat?.tripped || null);
-
-    const fssTroubleCell = other.fireTrouble?.applicable ? other.fireTrouble : other.hydrogenFault;
-    const isFssTroubleTripped = fssTroubleCell?.tripped ?? (other.fireTrouble?.tripped || other.hydrogenFault?.tripped || other.upsAlarm?.tripped || null);
-
-    const doorCells = [doors.batteryDoors, doors.dcDoors, doors.acDoors, doors.topCapDoors].filter(c => c && c.applicable);
-    const anyDoorOpen = doorCells.length > 0 ? doorCells.some(c => c.tripped === true || c.displayValue?.toUpperCase() === "OPEN" || c.value === false) : null;
-    const doorsNotReporting = doorCells.length === 0;
-
-    const interlockCell = other.modbusEStop;
-    const isInterlockTripped = interlockCell?.tripped ?? null;
-
-    const waterCell = emergency.moisture;
-    const isWaterTripped = waterCell?.tripped ?? null;
-
-    return [
-      {
-        label: "FSS Alarm (Fire/Smoke Signal)",
-        value: isFssAlarmTripped,
-        displayValue: isFssAlarmTripped === null ? "--" : (isFssAlarmTripped ? "ALARM" : "NORMAL"),
-        cell: fssAlarmCell,
-        type: "Alarm"
-      },
-      {
-        label: "FSS Trouble / Pre-Alarm",
-        value: isFssTroubleTripped,
-        displayValue: isFssTroubleTripped === null ? "--" : (isFssTroubleTripped ? "FAULT" : "NORMAL"),
-        cell: fssTroubleCell,
-        type: "Trouble"
-      },
-      {
-        label: "Door Open Detector",
-        value: anyDoorOpen,
-        displayValue: doorsNotReporting ? "--" : (anyDoorOpen ? "TRIPPED" : "NORMAL"),
-        cell: doorCells[0],
-        type: "Status",
-        isDoor: true
-      },
-      {
-        label: "Interlock Signal (Safety loop)",
-        value: isInterlockTripped,
-        displayValue: isInterlockTripped === null ? "--" : (isInterlockTripped ? "TRIPPED" : "NORMAL"),
-        cell: interlockCell,
-        type: "Alarm"
-      },
-      {
-        label: "Water/Condensate Sensor",
-        value: isWaterTripped,
-        displayValue: isWaterTripped === null ? "--" : (isWaterTripped ? "TRIPPED" : "NORMAL"),
-        cell: waterCell,
-        type: "Alarm"
-      }
-    ];
-  }, [matchingRow, selectedDevice]);
+  }, [matchingRow, selectedDevice, resolvedSegment]);
 
   const detectorSourceDebug = useMemo(() => {
     if (!selectedDevice) return null;
     const arrayNum = selectedDevice.arrayIndex;
-    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
+    const resolved = resolveFeatherSegment(selectedDevice);
     
     return {
       selectedDeviceIp: selectedDevice.ip,
       selectedArray: arrayNum,
-      selectedEs: energySegmentIndex,
+      resolvedSegmentType: resolved.segmentType,
+      resolvedSegmentIndex: resolved.segmentIndex,
+      displayLabel: resolved.displayLabel,
       matchingTopologyRowFound: !!matchingRow,
       totalPointsCountInRow: matchingRow ? (matchingRow.unknownSensors?.length || 0) + Object.keys(matchingRow.otherSensors || {}).length : 0,
       mappedDetectorChannels: {
@@ -404,20 +676,41 @@ export default function FeatherDetailsView({
         return <span className="text-zinc-600 font-mono">UNKNOWN (–)</span>;
       };
 
+      const keyToLabel: Record<string, string> = {
+        fanLowCmd: "Fan Low Command (Target: Fan Motor Speed 1)",
+        fanLowAct: "Fan Low Actual Current (Sensor feedback)",
+        fanHighCmd: "Fan High Command (Target: Fan Motor Speed 2)",
+        fanHighAct: "Fan High Actual Current (Sensor feedback)",
+        compCmd: "Compressor Command (Target: Cooling Compressor)",
+        compAct: "Compressor Actual Current (Sensor feedback)",
+        revCmd: "Reversing Valve Command (Target: Heat Pump Cycle direction)",
+        revAct: "Reversing Valve Actual Status (Sensor feedback)",
+        heatCmd: "Electric Heat Command (Target: Auxiliary Heater)",
+        heatAct: "Electric Heat Actual Current (Sensor feedback)"
+      };
+
       return (
-        <div className="bg-slate-900 border border-slate-700 p-2.5 rounded shadow-lg text-[10px] space-y-1 font-mono text-prizm-text">
-          <div className="text-prizm-text-muted font-bold border-b border-slate-800 pb-1 mb-1">Time: {payload[0].payload.timeLabel}</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <span>Fan Low Cmd:</span> {formatState(h.fanLowCommanded)}
-            <span>Fan Low Act:</span> {formatState(h.fanLowCurrent)}
-            <span>Fan High Cmd:</span> {formatState(h.fanHighCommanded)}
-            <span>Fan High Act:</span> {formatState(h.fanHighCurrent)}
-            <span>Comp Cmd:</span> {formatState(h.compressorCommanded)}
-            <span>Comp Act:</span> {formatState(h.compressorCurrent)}
-            <span>Rev. Valve Cmd:</span> {formatState(h.reversingValveCommanded)}
-            <span>Rev. Valve Act:</span> {formatState(h.reversingValveCurrent)}
-            <span>Heat Cmd:</span> {formatState(h.electricHeatCommanded)}
-            <span>Heat Act:</span> {formatState(h.electricHeatCurrent)}
+        <div className="bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-xl text-[11px] space-y-2 font-mono text-prizm-text max-w-sm">
+          <div className="text-prizm-text-muted font-bold border-b border-slate-800 pb-1 flex justify-between">
+            <span>Time: {payload[0].payload.timeLabel}</span>
+            <span className="text-cyan-400 font-mono text-[9px]">Stepped Binary Trace</span>
+          </div>
+          
+          <div className="space-y-1.5">
+            {payload.map((item: any, idx: number) => {
+              const dataKey = item.dataKey;
+              const label = keyToLabel[dataKey] || item.name || dataKey;
+              const val = item.value === 1;
+              return (
+                <div key={idx} className="flex justify-between items-center gap-4 py-0.5 border-b border-white/5 last:border-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-prizm-text-muted font-bold text-[10px]">{label}</span>
+                  </div>
+                  <span>{formatState(val)}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       );
@@ -535,9 +828,9 @@ export default function FeatherDetailsView({
                 <span className="text-prizm-text font-bold">Array {selectedDevice.arrayIndex ?? "?"}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
-                <span className="text-prizm-text-muted">Segment Index / ES:</span>
+                <span className="text-prizm-text-muted">Segment Index / Type:</span>
                 <span className="text-prizm-text font-bold">
-                  {getEnergySegmentIndex(selectedDevice) !== null ? `${getEnergySegmentIndex(selectedDevice)} / ES ${getEnergySegmentIndex(selectedDevice)}` : `ES ${esNum}`}
+                  {resolvedSegment.displayLabel} ({resolvedSegment.segmentType})
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
@@ -570,27 +863,51 @@ export default function FeatherDetailsView({
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[9px]">
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Direct Feather:</span>
-                <span className={selectedDevice.sourceCoverage?.directFeather ? "text-emerald-400 font-bold" : "text-prizm-text-muted"}>
-                  {selectedDevice.sourceCoverage?.directFeather ? "Sourced" : "Failed"}
-                </span>
+                {(() => {
+                  if (selectedDevice.sourceCoverage?.directFeather) {
+                    return <span className="text-emerald-400 font-bold">Sourced</span>;
+                  }
+                  if (selectedDevice.hvac1 || selectedDevice.hvac2) {
+                    return <span className="text-amber-400 font-bold" title="Using cached manual polling or fallback stats">Fallback</span>;
+                  }
+                  return <span className="text-rose-500 font-bold">Missing</span>;
+                })()}
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Topology Index:</span>
-                <span className={selectedDevice.sourceCoverage?.blockviewer ? "text-emerald-400 font-bold" : "text-prizm-text-muted"}>
-                  {selectedDevice.sourceCoverage?.blockviewer ? "Sourced" : "Missing"}
-                </span>
+                {(() => {
+                  if (selectedDevice.sourceCoverage?.blockviewer) {
+                    return <span className="text-emerald-400 font-bold">Sourced</span>;
+                  }
+                  if (matchingRow) {
+                    return <span className="text-amber-400 font-bold" title="Matched via Site Health Sensor Topology">Fallback</span>;
+                  }
+                  return <span className="text-rose-500 font-bold">Missing</span>;
+                })()}
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">String IP Map:</span>
-                <span className={selectedDevice.sourceCoverage?.stringIpMap ? "text-emerald-400 font-bold" : "text-prizm-text-muted"}>
-                  {selectedDevice.sourceCoverage?.stringIpMap ? "Sourced" : "Missing"}
-                </span>
+                {(() => {
+                  if (resolvedSegment.segmentType === "CS") {
+                    return <span className="text-zinc-500 font-bold" title="Not Applicable for Collection Segments">N/A</span>;
+                  }
+                  if (selectedDevice.sourceCoverage?.stringIpMap) {
+                    return <span className="text-emerald-400 font-bold">Sourced</span>;
+                  }
+                  return <span className="text-rose-500 font-bold">Missing</span>;
+                })()}
               </div>
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">IP Translation Map:</span>
-                <span className={selectedDevice.sourceCoverage?.ipMap ? "text-emerald-400 font-bold" : "text-prizm-text-muted"}>
-                  {selectedDevice.sourceCoverage?.ipMap ? "Sourced" : "Missing"}
-                </span>
+                {(() => {
+                  if ((selectedDevice as any).discoveryMethod === "direct" || !(selectedDevice as any).ipTranslationNeeded) {
+                    return <span className="text-zinc-500 font-bold" title="Direct manual IP: No translation needed">N/A</span>;
+                  }
+                  if (selectedDevice.sourceCoverage?.ipMap) {
+                    return <span className="text-emerald-400 font-bold">Sourced</span>;
+                  }
+                  return <span className="text-rose-500 font-bold">Missing</span>;
+                })()}
               </div>
             </div>
           </div>
@@ -617,7 +934,9 @@ export default function FeatherDetailsView({
                 let badgeClass = "bg-black/30 text-prizm-text-muted/60";
                 let textValue = s.displayValue || "--";
 
-                if (s.value !== undefined && s.value !== null) {
+                if (textValue === "UNKNOWN") {
+                  badgeClass = "bg-gray-500/10 text-gray-400 border border-gray-500/20";
+                } else if (s.value !== undefined && s.value !== null) {
                   const isTrue = s.value === true;
                   
                   // For door open, true represents "Open" (Problem/Alarm).
@@ -677,22 +996,32 @@ export default function FeatherDetailsView({
         </div>
       </div>
 
-      {/* Strings Associated with this Feather / ES Pair */}
+      {/* STRINGS / BPC IN ROTATION Section */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
         <div className="border-b border-prizm-border pb-3 mb-4 flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">STRINGS / BPC IN ROTATION</span>
-            <span className="text-[9px] text-prizm-text-muted">Associated with Array {selectedDevice.arrayIndex ?? "?"} ES {esNum} (Paired String IDs)</span>
+            <span className="text-[9px] text-prizm-text-muted">Associated with Array {selectedDevice.arrayIndex ?? "?"} {resolvedSegment.displayLabel}</span>
           </div>
           <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded text-[9px] font-bold uppercase tracking-wider">
-            {pairedStrings.length} Associated Strings
+            {resolvedSegment.segmentType === "CS" ? "Not Applicable" : `${pairedStrings.length} Associated Strings`}
           </span>
         </div>
 
-        {pairedStrings.length === 0 ? (
+        {resolvedSegment.segmentType === "CS" ? (
+          <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong/30 flex flex-col items-center justify-center text-center space-y-2">
+            <Database className="text-prizm-text-muted opacity-40 mb-1" size={28} />
+            <div className="text-prizm-text-muted font-bold text-[11px] uppercase tracking-wider">
+              Collection Segment
+            </div>
+            <p className="text-prizm-text-muted text-[10px] max-w-md leading-relaxed">
+              No Paired Strings or BPCs are mapped to CS-type devices. Strings and battery pack controllers are strictly paired with Energy Segment (ES) controllers.
+            </p>
+          </div>
+        ) : pairedStrings.length === 0 ? (
           <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-rose-500/5 space-y-3">
             <div className="text-center text-prizm-text-muted italic text-[11px]">
-              No matching live String/BPC records resolved in this snapshot for Array {selectedDevice.arrayIndex ?? "?"} Segment {getEnergySegmentIndex(selectedDevice) ?? "?"}.
+              No matching live String/BPC records resolved in this snapshot for Array {selectedDevice.arrayIndex ?? "?"} Segment {resolvedSegment.segmentIndex ?? "?"}.
             </div>
             {pairedStringDebug && (
               <div className="bg-black/40 p-3 rounded border border-prizm-border/30 max-w-3xl mx-auto space-y-2">
@@ -713,8 +1042,8 @@ export default function FeatherDetailsView({
                     <span className="text-prizm-text font-bold">{pairedStringDebug.selectedSegmentLabel || "None"}</span>
                   </div>
                   <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
-                    <span className="text-prizm-text-muted">Resolved ES Index:</span>
-                    <span className="text-prizm-text font-bold">{pairedStringDebug.resolvedEnergySegmentIndex ?? "None"}</span>
+                    <span className="text-prizm-text-muted">Resolved Segment:</span>
+                    <span className="text-prizm-text font-bold">{pairedStringDebug.displayLabel} ({pairedStringDebug.resolvedSegmentType})</span>
                   </div>
                   <div className="flex justify-between border-b border-white/5 pb-1 col-span-1 md:col-span-2">
                     <span className="text-prizm-text-muted">Expected String IDs:</span>
@@ -752,56 +1081,13 @@ export default function FeatherDetailsView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 font-medium">
-                {pairedStrings.map((s: any, idx: number) => {
-                  const inRotation = s.outRotation === false || s.inRotation === true;
-                  return (
-                    <tr key={idx} className="hover:bg-prizm-surface-strong/50 transition-colors">
-                      <td className="p-2.5 text-prizm-primary font-bold">{s.stringKey}</td>
-                      <td className="p-2.5">{s.arrayNumber ?? "--"}</td>
-                      <td className="p-2.5">{s.stringNumber ?? "--"}</td>
-                      <td className="p-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                          inRotation ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-prizm-warning/10 text-prizm-warning border border-prizm-warning/20"
-                        }`}>
-                          {inRotation ? "IN" : "OUT"}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-center font-bold">{s.recloseCount ?? 0}</td>
-                      <td className="p-2.5 text-right text-prizm-text font-bold">
-                        {s.measuredVoltage !== undefined && s.measuredVoltage !== null 
-                          ? `${(s.measuredVoltage / 1000).toFixed(1)} V` 
-                          : "--"}
-                      </td>
-                      <td className="p-2.5 text-right">
-                        <span className="text-prizm-text font-bold">{s.amps?.toFixed(1) ?? "0.0"} A</span>
-                        <span className="text-prizm-text-muted mx-1">/</span>
-                        <span className="text-prizm-primary font-bold">{s.kw?.toFixed(1) ?? "0.0"} kW</span>
-                      </td>
-                      <td className="p-2.5 text-right text-emerald-400 font-bold">{s.socPct?.toFixed(1) ?? "0.0"}%</td>
-                      <td className="p-2.5 text-right text-prizm-text-muted font-mono text-[10px]">
-                        <span className="text-prizm-text font-bold">{s.minCellVoltage ?? "--"}</span>
-                        <span className="mx-1">/</span>
-                        <span className="text-prizm-text">{s.avgCellVoltage ?? "--"}</span>
-                        <span className="mx-1">/</span>
-                        <span className="text-prizm-text font-bold">{s.maxCellVoltage ?? "--"}</span>
-                        <span className="text-[9px] text-prizm-text-muted ml-1 font-sans">mV</span>
-                      </td>
-                      <td className="p-2.5 text-right text-prizm-text-muted font-mono text-[10px]">
-                        <span className="text-prizm-text font-bold">{s.minCellTemperature !== undefined && s.minCellTemperature !== null ? formatTemperatureF(s.minCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
-                        <span className="mx-1">/</span>
-                        <span>{s.avgCellTemperature !== undefined && s.avgCellTemperature !== null ? formatTemperatureF(s.avgCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
-                        <span className="mx-1">/</span>
-                        <span className="text-prizm-text font-bold">{s.maxCellTemperature !== undefined && s.maxCellTemperature !== null ? formatTemperatureF(s.maxCellTemperature, { decimals: 0, showUnit: false, sourceUnit: "C" }) : "--"}</span>
-                        <span className="text-[9px] text-prizm-text-muted ml-1 font-sans">°F</span>
-                      </td>
-                      <td className="p-2.5 text-center uppercase font-bold text-prizm-text-muted">
-                        {s.balancingActive ? (
-                          <span className="text-cyan-400 animate-pulse font-black">ACTIVE</span>
-                        ) : "OFF"}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {pairedStrings.map((s: any, idx: number) => (
+                  <StringRowWithNotifications 
+                    key={idx} 
+                    s={s} 
+                    formatTemperatureF={formatTemperatureF} 
+                  />
+                ))}
               </tbody>
             </table>
           </div>

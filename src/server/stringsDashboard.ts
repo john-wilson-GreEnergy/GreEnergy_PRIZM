@@ -1660,12 +1660,16 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
 
             let reportSourceHealth: any = { ok: false, url: reportUrl, endpoint: reportEndpoint, httpStatus: null, durationMs: null, error: null };
             let monitorSourceHealth: any = { ok: false, url: monitorUrl, endpoint: monitorEndpoint, httpStatus: null, durationMs: null, error: null };
+            const notificationsEndpoint = `/tools/report/ems/array/${arrayNumber}/notifications.json`;
+            const notificationsUrl = `${baseUrl}${notificationsEndpoint}`;
+            let notificationsSourceHealth: any = { ok: false, url: notificationsUrl, endpoint: notificationsEndpoint, httpStatus: null, durationMs: null, error: null };
 
             let reportData: any = null;
             let monitorData: any = null;
+            let rawNotifications: any[] = [];
 
             try {
-                const [reportRes, monitorRes] = await Promise.allSettled([
+                const [reportRes, monitorRes, notificationsRes] = await Promise.allSettled([
                     (async () => {
                         const start = Date.now();
                         try {
@@ -1727,6 +1731,40 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                         } finally {
                             monitorSourceHealth.durationMs = Date.now() - start;
                         }
+                    })(),
+                    (async () => {
+                        const start = Date.now();
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 2000);
+                            let r;
+                            let fallbackAttempted = false;
+                            try {
+                                r = await fetch(notificationsUrl, { signal: controller.signal });
+                                if (!r.ok && !notificationsUrl.includes("127.0.0.1:3000") && !notificationsUrl.includes("localhost:3000")) {
+                                    fallbackAttempted = true;
+                                    r = await fetch(`http://127.0.0.1:3000${notificationsEndpoint}`);
+                                }
+                            } catch (err: any) {
+                                if (!fallbackAttempted && !notificationsUrl.includes("127.0.0.1:3000") && !notificationsUrl.includes("localhost:3000")) {
+                                    r = await fetch(`http://127.0.0.1:3000${notificationsEndpoint}`);
+                                } else {
+                                    throw err;
+                                }
+                            }
+                            clearTimeout(timeoutId);
+                            notificationsSourceHealth.httpStatus = r.status;
+                            notificationsSourceHealth.ok = r.ok;
+                            if (r.ok) {
+                                const payload = await r.json();
+                                rawNotifications = Array.isArray(payload) ? payload : (payload?.rows || payload?.notifications || []);
+                            }
+                            else notificationsSourceHealth.error = `HTTP ${r.status}`;
+                        } catch(e: any) {
+                            notificationsSourceHealth.error = e.message;
+                        } finally {
+                            notificationsSourceHealth.durationMs = Date.now() - start;
+                        }
                     })()
                 ]);
             } catch (e) {
@@ -1767,9 +1805,38 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 };
             }
 
+            // Filter and map notifications for this specific string
+            const stringNotifications = rawNotifications
+                .filter((n: any) => {
+                    const source = n?.notificationSource || {};
+                    const sIdx = source.stringIndex ?? source.stringNumber ?? source.stringNo ?? n.stringIndex ?? n.stringNumber;
+                    return sIdx !== undefined && Number(sIdx) === stringNumber;
+                })
+                .map((n: any) => {
+                    const type = n?.notificationType || {};
+                    const source = n?.notificationSource || {};
+                    return {
+                        category: type.notificationCategory || n.category || "General",
+                        id: type.notificationId || n.id || "Unknown",
+                        code: type.notificationId || n.code || type.notificationCode || "Unknown",
+                        endpointType: source.endpointType || n.endpointType || "EMS",
+                        arrayIndex: source.arrayIndex ?? n.arrayIndex ?? arrayNumber,
+                        stringIndex: source.stringIndex ?? n.stringIndex ?? stringNumber,
+                        batteryPackIndex: source.batteryPackIndex ?? n.batteryPackIndex ?? null,
+                        cellGroupIndex: source.cellGroupIndex ?? n.cellGroupIndex ?? null,
+                        triggerMessage: n.triggerMessage || n.displayText || n.message || n.text || "Active Fault",
+                        timestamp: n.timestamp || new Date().toISOString(),
+                        level: n.level || (type.notificationCategory === "Fault" || type.notificationCategory === "Alarm" ? "ALARM" : "WARN"),
+                        raw: n
+                    };
+                });
+
+            finalData.notifications = stringNotifications;
+
             finalData.sourceHealth = {
                 stringviewerReport: reportSourceHealth,
-                stringviewerMonitor: monitorSourceHealth
+                stringviewerMonitor: monitorSourceHealth,
+                notifications: notificationsSourceHealth
             };
 
             const isOk = reportSourceHealth.ok || monitorSourceHealth.ok;
