@@ -2,6 +2,7 @@ import { Router } from "express";
 import fs from "fs";
 import path from "path";
 import net from "net";
+import * as XLSX from "xlsx";
 import { buildSiteTopologyFromCachedSources } from "./siteTopology";
 import { readSiteArtifact, writeSiteArtifact, getEffectiveCachePolicy, shouldFetchLive } from "../cache/prizmCache";
 import { refreshSiteOperationsSources, buildSiteOperationsSummaryFromCache } from "../siteOperations";
@@ -9,14 +10,30 @@ import { getEmsConnectionStatus } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
 import { EmsProfile } from "../profiles/profileTypes";
 import {
-  SiteTopologyProfile,
-  SiteTopologyDevice,
+  SiteTopologyProfile as LibSiteTopologyProfile,
+  SiteTopologyDevice as LibSiteTopologyDevice,
   SiteTopologyResolution,
   resolveIpToTopologyDevice,
   isValidIp,
   parseIp,
   ipMatchesSubnet
 } from "../../lib/topologyResolver";
+import {
+  getTopologyProfiles,
+  getActiveTopologyProfile,
+  activateTopologyProfile,
+  saveTopologyProfile,
+  deleteTopologyProfile,
+  generateExpectedDevices,
+  mergeLiveDiscoveryIntoTopology,
+  TopologyLayoutFamily,
+  TopologyUiMode,
+  SiteTopologyProfile as EngineSiteTopologyProfile,
+  SiteTopologyDevice as EngineSiteTopologyDevice
+} from "./siteTopologyEngine";
+
+type SiteTopologyProfile = LibSiteTopologyProfile;
+type SiteTopologyDevice = LibSiteTopologyDevice;
 
 export const topologyRouter = Router();
 
@@ -768,4 +785,300 @@ topologyRouter.get("/topology/validation", async (req, res) => {
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// --- SITE TOPOLOGY ENGINE ENDPOINTS ---
+
+// GET /api/local/topology/profiles
+topologyRouter.get("/topology/profiles", (req, res) => {
+  try {
+    const profiles = getTopologyProfiles();
+    res.json({ success: true, profiles });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch topology profiles" });
+  }
+});
+
+// GET /api/local/topology/profiles/:id
+topologyRouter.get("/topology/profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const profiles = getTopologyProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile) {
+      return res.status(404).json({ error: `Topology profile ${id} not found` });
+    }
+    res.json({ success: true, profile });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch topology profile" });
+  }
+});
+
+// POST /api/local/topology/profiles
+topologyRouter.post("/topology/profiles", (req, res) => {
+  try {
+    const incoming = req.body;
+    if (!incoming.profileName) {
+      return res.status(400).json({ error: "profileName is required" });
+    }
+    if (!incoming.layoutFamily) {
+      return res.status(400).json({ error: "layoutFamily is required (stack750, stack360, custom)" });
+    }
+    const saved = saveTopologyProfile(incoming);
+    res.status(201).json({ success: true, profile: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to save topology profile" });
+  }
+});
+
+// PUT /api/local/topology/profiles/:id
+topologyRouter.put("/topology/profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const profiles = getTopologyProfiles();
+    const existing = profiles.find(p => p.id === id);
+    if (!existing) {
+      return res.status(404).json({ error: `Topology profile ${id} not found` });
+    }
+    const merged = { ...existing, ...req.body, id };
+    const saved = saveTopologyProfile(merged);
+    res.json({ success: true, profile: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to update topology profile" });
+  }
+});
+
+// DELETE /api/local/topology/profiles/:id
+topologyRouter.delete("/topology/profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = deleteTopologyProfile(id);
+    res.json({ success: deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to delete topology profile" });
+  }
+});
+
+// POST /api/local/topology/profiles/:id/activate
+topologyRouter.post("/topology/profiles/:id/activate", (req, res) => {
+  try {
+    const { id } = req.params;
+    const activated = activateTopologyProfile(id);
+    res.json({ success: true, profile: activated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Failed to activate topology profile" });
+  }
+});
+
+// GET /api/local/topology/profiles/:id/export
+topologyRouter.get("/topology/profiles/:id/export", (req, res) => {
+  try {
+    const { id } = req.params;
+    const profiles = getTopologyProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile) {
+      return res.status(404).json({ error: `Topology profile ${id} not found` });
+    }
+    res.setHeader("Content-Disposition", `attachment; filename=topology_profile_${id}.json`);
+    res.setHeader("Content-Type", "application/json");
+    res.send(JSON.stringify(profile, null, 2));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to export topology profile" });
+  }
+});
+
+// POST /api/local/topology/profiles/import
+topologyRouter.post("/topology/profiles/import", (req, res) => {
+  try {
+    const { fileName, fileContentBase64, layoutFamily, profileName } = req.body;
+    if (!fileName) {
+      return res.status(400).json({ error: "fileName is required" });
+    }
+
+    if (fileName.endsWith(".gsheet")) {
+      return res.status(400).json({
+        error: "Google Sheets shortcut files cannot be imported directly. Export the sheet as .xlsx or .csv, then upload that file."
+      });
+    }
+
+    if (!fileContentBase64) {
+      return res.status(400).json({ error: "fileContentBase64 is required" });
+    }
+
+    const buffer = Buffer.from(fileContentBase64, "base64");
+
+    if (fileName.endsWith(".json")) {
+      const content = buffer.toString("utf8");
+      const profile = JSON.parse(content) as any;
+      if (!profile.name) {
+        profile.name = profileName || profile.profileName || "Imported JSON Topology";
+      }
+      profile.layoutFamily = profile.layoutFamily || "custom";
+      profile.uiMode = profile.uiMode || "custom";
+      if (!profile.ipPlan) {
+        profile.ipPlan = { subnet: "10.0.0.0/16" };
+      } else if (!profile.ipPlan.subnet && profile.ipPlan.subnets) {
+        profile.ipPlan.subnet = profile.ipPlan.subnets[0] || "10.0.0.0/16";
+      }
+      profile.createdAt = profile.createdAt || new Date().toISOString();
+      profile.updatedAt = profile.updatedAt || new Date().toISOString();
+      profile.source = "imported";
+
+      const saved = saveTopologyProfile(profile);
+      return res.json({ success: true, profile: saved });
+    }
+
+    if (fileName.endsWith(".csv") || fileName.endsWith(".xlsx")) {
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+
+      const importedDevices: EngineSiteTopologyDevice[] = [];
+      const warnings: string[] = [];
+
+      for (const row of rows) {
+        // Find keys by loose match
+        const ipKey = Object.keys(row).find(k => /ip|address|host/i.test(k));
+        const typeKey = Object.keys(row).find(k => /type|device/i.test(k));
+        const labelKey = Object.keys(row).find(k => /label|name/i.test(k));
+        const arrKey = Object.keys(row).find(k => /array|arr/i.test(k));
+        const contKey = Object.keys(row).find(k => /container/i.test(k));
+        const stackKey = Object.keys(row).find(k => /stack/i.test(k));
+        const segKey = Object.keys(row).find(k => /segment/i.test(k));
+
+        const rawIp = ipKey ? String(row[ipKey]).trim() : "";
+        if (!rawIp || !isValidIp(rawIp)) {
+          if (rawIp) warnings.push(`Skipped row with invalid IP: ${rawIp}`);
+          continue;
+        }
+
+        const rawType = typeKey ? String(row[typeKey]).toLowerCase().trim() : "";
+        let deviceType: any = "unknown";
+        if (rawType.includes("feather") || rawType.includes("env") || rawType.includes("controller")) {
+          deviceType = "feather";
+        } else if (rawType.includes("cs") || rawType.includes("container supervisor")) {
+          deviceType = "collection-segment-feather";
+        } else if (rawType.includes("es") || rawType.includes("energy supervisor") || rawType.includes("string")) {
+          deviceType = "energy-segment-feather";
+        } else if (rawType.includes("pcs")) {
+          deviceType = "pcs";
+        } else if (rawType.includes("ups")) {
+          deviceType = "ups";
+        } else if (rawType.includes("moxa")) {
+          deviceType = "moxa-io";
+        } else if (rawType.includes("switch")) {
+          deviceType = "network-switch";
+        } else if (rawType.includes("plc")) {
+          deviceType = "gateway";
+        }
+
+        const arrayIndex = arrKey ? parseInt(row[arrKey], 10) : undefined;
+        const containerIndex = contKey ? parseInt(row[contKey], 10) : undefined;
+        const stackIndex = stackKey ? parseInt(row[stackKey], 10) : undefined;
+        const rawSegment = segKey ? String(row[segKey]).toLowerCase().trim() : "";
+        let segmentType: EngineSiteTopologyDevice["segmentType"] = "NONE";
+        if (rawSegment.includes("coll") || rawSegment.includes("col")) {
+          segmentType = "CS";
+        } else if (rawSegment.includes("energy") || rawSegment.includes("en")) {
+          segmentType = "ES";
+        }
+
+        const label = labelKey ? String(row[labelKey]) : `${deviceType.toUpperCase()} ${rawIp}`;
+
+        // Infer capabilities
+        const capabilities = {
+          hasStrings: deviceType === "energy-segment-feather" || deviceType === "string-controller",
+          hasCellVoltage: deviceType === "energy-segment-feather" || deviceType === "string-controller",
+          hasCellTemperature: deviceType === "energy-segment-feather" || deviceType === "string-controller",
+          hasHvac: deviceType === "feather" || deviceType === "collection-segment-feather" || deviceType === "energy-segment-feather" || deviceType === "environmental-controller",
+          hasOpenClosedDetectors: deviceType === "feather" || deviceType === "collection-segment-feather" || deviceType === "energy-segment-feather" || deviceType === "environmental-controller",
+          hasPcsTelemetry: deviceType === "pcs",
+          hasBmsTelemetry: deviceType === "bms-phoenix" || deviceType === "energy-segment-feather",
+          hasStackTelemetry: deviceType === "stack-controller",
+          hasContainerTelemetry: deviceType === "container-controller"
+        };
+
+        importedDevices.push({
+          id: `imported_${deviceType}_${rawIp.replace(/\./g, "_")}`,
+          ip: rawIp,
+          deviceType,
+          label,
+          layoutFamily: "custom",
+          segmentType,
+          capabilities,
+          expected: true,
+          discovered: true,
+          source: "imported",
+          arrayIndex,
+          containerIndex,
+          stackIndex
+        });
+      }
+
+      // Create a profile from imported devices
+      const importedProfile: EngineSiteTopologyProfile = {
+        id: "profile_" + Date.now(),
+        name: profileName || `Imported ${fileName}`,
+        stationCode: "IMPORTED",
+        blockIndex: 1,
+        layoutFamily: "custom",
+        equipmentModel: "custom",
+        uiMode: "custom",
+        assumptions: {
+          arrayCount: 1,
+          baseSubnet: "10.0.0.0/16"
+        },
+        ipPlan: {
+          subnet: "10.0.0.0/16",
+          customDevices: importedDevices
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        source: "imported"
+      };
+
+      const saved = saveTopologyProfile(importedProfile);
+      return res.json({ success: true, profile: saved, warnings });
+    }
+
+    return res.status(400).json({ error: `Unsupported file format: ${fileName}` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to import topology profile" });
+  }
+});
+
+// GET /api/local/topology/active
+topologyRouter.get("/topology/active", (req, res) => {
+  try {
+    const active = getActiveTopologyProfile();
+    res.json({ success: true, profile: active });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch active topology profile" });
+  }
+});
+
+// POST /api/local/topology/active/validate
+topologyRouter.post("/topology/active/validate", async (req, res) => {
+  try {
+    const active = getActiveTopologyProfile();
+    const normalized = mergeLiveDiscoveryIntoTopology(active);
+    res.json(normalized);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Validation failed" });
+  }
+});
+
+// POST /api/local/topology/generate-preview
+topologyRouter.post("/topology/generate-preview", (req, res) => {
+  try {
+    const profile = req.body as EngineSiteTopologyProfile;
+    if (!profile || !profile.layoutFamily) {
+      return res.status(400).json({ error: "Valid profile structure with layoutFamily is required" });
+    }
+    const devices = generateExpectedDevices(profile);
+    res.json({ success: true, devices });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to generate preview" });
+  }
 });
