@@ -42,6 +42,8 @@ interface ReportingProps {
   onRefreshDiagnostic?: () => void;
 }
 
+import SiteDataExport from './SiteDataExport';
+
 export default function Reporting({ 
   devices, 
   reports, 
@@ -1217,8 +1219,8 @@ export default function Reporting({
           </div>
 
         </div>
-
       </div>
+      <SiteDataExport />
       </>
       )}
 

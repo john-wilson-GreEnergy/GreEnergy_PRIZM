@@ -17,6 +17,7 @@ import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManage
 import storageRouter from "./src/server/storage/storageRoutes";
 import { initLocalStorageMaintenance } from "./src/server/storage/storageMaintenance";
 import { siteDataRouter } from "./src/server/siteDataRoutes";
+import { reportRoutes } from "./src/server/reports/reportRoutes";
 
 import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus, DEMO_TEMPLATES, OFFLINE_TEMPLATES } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
@@ -88,6 +89,7 @@ app.use("/api/local/site-health", siteDistributionRouter);
 app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
+app.use("/api/local/reports", reportRoutes);
 
 import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 app.use("/api/local/balancer-test", balancerTestRouter);

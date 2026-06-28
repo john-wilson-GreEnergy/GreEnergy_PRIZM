@@ -27,7 +27,9 @@ import {
   ArrowDown,
   RotateCcw,
   Check,
-  Shield
+  Shield,
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
 import ConnectionSettings from "./ConnectionSettings";
 import ConnectionTopologyWorkflow from "./ConnectionTopologyWorkflow";
@@ -86,7 +88,7 @@ export default function SiteConfigurationDashboard({
         if (policyData && policyData.policy) setCachePolicy(policyData.policy);
       }
     } catch (e) {
-      // Silently ignore network fetch errors to prevent console noise during restarts
+      // Silently ignore network fetch errors
     }
   };
 
@@ -103,7 +105,7 @@ export default function SiteConfigurationDashboard({
       const res = await fetch("/api/local/ems/retry-connection", { method: "POST" });
       if (res.ok) {
         setConnectionStatus(await res.json());
-        setStatusMsg("Retry complete. Checked all endpoints.");
+        setStatusMsg("Retry complete.");
       }
     } catch(e) {
       setStatusMsg("Failed to retry connection.");
@@ -116,7 +118,7 @@ export default function SiteConfigurationDashboard({
   const triggerSeedCache = async () => {
     if (!window.confirm("CONFIRM SEED ACTION: Are you sure you want to seed raw cache indexes? This will bootstrap schemas and overwrite current local data buffers.")) return;
     setActionLoading("seed");
-    setStatusMsg("Bootstrapping cache namespaces & seeding historical offsets...");
+    setStatusMsg("Bootstrapping cache namespaces...");
     try {
       const res = await fetch("/api/local/cache/seed", { method: "POST" });
       if (res.ok) {
@@ -148,70 +150,92 @@ export default function SiteConfigurationDashboard({
     }
   };
 
-  // Extract variables for header
-  const activeProfileName = connectionStatus?.activeProfileName || bootStatus?.activeProfileLoaded || "Unknown Profile";
-  const stationCode = connectionStatus?.stationCode || "BHE0020";
-  const blockIndex = connectionStatus?.blockIndex ?? 1;
-  const emsBaseUrl = connectionStatus?.activeEmsBaseUrl || "http://10.0.0.3:8080/turtle";
-  const turtlePath = connectionStatus?.turtlePath || "/turtle";
-  const modbusHost = connectionStatus?.modbusHost || "10.0.0.3";
-  const modbusPort = connectionStatus?.modbusPort || 502;
+  // Header Data Extraction
+  const hasActiveProfile = !!connectionStatus?.activeProfileName;
+  const activeProfileName = hasActiveProfile ? connectionStatus.activeProfileName : "No Active Profile";
+  const stationCode = hasActiveProfile ? connectionStatus?.stationCode : "-";
+  const blockIndex = hasActiveProfile ? connectionStatus?.blockIndex : "-";
+  const emsBaseUrl = hasActiveProfile ? connectionStatus?.activeEmsBaseUrl : "-";
+  const modbusHost = hasActiveProfile ? connectionStatus?.modbusHost : "-";
+  const modbusPort = hasActiveProfile ? connectionStatus?.modbusPort : "-";
   const isReachable = !!connectionStatus?.reachable;
   const lastPollTime = connectionStatus?.lastUpdated ? formatPrizmUtcTimestamp(connectionStatus.lastUpdated) : "Never";
 
+  // Topology data
+  const topologyFamily = bootStatus?.preloadStatus?.topologyFamily || "stack750_800";
+  const hasTopology = bootStatus?.preloadStatus?.topology === true;
+
   return (
-    <div className="space-y-6 font-mono animate-fade-in w-full pb-8">
+    <div className="space-y-6 animate-fade-in w-full pb-8 text-slate-800 font-sans">
       
       {/* SITE CONFIG HEADER */}
-      <header className="bg-prizm-surface border border-prizm-border rounded-lg p-4 font-mono shadow-md">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-5">
-          <div className="space-y-1">
+      <header className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
+        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-6">
+          <div className="space-y-2 max-w-sm">
             <div className="flex items-center gap-2">
-              <Server className="text-prizm-primary" size={16} />
-              <h2 className="text-xs font-bold text-prizm-text uppercase tracking-wider">Site Configuration Dashboard</h2>
-              <span className={`px-2 py-0.5 rounded text-[8px] uppercase font-mono tracking-widest ${isReachable ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' : 'bg-red-400/10 text-red-400 border border-red-400/20'}`}>
-                {isReachable ? "CONNECTED" : "OFFLINE / DISCONNECTED"}
-              </span>
+              <Server className="text-emerald-600" size={18} />
+              <h2 className="text-sm font-bold uppercase tracking-wider">Site Configuration</h2>
             </div>
-            <p className="text-[10px] text-prizm-text-muted mt-1 uppercase max-w-2xl">
-              Consolidated command panel. View active connection profiles, modify topology layouts, clear cache archives, and monitor modbus registers.
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Consolidated command panel. View active profiles, modify topology layouts, clear caches, and monitor connections.
             </p>
+            {!hasActiveProfile && (
+              <div className="mt-2 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded">
+                Create or activate a profile in Topology.
+              </div>
+            )}
           </div>
 
-          {/* Quick status attributes */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3 bg-prizm-surface-strong p-3 rounded border border-white/5 text-[10px]">
+          {/* Compact Status Card Layout */}
+          <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded border border-slate-200 text-xs">
             <div>
-              <span className="text-prizm-text-muted block text-[8px] uppercase">Active Profile</span>
-              <span className="text-prizm-primary font-black truncate max-w-40 block">{activeProfileName}</span>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Active Connection</span>
+              <span className="font-bold truncate block">{activeProfileName}</span>
+              {hasActiveProfile && <span className="text-slate-500 text-[10px] block mt-0.5">{stationCode} [B{blockIndex}]</span>}
             </div>
             <div>
-              <span className="text-prizm-text-muted block text-[8px] uppercase">Station Code</span>
-              <span className="text-prizm-text font-bold uppercase">{stationCode} [B{blockIndex}]</span>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Active Topology</span>
+              {hasTopology ? (
+                <span className="font-bold text-emerald-600 block">{topologyFamily}</span>
+              ) : (
+                <span className="font-bold text-slate-400 block">Not Configured</span>
+              )}
+            </div>
+            <div className="col-span-2">
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">EMS / Turtle Connection</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-slate-700 truncate max-w-[200px]" title={emsBaseUrl}>{emsBaseUrl}</span>
+                {hasActiveProfile && (
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest ${isReachable ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                    {isReachable ? "Connected" : "Failed"}
+                  </span>
+                )}
+              </div>
             </div>
             <div>
-              <span className="text-prizm-text-muted block text-[8px] uppercase">EMS Gateway</span>
-              <span className="text-prizm-text truncate max-w-40 block">{emsBaseUrl}</span>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Modbus Target</span>
+              <span className="font-mono text-slate-700">{hasActiveProfile ? `${modbusHost}:${modbusPort}` : "-"}</span>
             </div>
             <div>
-              <span className="text-prizm-text-muted block text-[8px] uppercase">Modbus Target</span>
-              <span className="text-prizm-text font-semibold">{modbusHost}:{modbusPort}</span>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Cache Policy</span>
+              <span className="font-bold uppercase text-slate-700">{cachePolicy || "Unknown"}</span>
             </div>
-            <div className="col-span-2 md:col-span-1">
-              <span className="text-prizm-text-muted block text-[8px] uppercase">Cache Policy</span>
-              <span className="text-cyan-400 font-bold block uppercase">{cachePolicy}</span>
+            <div className="col-span-2">
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Last Validated Poll</span>
+              <span className="text-slate-700 font-medium">{isReachable ? lastPollTime : "Never"}</span>
             </div>
           </div>
         </div>
 
         {/* SUB NAVIGATION FOR SITE CONFIGURATION */}
-        <div className="mt-4 pt-3 border-t border-prizm-border flex items-center justify-start overflow-x-auto no-scrollbar scroll-smooth gap-1">
+        <div className="mt-6 border-b border-slate-200 flex items-center justify-start overflow-x-auto no-scrollbar">
           {([
-            { id: "connection", label: "Connection", icon: Settings },
+            { id: "connection", label: "Connection Profile", icon: Settings },
             { id: "topology", label: "Topology", icon: Network },
             { id: "data-sources", label: "Data Sources", icon: Wifi },
             { id: "cache", label: "Cache", icon: Database },
-            { id: "diagnostics", label: "Diagnostics", icon: Sliders },
-            { id: "advanced", label: "Advanced", icon: Clock },
+            { id: "diagnostics", label: "Diagnostics", icon: Activity },
+            { id: "advanced", label: "Advanced", icon: ShieldAlert },
             { id: "ui-preferences", label: "UI Preferences", icon: Layers }
           ] as const).map(tab => {
             const Icon = tab.icon;
@@ -220,13 +244,13 @@ export default function SiteConfigurationDashboard({
               <button
                 key={tab.id}
                 onClick={() => setActiveSubTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap border-b-2 ${
                   isActive
-                    ? "bg-prizm-info/10 text-prizm-primary font-black border border-prizm-primary"
-                    : "text-prizm-text-muted hover:text-prizm-text hover:bg-black/5"
+                    ? "border-emerald-500 text-emerald-700 bg-emerald-50/50"
+                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                 }`}
               >
-                <Icon size={12} className={isActive ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                <Icon size={14} className={isActive ? "text-emerald-600" : "text-slate-400"} />
                 {tab.label}
               </button>
             );
@@ -241,129 +265,148 @@ export default function SiteConfigurationDashboard({
         )}
 
         {activeSubTab === "topology" && (
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
-            <ConnectionTopologyWorkflow />
+          <div className="space-y-4">
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Network className="text-emerald-600" size={16} />
+                <span className="font-bold text-slate-800 uppercase tracking-wider">Topology Model Reference</span>
+              </div>
+              <div className="flex flex-wrap gap-6 items-center text-slate-600">
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Active Profile</span>
+                  <span className="font-bold">{activeProfileName}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Layout Family</span>
+                  <span className="font-bold">{topologyFamily}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Last Validation</span>
+                  <span className={isReachable ? "font-bold text-emerald-600" : "font-bold text-amber-600"}>
+                    {isReachable ? "Passed" : "Warning"}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Direct IP Targets</span>
+                  <span className="font-bold">{topologyFamily === 'stack750_800' ? "Required" : "Not Applicable"}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Turtle Health</span>
+                  <span className={isReachable ? "font-bold text-emerald-600" : "font-bold text-amber-600"}>
+                    {isReachable ? "Online" : "Unknown"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="w-full">
+              <ConnectionTopologyWorkflow />
+            </div>
           </div>
         )}
 
         {activeSubTab === "data-sources" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 flex flex-col justify-between space-y-4">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-prizm-border pb-2">
-                  <div className="flex items-center gap-2">
-                    <Activity className="text-prizm-primary" size={16} />
-                    <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">EMS System Connectivity</span>
-                  </div>
-                </div>
-
-                <div className="space-y-3 text-[11px]">
-                  <div className="flex justify-between items-center p-2 rounded bg-prizm-surface-strong border border-white/5">
-                    <span className="text-prizm-text-muted uppercase">EMS Reachability</span>
-                    <span className={`font-bold flex items-center gap-1.5 ${isReachable ? 'text-emerald-400' : 'text-red-400'}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${isReachable ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-                      {isReachable ? 'ONLINE' : 'OFFLINE'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center p-2 rounded bg-prizm-surface-strong border border-white/5">
-                    <span className="text-prizm-text-muted uppercase">Turtle Endpoint Status</span>
-                    <span className={`font-bold uppercase ${connectionStatus?.sourceHealth?.voltageMatrix === 'degraded' ? 'text-amber-400' : isReachable ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {connectionStatus?.sourceHealth?.voltageMatrix === 'degraded' ? 'DEGRADED' : isReachable ? 'NOMINAL' : 'UNREACHABLE'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center p-2 rounded bg-prizm-surface-strong border border-white/5">
-                    <span className="text-prizm-text-muted uppercase">EMS Reports Status</span>
-                    <span className={`font-bold uppercase ${connectionStatus?.lastResultSuccess === false ? 'text-red-400' : isReachable ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {isReachable ? 'ACTIVE' : 'OFFLINE'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center p-2 rounded bg-prizm-surface-strong border border-white/5">
-                    <span className="text-prizm-text-muted uppercase">Last Successful Poll</span>
-                    <span className="text-prizm-text font-semibold">{lastPollTime}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-2 rounded bg-prizm-surface-strong border border-white/5">
-                    <span className="text-prizm-text-muted uppercase">Data Quality Index</span>
-                    <span className={`font-bold uppercase ${connectionStatus?.staleData ? 'text-amber-400' : isReachable ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {connectionStatus?.staleData ? 'STALE / PARTIAL' : isReachable ? 'EXCELLENT' : 'UNKNOWN'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-3 border-t border-prizm-border">
-                {statusMsg && (
-                  <div className="p-2 text-[10px] text-prizm-primary font-bold uppercase bg-prizm-info/10 text-cyan-300 border border-prizm-primary/20 rounded">
-                    {statusMsg}
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={triggerRetryConnection}
-                    disabled={!!actionLoading}
-                    className="px-3 py-2 bg-prizm-primary text-black hover:bg-cyan-400 text-[10px] font-extrabold rounded uppercase cursor-pointer disabled:opacity-40 transition-colors"
-                  >
-                    {actionLoading === "retry" ? "Connecting..." : "Retry Connection"}
-                  </button>
-                  <button 
-                    onClick={triggerSeedCache}
-                    disabled={!!actionLoading}
-                    className="px-3 py-2 border border-prizm-border hover:bg-black/10 text-prizm-text text-[10px] font-bold rounded uppercase cursor-pointer disabled:opacity-40 transition-colors"
-                  >
-                    {actionLoading === "seed" ? "Seeding..." : "Seed Cache"}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Source Health and timing Matrix */}
-            <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 lg:col-span-2 space-y-4">
-              <div className="flex justify-between items-center border-b border-prizm-border pb-2">
-                <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">Gateway Source Health Matrix</span>
-                <span className="text-[9px] text-prizm-text-muted">POLL HEARTBEAT STREAMS</span>
-              </div>
-
-              <div className="overflow-x-auto no-scrollbar border border-prizm-border rounded">
-                <table className="w-full text-left border-collapse text-[11px] font-mono">
+          <div className="grid grid-cols-1 gap-6">
+            <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-6">
+              <h3 className="text-sm font-bold uppercase text-slate-800 border-b border-slate-200 pb-2">Direct IP Sources</h3>
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                     <tr className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted text-[9px] uppercase font-bold">
-                        <th className="p-2.5">Source Node / API Register</th>
-                        <th className="p-2.5">Sync Status</th>
-                        <th className="p-2.5">Last Poll Latency</th>
-                        <th className="p-2.5">Cache State</th>
-                     </tr>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold">
+                      <th className="p-3">Source Name</th>
+                      <th className="p-3">Source Type</th>
+                      <th className="p-3">Requirement</th>
+                      <th className="p-3">Last Status</th>
+                      <th className="p-3">Data Used For</th>
+                    </tr>
                   </thead>
                   <tbody>
-                     {([
-                       { name: "Global Status Service (/status.json)", key: "status", latency: connectionStatus?.durations?.status },
-                       { name: "Live Site Summary / Reports Check", key: "reports", latency: connectionStatus?.durations?.reportStatus },
-                       { name: "BlockViewer Multi-Block Controller Map", key: "blockviewer", latency: connectionStatus?.durations?.blockviewer },
-                       { name: "Core Modbus TCP Register Connection", key: "modbus", latency: 12 },
-                       { name: "Feather HVAC Node Discovery LAN Map", key: "feather", latency: 25 },
-                     ]).map((source) => {
-                       const active = isReachable;
-                       return (
-                         <tr key={source.key} className="border-b border-white/[0.03] hover:bg-white/[0.01]">
-                            <td className="p-2.5 font-bold text-slate-200">{source.name}</td>
-                            <td className="p-2.5">
-                               <span className={`px-1.5 py-0.2 rounded font-mono font-bold text-[8px] uppercase ${active ? 'bg-emerald-400/10 text-emerald-400' : 'bg-red-400/10 text-red-400'}`}>
-                                 {active ? 'NOMINAL' : 'STALE_HOLD'}
-                               </span>
-                            </td>
-                            <td className="p-2.5 text-prizm-text-muted">
-                               {active && source.latency ? `${source.latency} ms` : 'N/A (GATEWAY_SLEEP)'}
-                            </td>
-                            <td className="p-2.5 font-semibold text-cyan-400">
-                               {active ? 'PERSISTED_DISK_SYNC' : 'CACHED_MEM_BACKUP'}
-                            </td>
-                         </tr>
-                       );
-                     })}
+                    <tr className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="p-3 font-bold text-slate-700">Stack 750/800 Feather direct reports</td>
+                      <td className="p-3"><span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-[10px] font-bold uppercase">Direct IP</span></td>
+                      <td className="p-3">
+                        <span className={`font-bold ${topologyFamily === 'stack750_800' ? 'text-amber-600' : 'text-slate-400'}`}>
+                          {topologyFamily === 'stack750_800' ? 'Required' : 'Not Applicable'}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className={`font-bold uppercase ${topologyFamily === 'stack750_800' ? (isReachable ? 'text-emerald-600' : 'text-red-600') : 'text-slate-400'}`}>
+                          {topologyFamily === 'stack750_800' ? (isReachable ? 'Found' : 'Missing') : 'Not Applicable'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-500">HVAC, Fans, Contactors for 750/800 systems</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
-              <p className="text-[9px] text-[#9CA3AF]/60 uppercase tracking-wide leading-relaxed">
-                * SITE OPERATIONAL NOTE: High packet drop or latencies above 200ms trigger auto-degradation. PRIZM will roll over to local caching policies to prevent data loop interruption.
-              </p>
+
+              <h3 className="text-sm font-bold uppercase text-slate-800 border-b border-slate-200 pb-2 mt-6">EMS / Turtle Sources</h3>
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold">
+                      <th className="p-3">Source Endpoint</th>
+                      <th className="p-3">Source Type</th>
+                      <th className="p-3">Requirement</th>
+                      <th className="p-3">Last Status</th>
+                      <th className="p-3">Data Used For</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { path: "/status", type: "EMS Cache", req: "Required", used: "Global EMS State" },
+                      { path: "/tools/report/ems/status.json", type: "Turtle Report", req: "Required", used: "Site Overview" },
+                      { path: "/tools/monitor/ems/blockviewer/data", type: "EMS Cache", req: "Required", used: "Block Metrics" },
+                      { path: "/tools/report/ems/strings.csv", type: "Turtle Report", req: "Required", used: "String Data" },
+                      { path: "/tools/report/ems/ipMap.json", type: "Turtle Report", req: "Optional", used: "Legacy IP mapping" },
+                      { path: "/tools/report/ems/array/{array}/report.json", type: "Turtle Report", req: "Required", used: "Array metrics" },
+                      { path: "/tools/report/ems/array/{array}/pcs/{pcs}/report.json", type: "Turtle Report", req: "Required", used: "PCS Metrics" }
+                    ].map((s, i) => (
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="p-3 font-mono text-slate-700">{s.path}</td>
+                        <td className="p-3"><span className="px-2 py-1 bg-cyan-50 text-cyan-700 rounded text-[10px] font-bold uppercase">{s.type}</span></td>
+                        <td className="p-3 font-bold text-slate-600">{s.req}</td>
+                        <td className="p-3">
+                          <span className={`font-bold uppercase ${isReachable ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            {isReachable ? 'Found' : 'Not Tested'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-500">{s.used}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 className="text-sm font-bold uppercase text-slate-800 border-b border-slate-200 pb-2 mt-6">Imported / Metadata Sources</h3>
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold">
+                      <th className="p-3">Source Name</th>
+                      <th className="p-3">Source Type</th>
+                      <th className="p-3">Requirement</th>
+                      <th className="p-3">Last Status</th>
+                      <th className="p-3">Data Used For</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="p-3 font-bold text-slate-700">Capacity Profile Model</td>
+                      <td className="p-3"><span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-[10px] font-bold uppercase">Imported Metadata</span></td>
+                      <td className="p-3 font-bold text-slate-600">Required</td>
+                      <td className="p-3"><span className="font-bold uppercase text-emerald-600">Found</span></td>
+                      <td className="p-3 text-slate-500">Nominal metrics, string configuration, capacity</td>
+                    </tr>
+                    <tr className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="p-3 font-bold text-slate-700">Custom Topology Layout Map</td>
+                      <td className="p-3"><span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-[10px] font-bold uppercase">Imported Metadata</span></td>
+                      <td className="p-3 font-bold text-amber-600">Optional</td>
+                      <td className="p-3"><span className="font-bold uppercase text-slate-400">Not Configured</span></td>
+                      <td className="p-3 text-slate-500">Overriding standard IP layout mapping</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -373,183 +416,65 @@ export default function SiteConfigurationDashboard({
         )}
 
         {activeSubTab === "diagnostics" && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-mono text-[11px]">
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3">
-                <span className="block font-bold text-prizm-text text-xs uppercase border-b border-prizm-border pb-1">Route & IP Diagnostic Coils</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span>IP Range Guard Check:</span>
-                    <span className="text-emerald-400 font-bold uppercase">✔ PASSED</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Subnet Overlaps:</span>
-                    <span className="text-emerald-400 font-bold uppercase">NONE</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Private Interface Binding:</span>
-                    <span className="text-prizm-primary font-bold">ETH_1_LAN_INT</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3">
-                <span className="block font-bold text-prizm-text text-xs uppercase border-b border-prizm-border pb-1">Feather Discovery Stats</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span>Discovery Method:</span>
-                    <span>CIDR subnet scan</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Status:</span>
-                    <span className="text-emerald-400 font-bold uppercase">STANDBY / RUNNING</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Active Feather Devices:</span>
-                    <span className="text-prizm-primary font-bold">24 Devices</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-3">
-                <span className="block font-bold text-prizm-text text-xs uppercase border-b border-prizm-border pb-1">Modbus Diagnostics</span>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span>Modbus Register Map:</span>
-                    <span>4.3-Nominal</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Read Coils Failure rate:</span>
-                    <span className="text-emerald-400 font-bold uppercase">0% (0 errors)</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Transaction Timout index:</span>
-                    <span>150 ms threshold</span>
-                  </div>
-                </div>
-              </div>
+          <div className="bg-white border border-slate-200 rounded-lg p-5">
+            <h3 className="text-sm font-bold uppercase text-slate-800 border-b border-slate-200 pb-2 mb-4">Troubleshooting & Diagnostics</h3>
+            <div className="p-8 text-center text-slate-400">
+              <Activity size={32} className="mx-auto mb-3 opacity-50" />
+              <p className="text-xs uppercase font-bold tracking-wider mb-2">Endpoint Diagnostics Not Configured</p>
+              <p className="text-xs">The endpoint runner requires an active backend test route.</p>
             </div>
-
-            
           </div>
         )}
 
         {activeSubTab === "advanced" && (
-          <div className="space-y-6">
-            <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-6 animate-fade-in text-xs font-mono">
-              <div className="flex justify-between items-center border-b border-prizm-border pb-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="text-emerald-400 animate-pulse" size={16} />
-                  <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">PRIZM Startup Boot Details (Advanced)</span>
-                </div>
-                <span className="text-[10px] text-prizm-text-muted bg-black/20 p-1 px-2.5 rounded font-bold">
-                  BOOT STATE: {bootStatus?.phase?.toUpperCase() || "READY"}
-                </span>
-              </div>
+          <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-6 animate-fade-in">
+             <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+                <ShieldAlert className="text-amber-500" size={18} />
+                <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">Safety & Advanced Configuration</span>
+             </div>
+             
+             <div className="bg-amber-50 border border-amber-200 p-4 rounded text-sm text-amber-800">
+                <strong className="block mb-1">Local Fallback / Mock Data</strong>
+                <p className="text-xs">Local fallback is disabled in this environment. Data should be treated as live when connected.</p>
+             </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-prizm-text-muted">
-                
-                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
-                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Core Modules</span>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span>Site Operations Preload:</span>
-                      <span className={bootStatus?.preloadStatus?.siteOperations ? "text-emerald-400" : "text-amber-400"}>
-                        {bootStatus?.preloadStatus?.siteOperations ? "LOADED" : "PENDING_HOLD"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>IP Topology Configuration:</span>
-                      <span className={bootStatus?.preloadStatus?.topology ? "text-emerald-400" : "text-amber-400"}>
-                        {bootStatus?.preloadStatus?.topology ? "LOADED" : "PENDING_HOLD"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Telemetry String Grid:</span>
-                      <span className={bootStatus?.preloadStatus?.stringsDashboard ? "text-emerald-400" : "text-amber-400"}>
-                        {bootStatus?.preloadStatus?.stringsDashboard ? "LOADED" : "PENDING_HOLD"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
-                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Coordinator Orchestrator</span>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span>Active Profile Loaded:</span>
-                      <span className="text-prizm-primary font-bold">{bootStatus?.activeProfileLoaded || "Default-Active"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Expected string count:</span>
-                      <span className="text-prizm-text font-bold">168 elements</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Modbus Client Scheduler:</span>
-                      <span className="text-emerald-400 font-bold uppercase">✔ ACTIVE_NOMINAL</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-prizm-surface-strong p-4 rounded border border-white/5 space-y-3">
-                  <span className="block font-bold text-prizm-text text-[11px] uppercase border-b border-prizm-border pb-1">Bootstrap Diagnostics</span>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span>Exceptions Log File:</span>
-                      <span className="text-prizm-text font-semibold">/var/log/prizm_boot.err</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Last Bootstrap Errors:</span>
-                      <span className="text-emerald-400 font-bold uppercase">0 ERRORS</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Port Listener:</span>
-                      <span className="text-prizm-primary">PORT:3000 (INGRESS)</span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* REINITIALIZE CONTAINER */}
-              <div className="pt-4 border-t border-prizm-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+             <div className="pt-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-t border-slate-200">
                 <div>
-                  <span className="text-xs font-bold text-slate-200 uppercase block tracking-wider">System Control Sequence Override</span>
-                  <p className="text-[10px] text-prizm-text-muted mt-1 uppercase">
-                    Forces hot reboot of internally managed SCADA/Modbus drivers and pulls fresh device trees.
+                  <span className="text-sm font-bold text-slate-800 uppercase block tracking-wider">System Control Sequence Override</span>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Forces hot reboot of internally managed drivers and pulls fresh device trees.
                   </p>
                 </div>
                 <div>
                   {reinitializedMsg && (
-                    <span className="text-emerald-400 text-[11px] font-bold block mr-4 animate-fade-in mb-2 md:mb-0 uppercase">
+                    <span className="text-emerald-600 text-xs font-bold block mr-4 animate-fade-in mb-2 md:mb-0 uppercase">
                       ✔ {reinitializedMsg}
                     </span>
                   )}
                   <button
                     onClick={triggerReinitialize}
                     disabled={actionLoading === "reinitialize"}
-                    className="px-5 py-2.5 bg-red-600 hover:bg-red-500 font-extrabold text-[#0D0E12] rounded uppercase text-[10px] tracking-wider cursor-pointer font-black transition-all shadow-md active:scale-95 disabled:opacity-40"
+                    className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded uppercase text-xs tracking-wider cursor-pointer transition-colors shadow-sm disabled:opacity-50"
                   >
                     {actionLoading === "reinitialize" ? "Reinitializing..." : "Reinitialize System"}
                   </button>
                 </div>
               </div>
-            </div>
           </div>
         )}
 
         {activeSubTab === "ui-preferences" && (
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4 max-w-2xl animate-fade-in font-mono">
-            <div className="flex items-center gap-2 border-b border-prizm-border pb-3">
-              <Layers className="text-prizm-primary animate-pulse" size={16} />
-              <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">UI Preferences & Workspace Config</span>
+          <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 max-w-2xl animate-fade-in">
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+              <Layers className="text-emerald-600" size={18} />
+              <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">UI Preferences</span>
             </div>
 
-            <p className="text-[11px] text-prizm-text-muted leading-relaxed">
+            <p className="text-xs text-slate-500 leading-relaxed">
               Customize active workspace tabs. Reorder layout or toggle visibility filters. Changes write persistently to client-local storage.
             </p>
 
-            <div className="space-y-1.5 mt-2 max-w-md">
+            <div className="space-y-2 mt-4 max-w-md">
               {tabsOrder.map((tab, index) => {
                 const master = MASTER_TABS_MAP[tab.id];
                 if (!master) return null;
@@ -558,51 +483,48 @@ export default function SiteConfigurationDashboard({
                 return (
                   <div 
                     key={tab.id} 
-                    className={`flex items-center justify-between p-2.5 rounded-lg border text-xs font-bold transition-all ${
+                    className={`flex items-center justify-between p-3 rounded-lg border text-xs font-bold transition-all ${
                       tab.visible 
-                        ? "bg-prizm-surface-strong/45 border-prizm-border" 
-                        : "bg-black/15 border-dashed border-prizm-border/40 opacity-55"
+                        ? "bg-slate-50 border-slate-200" 
+                        : "bg-slate-50/50 border-dashed border-slate-200 opacity-60"
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Icon size={14} className={tab.visible ? "text-prizm-primary" : "text-prizm-text-muted"} />
-                      <span className="truncate text-prizm-text font-mono text-[11px] uppercase tracking-wider">
+                    <div className="flex items-center gap-3">
+                      <Icon size={16} className={tab.visible ? "text-emerald-600" : "text-slate-400"} />
+                      <span className="text-slate-700 uppercase tracking-wider">
                         {master.label}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      {/* Visibility toggle button */}
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => toggleTabVisibility?.(tab.id)}
                         className={`p-1.5 rounded transition-all cursor-pointer ${
                           tab.visible 
-                            ? "text-prizm-primary hover:bg-prizm-primary/10" 
-                            : "text-prizm-text-muted hover:bg-white/5"
+                            ? "text-emerald-600 hover:bg-emerald-100" 
+                            : "text-slate-400 hover:bg-slate-200"
                         }`}
                         title={tab.visible ? "Hide from Navigation bar" : "Show in Navigation bar"}
                       >
-                        {tab.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                        {tab.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                       </button>
 
-                      {/* Reorder Up button */}
                       <button
                         onClick={() => moveTab?.(index, "up")}
                         disabled={index === 0}
-                        className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                        className="p-1.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-all disabled:opacity-30 cursor-pointer"
                         title="Move Up"
                       >
-                        <ArrowUp size={12} />
+                        <ArrowUp size={14} />
                       </button>
 
-                      {/* Reorder Down button */}
                       <button
                         onClick={() => moveTab?.(index, "down")}
                         disabled={index === tabsOrder.length - 1}
-                        className="p-1 px-1.5 rounded text-prizm-text-muted hover:text-white hover:bg-white/5 transition-all disabled:opacity-20 cursor-pointer text-center"
+                        className="p-1.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-all disabled:opacity-30 cursor-pointer"
                         title="Move Down"
                       >
-                        <ArrowDown size={12} />
+                        <ArrowDown size={14} />
                       </button>
                     </div>
                   </div>
@@ -610,12 +532,12 @@ export default function SiteConfigurationDashboard({
               })}
             </div>
 
-            <div className="pt-4 border-t border-prizm-border flex items-center justify-between max-w-md">
+            <div className="pt-6 mt-4 border-t border-slate-200 max-w-md">
               <button
                 onClick={resetTabs}
-                className="px-3 py-1.5 bg-black/30 hover:bg-black/50 text-prizm-text-muted rounded-md border border-prizm-border flex items-center gap-1 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-300 flex items-center gap-2 text-xs font-bold uppercase transition-all cursor-pointer"
               >
-                <RotateCcw size={11} />
+                <RotateCcw size={14} />
                 Reset Defaults
               </button>
             </div>

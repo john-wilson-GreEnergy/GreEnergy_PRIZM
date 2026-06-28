@@ -754,25 +754,25 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   };
 
   return (
-    <div className={mode === "all" ? "bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6" : "font-mono space-y-6"}>
+    <div className={mode === "all" ? "bg-white border border-slate-200 rounded-lg p-5 shadow-sm space-y-6" : "space-y-6"}>
       {mode !== "cache" && (
-        <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 font-mono shadow-xl space-y-6">
+        <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm space-y-6">
           
           {/* Top action header and labels */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-prizm-border">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
         <div>
           <div className="flex items-center gap-2">
-            <Server className="text-prizm-primary" size={16} />
-            <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">EMS Base Target Profile Manager</span>
+            <Server className="text-emerald-600" size={16} />
+            <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">EMS Connection Profiles</span>
           </div>
-          <div className="text-[11px] text-prizm-text-muted mt-1 max-w-xl">
+          <div className="text-xs text-slate-500 mt-1 max-w-xl">
             Configure local LAN gateways and site-specific Modbus layouts. Switch site connectivity instantly without manual `.env` refactoring.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleImportClick}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/5 hover:bg-black/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[10px] uppercase font-bold rounded border border-slate-200 cursor-pointer transition-all"
           >
             <Upload size={11} />
             Import (.json)
@@ -786,32 +786,32 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
           />
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/5 hover:bg-black/10 text-prizm-text-muted text-[10px] uppercase font-bold rounded border border-prizm-border cursor-pointer transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[10px] uppercase font-bold rounded border border-slate-200 cursor-pointer transition-all"
           >
             <Download size={11} />
             Export (.json)
           </button>
           <button
             onClick={handleOpenNewForm}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-600 text-black text-[10px] uppercase font-bold rounded cursor-pointer transition-all shadow-md active:translate-y-px"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] uppercase font-bold rounded cursor-pointer transition-all shadow-sm active:translate-y-px"
           >
             <Plus size={12} />
-            Add Site Profile
+            Add Connection
           </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="h-24 flex items-center justify-center text-prizm-text-muted text-xs">
-          <RefreshCw size={18} className="animate-spin text-prizm-primary-strong mr-2" />
+        <div className="h-24 flex items-center justify-center text-slate-500 text-xs">
+          <RefreshCw size={18} className="animate-spin text-emerald-600 mr-2" />
           Synchronizing configuration targets...
         </div>
       ) : (
         <div className="space-y-4">
           {profiles.some(p => p.isActive && (p.emsHost.includes("127.0.0.1") || p.emsHost.includes("localhost")) && p.emsPort === 3000) && (
-            <div className="bg-prizm-danger/10 border border-prizm-danger p-3 rounded-lg text-prizm-danger text-xs font-bold flex items-center gap-2 mb-4">
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-700 text-xs font-bold flex items-center gap-2 mb-4">
               <AlertTriangle size={16} />
-              EMS source is pointed at PRIZM itself. Use 10.0.0.3:8080/turtle.
+              EMS source is pointed at PRIZM itself. Update this to a valid EMS LAN target (e.g. 10.0.0.3:8080/turtle).
             </div>
           )}
           
@@ -824,76 +824,73 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                   key={p.id}
                   className={`border rounded-lg p-4 transition-all relative overflow-hidden flex flex-col justify-between ${
                     active 
-                      ? "bg-cyan-500/[0.04] border-prizm-primary text-prizm-text shadow-cyan-950/20 shadow-md" 
-                      : "bg-prizm-surface-strong border-prizm-border hover:border-prizm-border text-prizm-text-muted"
+                      ? "bg-emerald-50/30 border-emerald-500 text-slate-800 shadow-sm" 
+                      : "bg-white border-slate-200 hover:border-slate-300 text-slate-600"
                   }`}
                 >
                   
                   {/* Active ribbon decoration */}
                   {active && (
-                    <div className="absolute top-0 right-0 bg-cyan-500 text-black font-extrabold text-[9px] px-2.5 py-0.5 rounded-bl uppercase tracking-widest">
+                    <div className="absolute top-0 right-0 bg-emerald-500 text-white font-extrabold text-[9px] px-2.5 py-0.5 rounded-bl uppercase tracking-widest">
                       ACTIVE SITE
                     </div>
                   )}
 
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <div className="text-prizm-text text-xs font-extrabold tracking-wider flex items-center gap-1.5">
-                        <Wifi size={12} className={active ? "text-prizm-primary" : "text-prizm-text-muted"} />
+                      <div className="text-slate-800 text-sm font-extrabold tracking-wider flex items-center gap-1.5">
+                        <Wifi size={14} className={active ? "text-emerald-600" : "text-slate-400"} />
                         {p.profileName}
                       </div>
-                      <div className="text-[10px] text-prizm-text-muted uppercase font-medium flex items-center gap-2">
-                        <span>SITE: <span className="font-bold text-prizm-text-muted">{p.siteName}</span></span>
+                      <div className="text-[10px] text-slate-500 uppercase font-medium flex items-center gap-2">
+                        <span>SITE: <span className="font-bold text-slate-600">{p.siteName}</span></span>
                         <span>•</span>
-                        <span>CODE: <span className="font-bold text-prizm-text-muted">{p.stationCode}</span></span>
+                        <span>CODE: <span className="font-bold text-slate-600">{p.stationCode}</span></span>
                         <span>•</span>
-                        <span>BLOCK: <span className="font-bold text-prizm-primary">{p.blockIndex}</span></span>
+                        <span>BLOCK: <span className="font-bold text-emerald-600">{p.blockIndex}</span></span>
                       </div>
                     </div>
 
                     {/* Network settings matrix */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 bg-prizm-surface-strong rounded p-2.5 text-[10px] border border-white/[0.02]">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 bg-slate-50 rounded p-3 text-[11px] border border-slate-100">
                       <div className="flex justify-between">
-                        <span className="text-prizm-text-muted">EMS Host:</span>
-                        <span className="text-prizm-primary font-bold max-w-[124px] truncate">{p.emsHost}</span>
+                        <span className="text-slate-500 font-bold uppercase">EMS Host:</span>
+                        <span className="text-slate-800 font-mono truncate">{p.emsHost}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-prizm-text-muted">EMS Port:</span>
-                        <span className="text-prizm-text">{p.emsPort}</span>
+                        <span className="text-slate-500 font-bold uppercase">EMS Port:</span>
+                        <span className="text-slate-800 font-mono">{p.emsPort}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-prizm-text-muted">Modbus Host:</span>
-                        <span className="text-prizm-primary font-bold max-w-[124px] truncate">{p.modbusHost}</span>
+                        <span className="text-slate-500 font-bold uppercase">Modbus Host:</span>
+                        <span className="text-slate-800 font-mono truncate">{p.modbusHost}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-prizm-text-muted">Modbus Port:</span>
-                        <span className="text-prizm-text">{p.modbusPort}</span>
+                        <span className="text-slate-500 font-bold uppercase">Modbus Port:</span>
+                        <span className="text-slate-800 font-mono">{p.modbusPort}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-prizm-text-muted">Base Path:</span>
-                        <span className="text-prizm-text-muted">{p.turtlePath}</span>
-                      </div>
-                      <div className="flex justify-between col-span-2 border-t border-prizm-border pt-1 mt-1 text-[9px] text-prizm-text-muted italic">
-                        <span>Arrays: {p.arrayCount} (Strings/Array: {p.stringsPerArray})</span>
+                      <div className="flex justify-between col-span-2">
+                        <span className="text-slate-500 font-bold uppercase">Base Path:</span>
+                        <span className="text-slate-600 font-mono">{p.turtlePath}</span>
                       </div>
                     </div>
 
                     {p.notes && (
-                      <p className="text-[10px] text-prizm-text-muted italic max-h-8 truncate">
+                      <p className="text-xs text-slate-500 italic max-h-8 truncate">
                         Note: {p.notes}
                       </p>
                     )}
 
                     {p.lastTestedAt && (
-                      <div className="flex items-center justify-between text-[9px] text-prizm-text-muted border-t border-white/[0.04] pt-2">
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-100 pt-3">
                         <span>Last connection audit: {new Date(p.lastTestedAt).toLocaleTimeString()}</span>
                         {p.lastTestResult?.success ? (
-                          <span className="text-prizm-primary font-bold flex items-center gap-1">
-                            <CheckCircle size={10} /> ACCESS SUCCESS
+                          <span className="text-emerald-600 font-bold flex items-center gap-1 uppercase tracking-wider">
+                            <CheckCircle size={12} /> Connected
                           </span>
                         ) : (
-                          <span className="text-red-400 font-bold flex items-center gap-1">
-                            <AlertTriangle size={10} /> COMM LOSS
+                          <span className="text-red-500 font-bold flex items-center gap-1 uppercase tracking-wider">
+                            <AlertTriangle size={12} /> Failed
                           </span>
                         )}
                       </div>
@@ -901,28 +898,28 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                   </div>
 
                   {/* Actions buttons */}
-                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/[0.04] gap-2">
-                    <div className="flex gap-1">
+                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 gap-2">
+                    <div className="flex gap-2">
                       <button
                         onClick={() => handleOpenEditForm(p)}
-                        className="p-1 px-2.5 rounded bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-3 rounded bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 border border-slate-200 text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Edit config"
                       >
                         <Edit size={10} className="inline mr-1" /> Edit
                       </button>
                       <button
                         onClick={() => handleDuplicate(p)}
-                        className="p-1 px-2.5 rounded bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-3 rounded bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 border border-slate-200 text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Duplicate configuration"
                       >
-                        <Copy size={10} className="inline mr-1" /> Dup
+                        <Copy size={10} className="inline mr-1" /> Duplicate
                       </button>
                       <button
                         onClick={() => handleDelete(p.id, p.profileName)}
-                        className="p-1 px-2.5 rounded bg-red-950/10 hover:bg-red-900/20 text-red-400 border border-red-500/10 text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        className="p-1 px-3 rounded bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-[10px] font-bold uppercase transition-all cursor-pointer"
                         title="Delete profile"
                       >
-                        <Trash2 size={10} className="inline mr-1" /> Del
+                        <Trash2 size={10} className="inline mr-1" /> Delete
                       </button>
                     </div>
 
@@ -930,15 +927,15 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                       <button
                         onClick={() => handleTestConnectedProfile(p.id)}
                         disabled={testingId === p.id}
-                        className="px-2.5 py-1 text-[10px] uppercase font-bold bg-prizm-surface-strong hover:bg-prizm-surface-strong text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1"
+                        className="px-3 py-1.5 text-[10px] uppercase font-bold bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-300 rounded cursor-pointer transition-all flex items-center gap-1"
                       >
                         {testingId === p.id ? (
                           <>
-                            <RefreshCw size={10} className="animate-spin" /> auditing...
+                            <RefreshCw size={10} className="animate-spin" /> Testing...
                           </>
                         ) : (
                           <>
-                            <Wifi size={10} /> Test Audits
+                            <Wifi size={10} /> Test Connection
                           </>
                         )}
                       </button>
@@ -946,7 +943,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                       {!active && (
                         <button
                           onClick={() => handleActivate(p.id)}
-                          className="px-3 py-1 text-[10px] uppercase font-extrabold bg-prizm-info/10 hover:bg-cyan-500 text-prizm-primary hover:text-black border border-prizm-primary rounded cursor-pointer transition-all"
+                          className="px-4 py-1.5 text-[10px] uppercase font-extrabold bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-500 rounded cursor-pointer transition-all"
                         >
                           Activate
                         </button>
@@ -965,25 +962,25 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
       {/* Profile Create/Edit Modal Form */}
       {showForm && (
-        <div className="fixed inset-0 bg-prizm-surface-strong backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg w-full max-w-2xl font-mono text-xs overflow-hidden shadow-2xl animate-scale-in">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-lg w-full max-w-2xl font-sans text-sm overflow-hidden shadow-2xl animate-scale-in">
             
-            <div className="bg-prizm-surface-strong p-4 border-b border-prizm-border flex justify-between items-center">
-              <span className="text-xs font-bold text-prizm-text uppercase tracking-wider">
+            <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 {formIsNew ? "Create New Site Connection Profile" : `Modify Site Profile: ${formProfile.profileName}`}
               </span>
               <button 
                 onClick={() => setShowForm(false)}
-                className="text-prizm-text-muted hover:text-prizm-text cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                <X size={14} />
+                <X size={16} />
               </button>
             </div>
 
             <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
               
               {formError && (
-                <div className="p-3 bg-red-950/20 border border-red-500/30 text-red-300 rounded text-[11px] flex items-center gap-2">
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-xs flex items-center gap-2">
                   <AlertTriangle size={14} />
                   {formError}
                 </div>
@@ -993,49 +990,49 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                 
                 {/* Basic Attributes Group */}
                 <div className="space-y-3 md:col-span-2">
-                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">Primary Identifiers</div>
+                  <div className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wide border-b border-slate-200 pb-1">Primary Identifiers</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Profile Name *</label>
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">Profile Name *</label>
                   <input 
                     type="text" 
                     value={formProfile.profileName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, profileName: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text font-bold placeholder-black/20 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-bold placeholder-slate-300 focus:border-emerald-500 outline-none"
                     placeholder="PRIZM Site Core"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">BESS Site Name *</label>
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">BESS Site Name *</label>
                   <input 
                     type="text" 
                     value={formProfile.siteName || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, siteName: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 placeholder-slate-300 focus:border-emerald-500 outline-none"
                     placeholder="BHE substation site"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 md:col-span-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Station Code *</label>
+                    <label className="block text-[10px] text-slate-500 uppercase font-bold">Station Code *</label>
                     <input 
                       type="text" 
                       value={formProfile.stationCode || ""}
                       onChange={e => setFormProfile(prev => ({ ...prev, stationCode: e.target.value }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 placeholder-slate-300 focus:border-emerald-500 outline-none"
                       placeholder="BHE0020"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Block Index *</label>
+                    <label className="block text-[10px] text-slate-500 uppercase font-bold">Block Index *</label>
                     <input 
                       type="number" 
                       value={formProfile.blockIndex || 1}
                       onChange={e => setFormProfile(prev => ({ ...prev, blockIndex: Number(e.target.value) }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-black/20 focus:border-prizm-primary outline-none"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 placeholder-slate-300 focus:border-emerald-500 outline-none"
                       min={1}
                     />
                   </div>
@@ -1043,39 +1040,39 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
                 {/* Direct LAN target parameters option */}
                 <div className="space-y-3 md:col-span-2 pt-2">
-                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">EMS LAN Ethernet Settings</div>
+                  <div className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wide border-b border-slate-200 pb-1">EMS LAN Ethernet Settings</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">EMS Host / IP Address *</label>
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">EMS Host / IP Address *</label>
                   <input 
                     type="text" 
                     value={formProfile.emsHost || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, emsHost: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-primary font-bold placeholder-white/20 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-mono font-bold placeholder-slate-300 focus:border-emerald-500 outline-none"
                     placeholder="10.0.0.3"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">EMS Port *</label>
+                    <label className="block text-[10px] text-slate-500 uppercase font-bold">EMS Port *</label>
                     <input 
                       type="number" 
                       value={formProfile.emsPort || 8080}
                       onChange={e => setFormProfile(prev => ({ ...prev, emsPort: Number(e.target.value) }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-mono placeholder-slate-300 focus:border-emerald-500 outline-none"
                       min={1}
                       max={65535}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Turtle Path *</label>
+                    <label className="block text-[10px] text-slate-500 uppercase font-bold">Turtle Path *</label>
                     <input 
                       type="text" 
                       value={formProfile.turtlePath || "/turtle"}
                       onChange={e => setFormProfile(prev => ({ ...prev, turtlePath: e.target.value }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none animate-none"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-mono placeholder-slate-300 focus:border-emerald-500 outline-none"
                       placeholder="/turtle"
                     />
                   </div>
@@ -1083,340 +1080,38 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
                 {/* Modbus Map properties */}
                 <div className="space-y-3 md:col-span-2 pt-2">
-                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">Modbus Hardware Settings</div>
+                  <div className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wide border-b border-slate-200 pb-1">Modbus Hardware Settings</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Modbus Host IP *</label>
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">Modbus Host IP *</label>
                   <input 
                     type="text" 
                     value={formProfile.modbusHost || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, modbusHost: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-primary font-bold placeholder-white/20 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-mono font-bold placeholder-slate-300 focus:border-emerald-500 outline-none"
                     placeholder="10.0.0.3"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Modbus Port *</label>
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">Modbus Port *</label>
                   <input 
                     type="number" 
                     value={formProfile.modbusPort || 4502}
                     onChange={e => setFormProfile(prev => ({ ...prev, modbusPort: Number(e.target.value) }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text placeholder-white/20 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 font-mono placeholder-slate-300 focus:border-emerald-500 outline-none"
                     min={1}
                     max={65535}
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 md:col-span-2 bg-prizm-surface-strong p-3 rounded border border-white/[0.02]">
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Array Count</label>
-                    <input 
-                      type="number" 
-                      value={formProfile.arrayCount || 8}
-                      onChange={e => setFormProfile(prev => ({ ...prev, arrayCount: Number(e.target.value) }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text focus:border-prizm-primary outline-none"
-                      min={1}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Strings Per Array</label>
-                    <input 
-                      type="number" 
-                      value={formProfile.stringsPerArray || 40}
-                      onChange={e => setFormProfile(prev => ({ ...prev, stringsPerArray: Number(e.target.value) }))}
-                      className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text focus:border-prizm-primary outline-none"
-                      min={1}
-                    />
-                  </div>
-                </div>
-
-                {/* Topology Configuration Section */}
-                <div className="space-y-4 md:col-span-2 pt-2 pb-2 bg-prizm-surface-strong/30 p-3 rounded border border-white/[0.01]">
-                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">
-                    Topology Configuration / Multi-Block Map
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Topology Model Type</label>
-                      <select
-                        value={formProfile.topologyModel?.modelType || "standard"}
-                        onChange={e => handleModelTypeChange(e.target.value as any)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none cursor-pointer font-bold focus:border-prizm-primary"
-                      >
-                        <option value="standard">Standard Octet Base Prefix (Multi-Block Support)</option>
-                        <option value="legacy-direct font-normal">Legacy Direct / Standard Fallback</option>
-                      </select>
-                    </div>
-                    
-                    {(formProfile.topologyModel?.modelType || "standard") === "standard" && (
-                      <div className="space-y-1 flex flex-col justify-end">
-                        <button
-                          type="button"
-                          onClick={handleAddBlock}
-                          className="px-4 py-2 border border-prizm-primary text-prizm-primary hover:bg-cyan-500/10 text-[10px] font-bold uppercase rounded cursor-pointer transition-all self-start"
-                        >
-                          + Add Multi-Block Subnet
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {(formProfile.topologyModel?.modelType || "standard") === "standard" && (
-                    <div className="space-y-4 pt-2">
-                      {(formProfile.topologyModel?.blocks || []).map((b, idx) => (
-                        <div key={idx} className="border border-prizm-border rounded-lg bg-black/15 overflow-hidden">
-                          <div className="bg-prizm-surface-strong px-3 py-2 border-b border-prizm-border flex justify-between items-center">
-                            <span className="font-extrabold text-[10px] text-cyan-400 uppercase tracking-wider flex items-center gap-1">
-                              <span className="bg-cyan-950 text-cyan-300 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px]">{idx + 1}</span>
-                              Subnet-Block: {b.blockName || `Block ${idx + 1}`}
-                            </span>
-                            {idx > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveBlock(idx)}
-                                className="text-red-400 hover:text-red-300 text-[10px] font-extrabold uppercase cursor-pointer bg-red-950/10 hover:bg-red-900/20 px-2 py-0.5 rounded border border-red-500/10 transition-all"
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                          
-                          <div className="p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="space-y-1">
-                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Block Name</label>
-                              <input
-                                type="text"
-                                value={b.blockName || ""}
-                                onChange={e => handleUpdateBlock(idx, { blockName: e.target.value })}
-                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] font-bold focus:border-prizm-primary outline-none"
-                                placeholder="Block 1"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Block Index</label>
-                              <input
-                                type="number"
-                                value={b.blockIndex || 1}
-                                onChange={e => handleUpdateBlock(idx, { blockIndex: Number(e.target.value) })}
-                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
-                                min={1}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Base Prefix (X.Y.*.*) *</label>
-                              <input
-                                type="text"
-                                value={b.basePrefix || ""}
-                                onChange={e => handleUpdateBlock(idx, { basePrefix: e.target.value })}
-                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-primary font-bold text-[11px] focus:border-prizm-primary outline-none"
-                                placeholder="10.0"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">EMS Host</label>
-                              <input
-                                type="text"
-                                value={b.emsHost || ""}
-                                onChange={e => handleUpdateBlock(idx, { emsHost: e.target.value })}
-                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Modbus Host</label>
-                              <input
-                                type="text"
-                                value={b.modbusHost || ""}
-                                onChange={e => handleUpdateBlock(idx, { modbusHost: e.target.value })}
-                                className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px] focus:border-prizm-primary outline-none"
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              <div>
-                                <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Array Start</label>
-                                <input
-                                  type="number"
-                                  value={b.arrayStart || 1}
-                                  onChange={e => handleUpdateBlock(idx, { arrayStart: Number(e.target.value) })}
-                                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px]"
-                                  min={1}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Array End</label>
-                                <input
-                                  type="number"
-                                  value={b.arrayEnd || 8}
-                                  onChange={e => handleUpdateBlock(idx, { arrayEnd: Number(e.target.value) })}
-                                  className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1.5 text-prizm-text text-[11px]"
-                                  min={1}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="bg-black/35 p-3 rounded border border-white/5 space-y-2 col-span-1 sm:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                              <div className="flex items-center gap-2 pt-1">
-                                <input
-                                  type="checkbox"
-                                  checked={b.includeCollectionSegment ?? true}
-                                  onChange={e => handleUpdateBlock(idx, { includeCollectionSegment: e.target.checked })}
-                                  className="rounded bg-prizm-surface border border-prizm-border w-3.5 h-3.5 cursor-pointer accent-cyan-500"
-                                  id={`include-cs-${idx}`}
-                                />
-                                <label htmlFor={`include-cs-${idx}`} className="text-[9px] text-prizm-text-muted uppercase font-bold cursor-pointer select-none">
-                                  Include CS (.3) Segment
-                                </label>
-                              </div>
-
-                              {(b.includeCollectionSegment ?? true) ? (
-                                <div className="space-y-1">
-                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">CS Segment Number</label>
-                                  <input
-                                    type="number"
-                                    value={b.csSegment ?? 3}
-                                    onChange={e => handleUpdateBlock(idx, { csSegment: Number(e.target.value) })}
-                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                    min={1}
-                                  />
-                                </div>
-                              ) : <div/>}
-                              
-                              <div className="space-y-1">
-                                 <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Count Per Array</label>
-                                 <input
-                                   type="number"
-                                   value={b.esCountPerArray ?? 21}
-                                   onChange={e => handleUpdateBlock(idx, { esCountPerArray: Number(e.target.value) })}
-                                   className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                   min={1}
-                                 />
-                              </div>
-
-                              <div className="space-y-1 col-span-1 sm:col-span-3 border-t border-white/5 pt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                <div>
-                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Segment Start</label>
-                                  <input
-                                    type="number"
-                                    value={b.esSegmentStart ?? 10}
-                                    onChange={e => handleUpdateBlock(idx, { esSegmentStart: Number(e.target.value) })}
-                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                    min={0}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">ES Segment Step</label>
-                                  <input
-                                    type="number"
-                                    value={b.esSegmentStep ?? 1}
-                                    onChange={e => handleUpdateBlock(idx, { esSegmentStep: Number(e.target.value) })}
-                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                    min={1}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Segment Min</label>
-                                  <input
-                                    type="number"
-                                    value={b.segmentMin ?? 3}
-                                    onChange={e => handleUpdateBlock(idx, { segmentMin: Number(e.target.value) })}
-                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                    min={0}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[9px] text-prizm-text-muted uppercase font-bold">Segment Max</label>
-                                  <input
-                                    type="number"
-                                    value={b.segmentMax ?? 30}
-                                    onChange={e => handleUpdateBlock(idx, { segmentMax: Number(e.target.value) })}
-                                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-1 text-prizm-text text-[11px]"
-                                    min={0}
-                                  />
-                                </div>
-                              </div>
-
-                            </div>
-
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Additional instructions/Notes */}
-                {/* Capacity Profile Section */}
-                <div className="space-y-4 md:col-span-2 pt-2 pb-2 bg-prizm-surface-strong/30 p-3 rounded border border-white/[0.01]">
-                  <div className="text-[10px] text-prizm-primary font-extrabold uppercase tracking-wide border-b border-prizm-border pb-1">
-                    Capacity Profile
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="space-y-1 sm:col-span-2 lg:col-span-4">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Profile Name</label>
-                      <input
-                        type="text"
-                        value={formProfile.capacityProfile?.profileName || ""}
-                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, profileName: e.target.value } }))}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        placeholder="e.g., Default 742.5kWh Operational Energy Segment"
-                      />
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">ES Capacity (kWh)</label>
-                      <input
-                        type="number"
-                        value={formProfile.capacityProfile?.energySegmentCapacityKWh ?? 742.5}
-                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, energySegmentCapacityKWh: Number(e.target.value) } }))}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        min={0}
-                      />
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Strings per ES</label>
-                      <input
-                        type="number"
-                        value={formProfile.capacityProfile?.stringsPerEnergySegment ?? 2}
-                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, stringsPerEnergySegment: Number(e.target.value) } }))}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        min={1}
-                      />
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Nominal Volts</label>
-                      <input
-                        type="number"
-                        value={formProfile.capacityProfile?.nominalStringVoltageV ?? 1344}
-                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, nominalStringVoltageV: Number(e.target.value) } }))}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        min={0}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Notes</label>
-                      <input
-                        type="text"
-                        value={formProfile.capacityProfile?.notes || ""}
-                        onChange={e => setFormProfile(prev => ({ ...prev, capacityProfile: { ...prev.capacityProfile, notes: e.target.value } }))}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text outline-none focus:border-prizm-primary text-xs"
-                        placeholder=""
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1 md:col-span-2">
-                  <label className="block text-[10px] text-prizm-text-muted uppercase font-bold">Notes / Site Description</label>
+                <div className="space-y-1 md:col-span-2 mt-4">
+                  <label className="block text-[10px] text-slate-500 uppercase font-bold">Notes / Site Description</label>
                   <textarea 
                     value={formProfile.notes || ""}
                     onChange={e => setFormProfile(prev => ({ ...prev, notes: e.target.value }))}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-prizm-text text-xs placeholder-black/20 h-16 focus:border-prizm-primary outline-none"
+                    className="w-full bg-white border border-slate-300 rounded p-2 text-slate-800 text-xs placeholder-slate-300 h-16 focus:border-emerald-500 outline-none"
                     placeholder="e.g., Local backup substation configuration"
                   />
                 </div>
@@ -1425,19 +1120,19 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
             </div>
 
-            <div className="bg-prizm-surface p-4 border-t border-prizm-border flex justify-between items-center bg-prizm-surface-strong">
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center">
               <button
                 onClick={handleTestInForm}
                 disabled={customTestLoading}
-                className="px-3.5 py-2 text-xs uppercase font-extrabold bg-black/5 hover:bg-black/10 text-prizm-primary hover:text-cyan-300 border border-prizm-primary rounded cursor-pointer transition-all flex items-center gap-1.5"
+                className="px-4 py-2 text-xs uppercase font-extrabold bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-300 rounded cursor-pointer transition-all flex items-center gap-1.5"
               >
                 {customTestLoading ? (
                   <>
-                    <RefreshCw size={12} className="animate-spin" /> Verifying Connection...
+                    <RefreshCw size={14} className="animate-spin" /> Verifying Connection...
                   </>
                 ) : (
                   <>
-                    <Wifi size={12} /> Test Connectivity
+                    <Wifi size={14} /> Test Connectivity
                   </>
                 )}
               </button>
@@ -1445,13 +1140,13 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-xs uppercase font-bold bg-black/5 hover:bg-black/10 text-prizm-text-muted hover:text-prizm-text border border-prizm-border rounded cursor-pointer transition-all"
+                  className="px-4 py-2 text-xs uppercase font-bold bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-300 rounded cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveProfile}
-                  className="px-5 py-2 text-xs uppercase font-extrabold bg-cyan-500 hover:bg-cyan-600 text-black rounded cursor-pointer transition-all active:translate-y-px shadow-lg hover:shadow-cyan-500/20"
+                  className="px-5 py-2 text-xs uppercase font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-all shadow-sm"
                 >
                   Save Profile Settings
                 </button>
@@ -1806,43 +1501,43 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
             <div className="p-5 space-y-4">
               
-              <div className="flex flex-col items-center justify-center text-center py-4 bg-prizm-surface-strong rounded-lg border border-white/[0.03]">
+              <div className="flex flex-col items-center justify-center text-center py-4 bg-slate-50 rounded-lg border border-slate-200">
                 {testResult.success ? (
-                  <div className="h-12 w-12 rounded-full bg-emerald-500/10 border border-prizm-primary flex items-center justify-center text-prizm-primary mb-2 animate-pulse">
+                  <div className="h-12 w-12 rounded-full bg-emerald-100 border border-emerald-500 flex items-center justify-center text-emerald-600 mb-2">
                     <CheckCircle size={28} />
                   </div>
                 ) : (
-                  <div className="h-12 w-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mb-2">
+                  <div className="h-12 w-12 rounded-full bg-red-50 border border-red-200 flex items-center justify-center text-red-500 mb-2">
                     <AlertTriangle size={28} />
                   </div>
                 )}
-                <div className="text-sm font-bold text-prizm-text">
+                <div className="text-sm font-bold text-slate-800">
                   {testResult.success ? "CONNECTIVITY SECURE" : "COMMUNICATION FAILURE"}
                 </div>
-                <p className="text-[10px] text-prizm-text-muted mt-1 uppercase tracking-wider max-w-[280px] truncate">
+                <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider max-w-[280px] truncate">
                   {testResult.emsUrlTested}
                 </p>
               </div>
 
               {/* Timing metrics */}
               <div className="space-y-2">
-                <div className="text-[10px] text-prizm-text-muted uppercase font-bold">Response Timings Matrix</div>
+                <div className="text-[10px] text-slate-500 uppercase font-bold">Response Timings Matrix</div>
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
-                    <div className="text-[9px] text-prizm-text-muted uppercase">/status</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
+                  <div className="bg-white border border-slate-200 p-2 rounded text-center shadow-sm">
+                    <div className="text-[9px] text-slate-500 uppercase">/status</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-slate-800" : "text-slate-400"}`}>
                       {testResult.durations?.status ? `${testResult.durations.status}ms` : "N/A"}
                     </div>
                   </div>
-                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
-                    <div className="text-[9px] text-prizm-text-muted uppercase">report.json</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
+                  <div className="bg-white border border-slate-200 p-2 rounded text-center shadow-sm">
+                    <div className="text-[9px] text-slate-500 uppercase">report.json</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-slate-800" : "text-slate-400"}`}>
                       {testResult.durations?.reportStatus ? `${testResult.durations.reportStatus}ms` : "N/A"}
                     </div>
                   </div>
-                  <div className="bg-prizm-surface-strong border border-prizm-border p-2 rounded text-center">
-                    <div className="text-[9px] text-prizm-text-muted uppercase">blockviewer</div>
-                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-prizm-text" : "text-prizm-text-muted"}`}>
+                  <div className="bg-white border border-slate-200 p-2 rounded text-center shadow-sm">
+                    <div className="text-[9px] text-slate-500 uppercase">blockviewer</div>
+                    <div className={`text-xs font-bold mt-1 ${testResult.success ? "text-slate-800" : "text-slate-400"}`}>
                       {testResult.durations?.blockviewer ? `${testResult.durations.blockviewer}ms` : "N/A"}
                     </div>
                   </div>
@@ -1850,38 +1545,38 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
               </div>
 
               {/* Decoded Firmware details */}
-              <div className="bg-prizm-surface-strong border border-prizm-border p-3 rounded space-y-2">
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded space-y-2">
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-prizm-text-muted">Detected Host:</span>
-                  <span className="text-prizm-text font-bold">{testResult.emsUrlTested}</span>
+                  <span className="text-slate-500">Detected Host:</span>
+                  <span className="text-slate-800 font-bold">{testResult.emsUrlTested}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-prizm-text-muted">Turtle Version:</span>
-                  <span className="text-prizm-primary font-bold">{testResult.turtleVersion || "Unknown"}</span>
+                  <span className="text-slate-500">Turtle Version:</span>
+                  <span className="text-emerald-600 font-bold">{testResult.turtleVersion || "Unknown"}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-prizm-text-muted">Substation Code:</span>
-                  <span className="text-prizm-text">{testResult.stationCode || "BHE0020"}</span>
+                  <span className="text-slate-500">Substation Code:</span>
+                  <span className="text-slate-800">{testResult.stationCode || "-"}</span>
                 </div>
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-prizm-text-muted">EMS Block Index:</span>
-                  <span className="text-prizm-primary font-bold">{testResult.blockIndex || 1}</span>
+                  <span className="text-slate-500">EMS Block Index:</span>
+                  <span className="text-emerald-600 font-bold">{testResult.blockIndex || "-"}</span>
                 </div>
               </div>
 
               {testResult.error && (
-                <div className="p-3 bg-red-950/20 border border-red-500/30 text-red-300 rounded text-[11px] leading-relaxed">
-                  <span className="font-bold block text-red-400 uppercase text-[9px] mb-1">Diagnostic Exception error:</span>
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-[11px] leading-relaxed">
+                  <span className="font-bold block text-red-800 uppercase text-[9px] mb-1">Diagnostic Exception error:</span>
                   {testResult.error}
                 </div>
               )}
 
             </div>
 
-            <div className="bg-prizm-surface p-4 border-t border-prizm-border flex justify-end bg-prizm-surface-strong">
+            <div className="bg-slate-100 p-4 border-t border-slate-200 flex justify-end">
               <button
                 onClick={() => setShowTestResultModal(false)}
-                className="px-5 py-2 text-xs uppercase font-extrabold bg-cyan-500 hover:bg-cyan-600 text-black rounded cursor-pointer transition-all shadow-md active:translate-y-px"
+                className="px-5 py-2 text-xs uppercase font-extrabold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded cursor-pointer transition-all shadow-sm"
               >
                 Close Audit Report
               </button>

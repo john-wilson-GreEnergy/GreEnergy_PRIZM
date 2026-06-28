@@ -1986,32 +1986,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     }
   }
 
-  // Fast-fail: If live payload is fetched successfully (or cached) but contains no enclosure elements and no topology
-  if (blockData && elementsToParse.length === 0 && topologyEntities.length === 0 && !demoActive) {
-    const stationCode = blockData?.stationCode || blockData?.data?.stationCode || stationCodeFromData || emsCache.discoveredStationCode || activeProfile?.stationCode || "BHE0020";
-    const stationCodeSource = blockData?.stationCode ? "blockData.stationCode" : (blockData?.data?.stationCode ? "blockData.data.stationCode" : (stationCodeFromData ? "elementList.stationCode" : (emsCache.discoveredStationCode ? "emsCache.discoveredStationCode" : (activeProfile?.stationCode ? "profile.stationCode" : "fallback.default"))));
-
-    return {
-      success: false,
-      timestamp: new Date().toISOString(),
-      source: "blockviewer",
-      stationCode,
-      blockIndex: blockData?.blockIndex || 1,
-      sourceHealth,
-      error: "Live blockviewer fetched but no enclosure element array or topology found",
-      debug: {
-        totalElements: 0,
-        totalSensors: 0,
-        locationFallbackCount: 0,
-        sensorParentMismatchCount: 0,
-        unknownSensorCodeCount: 0,
-        fallbackGenerated: false,
-        stationCodeSource,
-        topLevelKeys: Object.keys(blockData || {}),
-        candidateElementPaths: findAllArrayPathsContainingObjects(blockData)
-      }
-    };
-  }
+  // Fast-fail removed to allow fallback logic to handle missing enclosure elements or topologies.
 
   const topologyEntitiesByEnclosure: Record<number, any[]> = {};
   if (parserMode === "localTopology") {
