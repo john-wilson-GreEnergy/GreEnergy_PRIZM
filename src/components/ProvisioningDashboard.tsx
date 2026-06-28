@@ -242,7 +242,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
             <CardTitle>Bundle Selection</CardTitle>
             <button
               onClick={handleClear}
-              className="bg-red-500/10 text-red-400 px-3 py-1.5 text-sm rounded hover:bg-red-500/20 flex items-center gap-2 transition-colors"
+              className="bg-red-100 text-red-700 px-3 py-1.5 text-sm rounded hover:bg-red-200 flex items-center gap-2 transition-colors"
             >
               <Trash2 className="w-4 h-4" /> Clear
             </button>
@@ -384,7 +384,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                     <tbody className="divide-y divide-prizm-border bg-prizm-panel">
                       {validation.requiredFiles.map((f: any, i: number) => (
                         <tr key={i}>
-                           <td className="px-4 py-2 font-mono text-xs">{f.path}</td>
+                           <td className="px-4 py-2 font-mono text-xs text-slate-800">{f.path}</td>
                            <td className={`px-4 py-2 ${f.status === 'present' ? 'text-emerald-600' : 'text-red-600'}`}>{f.status} {f.notes && `(${f.notes})`}</td>
                         </tr>
                       ))}
@@ -407,7 +407,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                       <tbody className="divide-y divide-prizm-border bg-prizm-panel">
                         {validation.requiredDirectories.map((f: any, i: number) => (
                           <tr key={i}>
-                             <td className="px-4 py-2 font-mono text-xs">{f.path}</td>
+                             <td className="px-4 py-2 font-mono text-xs text-slate-800">{f.path}</td>
                              <td className={`px-4 py-2 ${f.status === 'present' ? 'text-emerald-600' : 'text-red-600'}`}>{f.status} {f.notes && `(${f.notes})`}</td>
                           </tr>
                         ))}
@@ -429,7 +429,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                       <tbody className="divide-y divide-prizm-border bg-prizm-panel">
                         {validation.inspections.map((f: any, i: number) => (
                           <tr key={i}>
-                             <td className="px-4 py-2 font-mono text-xs">{f.label}</td>
+                             <td className="px-4 py-2 font-mono text-xs text-slate-800">{f.label}</td>
                              <td className={`px-4 py-2 ${f.status === 'pass' ? 'text-emerald-600' : f.status === 'warn' ? 'text-amber-600' : f.status === 'fail' ? 'text-red-600' : 'text-slate-500'}`}>{f.status} {f.notes && `(${f.notes})`}</td>
                           </tr>
                         ))}
