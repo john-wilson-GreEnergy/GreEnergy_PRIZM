@@ -101,22 +101,32 @@ export function validateBundle(bundlePath: string): ProvisioningBundleValidation
 
   // Check required files
   for (const file of REQUIRED_FILES) {
-    const fullPath = path.join(bundlePath, file);
+    let fullPath = path.join(bundlePath, file);
+    let resolvedFile = file;
+    if (!fs.existsSync(fullPath) && file.startsWith('cronScripts/')) {
+        const altFile = file.replace('cronScripts/', '');
+        const altPath = path.join(bundlePath, altFile);
+        if (fs.existsSync(altPath)) {
+            fullPath = altPath;
+            resolvedFile = altFile;
+        }
+    }
+
     if (fs.existsSync(fullPath)) {
       try {
         const stat = fs.statSync(fullPath);
         if (stat.isFile() && stat.size > 0) {
-          result.requiredFiles.push({ path: file, status: 'present', sizeBytes: stat.size });
+          result.requiredFiles.push({ path: resolvedFile, status: 'present', sizeBytes: stat.size });
           result.summary.requiredPresent++;
         } else {
-          result.requiredFiles.push({ path: file, status: 'invalid', notes: stat.size === 0 ? 'File is empty' : 'Not a regular file' });
+          result.requiredFiles.push({ path: resolvedFile, status: 'invalid', notes: stat.size === 0 ? 'File is empty' : 'Not a regular file' });
           result.summary.requiredMissing++;
-          result.errors.push(`Required file invalid or empty: ${file}`);
+          result.errors.push(`Required file invalid or empty: ${resolvedFile}`);
         }
       } catch (e) {
-        result.requiredFiles.push({ path: file, status: 'invalid', notes: 'Read error' });
+        result.requiredFiles.push({ path: resolvedFile, status: 'invalid', notes: 'Read error' });
         result.summary.requiredMissing++;
-        result.errors.push(`Error reading file: ${file}`);
+        result.errors.push(`Error reading file: ${resolvedFile}`);
       }
     } else {
       result.requiredFiles.push({ path: file, status: 'missing' });
@@ -152,7 +162,7 @@ export function validateBundle(bundlePath: string): ProvisioningBundleValidation
   if (fs.existsSync(featherXmlPath)) {
     try {
       const content = fs.readFileSync(featherXmlPath, 'utf8');
-      if (content.includes('{io_logik_ip}') || /ioLogikIP/i.test(content) || /<parameter name="ip" value="\d+\.\d+\.\d+\.\d+"/i.test(content) || /<property name="ipAddress" value="\d+\.\d+\.\d+\.\d+"/i.test(content) || content.includes('192.168.')) {
+      if (content.includes('{io_logik_ip}') || /ioLogikIP/i.test(content) || /<parameter name="ip" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content) || /<property name="ipAddress" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content) || /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/.test(content)) {
          result.inspections.push({ key: 'feather.xml', label: 'feather.xml structure', status: 'pass' });
          result.summary.inspectionPass++;
       } else {

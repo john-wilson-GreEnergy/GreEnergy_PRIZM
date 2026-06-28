@@ -274,7 +274,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
             </div>
 
             <div className="mt-8 border-t border-prizm-border pt-6 flex justify-end">
-               <button disabled className="bg-prizm-surface text-prizm-text-muted px-6 py-2 rounded flex items-center gap-2 cursor-not-allowed" title="Provisioning execution will be enabled after bundle validation and run planning are complete.">
+               <button disabled className="bg-prizm-surface text-prizm-text-muted px-6 py-2 rounded flex items-center gap-2 cursor-not-allowed" title="Provisioning execution is disabled until bundle validation and run planning are complete.">
                  <Play className="w-4 h-4" /> Run Provisioning
                </button>
             </div>

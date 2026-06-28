@@ -58,6 +58,13 @@ import hvacSimulationRouter from "./src/server/hvacSimulation/hvacSimulationRout
 import siteDistributionRouter from "./src/server/siteDistribution/siteDistributionRoutes";
 import siteSensorsRouter from "./src/server/siteSensors/siteSensorsRoutes";
 import diagnosticSessionRouter from "./src/server/diagnosticSession/diagnosticSessionRoutes";
+import provisioningRoutes from "./src/server/deviceProvisioning/provisioningRoutes";
+import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
+import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
+import debugSourceScanRouter from "./src/server/debugSourceScan";
+import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
+import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
+import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
 
 
@@ -90,21 +97,12 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 app.use("/api/local/reports", reportRoutes);
-import provisioningRoutes from "./src/server/deviceProvisioning/provisioningRoutes";
-app.use("/api/local/provisioning", provisioningRoutes);
 
-import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 app.use("/api/local/balancer-test", balancerTestRouter);
 
-import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
 app.use("/api/local/fan-control", fanControlRouter);
 
-import debugSourceScanRouter from "./src/server/debugSourceScan";
 app.use("/api/local", debugSourceScanRouter);
-
-import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
-
-import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
 
 app.get("/api/local/snapshot", async (req, res) => {
   if (req.query.refresh === "true") {
@@ -1093,8 +1091,6 @@ app.post("/api/feather/scan", async (req, res) => {
     res.status(400).json({ error: err.message || "Manual scan range execution failed" });
   }
 });
-
-import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 
 // 4. GET /api/feather/devices
 let activeDeviceScanPromise: Promise<any> | null = null;
