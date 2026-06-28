@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getLatestSnapshot, triggerImmediatePoll } from '../prizmDataCoordinator';
 import { ProfileStore } from '../profiles/profileStore';
+import { getLatestFirmwareSnapshot, triggerFirmwareCapture } from './firmwareReportService';
 import { 
   SiteDataSnapshot, 
   BuildSiteSnapshotOptions, 
@@ -58,6 +59,114 @@ function deltaCToDeltaF(value: any): number | undefined {
   const n = Number(value);
   if (!Number.isFinite(n)) return undefined;
   return n * 9 / 5;
+}
+
+function getArrayStoredKWh(arrayRow: any, stringsForArray: any[]): number | undefined {
+  if (arrayRow.availableStoredKWh !== undefined) return arrayRow.availableStoredKWh;
+  if (arrayRow.storedEnergyKWh !== undefined) return arrayRow.storedEnergyKWh;
+  if (arrayRow.totalStoredKWh !== undefined) return arrayRow.totalStoredKWh;
+  
+  if (arrayRow.nearlineStoredKWh !== undefined && arrayRow.onlineStoredKWh !== undefined) {
+      return arrayRow.nearlineStoredKWh + arrayRow.onlineStoredKWh;
+  }
+  
+  if (arrayRow.availableKWh !== undefined) return arrayRow.availableKWh;
+  
+  if (stringsForArray && stringsForArray.length > 0) {
+      let sum = 0;
+      let hasVal = false;
+      for (const s of stringsForArray) {
+          if (s.kWh !== undefined && Number.isFinite(s.kWh)) {
+              sum += s.kWh;
+              hasVal = true;
+          }
+      }
+      if (hasVal) return sum;
+  }
+  
+  return 0;
+}
+
+function getArraySocPct(arrayRow: any, stringsForArray: any[]): number | undefined {
+  if (arrayRow.systemSocPct !== undefined) return arrayRow.systemSocPct;
+  if (arrayRow.socPct !== undefined) return arrayRow.socPct;
+  if (arrayRow.avgSocPct !== undefined) return arrayRow.avgSocPct;
+  if (arrayRow.averageSoc !== undefined) return arrayRow.averageSoc;
+  
+  if ((arrayRow.onlineStrings === 0 || arrayRow.onlineStrings === undefined) && arrayRow.nearlineStrings > 0 && arrayRow.nearlineSOC !== undefined) {
+      return arrayRow.nearlineSOC;
+  }
+  
+  if (arrayRow.onlineStrings > 0 && arrayRow.onlineSOC !== undefined) return arrayRow.onlineSOC;
+  
+  if (stringsForArray && stringsForArray.length > 0) {
+      let sum = 0;
+      let count = 0;
+      for (const s of stringsForArray) {
+          if (s.socPct !== undefined && Number.isFinite(s.socPct)) {
+              sum += s.socPct;
+              count++;
+          }
+      }
+      if (count > 0) return sum / count;
+  }
+  
+  return undefined;
+}
+
+function getBestStringRollupForMetrics(stringSummary: any): any {
+  if (!stringSummary || !stringSummary.rollups) return undefined;
+  if (stringSummary.rollups.available && stringSummary.buckets?.available > 0) return stringSummary.rollups.available;
+  if (stringSummary.rollups.all && stringSummary.buckets?.all > 0) return stringSummary.rollups.all;
+  if (stringSummary.rollups.nearline && stringSummary.buckets?.nearline > 0) return stringSummary.rollups.nearline;
+  if (stringSummary.rollups.online && stringSummary.buckets?.online > 0) return stringSummary.rollups.online;
+  if (stringSummary.rollups.offline && stringSummary.buckets?.offline > 0) {
+    const off = stringSummary.rollups.offline;
+    if (off.lowCellTempC !== undefined || off.avgCellTempC !== undefined) return off;
+  }
+  return undefined;
+}
+
+function getCorrectiveTargetIdentity(action: any): string {
+    const parts = [];
+    if (action.blockIndex !== undefined) parts.push(`Block ${action.blockIndex}`);
+    if (action.arrayIndex !== undefined || action.arrayNumber !== undefined) parts.push(`Array ${action.arrayIndex ?? action.arrayNumber}`);
+    if (action.energySegmentIndex !== undefined || action.segmentIndex !== undefined) parts.push(`Segment ${action.energySegmentIndex ?? action.segmentIndex}`);
+    if (action.stringIndex !== undefined || action.stringNumber !== undefined) parts.push(`String ${action.stringIndex ?? action.stringNumber}`);
+    if (action.side) parts.push(`Side ${action.side}`);
+    if (action.batteryPackIndex !== undefined || action.bpcIndex !== undefined || action.bpc !== undefined) parts.push(`BPC ${action.batteryPackIndex ?? action.bpcIndex ?? action.bpc}`);
+    if (action.cellGroupIndex !== undefined || action.cgIndex !== undefined || action.cellGroup !== undefined) parts.push(`CG ${action.cellGroupIndex ?? action.cgIndex ?? action.cellGroup}`);
+    if (action.deviceIp) parts.push(`IP ${action.deviceIp}`);
+    if (parts.length === 0 && action.source) parts.push(`Source ${action.source}`);
+    return parts.length > 0 ? parts.join(' ') : 'unknown';
+}
+
+function getCorrectiveGroupKey(action: any, sev: string): string {
+    const faultFamily = action.faultName || action.title || action.message || action.faultCode || 'unknown';
+    return `${sev}-${action.faultCode || 'nocode'}-${faultFamily}`;
+}
+
+function getMaxVoltageDelta(snapshot: SiteDataSnapshot): number {
+    let max = 0;
+    if (snapshot.sections?.energy?.voltageByArray) {
+        for (const a of snapshot.sections.energy.voltageByArray) {
+            if (a.deltaMv > max) max = a.deltaMv;
+        }
+    }
+    if (snapshot.sections?.energy?.voltageOutliers?.largestDelta) {
+        for (const o of snapshot.sections.energy.voltageOutliers.largestDelta) {
+            if (o.deltaMv > max) max = o.deltaMv;
+        }
+    }
+    return max;
+}
+
+function getPcsOnlineCount(snapshot: SiteDataSnapshot): number {
+    return snapshot.sections?.pcs?.online || 0;
+}
+
+function getPcsTotalCount(snapshot: SiteDataSnapshot): number {
+    return snapshot.sections?.pcs?.total || 0;
 }
 
 function getSnapshotFleetCapacity(latest: any) {
@@ -144,44 +253,80 @@ function buildSourceCoverage(latest: any, options: BuildSiteSnapshotOptions, ref
   let requiredFresh = 0, requiredMissing = 0, optionalMissing = 0, stale = 0, failed = 0;
   
   const rawSources = latest?.rollups?.sourceHealth || [];
-  
+  const rawMap = new Map();
   for (const s of rawSources) {
-    const isRequired = s.required || s.name?.toLowerCase().includes("blockviewer") || s.name?.toLowerCase().includes("ems") || s.name?.toLowerCase().includes("array");
-    let status = (s.status || "unknown") as any;
-    if (status === 'fresh' && s.stalenessMs && s.stalenessMs > 60000) {
-      status = 'stale';
-    }
-    
-    sources.push({
-      key: s.name || "unknown",
-      label: s.name || "Unknown Source",
-      sourceType: s.sourceType === "direct-ip" ? "direct-ip" : "ems-turtle",
-      required: isRequired,
-      status: status,
-      usedFor: s.usedFor || [],
-      lastUpdated: s.lastUpdated ? new Date(s.lastUpdated).toISOString() : undefined,
-      endpoint: s.endpoint,
-      ageSeconds: s.stalenessMs ? Math.round(s.stalenessMs / 1000) : undefined,
-      error: s.error
-    });
-    
-    if (isRequired && status === 'fresh') requiredFresh++;
-    else if (isRequired && (status === 'missing' || status === 'unknown')) requiredMissing++;
-    else if (!isRequired && (status === 'missing' || status === 'unknown')) optionalMissing++;
-    else if (status === 'stale') stale++;
-    else if (status === 'failed') failed++;
+      rawMap.set(s.name, s);
   }
 
-  if (options.includeFirmware) {
-    sources.push({
-      key: 'firmware',
-      label: 'Firmware Capture',
-      sourceType: 'triggered-ems-report',
-      required: false,
-      status: 'missing',
-      usedFor: ['Firmware'],
-    });
-    optionalMissing++;
+  const expectedSources = [
+      { name: 'ems-status', label: 'EMS Status', usedFor: ['connection', 'executive', 'controls'], req: true },
+      { name: 'blockviewer', label: 'Blockviewer', usedFor: ['topology', 'arrays', 'pcs', 'controls'], req: true },
+      { name: 'strings', label: 'String List / strings.csv', usedFor: ['string availability', 'SOC', 'kWh', 'cell voltage', 'cell temperature'], req: true },
+      { name: 'array-reports', label: 'Array Reports', usedFor: ['array summaries', 'PCS association', 'notifications context'], req: false },
+      { name: 'pcs-reports', label: 'PCS Reports', usedFor: ['PCS summary', 'power limits', 'PCS status'], req: false },
+      { name: 'notifications', label: 'Notifications', usedFor: ['corrective actions'], req: true },
+      { name: 'ems-apps', label: 'EMS Apps', usedFor: ['EMS app section', 'controls'], req: false },
+      { name: 'status-codes', label: 'BESS Status Codes', usedFor: ['corrective actions and status labels'], req: false },
+      { name: 'first-responder', label: 'First Responder', usedFor: ['sensors and safety data'], req: false },
+      { name: 'controller-statistics', label: 'Controller Statistics', usedFor: ['source diagnostics', 'controls', 'telemetry'], req: false },
+      { name: 'ip-map', label: 'IP Map', usedFor: ['metadata/topology reference'], req: false },
+      { name: 'string-ip-map', label: 'String IP Map', usedFor: ['metadata/topology reference'], req: false },
+      { name: 'modbus-map', label: 'Modbus Map', usedFor: ['controls/point validation'], req: false },
+      { name: 'fleet-capacity', label: 'Fleet Capacity Calculation', usedFor: ['executive', 'energy'], req: true, type: 'calculated' },
+      { name: 'corrective-grouping', label: 'Corrective Action Grouping', usedFor: ['corrective actions'], req: true, type: 'calculated' },
+      { name: 'thermal-outliers', label: 'Thermal Outlier Calculation', usedFor: ['thermal'], req: true, type: 'calculated' },
+      { name: 'voltage-outliers', label: 'Voltage Outlier Calculation', usedFor: ['energy'], req: true, type: 'calculated' },
+  ];
+
+  if (options.includeFirmware || options.triggerFirmwareCapture) {
+      expectedSources.push({ name: 'firmware', label: 'Firmware Capture', usedFor: ['firmware summary/details'], req: true, type: 'triggered-ems-report' });
+  }
+
+  // Also include any raw sources that aren't in expectedSources
+  for (const s of rawSources) {
+      if (!expectedSources.some(e => e.name === s.name)) {
+          expectedSources.push({ name: s.name, label: s.name, usedFor: s.usedFor || [], req: s.required, type: s.sourceType });
+      }
+  }
+
+  for (const exp of expectedSources) {
+      const s = rawMap.get(exp.name);
+      
+      let status = s?.status || 'unknown';
+      if (status === 'fresh' && s?.stalenessMs && s.stalenessMs > 60000) {
+          status = 'stale';
+      }
+      
+      if (!s && (exp.type === 'calculated' || exp.type === 'triggered-ems-report')) {
+          status = 'fresh'; // Unless it's a known failing calculation, assuming fresh for missing calculated
+      } else if (!s) {
+          status = 'missing';
+      }
+
+      // override calculated to missing if real inputs are missing
+      if (exp.name === 'firmware' && !s && !options.triggerFirmwareCapture) {
+          // If we didn't trigger, and there's no result, it's missing
+          status = 'missing';
+      }
+
+      sources.push({
+          key: exp.name,
+          label: exp.label,
+          sourceType: s?.sourceType || exp.type || 'ems-turtle',
+          required: exp.req,
+          status,
+          usedFor: exp.usedFor,
+          lastUpdated: s?.lastUpdated ? new Date(s.lastUpdated).toISOString() : undefined,
+          endpoint: s?.endpoint,
+          ageSeconds: s?.stalenessMs ? Math.round(s.stalenessMs / 1000) : undefined,
+          error: s?.error
+      });
+
+      if (exp.req && status === 'fresh') requiredFresh++;
+      else if (exp.req && (status === 'missing' || status === 'unknown')) requiredMissing++;
+      else if (!exp.req && (status === 'missing' || status === 'unknown')) optionalMissing++;
+      else if (status === 'stale') stale++;
+      else if (status === 'failed') failed++;
   }
 
   let confidence: "high" | "medium" | "low" | "invalid" | "unknown" = "unknown";
@@ -214,7 +359,7 @@ function buildReportCoverage(sections: any, includeFirmware?: boolean): ReportCo
     section: 'executive',
     label: 'Executive Summary',
     status: sections.executive ? 'available' : 'missing',
-    sourceKeys: []
+    sourceKeys: ['ems-status', 'strings', 'fleet-capacity', 'corrective-grouping']
   });
 
   const hasEnergyString = sections.energy?.stringAvailability?.total > 0;
@@ -223,7 +368,7 @@ function buildReportCoverage(sections: any, includeFirmware?: boolean): ReportCo
     section: 'energy',
     label: 'Energy & Electrical',
     status: (hasEnergyString && hasEnergyFleet) ? 'available' : ((hasEnergyString || hasEnergyFleet) ? 'partial' : 'missing'),
-    sourceKeys: []
+    sourceKeys: ['strings', 'fleet-capacity', 'array-reports', 'voltage-outliers']
   });
 
   const hasThermalCells = sections.thermal?.metrics?.maxCellTempF !== undefined;
@@ -232,42 +377,56 @@ function buildReportCoverage(sections: any, includeFirmware?: boolean): ReportCo
     section: 'thermal',
     label: 'Thermal & HVAC',
     status: (hasThermalCells || hasThermalHvac) ? 'available' : 'missing',
-    sourceKeys: []
+    sourceKeys: ['strings', 'feather-direct', 'thermal-outliers', 'first-responder']
   });
 
   rows.push({
     section: 'correctiveActions',
     label: 'Corrective Actions',
     status: sections.correctiveActions ? 'available' : 'missing',
-    sourceKeys: []
+    sourceKeys: ['notifications', 'status-codes', 'corrective-grouping']
   });
 
   rows.push({
     section: 'pcs',
     label: 'PCS',
     status: (sections.pcs?.rows?.length > 0) ? 'available' : 'partial',
-    sourceKeys: []
+    sourceKeys: ['pcs-reports', 'blockviewer']
   });
 
   rows.push({
     section: 'emsApps',
     label: 'EMS Apps',
     status: sections.emsApps?.total > 0 ? 'available' : 'missing',
-    sourceKeys: []
+    sourceKeys: ['ems-apps']
   });
 
   rows.push({
     section: 'firmware',
     label: 'Firmware',
-    status: !includeFirmware ? 'not-applicable' : (sections.firmware?.included ? 'available' : 'missing'),
-    sourceKeys: []
+    status: !includeFirmware ? 'not-applicable' : (sections.firmware?.included && sections.firmware?.source !== 'unavailable' ? 'available' : 'missing'),
+    sourceKeys: ['firmware']
+  });
+
+  rows.push({
+    section: 'topology',
+    label: 'Topology',
+    status: 'available',
+    sourceKeys: ['blockviewer', 'active-profile', 'ip-map', 'string-ip-map']
+  });
+
+  rows.push({
+    section: 'sensors',
+    label: 'Sensors',
+    status: 'available',
+    sourceKeys: ['first-responder', 'feather-direct']
   });
 
   rows.push({
     section: 'sourceHealth',
     label: 'Source Health',
     status: 'available',
-    sourceKeys: []
+    sourceKeys: ['source-coverage']
   });
 
   let available = 0, partial = 0, missing = 0, failed = 0;
@@ -351,17 +510,20 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
       offline: offlineStrings,
       notCommunicating: notCommunicatingStrings
     },
-    byArray: latest.rollups?.arraySummary?.map(a => ({
-      arrayIndex: a.arrayIndex,
-      totalStrings: a.totalStrings || 0,
-      online: a.onlineStrings || 0,
-      nearline: a.nearlineStrings || 0,
-      offline: a.offlineStrings || 0,
-      notCommunicating: a.notCommunicatingStrings || 0,
-      storedKWh: a.onlineAvailableKWh || 0,
-      socPct: a.onlineSOC || 0,
-      status: "normal"
-    })) || [],
+    byArray: latest.rollups?.arraySummary?.map((a: any) => {
+      const arrayStrings = latest.normalized?.strings?.filter((s: any) => s.arrayNumber === a.arrayIndex || s.arrayIndex === a.arrayIndex) || [];
+      return {
+        arrayIndex: a.arrayIndex,
+        totalStrings: a.totalStrings || 0,
+        online: a.onlineStrings || 0,
+        nearline: a.nearlineStrings || 0,
+        offline: a.offlineStrings || 0,
+        notCommunicating: a.notCommunicatingStrings || 0,
+        storedKWh: getArrayStoredKWh(a, arrayStrings),
+        socPct: getArraySocPct(a, arrayStrings),
+        status: "normal"
+      };
+    }) || [],
     voltageByArray: latest.rollups?.arraySummary?.map(a => ({
       arrayIndex: a.arrayIndex,
       minCellMv: a.measuredMinCellVoltage || 0,
@@ -373,22 +535,40 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
     voltageOutliers: { lowest: [], highest: [], largestDelta: [] }
   };
   
+  const bestStringRollup = getBestStringRollupForMetrics(latest.rollups?.stringSummary);
+
   const thermal: ThermalSnapshotSection = {
     thermalReadiness: "normal",
     metrics: {
-      minCellTempF: cToF(latest.rollups?.stringSummary?.rollups?.online?.lowCellTempC),
-      avgCellTempF: cToF(latest.rollups?.stringSummary?.rollups?.online?.avgCellTempC),
-      maxCellTempF: cToF(latest.rollups?.stringSummary?.rollups?.online?.highCellTempC),
-      maxTempDeltaF: deltaCToDeltaF(latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC),
-      hvacFeedbackMismatches: latest.normalized?.feather?.filter(f => f.hasMismatch).length || 0
+      minCellTempF: cToF(bestStringRollup?.lowCellTempC),
+      avgCellTempF: cToF(bestStringRollup?.avgCellTempC),
+      maxCellTempF: cToF(bestStringRollup?.highCellTempC),
+      maxTempDeltaF: deltaCToDeltaF(bestStringRollup?.maxCellTempDeltaC),
+      hvacFeedbackMismatches: latest.normalized?.feather?.filter((f: any) => f.hasMismatch).length || 0
     },
-    tempByArray: latest.rollups?.arraySummary?.map(a => ({
-      arrayIndex: a.arrayIndex,
-      minTempF: cToF(a.measuredMinCellTemperature),
-      maxTempF: cToF(a.measuredMaxCellTemperature),
-      deltaF: deltaCToDeltaF(a.cellTemperatureDelta),
-      status: "normal"
-    })) || [],
+    tempByArray: latest.rollups?.arraySummary?.map((a: any) => {
+      const arrayStrings = latest.normalized?.strings?.filter((s: any) => s.arrayNumber === a.arrayIndex || s.arrayIndex === a.arrayIndex) || [];
+      let minT = a.measuredMinCellTemperature;
+      let maxT = a.measuredMaxCellTemperature;
+      if (minT === undefined || maxT === undefined) {
+         let stringMin, stringMax;
+         for (const s of arrayStrings) {
+             const mn = s.minCellTemperatureC ?? s.lowCellTempC;
+             const mx = s.maxCellTemperatureC ?? s.highCellTempC;
+             if (mn !== undefined && (stringMin === undefined || mn < stringMin)) stringMin = mn;
+             if (mx !== undefined && (stringMax === undefined || mx > stringMax)) stringMax = mx;
+         }
+         if (minT === undefined) minT = stringMin;
+         if (maxT === undefined) maxT = stringMax;
+      }
+      return {
+        arrayIndex: a.arrayIndex,
+        minTempF: cToF(minT),
+        maxTempF: cToF(maxT),
+        deltaF: (minT !== undefined && maxT !== undefined) ? deltaCToDeltaF(maxT - minT) : deltaCToDeltaF(a.cellTemperatureDelta),
+        status: "normal"
+      };
+    }) || [],
     thermalOutliers: { hottest: [], coldest: [], largestDelta: [] },
     hvacDevices: latest.normalized?.feather?.map(f => ({
       deviceLabel: f.name || "HVAC",
@@ -414,20 +594,15 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
   const grouped: Record<string, any> = {};
   for (const a of rawActions) {
     const sev = (a.severity === "fault" || a.severity === "alarm") ? "alarm" : a.severity;
-    let targetIdentity = 'unknown';
-    if (a.arrayIndex !== undefined) {
-      targetIdentity = `Array ${a.arrayIndex}`;
-      if (a.stringIndex !== undefined) targetIdentity += ` String ${a.stringIndex}`;
-    }
-    const faultFamily = a.faultName || a.title || a.message || a.faultCode;
-    const key = `${sev}-${a.faultCode || 'nocode'}-${faultFamily}`;
+    const targetIdentity = getCorrectiveTargetIdentity(a);
+    const key = getCorrectiveGroupKey(a, sev);
     
     if (!grouped[key]) {
       grouped[key] = {
         id: key,
         severity: sev,
         code: a.faultCode,
-        faultName: faultFamily,
+        faultName: a.faultName || a.title || a.message || a.faultCode,
         affectedCount: 0,
         suggestedAction: a.suggestedAction || a.repairAction || "Check physical connections and confirm parameters",
         source: a.source,
@@ -438,15 +613,12 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
     }
     
     // Avoid exact duplicates
-    const isDup = grouped[key].targets.some((t: any) => 
-      t.arrayIndex === a.arrayIndex && 
-      t.stringIndex === a.stringIndex &&
-      t.deviceIp === a.deviceIp
-    );
+    const isDup = grouped[key].targets.some((t: any) => getCorrectiveTargetIdentity(t) === targetIdentity);
     
     if (!isDup) {
       grouped[key].affectedCount++;
-      grouped[key].targets.push(a);
+      grouped[key].targets.push({ ...a, identity: targetIdentity });
+      grouped[key].affectedSummary = grouped[key].targets[0].identity + (grouped[key].affectedCount > 1 ? ` (+${grouped[key].affectedCount - 1} more)` : '');
     }
   }
   
@@ -471,16 +643,24 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
     })) || []
   };
 
+  const lastPollFinished = latest.debug?.lastPollFinishedAt || latest.liveStatus?.lastUpdated;
+  const lastPollStarted = latest.debug?.lastPollStartedAt || latest.liveStatus?.lastUpdated;
+  const maxSourceUpdate = sourceCoverage.rows.reduce((max: string | undefined, r) => {
+      if (!max) return r.lastUpdated;
+      if (!r.lastUpdated) return max;
+      return new Date(r.lastUpdated) > new Date(max) ? r.lastUpdated : max;
+  }, undefined);
+
   const controls: ControlsSnapshotSection = {
     emsConnection: {
       status: latest.liveStatus.state === "LIVE" ? "Connected" : "Offline",
-      lastPoll: new Date().toISOString()
+      lastPoll: lastPollStarted || maxSourceUpdate
     },
     turtleSources: [],
     directIpSources: [],
     polling: {
       active: true,
-      lastRefresh: new Date().toISOString()
+      lastRefresh: lastPollFinished || maxSourceUpdate
     },
     topologyWarnings: []
   };
@@ -494,18 +674,35 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
     })) || []
   };
 
+  let firmwareIncluded = false;
+  let firmwareSource = "unavailable";
+  let fwSummary = { turtleVersions: {}, scVersions: {}, bpcVersions: {}, featherVersions: {}, mismatchCount: 0, missingCount: 0 };
+  let fwDetails: any[] = [];
+  
+  if (options.includeFirmware) {
+      if (options.triggerFirmwareCapture) {
+          try {
+              await triggerFirmwareCapture(options);
+          } catch (e) {
+              warnings.push("Firmware capture failed: " + (e as Error).message);
+          }
+      }
+      const fwSnap = await getLatestFirmwareSnapshot();
+      if (fwSnap) {
+          firmwareIncluded = true;
+          firmwareSource = options.triggerFirmwareCapture ? "triggered-ems-report" : "cached-snapshot";
+          fwSummary = fwSnap.summary || fwSummary;
+          fwDetails = fwSnap.details || fwDetails;
+      } else {
+          warnings.push("Firmware data was requested but no firmware snapshot is available.");
+      }
+  }
+
   const firmware: FirmwareSnapshotSection = {
-    included: !!options.includeFirmware,
-    source: "unavailable",
-    summary: {
-      turtleVersions: {},
-      scVersions: {},
-      bpcVersions: {},
-      featherVersions: {},
-      mismatchCount: 0,
-      missingCount: 0
-    },
-    details: []
+    included: firmwareIncluded,
+    source: firmwareSource,
+    summary: fwSummary,
+    details: fwDetails
   };
 
   const topology: TopologySnapshotSection = {
@@ -622,14 +819,14 @@ export function compareSiteSnapshots(before: SiteDataSnapshot, after: SiteDataSn
       notCommunicatingStrings: (aEx?.notCommunicatingStrings || 0) - (bEx?.notCommunicatingStrings || 0),
       storedEnergyKWh: (aEx?.storedEnergyKWh || 0) - (bEx?.storedEnergyKWh || 0),
       systemSocPct: (aEx?.systemSocPct || 0) - (bEx?.systemSocPct || 0),
-      maxVoltageDelta: 0,
+      maxVoltageDelta: getMaxVoltageDelta(after) - getMaxVoltageDelta(before),
       maxTemp: (aTh?.metrics?.maxCellTempF || 0) - (bTh?.metrics?.maxCellTempF || 0),
       maxTempDelta: (aTh?.metrics?.maxTempDeltaF || 0) - (bTh?.metrics?.maxTempDeltaF || 0),
+      pcsStatusDelta: getPcsOnlineCount(after) - getPcsOnlineCount(before),
     },
     resolvedFaults,
     newFaults,
     persistentFaults,
-    pcsStatusDelta: 0,
     sourceConfidenceDelta
   };
 }
