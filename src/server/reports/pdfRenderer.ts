@@ -28,7 +28,7 @@ function asArray<T = any>(value: any): T[] {
 export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
       const buffers: Buffer[] = [];
 
       doc.on('data', buffers.push.bind(buffers));
@@ -174,15 +174,20 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
       }
       
       // Footer
-      const pages = doc.bufferedPageRange();
-      for (let i = 0; i < pages.count; i++) {
-        doc.switchToPage(i);
-        doc.fontSize(8).fillColor(TEXT_MUTED).text(
-          `Generated ${safeText(payload.generatedAt)} | PRIZM Report ID: ${safeText(payload.reportId)} | Page ${i + 1} of ${pages.count}`,
-          50,
-          doc.page.height - 40,
-          { align: 'center' }
-        );
+      try {
+        const pages = doc.bufferedPageRange();
+        for (let i = pages.start; i < pages.start + pages.count; i++) {
+          doc.switchToPage(i);
+          const pageNumber = i - pages.start + 1;
+          doc.fontSize(8).fillColor(TEXT_MUTED).text(
+            `Generated ${safeText(payload.generatedAt)} | PRIZM Report ID: ${safeText(payload.reportId)} | Page ${pageNumber} of ${pages.count}`,
+            50,
+            doc.page.height - 40,
+            { align: 'center' }
+          );
+        }
+      } catch (footerErr) {
+        console.warn('[reports] PDF footer rendering skipped', footerErr);
       }
 
       doc.end();
