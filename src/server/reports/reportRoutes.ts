@@ -63,7 +63,7 @@ router.delete('/snapshots/:snapshotId', async (req, res) => {
 // Report Generation helper
 async function handleReportGeneration(req: any, res: any, reportType: ReportType) {
   try {
-    const { titleOverride, notes, snapshotIds, snapshotOptions } = req.body;
+    const { titleOverride, notes, snapshotIds, snapshotOptions, refresh, includeFirmware, triggerFirmwareCapture, label } = req.body;
     
     let snapshot;
     let comparisonSnapshot;
@@ -75,7 +75,15 @@ async function handleReportGeneration(req: any, res: any, reportType: ReportType
        snapshot = loadSnapshot(snapshotIds[0]);
     } else {
        // build on the fly
-       snapshot = await buildSiteDataSnapshot({ ...snapshotOptions, snapshotType: 'report' });
+       snapshot = await buildSiteDataSnapshot({ 
+           ...snapshotOptions, 
+           snapshotType: 'report',
+           refresh: refresh,
+           includeFirmware: includeFirmware,
+           triggerFirmwareCapture: triggerFirmwareCapture,
+           label: label,
+           notes: notes
+       });
     }
     
     if (!snapshot) {
@@ -87,13 +95,56 @@ async function handleReportGeneration(req: any, res: any, reportType: ReportType
     // Generate PDF
     const pdfBuffer = await generatePdf(payload);
     
-    // Generate simple CSVs if needed (example)
+    // Generate CSVs
     const csvs = [];
-    if (payload.energyHealth && payload.energyHealth.voltageMetricsByArray) {
-       try {
-         const csvContent = parse(payload.energyHealth.voltageMetricsByArray);
-         csvs.push({ name: 'voltage-metrics.csv', content: csvContent });
-       } catch (e) {}
+    
+    const addCsv = (name: string, data: any[]) => {
+      if (data && data.length > 0) {
+        try {
+          csvs.push({ name, content: parse(data) });
+        } catch (e) {}
+      }
+    };
+
+    if (payload.energyHealth) {
+       addCsv('energy-array-summary.csv', payload.energyHealth.stringAvailabilityByArray);
+       addCsv('voltage-metrics.csv', payload.energyHealth.voltageMetricsByArray);
+    }
+    
+    if (payload.thermalHealth) {
+       addCsv('thermal-array-summary.csv', payload.thermalHealth.tempMetricsByArray);
+       addCsv('hvac-devices.csv', payload.thermalHealth.deviceStatus);
+    }
+
+    if (payload.correctiveActions) {
+       addCsv('corrective-actions.csv', payload.correctiveActions.groupedActions?.map((g: any) => ({
+           id: g.id,
+           severity: g.severity,
+           code: g.code,
+           faultName: g.faultName,
+           affectedCount: g.affectedCount,
+           suggestedAction: g.suggestedAction,
+           source: g.source,
+           firstSeen: g.firstSeen,
+           lastSeen: g.lastSeen
+       })));
+       addCsv('affected-targets.csv', payload.correctiveActions.expandedTargets);
+    }
+
+    if (payload.appendix?.sourceHealth) {
+       addCsv('source-coverage.csv', payload.appendix.sourceHealth);
+    }
+
+    if (payload.appendix?.firmware?.included && payload.appendix.firmware.source !== 'unavailable') {
+        const fw = payload.appendix.firmware;
+        const fwSummary = [
+            { type: 'Turtle Mismatches', count: fw.summary?.mismatchCount || 0 },
+            { type: 'Missing Versions', count: fw.summary?.missingCount || 0 }
+        ];
+        addCsv('firmware-summary.csv', fwSummary);
+        if (fw.details && fw.details.length > 0) {
+            addCsv('firmware-details.csv', fw.details);
+        }
     }
     
     const entry = await saveReport(payload, pdfBuffer, csvs);
@@ -101,11 +152,12 @@ async function handleReportGeneration(req: any, res: any, reportType: ReportType
     res.json({
       success: true,
       reportId: entry.reportId,
+      snapshotId: snapshot.snapshotId,
       reportType: entry.reportType,
       createdAt: entry.createdAt,
       pdfUrl: `/api/local/reports/download/${entry.reportId}/report.pdf`,
       jsonUrl: `/api/local/reports/download/${entry.reportId}/report.json`,
-      csvUrls: entry.csvPaths?.map(p => `/api/local/reports/download/${entry.reportId}/${p.split('/').pop()}`) || [],
+      csvUrls: entry.csvPaths?.map((p: string) => `/api/local/reports/download/${entry.reportId}/${p.split('/').pop()}`) || [],
       sourceFreshness: payload.freshness,
       warnings: payload.freshness.warnings
     });

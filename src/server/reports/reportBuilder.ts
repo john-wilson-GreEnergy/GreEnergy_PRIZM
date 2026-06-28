@@ -1,5 +1,6 @@
 import { SiteReportPayload, ReportType } from './reportTypes';
 import { SiteDataSnapshot } from './siteSnapshotTypes';
+import { compareSiteSnapshots } from './siteSnapshotEngine';
 
 function getDefaultTitle(type: ReportType) {
   const map: Record<ReportType, string> = {
@@ -36,6 +37,9 @@ export function buildReportPackageFromSnapshot(
       profileId: snapshot.topology?.activeProfileId || "none",
       profileName: snapshot.topology?.activeProfileName || "None",
       layoutFamily: snapshot.topology?.topologyFamily,
+      arrays: snapshot.sections?.topology?.arrays,
+      strings: snapshot.sections?.topology?.strings,
+      pcsUnits: snapshot.sections?.topology?.pcsUnits,
     },
     freshness: {
       overallStatus: snapshot.sourceCoverage?.overallStatus || "unknown",
@@ -44,10 +48,17 @@ export function buildReportPackageFromSnapshot(
         sourceType: r.sourceType as any,
         required: r.required,
         status: r.status as any,
-        lastUpdated: r.lastUpdated
+        lastUpdated: r.lastUpdated,
+        ageSeconds: r.ageSeconds,
+        warning: r.error
       })) || [],
       mockOrFallbackDetected: snapshot.mockOrFallbackDetected,
       warnings: snapshot.warnings || []
+    },
+    appendix: {
+      sourceHealth: snapshot.sections?.sourceHealth?.rows || [],
+      reportCoverage: snapshot.reportCoverage?.rows || [],
+      firmware: snapshot.sections?.firmware
     }
   };
 
@@ -56,16 +67,19 @@ export function buildReportPackageFromSnapshot(
     populateEnergyHealth(payload, snapshot);
     populateThermalHealth(payload, snapshot);
     populateCorrectiveActions(payload, snapshot);
+    populateControlsHealth(payload, snapshot);
   }
 
   if (reportType === "thermal-health") {
     populateExecutiveSummary(payload, snapshot);
     populateThermalHealth(payload, snapshot);
+    populateControlsHealth(payload, snapshot);
   }
 
   if (reportType === "energy-health") {
     populateExecutiveSummary(payload, snapshot);
     populateEnergyHealth(payload, snapshot);
+    populateControlsHealth(payload, snapshot);
   }
 
   if (reportType === "corrective-actions") {
@@ -99,6 +113,9 @@ function populateExecutiveSummary(payload: SiteReportPayload, snapshot: SiteData
     socPct: ex?.systemSocPct || 0,
     pcsStatus: snapshot.sections?.pcs?.online === snapshot.sections?.pcs?.total ? 'Online' : 'Warning',
     emsStatus: ex?.emsStatus || "Offline",
+    sourceConfidence: ex?.sourceConfidence,
+    summaryText: ex?.summaryText,
+    recommendedActions: ex?.recommendedActions || []
   };
 }
 
@@ -122,12 +139,25 @@ function populateThermalHealth(payload: SiteReportPayload, snapshot: SiteDataSna
     deviceStatus: th?.hvacDevices || [],
     tempMetricsByArray: th?.tempByArray || [],
     tempOutliers: th?.thermalOutliers || { hottest: [], coldest: [], largestDelta: [] },
-    sensors: [],
+    sensors: snapshot.sections?.sensors?.rows || [],
     maxCellTemp: th?.metrics?.maxCellTempF,
     avgCellTemp: th?.metrics?.avgCellTempF,
     minCellTemp: th?.metrics?.minCellTempF,
     maxTempDelta: th?.metrics?.maxTempDeltaF,
     hvacMismatchCount: th?.metrics?.hvacFeedbackMismatches,
+  };
+}
+
+function populateControlsHealth(payload: SiteReportPayload, snapshot: SiteDataSnapshot) {
+  const ct = snapshot.sections?.controls;
+  const ea = snapshot.sections?.emsApps;
+  payload.controlsHealth = {
+    ems: ct?.emsConnection,
+    turtleSources: ct?.turtleSources || [],
+    directIpSources: ct?.directIpSources || [],
+    sourceCoverage: snapshot.sourceCoverage?.rows || [],
+    topologyWarnings: ct?.topologyWarnings || [],
+    emsApps: ea?.rows || []
   };
 }
 
@@ -144,20 +174,15 @@ function populateCorrectiveActions(payload: SiteReportPayload, snapshot: SiteDat
 }
 
 function populateComparison(payload: SiteReportPayload, before: SiteDataSnapshot, after: SiteDataSnapshot) {
-  const bEx = before.sections?.executive;
-  const aEx = after.sections?.executive;
+  const comp = compareSiteSnapshots(before, after);
   
   payload.comparison = {
     beforeSnapshotId: before.snapshotId,
     afterSnapshotId: after.snapshotId,
-    deltas: {
-      alarms: (aEx?.alarmCount || 0) - (bEx?.alarmCount || 0),
-      warnings: (aEx?.warningCount || 0) - (bEx?.warningCount || 0),
-      onlineStrings: (aEx?.onlineStrings || 0) - (bEx?.onlineStrings || 0),
-      maxTemp: (after.sections?.thermal?.metrics?.maxCellTempF || 0) - (before.sections?.thermal?.metrics?.maxCellTempF || 0),
-    },
-    resolvedFaults: [],
-    newFaults: [],
-    persistentFaults: []
+    deltas: comp.deltas,
+    resolvedFaults: comp.resolvedFaults,
+    newFaults: comp.newFaults,
+    persistentFaults: comp.persistentFaults
   };
 }
+

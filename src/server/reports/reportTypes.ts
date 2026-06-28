@@ -27,15 +27,18 @@ export interface SiteReportPayload {
     layoutFamily?: string;
     uiMode?: string;
     source?: string;
+    arrays?: number;
+    strings?: number;
+    pcsUnits?: number;
   };
 
   freshness: {
     overallStatus: "fresh" | "stale" | "partial" | "failed" | "unknown";
     sources: Array<{
       name: string;
-      sourceType: "direct-ip" | "turtle-report" | "ems-cache" | "imported-metadata" | "generated-reference" | "manual" | "unknown";
+      sourceType: string;
       required: boolean;
-      status: "fresh" | "stale" | "missing" | "failed" | "not-applicable" | "unknown";
+      status: string;
       lastUpdated?: string;
       ageSeconds?: number;
       warning?: string;
@@ -57,6 +60,9 @@ export interface SiteReportPayload {
     socPct?: number;
     pcsStatus?: string;
     emsStatus?: string;
+    sourceConfidence?: string;
+    summaryText?: string;
+    recommendedActions?: string[];
   };
 
   energyHealth?: {
@@ -96,6 +102,7 @@ export interface SiteReportPayload {
     directIpSources: any[];
     sourceCoverage: any[];
     topologyWarnings: string[];
+    emsApps?: any[];
   };
 
   correctiveActions?: {
@@ -117,6 +124,8 @@ export interface SiteReportPayload {
     sourceHealth?: any[];
     rawSummary?: any;
     notes?: string;
+    reportCoverage?: any[];
+    firmware?: any;
   };
 }
 
