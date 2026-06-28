@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { formatTemperatureF } from "../utils/temperatureScale";
+import { getTopologyUiCapabilities } from "../lib/topologyUiCapabilities";
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -24,6 +25,7 @@ import {
 
 interface FeatherDetailsViewProps {
   selectedDevice: FeatherHvacDevice;
+  activeTopologyProfile?: any;
   onBack: () => void;
   triggerDevicePoll: () => Promise<void>;
   isPollingDevice: boolean;
@@ -249,6 +251,7 @@ const StringRowWithNotifications = ({ s, formatTemperatureF }: { s: any; formatT
 
 export default function FeatherDetailsView({
   selectedDevice,
+  activeTopologyProfile,
   onBack,
   triggerDevicePoll,
   isPollingDevice,
@@ -264,6 +267,10 @@ export default function FeatherDetailsView({
   const [binaryChartUnit, setBinaryChartUnit] = useState<1 | 2>(1);
   const [showValidationMatrix, setShowValidationMatrix] = useState<boolean>(false);
   const [showDetectorDebug, setShowDetectorDebug] = useState<boolean>(false);
+
+  const topologyUi = useMemo(() => {
+    return getTopologyUiCapabilities(activeTopologyProfile, selectedDevice);
+  }, [activeTopologyProfile, selectedDevice]);
 
   // Site Health Sensor topology source fetching for ES detectors (Fix 9)
   const [topologyData, setTopologyData] = useState<any>(null);
@@ -285,6 +292,38 @@ export default function FeatherDetailsView({
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
+    // 0. Use topology engine output if available
+    if (device.topology) {
+      if (device.topology.segmentType === "CONTAINER") {
+        return {
+          segmentIndex: device.topology.containerIndex || 1,
+          segmentType: "CONTAINER" as const,
+          displayLabel: `Container ${device.topology.containerIndex || 1}`
+        };
+      }
+      if (device.topology.segmentType === "STACK") {
+        return {
+          segmentIndex: device.topology.stackIndex || 1,
+          segmentType: "STACK" as const,
+          displayLabel: `Stack ${device.topology.stackIndex || 1}`
+        };
+      }
+      if (device.topology.segmentType === "CS") {
+        return {
+          segmentIndex: 1, // Usually CS1 or CS2
+          segmentType: "CS" as const,
+          displayLabel: "CS"
+        };
+      }
+      if (device.topology.segmentType === "ES") {
+        return {
+          segmentIndex: device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1,
+          segmentType: "ES" as const,
+          displayLabel: `ES ${device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1}`
+        };
+      }
+    }
+
     // 1. Direct priority check: stringIndex
     if (device.stringIndex !== undefined && device.stringIndex !== null) {
       const sIdx = Number(device.stringIndex);
@@ -399,9 +438,7 @@ export default function FeatherDetailsView({
   }, [topologyData, selectedDevice]);
 
   const dynamicSensorRows = useMemo(() => {
-    const isES = resolvedSegment.segmentType === "ES";
-
-    if (isES) {
+    if (topologyUi.showStack750DetectorList && resolvedSegment.segmentType === "ES") {
       const other = matchingRow?.otherSensors || {};
       const doors = matchingRow?.doorSensors || {};
       const emergency = matchingRow?.emergencySensors || {};
@@ -876,6 +913,9 @@ export default function FeatherDetailsView({
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">Topology Index:</span>
                 {(() => {
+                  if (selectedDevice.topology) {
+                    return <span className="text-emerald-400 font-bold">Topology Profile</span>;
+                  }
                   if (selectedDevice.sourceCoverage?.blockviewer) {
                     return <span className="text-emerald-400 font-bold">Sourced</span>;
                   }
@@ -888,11 +928,17 @@ export default function FeatherDetailsView({
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">String IP Map:</span>
                 {(() => {
-                  if (resolvedSegment.segmentType === "CS") {
+                  if (!topologyUi.showPairedStrings) {
+                    return <span className="text-zinc-500 font-bold" title="Not Applicable for this layout">N/A</span>;
+                  }
+                  if (selectedDevice.topology?.segmentType === "CS" || selectedDevice.topology?.segmentType === "COLLECTION") {
                     return <span className="text-zinc-500 font-bold" title="Not Applicable for Collection Segments">N/A</span>;
                   }
                   if (selectedDevice.sourceCoverage?.stringIpMap) {
                     return <span className="text-emerald-400 font-bold">Sourced</span>;
+                  }
+                  if (selectedDevice.topology?.pairedStringNumbers && selectedDevice.topology.pairedStringNumbers.length > 0) {
+                    return <span className="text-amber-400 font-bold">Topology Profile</span>;
                   }
                   return <span className="text-rose-500 font-bold">Missing</span>;
                 })()}
@@ -900,6 +946,9 @@ export default function FeatherDetailsView({
               <div className="flex justify-between">
                 <span className="text-prizm-text-muted">IP Translation Map:</span>
                 {(() => {
+                  if (topologyUi.isStack360 || topologyUi.isStack225_230 || selectedDevice.topology?.segmentType === "CONTAINER") {
+                    return <span className="text-zinc-500 font-bold" title="Not Applicable for this layout">N/A</span>;
+                  }
                   if ((selectedDevice as any).discoveryMethod === "direct" || !(selectedDevice as any).ipTranslationNeeded) {
                     return <span className="text-zinc-500 font-bold" title="Direct manual IP: No translation needed">N/A</span>;
                   }
@@ -997,28 +1046,34 @@ export default function FeatherDetailsView({
       </div>
 
       {/* STRINGS / BPC IN ROTATION Section */}
-      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
-        <div className="border-b border-prizm-border pb-3 mb-4 flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">STRINGS / BPC IN ROTATION</span>
-            <span className="text-[9px] text-prizm-text-muted">Associated with Array {selectedDevice.arrayIndex ?? "?"} {resolvedSegment.displayLabel}</span>
-          </div>
-          <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded text-[9px] font-bold uppercase tracking-wider">
-            {resolvedSegment.segmentType === "CS" ? "Not Applicable" : `${pairedStrings.length} Associated Strings`}
-          </span>
-        </div>
+      {(() => {
+        if (!topologyUi.showPairedStrings) {
+          return null;
+        }
 
-        {resolvedSegment.segmentType === "CS" ? (
-          <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong/30 flex flex-col items-center justify-center text-center space-y-2">
-            <Database className="text-prizm-text-muted opacity-40 mb-1" size={28} />
-            <div className="text-prizm-text-muted font-bold text-[11px] uppercase tracking-wider">
-              Collection Segment
+        return (
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+            <div className="border-b border-prizm-border pb-3 mb-4 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">STRINGS / BPC IN ROTATION</span>
+                <span className="text-[9px] text-prizm-text-muted">Associated with Array {selectedDevice.arrayIndex ?? "?"} {resolvedSegment.displayLabel}</span>
+              </div>
+              <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded text-[9px] font-bold uppercase tracking-wider">
+                {resolvedSegment.segmentType === "CS" ? "Not Applicable" : `${pairedStrings.length} Associated Strings`}
+              </span>
             </div>
-            <p className="text-prizm-text-muted text-[10px] max-w-md leading-relaxed">
-              No Paired Strings or BPCs are mapped to CS-type devices. Strings and battery pack controllers are strictly paired with Energy Segment (ES) controllers.
-            </p>
-          </div>
-        ) : pairedStrings.length === 0 ? (
+
+            {resolvedSegment.segmentType === "CS" ? (
+              <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-prizm-surface-strong/30 flex flex-col items-center justify-center text-center space-y-2">
+                <Database className="text-prizm-text-muted opacity-40 mb-1" size={28} />
+                <div className="text-prizm-text-muted font-bold text-[11px] uppercase tracking-wider">
+                  Collection Segment
+                </div>
+                <p className="text-prizm-text-muted text-[10px] max-w-md leading-relaxed">
+                  Collection segment controller — no paired string/BPC records apply.
+                </p>
+              </div>
+            ) : pairedStrings.length === 0 ? (
           <div className="p-5 border border-dashed border-prizm-border/40 rounded bg-rose-500/5 space-y-3">
             <div className="text-center text-prizm-text-muted italic text-[11px]">
               No matching live String/BPC records resolved in this snapshot for Array {selectedDevice.arrayIndex ?? "?"} Segment {resolvedSegment.segmentIndex ?? "?"}.
@@ -1093,6 +1148,8 @@ export default function FeatherDetailsView({
           </div>
         )}
       </div>
+        );
+      })()}
 
       {/* Explicit Targeted Polling controls and continuous charts (Fix 8) */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">

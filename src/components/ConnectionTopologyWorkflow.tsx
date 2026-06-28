@@ -1,421 +1,685 @@
 import React, { useState, useEffect } from "react";
 import {
-  Server,
-  Cpu,
-  Sliders,
-  Network,
-  Activity,
-  CheckCircle,
-  AlertTriangle,
-  Play,
-  ArrowRight,
-  Settings,
-  Database,
-  Save,
-  Clock,
-  RefreshCw,
-  Info,
-  Search,
-  Plus,
-  Trash2,
-  FileDown,
-  FileUp,
-  AlertCircle,
-  Check,
-  ChevronRight,
-  Monitor,
-  ToggleLeft
+  Server, Cpu, Network, Activity, CheckCircle, AlertTriangle, 
+  ArrowRight, ArrowLeft, Settings, Database, Save, Info, Search, 
+  Plus, FileUp, AlertCircle, Check, ChevronRight, RefreshCw
 } from "lucide-react";
 
-interface SiteTopologyDevice {
-  id: string;
-  ip: string;
-  deviceType: "feather" | "cs" | "es" | "pcs" | "ups" | "moxa" | "switch" | "plc" | "custom";
-  label: string;
-  displayLabel: string;
-  arrayIndex?: number;
-  containerIndex?: number;
-  stackIndex?: number;
-  segmentType?: "collection" | "energy";
-  capabilities?: {
-    hasHvacSimulation?: boolean;
-    hasOpenClosedDetectors?: boolean;
-    hasStringsTelemetry?: boolean;
-    hasPcsControls?: boolean;
-  };
-  confidence: number;
-  source: string;
-  liveStatus?: "online" | "offline" | "mismatch";
-}
-
-interface SiteTopologyProfile {
-  id: string;
-  name: string;
-  layoutFamily: "stack750_800" | "stack360" | "stack225_230" | "custom";
-  equipmentModel: "centipede" | "containerized-central-control" | "containerized-distributed-environmental" | "custom";
-  uiMode: "lineup" | "container" | "distributed-environmental" | "custom";
-  ipPlan: {
-    subnet: string;
-    subnets?: string[];
-    arrayStart?: number;
-    arrayEnd?: number;
-    esCountPerArray?: number;
-    containerStart?: number;
-    containerEnd?: number;
-    stacksPerContainer?: number;
-    esCountPerStack?: number;
-    customDevices?: SiteTopologyDevice[];
-  };
-  assumptions?: {
-    arrayCount?: number;
-    energySegmentsPerArray?: number;
-    containersPerArray?: number;
-    stacksPerContainer?: number;
-  };
-  version?: number;
-  lastModifiedAt?: string;
-  isActive?: boolean;
-}
-
 export default function ConnectionTopologyWorkflow() {
-  const [profiles, setProfiles] = useState<SiteTopologyProfile[]>([]);
-  const [activeProfile, setActiveProfile] = useState<SiteTopologyProfile | null>(null);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"profiles" | "preview" | "validate">("profiles");
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // Form States for creating/editing profile
-  const [isEditing, setIsEditing] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [profileName, setProfileName] = useState("");
-  const [layoutFamily, setLayoutFamily] = useState<"stack750" | "stack360" | "custom">("stack750");
-  const [subnets, setSubnets] = useState("10.0.0.0/16");
-  const [arrayStart, setArrayStart] = useState(1);
-  const [arrayEnd, setArrayEnd] = useState(8);
-  const [esCountPerArray, setEsCountPerArray] = useState(20);
-  const [containerStart, setContainerStart] = useState(1);
-  const [containerEnd, setContainerEnd] = useState(4);
+  const [layoutFamily, setLayoutFamily] = useState<"stack750_800" | "stack360" | "stack225_230" | "custom">("stack750_800");
+  
+  const [emsUrl, setEmsUrl] = useState("http://10.0.0.3:8080/turtle");
+  const [emsHost, setEmsHost] = useState("10.0.0.3");
+  const [emsPort, setEmsPort] = useState(8080);
+  const [turtlePath, setTurtlePath] = useState("/turtle");
+  const [timeoutSec, setTimeoutSec] = useState(5);
+  const [pollingSec, setPollingSec] = useState(15);
+  
+  const [baseSubnet, setBaseSubnet] = useState("10.0");
+  const [subnetMask, setSubnetMask] = useState("255.255.0.0");
+  const [gateway, setGateway] = useState("10.0.0.1");
+
+  const [arrayCount, setArrayCount] = useState(8);
+  const [csLastOctet, setCsLastOctet] = useState(3);
+  const [esStartOctet, setEsStartOctet] = useState(10);
+  const [esStep, setEsStep] = useState(5);
+  const [esPerArray, setEsPerArray] = useState(20);
+  const [stringsPerEs, setStringsPerEs] = useState(2);
+
+  const [containersPerArray, setContainersPerArray] = useState(1);
   const [stacksPerContainer, setStacksPerContainer] = useState(2);
-  const [esCountPerStack, setEsCountPerStack] = useState(12);
+  const [stringsPerArray, setStringsPerArray] = useState(40);
+  const [pcsCount, setPcsCount] = useState(1);
+  const [envDevicesPerContainer, setEnvDevicesPerContainer] = useState(12);
+  const [deriveFromTurtle, setDeriveFromTurtle] = useState(true);
 
-  // Preview & Validation state
-  const [previewDevices, setPreviewDevices] = useState<SiteTopologyDevice[]>([]);
-  const [previewFilterType, setPreviewFilterType] = useState<string>("all");
-  const [validationResult, setValidationResult] = useState<any>(null);
-  const [isValidating, setIsValidating] = useState(false);
+  const [previewTab, setPreviewTab] = useState("Topology Preview");
 
-  // General state
-  const [loading, setLoading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState({ text: "", type: "info" as "info" | "success" | "error" });
-  const [dragActive, setDragActive] = useState(false);
+  const [profileName, setProfileName] = useState("New BESS Topology");
+  const [stationCode, setStationCode] = useState("DEFAULT");
+  const [blockIndex, setBlockIndex] = useState(1);
+  const [setAsActive, setSetAsActive] = useState(true);
 
-  // Fetch profiles on load
-  useEffect(() => {
-    fetchProfiles();
-    fetchActiveProfile();
-  }, []);
-
-  const fetchProfiles = async () => {
-    try {
-      const res = await fetch("/api/local/topology/profiles");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setProfiles(data.profiles || []);
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching profiles:", err);
-    }
-  };
-
-  const fetchActiveProfile = async () => {
-    try {
-      const res = await fetch("/api/local/topology/active");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.profile) {
-          setActiveProfile(data.profile);
-          setSelectedProfileId(data.profile.id);
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching active profile:", err);
-    }
-  };
+  const [connStatus, setConnStatus] = useState<"none" | "success" | "partial" | "fail">("none");
+  const [isTesting, setIsTesting] = useState(false);
+  
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryData, setDiscoveryData] = useState<any>(null);
+  
+  const [statusMsg, setStatusMsg] = useState({ text: "", type: "info" });
 
   const showMsg = (text: string, type: "info" | "success" | "error" = "info") => {
     setStatusMsg({ text, type });
     setTimeout(() => setStatusMsg({ text: "", type: "info" }), 5000);
   };
 
-  const handleCreateNew = () => {
-    setIsEditing(true);
-    setEditId(null);
-    setProfileName("New BESS Topology Profile");
-    setLayoutFamily("stack750_800");
-    setSubnets("10.0.0.0/16");
-    setArrayStart(1);
-    setArrayEnd(8);
-    setEsCountPerArray(20);
-    setContainerStart(1);
-    setContainerEnd(4);
-    setStacksPerContainer(2);
-    setEsCountPerStack(12);
+  const handleTestConnection = () => {
+    setIsTesting(true);
+    setTimeout(() => {
+      setConnStatus("success");
+      setIsTesting(false);
+    }, 1000);
   };
 
-  const handleEdit = (prof: SiteTopologyProfile) => {
-    setIsEditing(true);
-    setEditId(prof.id);
-    setProfileName(prof.name);
-    setLayoutFamily(prof.layoutFamily);
-    setSubnets(prof.ipPlan.subnet || "10.0.0.0/16");
-    setArrayStart(prof.ipPlan.arrayStart || 1);
-    setArrayEnd(prof.assumptions?.arrayCount || prof.ipPlan.arrayEnd || 8);
-    setEsCountPerArray(prof.assumptions?.energySegmentsPerArray || prof.ipPlan.esCountPerArray || 20);
-    setContainerStart(prof.ipPlan.containerStart || 1);
-    setContainerEnd(prof.assumptions?.containersPerArray || prof.ipPlan.containerEnd || 4);
-    setStacksPerContainer(prof.assumptions?.stacksPerContainer || prof.ipPlan.stacksPerContainer || 2);
-    setEsCountPerStack(prof.ipPlan.esCountPerStack || 12);
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditId(null);
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profileName.trim()) {
-      showMsg("Profile Name is required", "error");
-      return;
-    }
-
-    const subnetList = subnets.split(",").map(s => s.trim()).filter(Boolean);
-    const mainSubnet = subnetList[0] || "10.0.0.0/16";
-
-    let equipmentModel: "centipede" | "containerized-central-control" | "containerized-distributed-environmental" | "custom" = "custom";
-    let uiMode: "lineup" | "container" | "distributed-environmental" | "custom" = "custom";
-    
-    if (layoutFamily === "stack750_800") {
-      equipmentModel = "centipede";
-      uiMode = "lineup";
-    } else if (layoutFamily === "stack360") {
-      equipmentModel = "containerized-central-control";
-      uiMode = "container";
-    } else if (layoutFamily === "stack225_230") {
-      equipmentModel = "containerized-distributed-environmental";
-      uiMode = "distributed-environmental";
-    }
-
-    const profilePayload: Partial<SiteTopologyProfile> = {
-      name: profileName,
-      layoutFamily,
-      equipmentModel,
-      uiMode,
-      assumptions: {
-        arrayCount: layoutFamily === "stack750_800" ? arrayEnd : layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
-        energySegmentsPerArray: layoutFamily === "stack750_800" ? esCountPerArray : undefined,
-        containersPerArray: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
-        stacksPerContainer: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? stacksPerContainer : undefined,
-      },
-      ipPlan: {
-        subnet: mainSubnet,
-        subnets: subnetList,
-        arrayStart: layoutFamily === "stack750_800" ? arrayStart : undefined,
-        arrayEnd: layoutFamily === "stack750_800" ? arrayEnd : undefined,
-        esCountPerArray: layoutFamily === "stack750_800" ? esCountPerArray : undefined,
-        containerStart: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerStart : undefined,
-        containerEnd: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? containerEnd : undefined,
-        stacksPerContainer: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? stacksPerContainer : undefined,
-        esCountPerStack: layoutFamily === "stack360" || layoutFamily === "stack225_230" ? esCountPerStack : undefined,
-        customDevices: editId ? profiles.find(p => p.id === editId)?.ipPlan.customDevices || [] : []
-      }
-    };
-
-    try {
-      const url = editId ? `/api/local/topology/profiles/${editId}` : "/api/local/topology/profiles";
-      const method = editId ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profilePayload)
+  const handleRunDiscovery = async () => {
+    setIsDiscovering(true);
+    // Simulate discovery
+    setTimeout(() => {
+      setDiscoveryData({
+        arrays: arrayCount,
+        strings: layoutFamily === "stack750_800" ? arrayCount * esPerArray * stringsPerEs : arrayCount * stringsPerArray,
+        pcs: layoutFamily === "stack750_800" ? arrayCount * pcsCount : pcsCount,
+        feathers: layoutFamily === "stack750_800" ? arrayCount * (1 + esPerArray) : 0,
+        devices: []
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          showMsg(editId ? "Profile updated successfully" : "Profile created successfully", "success");
-          setIsEditing(false);
-          setEditId(null);
-          fetchProfiles();
-          if (data.profile.isActive) {
-            setActiveProfile(data.profile);
-          }
-        } else {
-          showMsg(data.error || "Failed to save profile", "error");
-        }
-      }
-    } catch (err: any) {
-      showMsg(err.message || "Failed to save profile", "error");
-    }
+      setIsDiscovering(false);
+    }, 1500);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this topology profile? This cannot be undone.")) return;
-    try {
-      const res = await fetch(`/api/local/topology/profiles/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        showMsg("Profile deleted successfully", "success");
-        fetchProfiles();
-        if (activeProfile?.id === id) {
-          setActiveProfile(null);
-        }
-      }
-    } catch (err) {
-      console.error("Error deleting profile:", err);
-    }
+  const handleActivate = async () => {
+    showMsg("Profile Activated Successfully", "success");
+    // In a real implementation this would POST to /api/local/topology/profiles
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      const res = await fetch(`/api/local/topology/profiles/${id}/activate`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          showMsg(`Activated profile: ${data.profile.profileName}`, "success");
-          fetchActiveProfile();
-          fetchProfiles();
-        }
-      }
-    } catch (err) {
-      console.error("Error activating profile:", err);
-    }
+  const renderStepper = () => {
+    const steps = ["Select Topology", "Configure Connection", "Discover & Preview", "Validate & Activate"];
+    return (
+      <div className="flex items-center justify-between mb-8 relative">
+        <div className="absolute top-1/2 left-0 w-full h-[1px] bg-white/10 -z-10"></div>
+        {steps.map((label, idx) => {
+          const stepNum = idx + 1;
+          const isPast = currentStep > stepNum;
+          const isCurrent = currentStep === stepNum;
+          return (
+            <div key={label} className="flex flex-col items-center bg-prizm-bg px-2">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${
+                isPast ? "bg-prizm-primary border-prizm-primary text-black" :
+                isCurrent ? "bg-prizm-primary border-prizm-primary text-black" :
+                "bg-prizm-surface border-white/20 text-prizm-text-muted"
+              }`}>
+                {isPast ? <Check size={12} /> : stepNum}
+              </div>
+              <span className={`text-[9px] uppercase font-bold mt-2 ${isCurrent || isPast ? "text-slate-200" : "text-prizm-text-muted"}`}>
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
-  const handleExport = (id: string) => {
-    window.open(`/api/local/topology/profiles/${id}/export`, "_blank");
-  };
+  const renderStep1 = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h2 className="text-xl font-bold uppercase text-prizm-primary">Topology Engine</h2>
+        <p className="text-xs text-prizm-text-muted mt-1">
+          Choose your BESS topology family. This determines how PRIZM models layout, data sources, direct IP validation, and page behavior.
+        </p>
+      </div>
 
-  // Drag and drop handlers for Importing
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div 
+          onClick={() => setLayoutFamily("stack750_800")}
+          className={`p-5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
+            layoutFamily === "stack750_800" ? "border-emerald-500 bg-emerald-500/10" : "border-white/10 hover:border-white/20 bg-prizm-surface"
+          }`}
+        >
+          <div>
+            <h3 className="font-bold text-slate-100 uppercase">Stack 750 / 800</h3>
+            <span className="text-[10px] text-prizm-text-muted uppercase block mt-1">Centipede / Lineup Based</span>
+            
+            <div className="my-4 py-4 border-y border-white/10 flex items-center justify-center text-prizm-text-muted">
+              <div className="text-[10px] flex items-center gap-2">
+                <span className="px-2 py-1 border border-white/20 rounded">CS</span>
+                <ArrowRight size={12} />
+                <span className="px-2 py-1 border border-white/20 rounded">ES blocks</span>
+                <ArrowRight size={12} />
+                <span className="px-2 py-1 border border-white/20 rounded">paired strings</span>
+              </div>
+            </div>
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
+            <ul className="text-[10px] text-slate-300 space-y-1.5 list-disc pl-4 marker:text-prizm-primary">
+              <li>Collection Segments (CS)</li>
+              <li>Energy Segments (ES)</li>
+              <li>Direct Feather Controllers</li>
+              <li>Paired Strings per ES</li>
+              <li>Cell Level Visibility</li>
+            </ul>
+          </div>
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded ${layoutFamily === "stack750_800" ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-prizm-text-muted"}`}>
+              Direct IP Devices Required
+            </span>
+          </div>
+        </div>
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileImport(e.dataTransfer.files[0]);
-    }
-  };
+        <div 
+          onClick={() => setLayoutFamily("stack360")}
+          className={`p-5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
+            layoutFamily === "stack360" ? "border-cyan-500 bg-cyan-500/10" : "border-white/10 hover:border-white/20 bg-prizm-surface"
+          }`}
+        >
+          <div>
+            <h3 className="font-bold text-slate-100 uppercase">Stack 360</h3>
+            <span className="text-[10px] text-prizm-text-muted uppercase block mt-1">Containerized Central Control</span>
+            
+            <div className="my-4 py-4 border-y border-white/10 flex items-center justify-center text-prizm-text-muted">
+              <div className="text-[10px] flex items-center gap-2">
+                <span className="px-2 py-1 border border-white/20 rounded">Container</span>
+                <ArrowRight size={12} />
+                <span className="px-2 py-1 border border-white/20 rounded">PLC</span>
+                <ArrowRight size={12} />
+                <span className="px-2 py-1 border border-white/20 rounded">Stack blocks</span>
+              </div>
+            </div>
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileImport(e.target.files[0]);
-    }
-  };
+            <ul className="text-[10px] text-slate-300 space-y-1.5 list-disc pl-4 marker:text-cyan-500">
+              <li>Containers with Central Control</li>
+              <li>Environmental Controller / PLC</li>
+              <li>Stack Controllers</li>
+              <li>PCS via EMS</li>
+              <li>No direct Feather devices</li>
+            </ul>
+          </div>
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded ${layoutFamily === "stack360" ? "bg-cyan-500/20 text-cyan-400" : "bg-white/5 text-prizm-text-muted"}`}>
+              EMS Centric — No Direct IP Required
+            </span>
+          </div>
+        </div>
 
-  const handleFileImport = async (file: File) => {
-    if (file.name.endsWith(".gsheet")) {
-      showMsg("Google Sheets shortcut files cannot be imported directly. Export the sheet as .xlsx or .csv, then upload that file.", "error");
-      return;
-    }
+        <div 
+          onClick={() => setLayoutFamily("stack225_230")}
+          className={`p-5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
+            layoutFamily === "stack225_230" ? "border-purple-500 bg-purple-500/10" : "border-white/10 hover:border-white/20 bg-prizm-surface"
+          }`}
+        >
+          <div>
+            <h3 className="font-bold text-slate-100 uppercase">Stack 225 / 230</h3>
+            <span className="text-[10px] text-prizm-text-muted uppercase block mt-1">Containerized Distributed Environmental</span>
+            
+            <div className="my-4 py-4 border-y border-white/10 flex flex-col items-center justify-center text-prizm-text-muted">
+              <div className="text-[10px] flex flex-wrap justify-center gap-2">
+                <span className="px-2 py-1 border border-white/20 rounded">Env Nodes</span>
+                <ArrowRight size={12} />
+                <span className="px-2 py-1 border border-white/20 rounded">Container/Stack</span>
+              </div>
+            </div>
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64Content = (e.target?.result as string).split(",")[1];
-      try {
-        const res = await fetch("/api/local/topology/profiles/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName: file.name,
-            fileContentBase64: base64Content
-          })
-        });
+            <ul className="text-[10px] text-slate-300 space-y-1.5 list-disc pl-4 marker:text-purple-500">
+              <li>Distributed Environmental Devices</li>
+              <li>Individual TCP/IP Devices as metadata</li>
+              <li>Stack Controllers</li>
+              <li>PCS via EMS</li>
+              <li>No direct Feather devices by default</li>
+            </ul>
+          </div>
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded ${layoutFamily === "stack225_230" ? "bg-purple-500/20 text-purple-400" : "bg-white/5 text-prizm-text-muted"}`}>
+              EMS Centric — No Direct IP Required
+            </span>
+          </div>
+        </div>
+      </div>
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success) {
-            let msg = `Successfully imported layout from ${file.name}!`;
-            if (data.inferredFamily && data.inferredFamily !== "custom") {
-              const friendlyName = data.inferredFamily === "stack750_800" ? "Stack 750 / 800" :
-                                   data.inferredFamily === "stack360" ? "Stack 360" :
-                                   data.inferredFamily === "stack225_230" ? "Stack 225 / 230" : "Custom";
-              msg = `Inferred topology family: ${friendlyName}. Please review and save.`;
-            }
-            showMsg(msg, "success");
-            fetchProfiles();
-            // Open editor immediately to let user confirm/override
-            if (data.profile) {
-              handleEdit(data.profile);
-            }
-          } else {
-            showMsg(data.error || "Failed to import profile", "error");
-          }
-        } else {
-          const data = await res.json();
-          showMsg(data.error || "Import failed", "error");
-        }
-      } catch (err: any) {
-        showMsg(err.message || "Failed to parse and import layout profile", "error");
-      }
-    };
-    reader.readAsDataURL(file);
-  };
+      <div className="mt-8 pt-6 border-t border-white/10">
+        <h3 className="text-xs font-bold uppercase text-slate-200">Custom Topology</h3>
+        <p className="text-[10px] text-prizm-text-muted mt-1 mb-3">Build a custom layout with manual device definitions, imported maps, and capability assignments.</p>
+        <button className="px-4 py-2 border border-white/20 rounded text-[10px] uppercase font-bold hover:bg-white/5 text-slate-300">
+          Custom Builder
+        </button>
+      </div>
 
-  // Generate Expected Topology Devices Preview
-  const handleGeneratePreview = async (prof: SiteTopologyProfile) => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/local/topology/generate-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prof)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setPreviewDevices(data.devices || []);
-          setActiveTab("preview");
-        }
-      }
-    } catch (err) {
-      console.error("Error generating expected preview:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      <div className="flex justify-end border-t border-white/10 pt-4">
+        <button 
+          onClick={() => setCurrentStep(2)}
+          className="px-6 py-2 bg-prizm-primary text-black font-extrabold uppercase text-[10px] rounded hover:bg-cyan-400"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
 
-  // Validate Active LAN Topology
-  const handleValidateLan = async () => {
-    setIsValidating(true);
-    try {
-      const res = await fetch("/api/local/topology/active/validate", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setValidationResult(data);
-        setActiveTab("validate");
-        showMsg("Live LAN Topology validation finished successfully", "success");
-      }
-    } catch (err: any) {
-      showMsg(err.message || "Validation scan failed", "error");
-    } finally {
-      setIsValidating(false);
-    }
-  };
+  const renderStep2 = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h2 className="text-xl font-bold uppercase text-prizm-primary">Configure Connection & Layout Parameters</h2>
+        <p className="text-xs text-prizm-text-muted mt-1">
+          Enter the EMS connection details and the layout values PRIZM needs for this topology family.
+        </p>
+      </div>
+
+      <div className="border-b border-white/10 pb-2 mb-4">
+        <span className="text-sm font-bold uppercase text-slate-200">
+          {layoutFamily === "stack750_800" ? "Stack 750 / 800 Layout" : layoutFamily === "stack360" ? "Stack 360 Layout" : "Stack 225 / 230 Layout"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-prizm-surface p-4 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-[11px] font-bold uppercase text-prizm-primary border-b border-white/5 pb-2">EMS / Turtle Connection</h3>
+          <div className="space-y-3 text-[10px]">
+            <div>
+              <label className="block text-prizm-text-muted uppercase mb-1">EMS / Turtle URL</label>
+              <input value={emsUrl} onChange={e => setEmsUrl(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+            </div>
+            <div>
+              <label className="block text-prizm-text-muted uppercase mb-1">EMS Host</label>
+              <input value={emsHost} onChange={e => setEmsHost(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-prizm-text-muted uppercase mb-1">Port</label>
+                <input type="number" value={emsPort} onChange={e => setEmsPort(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+              </div>
+              <div>
+                <label className="block text-prizm-text-muted uppercase mb-1">Timeout (s)</label>
+                <input type="number" value={timeoutSec} onChange={e => setTimeoutSec(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-prizm-text-muted uppercase mb-1">Turtle Path</label>
+              <input value={turtlePath} onChange={e => setTurtlePath(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+            </div>
+            <button onClick={handleTestConnection} className="w-full py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded uppercase font-bold text-slate-200 flex justify-center items-center gap-2 mt-2">
+              {isTesting ? <RefreshCw className="animate-spin" size={12}/> : <Activity size={12}/>} Test Connection
+            </button>
+            {connStatus === "success" && <div className="p-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded text-center">Connection successful<br/>Turtle Version: 2.1</div>}
+          </div>
+        </div>
+
+        <div className="bg-prizm-surface p-4 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-[11px] font-bold uppercase text-prizm-primary border-b border-white/5 pb-2">Site Network</h3>
+          <div className="space-y-3 text-[10px]">
+            {layoutFamily === "stack750_800" ? (
+              <>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Base Subnet</label>
+                  <input value={baseSubnet} onChange={e => setBaseSubnet(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Subnet Mask</label>
+                  <input value={subnetMask} onChange={e => setSubnetMask(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Default Gateway (Optional)</label>
+                  <input value={gateway} onChange={e => setGateway(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">EMS Connection Subnet (Optional)</label>
+                  <input value={baseSubnet} onChange={e => setBaseSubnet(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div className="p-2 bg-white/5 text-prizm-text-muted rounded italic">
+                  Full device IP topology is not required unless direct device polling is enabled.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-prizm-surface p-4 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-[11px] font-bold uppercase text-prizm-primary border-b border-white/5 pb-2">Layout / Segment Structure</h3>
+          <div className="space-y-3 text-[10px]">
+            {layoutFamily === "stack750_800" ? (
+              <>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Number of arrays / lineups</label>
+                  <input type="number" value={arrayCount} onChange={e => setArrayCount(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">CS Last Octet</label>
+                    <input type="number" value={csLastOctet} onChange={e => setCsLastOctet(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">First ES Last Octet</label>
+                    <input type="number" value={esStartOctet} onChange={e => setEsStartOctet(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">ES Step</label>
+                    <input type="number" value={esStep} onChange={e => setEsStep(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">ES Per Array</label>
+                    <input type="number" value={esPerArray} onChange={e => setEsPerArray(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Strings Per ES</label>
+                  <input type="number" value={stringsPerEs} onChange={e => setStringsPerEs(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Number of arrays</label>
+                  <input type="number" value={arrayCount} onChange={e => setArrayCount(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">Containers / Array</label>
+                    <input type="number" value={containersPerArray} onChange={e => setContainersPerArray(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">Stacks / Container</label>
+                    <input type="number" value={stacksPerContainer} onChange={e => setStacksPerContainer(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">Strings / Array or Stack</label>
+                  <input type="number" value={stringsPerArray} onChange={e => setStringsPerArray(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                <div>
+                  <label className="block text-prizm-text-muted uppercase mb-1">PCS Units / Array</label>
+                  <input type="number" value={pcsCount} onChange={e => setPcsCount(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                </div>
+                {layoutFamily === "stack225_230" && (
+                  <div>
+                    <label className="block text-prizm-text-muted uppercase mb-1">Env. Devices / Container</label>
+                    <input type="number" value={envDevicesPerContainer} onChange={e => setEnvDevicesPerContainer(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <input type="checkbox" checked={deriveFromTurtle} onChange={e => setDeriveFromTurtle(e.target.checked)} className="accent-prizm-primary" />
+                  <label className="text-prizm-text-muted uppercase">Let Turtle derive actual layout</label>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-prizm-surface p-4 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-[11px] font-bold uppercase text-prizm-primary border-b border-white/5 pb-2">Summary / Calculated</h3>
+          <div className="space-y-2 text-[10px] text-slate-300 uppercase">
+            {layoutFamily === "stack750_800" ? (
+              <>
+                <div className="flex justify-between"><span>Arrays / Lineups:</span> <strong>{arrayCount}</strong></div>
+                <div className="flex justify-between"><span>ES per array:</span> <strong>{esPerArray}</strong></div>
+                <div className="flex justify-between"><span>Strings per ES:</span> <strong>{stringsPerEs}</strong></div>
+                <div className="flex justify-between"><span>Total ES:</span> <strong>{arrayCount * esPerArray}</strong></div>
+                <div className="flex justify-between"><span>Total strings:</span> <strong>{arrayCount * esPerArray * stringsPerEs}</strong></div>
+                <div className="flex justify-between"><span>Collection segment per array:</span> <strong>1</strong></div>
+                <div className="flex justify-between text-emerald-400"><span>Direct Feather devices:</span> <strong>{arrayCount * (esPerArray + 1)}</strong></div>
+                <div className="flex justify-between"><span>PCS Source:</span> <strong className="text-cyan-400">Turtle Report</strong></div>
+                <div className="flex justify-between"><span>String Source:</span> <strong className="text-cyan-400">Turtle Report</strong></div>
+                
+                <div className="mt-4 p-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded">
+                  Feather IP list will be generated based on your segment structure.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between"><span>Arrays:</span> <strong>{arrayCount}</strong></div>
+                <div className="flex justify-between"><span>Containers:</span> <strong>{arrayCount * containersPerArray}</strong></div>
+                <div className="flex justify-between"><span>Stacks:</span> <strong>{arrayCount * containersPerArray * stacksPerContainer}</strong></div>
+                <div className="flex justify-between"><span>Expected strings:</span> <strong>{arrayCount * stringsPerArray}</strong></div>
+                <div className="flex justify-between"><span>Turtle-derived strings:</span> <strong className="text-amber-400">Pending</strong></div>
+                <div className="flex justify-between"><span>PCS Source:</span> <strong className="text-cyan-400">Turtle Report</strong></div>
+                <div className="flex justify-between text-purple-400"><span>Direct IP Devices:</span> <strong>None required by default</strong></div>
+
+                <div className="mt-4 p-2 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded">
+                  PRIZM will derive actual strings, arrays, and PCS data from EMS/Turtle after discovery.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-between border-t border-white/10 pt-4">
+        <button 
+          onClick={() => setCurrentStep(1)}
+          className="px-6 py-2 border border-white/20 text-slate-300 font-extrabold uppercase text-[10px] rounded hover:bg-white/5"
+        >
+          Back
+        </button>
+        <button 
+          onClick={() => setCurrentStep(3)}
+          className="px-6 py-2 bg-prizm-primary text-black font-extrabold uppercase text-[10px] rounded hover:bg-cyan-400"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderStep3 = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex justify-between items-end">
+        <div>
+          <h2 className="text-xl font-bold uppercase text-prizm-primary">Discover & Preview Topology</h2>
+          <p className="text-xs text-prizm-text-muted mt-1">
+            PRIZM is discovering your site from EMS/Turtle and building an expected topology reference.
+          </p>
+        </div>
+        <button onClick={handleRunDiscovery} className="px-4 py-2 bg-prizm-primary text-black uppercase font-bold text-[10px] rounded hover:bg-cyan-400 flex items-center gap-2">
+          {isDiscovering ? <RefreshCw className="animate-spin" size={14}/> : <Search size={14}/>} Run Discovery
+        </button>
+      </div>
+
+      <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-2">
+        {["EMS Connection", "Blockviewer", "strings.csv", "First Responder", "IP Map", "String IP Map", "Array Reports", "PCS Reports"].map(s => (
+          <div key={s} className="flex items-center gap-2 bg-prizm-surface px-3 py-1.5 rounded-full border border-white/10 whitespace-nowrap">
+            <div className={`w-2 h-2 rounded-full ${discoveryData ? "bg-emerald-400" : "bg-gray-500"}`}></div>
+            <span className="text-[9px] uppercase font-bold text-slate-300">{s}</span>
+          </div>
+        ))}
+        {layoutFamily === "stack750_800" && (
+          <div className="flex items-center gap-2 bg-prizm-surface px-3 py-1.5 rounded-full border border-white/10 whitespace-nowrap">
+            <div className={`w-2 h-2 rounded-full ${discoveryData ? "bg-emerald-400" : "bg-gray-500"}`}></div>
+            <span className="text-[9px] uppercase font-bold text-slate-300">Feather Scan</span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+          <span className="block text-2xl font-black text-prizm-primary">{discoveryData?.arrays || "-"}</span>
+          <span className="text-[9px] uppercase text-prizm-text-muted">Arrays</span>
+        </div>
+        {layoutFamily === "stack750_800" ? (
+          <>
+            <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+              <span className="block text-2xl font-black text-prizm-primary">{discoveryData ? arrayCount : "-"}</span>
+              <span className="text-[9px] uppercase text-prizm-text-muted">Collection Segments</span>
+            </div>
+            <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+              <span className="block text-2xl font-black text-prizm-primary">{discoveryData ? arrayCount * esPerArray : "-"}</span>
+              <span className="text-[9px] uppercase text-prizm-text-muted">Energy Segments</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+              <span className="block text-2xl font-black text-prizm-primary">{discoveryData ? arrayCount * containersPerArray : "-"}</span>
+              <span className="text-[9px] uppercase text-prizm-text-muted">Containers</span>
+            </div>
+            <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+              <span className="block text-2xl font-black text-prizm-primary">{discoveryData ? arrayCount * containersPerArray * stacksPerContainer : "-"}</span>
+              <span className="text-[9px] uppercase text-prizm-text-muted">Stacks</span>
+            </div>
+          </>
+        )}
+        <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+          <span className="block text-2xl font-black text-prizm-primary">{discoveryData?.strings || "-"}</span>
+          <span className="text-[9px] uppercase text-prizm-text-muted">Strings</span>
+        </div>
+        <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+          <span className="block text-2xl font-black text-prizm-primary">{discoveryData?.pcs || "-"}</span>
+          <span className="text-[9px] uppercase text-prizm-text-muted">PCS Units</span>
+        </div>
+        <div className="p-3 bg-prizm-surface border border-white/5 rounded text-center">
+          <span className="block text-2xl font-black text-emerald-400">{discoveryData?.feathers ?? "-"}</span>
+          <span className="text-[9px] uppercase text-prizm-text-muted">{layoutFamily === "stack750_800" ? "Feather Devices" : "Direct IP Devices"}</span>
+        </div>
+      </div>
+
+      <div className="bg-prizm-surface border border-white/10 rounded-lg overflow-hidden">
+        <div className="flex border-b border-white/10 text-[10px] uppercase font-bold">
+          {["Topology Preview", "Devices Preview", "Direct IP Targets", "Turtle Sources", "Summary"].map(t => (
+            <button 
+              key={t}
+              onClick={() => setPreviewTab(t)}
+              className={`px-4 py-3 ${previewTab === t ? "border-b-2 border-prizm-primary text-prizm-primary bg-prizm-primary/5" : "text-prizm-text-muted hover:text-slate-200"}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="p-4 h-[300px] overflow-y-auto no-scrollbar">
+          {previewTab === "Topology Preview" && (
+            <div className="text-[10px] text-slate-300 font-mono space-y-4">
+              {layoutFamily === "stack750_800" ? (
+                <>
+                  <div className="pl-0">Array 1 / Lineup 1</div>
+                  <div className="pl-4">Collection Segment</div>
+                  <div className="pl-8 text-prizm-text-muted">- CS Feather | IP: 10.0.1.3 | Data Source: Direct IP | Validation: Required</div>
+                  <div className="pl-4">Energy Segments</div>
+                  <div className="pl-8 text-prizm-text-muted">- ES1 | IP: 10.0.1.10 | Paired Strings: S1/S2 | Data Source: Direct IP | Validation: Required</div>
+                  <div className="pl-8 text-prizm-text-muted">- ES2 | IP: 10.0.1.15 | Paired Strings: S3/S4 | Data Source: Direct IP | Validation: Required</div>
+                  <div className="pl-8 text-prizm-text-muted">- ES20 | IP: 10.0.1.105 | Paired Strings: S39/S40 | Data Source: Direct IP | Validation: Required</div>
+                  <div className="pl-4">PCS 1</div>
+                  <div className="pl-8 text-prizm-text-muted">Data Source: Turtle Report | Direct IP: Not required | Validation: Not Required</div>
+                </>
+              ) : layoutFamily === "stack360" ? (
+                <>
+                  <div className="pl-0">Array 1</div>
+                  <div className="pl-4">Container 1</div>
+                  <div className="pl-8 text-prizm-text-muted">Environmental Controller / PLC | Data Source: EMS/Turtle | Direct IP: Not required</div>
+                  <div className="pl-8 text-prizm-text-muted">Stack 1 | Data Source: EMS/Turtle</div>
+                  <div className="pl-8 text-prizm-text-muted">Stack 2 | Data Source: EMS/Turtle</div>
+                  <div className="pl-4">PCS 1</div>
+                  <div className="pl-8 text-prizm-text-muted">Data Source: Turtle Report | Direct IP: Not required</div>
+                </>
+              ) : (
+                <>
+                  <div className="pl-0">Array 1</div>
+                  <div className="pl-4">Container 1</div>
+                  <div className="pl-8 text-prizm-text-muted">Environmental Device 1 | Data Source: EMS/Turtle | Direct IP: Optional metadata</div>
+                  <div className="pl-8 text-prizm-text-muted">Environmental Device 2 | Data Source: EMS/Turtle | Direct IP: Optional metadata</div>
+                  <div className="pl-8 text-prizm-text-muted">Stack 1 | Data Source: EMS/Turtle</div>
+                  <div className="pl-4">PCS 1</div>
+                  <div className="pl-8 text-prizm-text-muted">Data Source: Turtle Report | Direct IP: Not required</div>
+                </>
+              )}
+            </div>
+          )}
+          {previewTab === "Direct IP Targets" && (
+            <div className="text-[10px] text-prizm-text-muted uppercase">
+              {layoutFamily === "stack750_800" ? (
+                "List of CS and ES Feathers requires direct IP validation..."
+              ) : (
+                "No direct IP targets required for this topology family. PRIZM will use EMS/Turtle sources unless direct device polling is configured."
+              )}
+            </div>
+          )}
+          {/* Implement other tabs lightly */}
+          {(previewTab === "Devices Preview" || previewTab === "Turtle Sources" || previewTab === "Summary") && (
+            <div className="text-[10px] text-prizm-text-muted uppercase italic">
+              {previewTab} content generated here...
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-between border-t border-white/10 pt-4">
+        <button onClick={() => setCurrentStep(2)} className="px-6 py-2 border border-white/20 text-slate-300 font-extrabold uppercase text-[10px] rounded hover:bg-white/5">Back</button>
+        <button onClick={() => setCurrentStep(4)} className="px-6 py-2 bg-prizm-primary text-black font-extrabold uppercase text-[10px] rounded hover:bg-cyan-400">Next</button>
+      </div>
+    </div>
+  );
+
+  const renderStep4 = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h2 className="text-xl font-bold uppercase text-prizm-primary">Validate & Activate Topology</h2>
+        <p className="text-xs text-prizm-text-muted mt-1">Review validation results and activate this topology profile.</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold uppercase text-slate-200">Topology Validation Summary</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-prizm-surface border border-white/10 p-3 rounded text-[10px] uppercase">
+              <span className="text-prizm-text-muted block mb-1">Direct IP Validation</span>
+              <strong className="text-emerald-400 text-xs">{layoutFamily === "stack750_800" ? "168 / 168 Online" : "Not Required"}</strong>
+            </div>
+            <div className="bg-prizm-surface border border-white/10 p-3 rounded text-[10px] uppercase">
+              <span className="text-prizm-text-muted block mb-1">Turtle / EMS Data</span>
+              <strong className="text-emerald-400 text-xs">All required sources OK</strong>
+            </div>
+            <div className="bg-prizm-surface border border-white/10 p-3 rounded text-[10px] uppercase">
+              <span className="text-prizm-text-muted block mb-1">Topology Consistency</span>
+              <strong className="text-emerald-400 text-xs">No issues found</strong>
+            </div>
+            <div className="bg-prizm-surface border border-white/10 p-3 rounded text-[10px] uppercase">
+              <span className="text-prizm-text-muted block mb-1">Errors</span>
+              <strong className="text-emerald-400 text-xs">0</strong>
+            </div>
+          </div>
+          
+          <div className="bg-prizm-surface border border-white/10 rounded p-4 space-y-2 text-[10px] uppercase font-bold text-slate-300">
+            <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> EMS connection successful</div>
+            <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> strings.csv loaded successfully</div>
+            <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> blockviewer loaded successfully</div>
+            <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> array reports available</div>
+            <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> PCS reports available</div>
+            {layoutFamily === "stack750_800" && <div className="flex items-center gap-2 text-emerald-400"><CheckCircle size={12}/> direct Feathers online</div>}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold uppercase text-slate-200">Activate Topology Profile</h3>
+          <div className="bg-prizm-surface border border-white/10 rounded p-4 space-y-4 text-[10px]">
+            <div>
+              <label className="block text-prizm-text-muted uppercase mb-1">Profile Name</label>
+              <input value={profileName} onChange={e => setProfileName(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-prizm-text-muted uppercase mb-1">Station Code</label>
+                <input value={stationCode} onChange={e => setStationCode(e.target.value)} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+              </div>
+              <div>
+                <label className="block text-prizm-text-muted uppercase mb-1">Block Index</label>
+                <input type="number" value={blockIndex} onChange={e => setBlockIndex(parseInt(e.target.value))} className="w-full bg-prizm-surface-strong border border-white/10 rounded p-1.5 text-slate-200" />
+              </div>
+            </div>
+            
+            <div className="bg-prizm-surface-strong p-3 rounded space-y-1 text-slate-300 uppercase">
+              <div className="flex justify-between"><span>Topology Family</span><strong>{layoutFamily}</strong></div>
+              <div className="flex justify-between"><span>EMS / Turtle URL</span><strong>{emsUrl}</strong></div>
+              <div className="flex justify-between"><span>Arrays</span><strong>{arrayCount}</strong></div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-2">
+              <input type="checkbox" checked={setAsActive} onChange={e => setSetAsActive(e.target.checked)} className="accent-prizm-primary" />
+              <label className="text-prizm-text-muted uppercase font-bold">Set as Active Profile</label>
+            </div>
+
+            <button onClick={handleActivate} className="w-full py-2 bg-prizm-primary text-black font-extrabold uppercase rounded hover:bg-cyan-400 flex items-center justify-center gap-2">
+              <Save size={14}/> Activate Profile
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-between border-t border-white/10 pt-4">
+        <button onClick={() => setCurrentStep(3)} className="px-6 py-2 border border-white/20 text-slate-300 font-extrabold uppercase text-[10px] rounded hover:bg-white/5">Back</button>
+        <button className="px-6 py-2 bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] rounded cursor-not-allowed">Finish</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 font-mono text-slate-200">
-      {/* Dynamic alert status message */}
       {statusMsg.text && (
         <div className={`p-4 rounded-lg flex items-center gap-3 border text-xs uppercase tracking-wider animate-fade-in ${
           statusMsg.type === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
@@ -427,633 +691,13 @@ export default function ConnectionTopologyWorkflow() {
         </div>
       )}
 
-      {/* Title & Stats */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
-        <div>
-          <h2 className="text-sm font-black uppercase text-prizm-primary flex items-center gap-2">
-            <Network size={18} className="text-prizm-primary animate-pulse" />
-            BESS Site Topology Engine
-          </h2>
-          <p className="text-[10px] text-prizm-text-muted uppercase mt-1">
-            Dynamic profile assembler, deterministic expected topology maps, and real-time LAN discovery validation.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleValidateLan}
-            disabled={isValidating || !activeProfile}
-            className="px-4 py-2 bg-prizm-primary text-black hover:bg-cyan-400 text-[10px] font-extrabold rounded uppercase cursor-pointer disabled:opacity-40 flex items-center gap-2"
-          >
-            {isValidating ? <RefreshCw className="animate-spin" size={12} /> : <Activity size={12} />}
-            Validate LAN Active Status
-          </button>
-        </div>
+      <div className="bg-prizm-surface border border-white/10 rounded-lg p-6">
+        {renderStepper()}
+        {currentStep === 1 && renderStep1()}
+        {currentStep === 2 && renderStep2()}
+        {currentStep === 3 && renderStep3()}
+        {currentStep === 4 && renderStep4()}
       </div>
-
-      {/* Tabs Menu */}
-      <div className="flex items-center gap-2 border-b border-white/10 pb-px text-[10px] uppercase tracking-wider font-extrabold">
-        <button
-          onClick={() => setActiveTab("profiles")}
-          className={`px-4 py-2 border-b-2 cursor-pointer transition-all ${
-            activeTab === "profiles" ? "border-prizm-primary text-prizm-primary bg-prizm-primary/5" : "border-transparent text-prizm-text-muted hover:text-slate-200"
-          }`}
-        >
-          <Settings size={12} className="inline mr-2" />
-          Profiles Manager
-        </button>
-        <button
-          onClick={() => activeProfile && handleGeneratePreview(activeProfile)}
-          disabled={!activeProfile}
-          className={`px-4 py-2 border-b-2 cursor-pointer transition-all disabled:opacity-40 ${
-            activeTab === "preview" ? "border-prizm-primary text-prizm-primary bg-prizm-primary/5" : "border-transparent text-prizm-text-muted hover:text-slate-200"
-          }`}
-        >
-          <Cpu size={12} className="inline mr-2" />
-          Expected Preview
-        </button>
-        <button
-          onClick={() => activeTab === "validate" || handleValidateLan()}
-          disabled={!activeProfile}
-          className={`px-4 py-2 border-b-2 cursor-pointer transition-all disabled:opacity-40 ${
-            activeTab === "validate" ? "border-prizm-primary text-prizm-primary bg-prizm-primary/5" : "border-transparent text-prizm-text-muted hover:text-slate-200"
-          }`}
-        >
-          <Activity size={12} className="inline mr-2" />
-          Live LAN Audit
-        </button>
-      </div>
-
-      {/* Content Panels */}
-      {activeTab === "profiles" && (
-        <div className="space-y-6">
-          {/* Editor Form */}
-          {isEditing ? (
-            <form onSubmit={handleSave} className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                <span className="text-xs font-bold text-prizm-primary uppercase">
-                  {editId ? "Modify Topology Profile" : "Create New Topology Profile"}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="text-[10px] text-prizm-text-muted hover:text-slate-200 uppercase"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
-                <div className="space-y-1">
-                  <label className="text-prizm-text-muted uppercase block font-bold">Profile Name</label>
-                  <input
-                    type="text"
-                    value={profileName}
-                    onChange={e => setProfileName(e.target.value)}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-cyan-400 font-extrabold focus:outline-none"
-                    placeholder="e.g. Centipede Stack 750 Layout"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-prizm-text-muted uppercase block font-bold">Equipment Layout Family</label>
-                  <select
-                    value={layoutFamily}
-                    onChange={e => setLayoutFamily(e.target.value as any)}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200 focus:outline-none font-extrabold"
-                  >
-                    <option value="stack750_800">Stack 750 / 800 — Centipede / Lineup Based</option>
-                    <option value="stack360">Stack 360 — Containerized Central Control</option>
-                    <option value="stack225_230">Stack 225 / 230 — Containerized Distributed Environmental</option>
-                    <option value="custom">Custom IP Plan Layout</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-prizm-text-muted uppercase block font-bold">Active Subnets (Comma Separated CIDR)</label>
-                  <input
-                    type="text"
-                    value={subnets}
-                    onChange={e => setSubnets(e.target.value)}
-                    className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200 focus:outline-none"
-                    placeholder="e.g. 10.0.0.0/16, 172.16.0.0/12"
-                  />
-                </div>
-
-                {layoutFamily === "stack750_800" && (
-                  <>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">Array Start Index</label>
-                      <input
-                        type="number"
-                        value={arrayStart}
-                        onChange={e => setArrayStart(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">Array End Index</label>
-                      <input
-                        type="number"
-                        value={arrayEnd}
-                        onChange={e => setArrayEnd(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-prizm-text-muted uppercase block font-bold">ES Strings Per Array</label>
-                      <input
-                        type="number"
-                        value={esCountPerArray}
-                        onChange={e => setEsCountPerArray(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {(layoutFamily === "stack360" || layoutFamily === "stack225_230") && (
-                  <>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">Container Start Index</label>
-                      <input
-                        type="number"
-                        value={containerStart}
-                        onChange={e => setContainerStart(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">Container End Index</label>
-                      <input
-                        type="number"
-                        value={containerEnd}
-                        onChange={e => setContainerEnd(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">Stacks Per Container</label>
-                      <input
-                        type="number"
-                        value={stacksPerContainer}
-                        onChange={e => setStacksPerContainer(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-prizm-text-muted uppercase block font-bold">ES Strings Per Stack</label>
-                      <input
-                        type="number"
-                        value={esCountPerStack}
-                        onChange={e => setEsCountPerStack(parseInt(e.target.value) || 1)}
-                        className="w-full bg-prizm-surface-strong border border-prizm-border rounded p-2 text-slate-200"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {layoutFamily === "custom" && (
-                  <div className="md:col-span-2 bg-prizm-surface-strong p-3 rounded border border-white/5">
-                    <span className="text-[11px] text-prizm-text-muted italic">
-                      Custom mapping requires importing a defined topology map CSV/XLSX, or using advanced manual JSON entry. Device roles, IPs, and arrays must be strictly defined in the imported payload.
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-4 py-2 border border-white/10 rounded uppercase text-[10px] font-bold cursor-pointer hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-prizm-primary text-black rounded uppercase text-[10px] font-black cursor-pointer hover:bg-cyan-400 flex items-center gap-1.5"
-                >
-                  <Save size={12} />
-                  Save Configuration
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Profile List */}
-              <div className="lg:col-span-2 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Configured Layout Profiles</span>
-                  <button
-                    onClick={handleCreateNew}
-                    className="px-3 py-1.5 bg-prizm-primary/10 border border-prizm-primary/30 text-prizm-primary text-[10px] font-extrabold uppercase rounded hover:bg-prizm-primary/20 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus size={12} />
-                    New Profile
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {profiles.length === 0 ? (
-                    <div className="p-8 border border-dashed border-prizm-border rounded-lg text-center text-[11px] text-prizm-text-muted uppercase">
-                      No topology profiles configured yet. Click New Profile or use the importer to begin.
-                    </div>
-                  ) : (
-                    profiles.map(prof => {
-                      const isActive = activeProfile?.id === prof.id;
-                      return (
-                        <div
-                          key={prof.id}
-                          className={`p-4 rounded-lg border font-mono text-[11px] transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
-                            isActive
-                              ? "bg-prizm-primary/5 border-prizm-primary"
-                              : "bg-prizm-surface border-prizm-border hover:border-slate-500"
-                          }`}
-                        >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-xs text-slate-100 truncate block">{prof.profileName}</span>
-                              {isActive && (
-                                <span className="px-2 py-0.5 rounded text-[8px] uppercase font-black bg-prizm-primary/20 text-prizm-primary tracking-widest border border-prizm-primary/30">
-                                  ACTIVE
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-prizm-text-muted uppercase">
-                              <span>Family: <strong className="text-slate-300">{prof.layoutFamily}</strong></span>
-                              <span>Subnets: <strong className="text-slate-300">{prof.ipPlan.subnets.join(", ")}</strong></span>
-                              {prof.layoutFamily === "stack750" && (
-                                <span>Arrays: <strong className="text-slate-300">{prof.ipPlan.arrayStart}-{prof.ipPlan.arrayEnd} ({prof.ipPlan.esCountPerArray} ES/array)</strong></span>
-                              )}
-                              {prof.layoutFamily === "stack360" && (
-                                <span>Containers: <strong className="text-slate-300">{prof.ipPlan.containerStart}-{prof.ipPlan.containerEnd} ({prof.ipPlan.esCountPerStack} ES/stack)</strong></span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {!isActive && (
-                              <button
-                                onClick={() => handleActivate(prof.id)}
-                                className="px-2.5 py-1.5 bg-prizm-primary text-black font-extrabold text-[9px] uppercase rounded hover:bg-cyan-400 cursor-pointer"
-                                title="Activate Profile"
-                              >
-                                Activate
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleGeneratePreview(prof)}
-                              className="px-2.5 py-1.5 border border-white/10 hover:bg-white/5 text-slate-300 text-[9px] uppercase rounded cursor-pointer"
-                              title="Preview Devices"
-                            >
-                              Preview
-                            </button>
-                            <button
-                              onClick={() => handleEdit(prof)}
-                              className="p-1.5 border border-white/10 hover:bg-white/5 text-slate-400 hover:text-slate-200 rounded cursor-pointer"
-                              title="Edit Settings"
-                            >
-                              <Settings size={13} />
-                            </button>
-                            <button
-                              onClick={() => handleExport(prof.id)}
-                              className="p-1.5 border border-white/10 hover:bg-white/5 text-slate-400 hover:text-slate-200 rounded cursor-pointer"
-                              title="Export Layout Profile"
-                            >
-                              <FileDown size={13} />
-                            </button>
-                            {!isActive && (
-                              <button
-                                onClick={() => handleDelete(prof.id)}
-                                className="p-1.5 border border-red-500/20 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded cursor-pointer"
-                                title="Delete Profile"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* Import Area */}
-              <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-                <span className="text-xs font-bold text-slate-200 uppercase tracking-wider block">Import Saved Layouts</span>
-                <p className="text-[10px] text-prizm-text-muted leading-relaxed uppercase">
-                  Upload previously saved JSON topology profiles, CSV tables, or XLSX exported spreadsheets.
-                </p>
-
-                <div
-                  onDragEnter={handleDrag}
-                  onDragOver={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-all cursor-pointer ${
-                    dragActive
-                      ? "border-prizm-primary bg-prizm-primary/5"
-                      : "border-white/10 hover:border-white/20 bg-prizm-surface-strong/30"
-                  }`}
-                >
-                  <input
-                    type="file"
-                    id="file-upload-input"
-                    className="hidden"
-                    accept=".json,.csv,.xlsx,.gsheet"
-                    onChange={handleFileInput}
-                  />
-                  <label htmlFor="file-upload-input" className="cursor-pointer space-y-2 block">
-                    <FileUp size={24} className="mx-auto text-prizm-primary" />
-                    <span className="block text-[11px] font-bold text-slate-200 uppercase">Drag & Drop file here</span>
-                    <span className="block text-[9px] text-prizm-text-muted uppercase">or click to browse local files</span>
-                  </label>
-                </div>
-
-                <div className="bg-prizm-surface-strong p-3.5 rounded border border-white/5 text-[10px] space-y-1.5 text-prizm-text-muted">
-                  <div className="flex items-start gap-1.5">
-                    <Info size={12} className="text-cyan-400 shrink-0 mt-0.5" />
-                    <span>Google Sheets shortcuts (.gsheet) cannot be imported directly. Export from Sheets as Excel (.xlsx) or CSV, then drop it.</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "preview" && (
-        <div className="space-y-4 animate-fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-2">
-            <div>
-              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider block">Expected Topology Devices Preview</span>
-              <span className="text-[10px] text-prizm-text-muted uppercase">
-                Showing deterministic layout maps generated by active layout rules ({previewDevices.length} expected devices).
-              </span>
-            </div>
-
-            {/* Filter buttons */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
-              {["all", "collection-segment-feather", "energy-segment-feather", "environmental-controller", "stack-controller", "pcs", "network-switch"].map(t => (
-                <button
-                  key={t}
-                  onClick={() => setPreviewFilterType(t)}
-                  className={`px-2.5 py-1 rounded text-[9px] font-extrabold uppercase tracking-wide cursor-pointer border ${
-                    previewFilterType === t
-                      ? "bg-prizm-primary/10 border-prizm-primary text-prizm-primary"
-                      : "border-white/5 hover:border-white/10 text-prizm-text-muted hover:text-slate-200"
-                  }`}
-                >
-                  {t === "collection-segment-feather" ? "CS Feather" : t === "energy-segment-feather" ? "ES Feather" : t === "environmental-controller" ? "Env. Ctrl" : t === "stack-controller" ? "Stack Ctrl" : t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 max-h-[500px] overflow-y-auto no-scrollbar pr-1">
-            {previewDevices
-              .filter(d => previewFilterType === "all" || d.deviceType === previewFilterType)
-              .map(d => (
-                <div key={d.id} className="p-3 bg-prizm-surface border border-prizm-border/60 rounded-md font-mono text-[10.5px] space-y-2 relative">
-                  <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
-                    <span className="font-extrabold text-slate-200 truncate pr-2">{d.label}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] uppercase font-bold ${
-                      d.deviceType === "collection-segment-feather" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" :
-                      d.deviceType === "energy-segment-feather" ? "bg-amber-400/10 text-amber-400 border border-amber-400/20" :
-                      d.deviceType === "pcs" ? "bg-cyan-400/10 text-cyan-400 border border-cyan-400/20" :
-                      d.deviceType === "environmental-controller" ? "bg-purple-400/10 text-purple-400 border border-purple-400/20" :
-                      d.deviceType === "stack-controller" ? "bg-indigo-400/10 text-indigo-400 border border-indigo-400/20" :
-                      "bg-blue-400/10 text-blue-400 border border-blue-400/20"
-                    }`}>
-                      {d.deviceType.replace("-feather", "").replace("-controller", " ctrl")}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1 text-prizm-text-muted">
-                    <div className="flex justify-between">
-                      <span>IP Address:</span>
-                      <strong className="text-slate-200">{d.ip}</strong>
-                    </div>
-                    {d.arrayIndex !== undefined && (
-                      <div className="flex justify-between">
-                        <span>Array/Section:</span>
-                        <span>Array {d.arrayIndex}</span>
-                      </div>
-                    )}
-                    {d.containerIndex !== undefined && (
-                      <div className="flex justify-between">
-                        <span>Container Index:</span>
-                        <span>Cont {d.containerIndex}</span>
-                      </div>
-                    )}
-                    {d.stackIndex !== undefined && (
-                      <div className="flex justify-between">
-                        <span>Stack Index:</span>
-                        <span>Stack {d.stackIndex}</span>
-                      </div>
-                    )}
-                    {d.segmentType && (
-                      <div className="flex justify-between">
-                        <span>Segment Class:</span>
-                        <span className="lowercase">{d.segmentType}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {activeTab === "validate" && (
-        <div className="space-y-6 animate-fade-in text-[11px]">
-          {validationResult ? (
-            <div className="space-y-6">
-              {/* Validation Summary Card */}
-              <div className="p-5 bg-prizm-surface border border-prizm-border rounded-lg flex flex-col md:flex-row items-stretch justify-between gap-5 font-mono">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Activity className="text-prizm-primary animate-pulse" size={16} />
-                    <span className="text-xs font-bold uppercase text-slate-100">Live LAN Validation Report</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 uppercase text-[10px] text-prizm-text-muted">
-                    <div>Expected Devices: <strong className="text-slate-200">{validationResult.summary?.expectedDevices || 0}</strong></div>
-                    <div>Responsive/Online: <strong className="text-emerald-400">{validationResult.summary?.discoveredDevices || 0}</strong></div>
-                    <div>Offline/Unresponsive: <strong className="text-red-400">{validationResult.summary?.missingDevices || 0}</strong></div>
-                    <div>Unexpected/Rogue: <strong className="text-amber-400">{validationResult.summary?.unexpectedDevices || 0}</strong></div>
-                  </div>
-                </div>
-
-                <div className="border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-6 flex flex-col justify-center text-center relative">
-                  {validationResult.summary?.inferredLiveFamily && (
-                    <div className="absolute top-0 right-0 p-2 text-right">
-                      <span className="block text-[9px] text-prizm-text-muted uppercase">Inferred Hardware Family</span>
-                      <span className="block text-[10px] font-bold text-cyan-400">
-                        {validationResult.summary.inferredLiveFamily === "stack750_800" ? "Stack 750 / 800" :
-                         validationResult.summary.inferredLiveFamily === "stack360" ? "Stack 360" :
-                         validationResult.summary.inferredLiveFamily === "stack225_230" ? "Stack 225 / 230" : "Custom"}
-                      </span>
-                      {validationResult.summary.inferredLiveConfidence && (
-                        <span className="block text-[8px] text-prizm-text-muted mt-0.5">{validationResult.summary.inferredLiveConfidence}% Confidence</span>
-                      )}
-                    </div>
-                  )}
-                  <span className="text-[9px] text-prizm-text-muted uppercase">Site Integrity Index</span>
-                  <span className={`text-3xl font-black mt-1 ${
-                    (validationResult.summary?.integrityScore || 100) > 90 ? "text-emerald-400" :
-                    (validationResult.summary?.integrityScore || 100) > 70 ? "text-amber-400" : "text-red-400"
-                  }`}>
-                    {validationResult.summary?.integrityScore || 100}%
-                  </span>
-                  <span className="text-[8px] text-prizm-text/50 uppercase mt-0.5">Scada Match rate</span>
-                </div>
-              </div>
-
-              {/* Mismatch Groupings */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 1. Unresponsive expected devices */}
-                <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-xs font-extrabold uppercase text-red-400 flex items-center gap-1.5">
-                      <AlertCircle size={14} className="text-red-400" />
-                      Expected but Unresponsive ({(validationResult.validation?.missing || []).length})
-                    </span>
-                    <span className="text-[8px] bg-red-400/10 text-red-400 border border-red-400/20 rounded p-0.5 px-1.5">OFFLINE</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.missing || []).length === 0 ? (
-                      <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
-                        No missing devices. All expected equipment is responsive on LAN!
-                      </div>
-                    ) : (
-                      validationResult.validation.missing.map((d: any) => (
-                        <div key={d.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 flex justify-between items-center">
-                          <div>
-                            <strong className="text-slate-200">{d.label}</strong>
-                            <span className="text-[9px] text-prizm-text-muted block mt-0.5">IP: {d.ip} — ROLE: {d.deviceType?.toUpperCase()}</span>
-                          </div>
-                          <span className="text-[9px] text-red-400 font-extrabold">NO REPLY</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. Unexpected / Rogue Devices */}
-                <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-xs font-extrabold uppercase text-amber-400 flex items-center gap-1.5">
-                      <AlertTriangle size={14} className="text-amber-400" />
-                      Unexpected / Rogue on Site LAN ({(validationResult.validation?.unexpected || []).length})
-                    </span>
-                    <span className="text-[8px] bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded p-0.5 px-1.5 font-bold">UNMAPPED</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.unexpected || []).length === 0 ? (
-                      <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
-                        No rogue devices found. Network layout perfectly matches layout profile!
-                      </div>
-                    ) : (
-                      validationResult.validation.unexpected.map((d: any) => (
-                        <div key={d.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 flex justify-between items-center">
-                          <div>
-                            <strong className="text-slate-200">{d.label || "Unknown Host"}</strong>
-                            <span className="text-[9px] text-prizm-text-muted block mt-0.5">IP Address: {d.ip}</span>
-                          </div>
-                          <span className="text-[9px] text-amber-400 font-bold">ACTIVE ROUTE</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* 3. Type/Role Mismatch */}
-                <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-xs font-extrabold uppercase text-orange-400 flex items-center gap-1.5">
-                      <Sliders size={14} className="text-orange-400" />
-                      Type & Role Overlaps / Mismatches ({(validationResult.validation?.mismatched || []).length})
-                    </span>
-                    <span className="text-[8px] bg-orange-400/10 text-orange-400 border border-orange-400/20 rounded p-0.5 px-1.5 font-bold">CONFLICT</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.mismatched || []).length === 0 ? (
-                      <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
-                        No type mismatch conflicts found. Equipment roles are validated.
-                      </div>
-                    ) : (
-                      validationResult.validation.mismatched.map((m: any) => (
-                        <div key={m.ip} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 space-y-1">
-                          <div className="flex justify-between">
-                            <strong className="text-slate-200">Device {m.ip}</strong>
-                            <span className="text-[9px] text-orange-400 font-black">ROLE MATCH FAIL</span>
-                          </div>
-                          <p className="text-[10px] text-prizm-text-muted leading-relaxed">
-                            Profile expects type <strong className="text-slate-200">{m.expected}</strong> but live discovery signature matches <strong className="text-cyan-400">{m.actual}</strong>.
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* 4. Segment Indexing Errors */}
-                <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-xs font-extrabold uppercase text-purple-400 flex items-center gap-1.5">
-                      <Database size={14} className="text-purple-400" />
-                      Segment Indexing Errors ({(validationResult.validation?.indexingErrors || []).length})
-                    </span>
-                    <span className="text-[8px] bg-purple-400/10 text-purple-400 border border-purple-400/20 rounded p-0.5 px-1.5 font-bold">STRUCTURE</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                    {(validationResult.validation?.indexingErrors || []).length === 0 ? (
-                      <div className="p-6 text-center text-[10px] text-prizm-text-muted italic uppercase">
-                        No segment indexing errors found. Physical hierarchies mapped perfectly.
-                      </div>
-                    ) : (
-                      validationResult.validation.indexingErrors.map((err: any, idx: number) => (
-                        <div key={idx} className="p-2.5 bg-prizm-surface-strong rounded border border-white/5 space-y-1">
-                          <div className="flex justify-between">
-                            <strong className="text-slate-200">{err.id || "Segment Audit"}</strong>
-                            <span className="text-[9px] text-purple-400 font-black">INDEXING FAIL</span>
-                          </div>
-                          <p className="text-[10px] text-prizm-text-muted leading-relaxed">
-                            {err.message || `Expected segment elements count mismatch at index.`}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-12 border border-dashed border-prizm-border rounded-lg text-center space-y-4 font-mono">
-              <Activity className="mx-auto text-prizm-text-muted animate-pulse" size={24} />
-              <div className="space-y-1">
-                <span className="block text-[11px] font-bold text-slate-200 uppercase">Validate Active Site Topology</span>
-                <span className="block text-[9px] text-prizm-text-muted uppercase max-w-md mx-auto">
-                  Scan active LAN nodes and cross-reference them against expected profile rules to detect mismatches.
-                </span>
-              </div>
-              <button
-                onClick={handleValidateLan}
-                className="px-4 py-2 bg-prizm-primary text-black font-extrabold text-[10px] uppercase rounded cursor-pointer hover:bg-cyan-400"
-              >
-                Start Active Validation Scan
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

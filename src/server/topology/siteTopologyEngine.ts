@@ -143,6 +143,33 @@ export type SiteTopologyDevice = {
   discovered: boolean;
   reachable?: boolean;
 
+  dataSourceMode?:
+    | "direct-ip"
+    | "turtle-report"
+    | "ems-cache"
+    | "imported-metadata"
+    | "generated-reference"
+    | "manual"
+    | "unknown";
+
+  requiresDirectIpValidation?: boolean;
+
+  logicalSource?: {
+    provider: "turtle" | "ems" | "direct" | "manual";
+    endpointTemplate?: string;
+    arrayIndex?: number;
+    pcsIndex?: number;
+    stringIndex?: number;
+    segmentIndex?: number;
+  };
+
+  networkAddress?: {
+    ip?: string | null;
+    port?: number | null;
+    source: "imported" | "generated" | "discovered" | "manual" | "unknown";
+    validationApplies: boolean;
+  };
+
   source:
     | "generated"
     | "live-discovered"
@@ -517,6 +544,22 @@ export function deleteTopologyProfile(id: string) {
 // Generate Expected Devices based on profile constraints
 export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopologyDevice[] {
   const devices: SiteTopologyDevice[] = [];
+
+  // If this profile was imported from a CSV/Map, use the explicit custom devices it parsed, regardless of the layoutFamily.
+  // The layoutFamily is used to drive UI modes and capabilities, but the IP list is explicit.
+  if (profile.source === "imported" && profile.ipPlan.customDevices && profile.ipPlan.customDevices.length > 0) {
+    profile.ipPlan.customDevices.forEach((d, idx) => {
+      devices.push({
+        ...d,
+        id: d.id || `custom_device_${idx}`,
+        expected: true,
+        discovered: false,
+        source: "imported"
+      });
+    });
+    return devices;
+  }
+
   const basePrefix = cleanSubnet(profile.assumptions.baseSubnet || "10.0");
 
   if (profile.layoutFamily === "stack750_800") {
@@ -535,38 +578,49 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
     const esStep = plan750.feather?.energySegmentStep ?? 5;
 
     for (let arr = 1; arr <= arrayCount; arr++) {
-      // 1. PCS Unit (Conventional lastOctet .1)
-      const pcsIp = buildIpAddress(basePrefix, arr, 1);
-      devices.push({
-        id: `pcs_arr_${arr}`,
-        deviceType: "pcs",
-        ip: pcsIp,
-        label: `Array ${arr} PCS 1`,
-        stationCode: profile.stationCode,
-        blockIndex: profile.blockIndex,
-        arrayIndex: arr,
-        layoutFamily: "stack750_800",
-        segmentType: "NONE",
-        expected: true,
-        discovered: false,
-        source: "generated",
-        capabilities: {
-          hasStrings: false,
-          hasCellVoltage: false,
-          hasCellTemperature: false,
-          hasHvac: false,
-          hasOpenClosedDetectors: false,
-          hasPcsTelemetry: true,
-          hasBmsTelemetry: false,
-          hasStackTelemetry: false,
-          hasContainerTelemetry: false
-        }
-      });
+      // 1. PCS Units (pcsCount interpreted as pcsPerArray for stack750_800)
+      const pcsPerArray = profile.assumptions.pcsCount || 1;
+      for (let p = 1; p <= pcsPerArray; p++) {
+        const pcsIp = buildIpAddress(basePrefix, arr, p); // Usually .1, .2
+        devices.push({
+          id: `pcs_arr_${arr}_${p}`,
+          dataSourceMode: "turtle-report",
+          requiresDirectIpValidation: false,
+          logicalSource: { provider: "turtle", endpointTemplate: "/tools/report/ems/array/{arrayIndex}/pcs/{pcsIndex}/report.json" },
+          networkAddress: { source: "generated", validationApplies: false },
+          deviceType: "pcs",
+          ip: pcsIp,
+          label: `Array ${arr} PCS ${p}`,
+          stationCode: profile.stationCode,
+          blockIndex: profile.blockIndex,
+          arrayIndex: arr,
+          layoutFamily: "stack750_800",
+          segmentType: "NONE",
+          expected: true,
+          discovered: false,
+          source: "generated",
+          capabilities: {
+            hasStrings: false,
+            hasCellVoltage: false,
+            hasCellTemperature: false,
+            hasHvac: false,
+            hasOpenClosedDetectors: false,
+            hasPcsTelemetry: true,
+            hasBmsTelemetry: false,
+            hasStackTelemetry: false,
+            hasContainerTelemetry: false
+          }
+        });
+      }
 
       // 2. Collection Segment Feather
       const csIp = buildIpAddress(basePrefix, arr, csOctet);
       devices.push({
         id: `cs_arr_${arr}`,
+        dataSourceMode: "direct-ip",
+        requiresDirectIpValidation: true,
+        logicalSource: { provider: "direct", endpointTemplate: "http://{ip}:8080/feather/status/report.json" },
+        networkAddress: { ip: csIp, source: "generated", validationApplies: true },
         deviceType: "collection-segment-feather",
         ip: csIp,
         label: `Array ${arr} CS`,
@@ -601,6 +655,10 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
 
         devices.push({
           id: `es_arr_${arr}_es_${es}`,
+          dataSourceMode: "direct-ip",
+          requiresDirectIpValidation: true,
+          logicalSource: { provider: "direct", endpointTemplate: "http://{ip}:8080/feather/status/report.json" },
+          networkAddress: { ip: esIp, source: "generated", validationApplies: true },
           deviceType: "energy-segment-feather",
           ip: esIp,
           label: `Array ${arr} ES ${es}`,
@@ -633,6 +691,40 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
     const contCount = profile.assumptions.containersPerArray || 1;
     const stackCount = profile.assumptions.stacksPerContainer || 2;
     const ecCount = profile.assumptions.environmentalControllersPerContainer || 1;
+    const totalSitePcs = profile.assumptions.pcsCount || 6;
+
+    // Generate Site-Wide Central PCS units
+    for (let p = 1; p <= totalSitePcs; p++) {
+      const pcsIp = buildIpAddress(basePrefix, 0, 40 + p); // e.g. .0.41, .0.42
+      devices.push({
+        id: `pcs_site_${p}`,
+        dataSourceMode: "turtle-report",
+        requiresDirectIpValidation: false,
+        logicalSource: { provider: "turtle" },
+        networkAddress: { source: "generated", validationApplies: false },
+        deviceType: "pcs",
+        ip: pcsIp,
+        label: `Site PCS ${p}`,
+        stationCode: profile.stationCode,
+        blockIndex: profile.blockIndex,
+        layoutFamily: "stack360",
+        segmentType: "NONE",
+        expected: true,
+        discovered: false,
+        source: "generated",
+        capabilities: {
+          hasStrings: false,
+          hasCellVoltage: false,
+          hasCellTemperature: false,
+          hasHvac: false,
+          hasOpenClosedDetectors: false,
+          hasPcsTelemetry: true,
+          hasBmsTelemetry: false,
+          hasStackTelemetry: false,
+          hasContainerTelemetry: false
+        }
+      });
+    }
 
     for (let arr = 1; arr <= arrayCount; arr++) {
       for (let c = 1; c <= contCount; c++) {
@@ -723,35 +815,6 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
           }
         });
 
-        // PCS (.40)
-        const pcsIp = buildIpAddress(basePrefix, arr, 40);
-        devices.push({
-          id: `pcs_arr_${arr}_c_${c}`,
-          deviceType: "pcs",
-          ip: pcsIp,
-          label: `Array ${arr} Container ${c} PCS`,
-          stationCode: profile.stationCode,
-          blockIndex: profile.blockIndex,
-          arrayIndex: arr,
-          containerIndex: c,
-          layoutFamily: "stack360",
-          segmentType: "CONTAINER",
-          expected: true,
-          discovered: false,
-          source: "generated",
-          capabilities: {
-            hasStrings: false,
-            hasCellVoltage: false,
-            hasCellTemperature: false,
-            hasHvac: false,
-            hasOpenClosedDetectors: false,
-            hasPcsTelemetry: true,
-            hasBmsTelemetry: false,
-            hasStackTelemetry: false,
-            hasContainerTelemetry: false
-          }
-        });
-
         // Environmental Controllers (starting at .50)
         for (let ec = 1; ec <= ecCount; ec++) {
           const ecIp = buildIpAddress(basePrefix, arr, 50 + (ec - 1));
@@ -821,7 +884,41 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
     const containersPerArray = profile.assumptions?.containersPerArray || 1;
     const stacksPerContainer = profile.assumptions?.stacksPerContainer || 2;
     const ecCount = profile.assumptions?.environmentalControllersPerContainer || 12;
+    const totalSitePcs = profile.assumptions?.pcsCount || 6;
     const basePrefix = cleanSubnet(profile.ipPlan.subnet);
+
+    // Generate Site-Wide Central PCS units
+    for (let p = 1; p <= totalSitePcs; p++) {
+      const pcsIp = buildIpAddress(basePrefix, 0, 40 + p);
+      devices.push({
+        id: `pcs_site_${p}`,
+        dataSourceMode: "turtle-report",
+        requiresDirectIpValidation: false,
+        logicalSource: { provider: "turtle" },
+        networkAddress: { source: "generated", validationApplies: false },
+        deviceType: "pcs",
+        ip: pcsIp,
+        label: `Site PCS ${p}`,
+        stationCode: profile.stationCode,
+        blockIndex: profile.blockIndex,
+        layoutFamily: "stack225_230",
+        segmentType: "NONE",
+        expected: true,
+        discovered: false,
+        source: "generated",
+        capabilities: {
+          hasStrings: false,
+          hasCellVoltage: false,
+          hasCellTemperature: false,
+          hasHvac: false,
+          hasOpenClosedDetectors: false,
+          hasPcsTelemetry: true,
+          hasBmsTelemetry: false,
+          hasStackTelemetry: false,
+          hasContainerTelemetry: false
+        }
+      });
+    }
 
     for (let arr = 1; arr <= arrayCount; arr++) {
       for (let c = 1; c <= containersPerArray; c++) {
@@ -848,35 +945,6 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
             hasHvac: false,
             hasOpenClosedDetectors: false,
             hasPcsTelemetry: false,
-            hasBmsTelemetry: false,
-            hasStackTelemetry: false,
-            hasContainerTelemetry: false
-          }
-        });
-
-        // PCS (.40)
-        const pcsIp = buildIpAddress(basePrefix, arr, 40);
-        devices.push({
-          id: `pcs_arr_${arr}_c_${c}`,
-          deviceType: "pcs",
-          ip: pcsIp,
-          label: `Array ${arr} Container ${c} PCS`,
-          stationCode: profile.stationCode,
-          blockIndex: profile.blockIndex,
-          arrayIndex: arr,
-          containerIndex: c,
-          layoutFamily: "stack225_230",
-          segmentType: "CONTAINER",
-          expected: true,
-          discovered: false,
-          source: "generated",
-          capabilities: {
-            hasStrings: false,
-            hasCellVoltage: false,
-            hasCellTemperature: false,
-            hasHvac: false,
-            hasOpenClosedDetectors: false,
-            hasPcsTelemetry: true,
             hasBmsTelemetry: false,
             hasStackTelemetry: false,
             hasContainerTelemetry: false
@@ -958,6 +1026,17 @@ export function generateExpectedDevices(profile: SiteTopologyProfile): SiteTopol
         discovered: false,
         source: "generated"
       });
+    });
+  }
+
+  if (profile.layoutFamily === "stack360" || profile.layoutFamily === "stack225_230") {
+    devices.forEach(d => {
+      if (d.deviceType !== "pcs") {
+        d.dataSourceMode = "ems-cache";
+        d.requiresDirectIpValidation = false;
+        d.logicalSource = { provider: "ems" };
+        d.networkAddress = { source: "generated", validationApplies: false };
+      }
     });
   }
 
@@ -1048,22 +1127,35 @@ export function mergeLiveDiscoveryIntoTopology(
   }
 
   // Helper to infer or map device type nicely
-  const mapLiveType = (type: string, ip: string): SiteTopologyDevice["deviceType"] => {
+  const classifyLiveDevice = (type: string, ip: string, activeProfile: SiteTopologyProfile): SiteTopologyDevice["deviceType"] => {
     const cleanType = type.toLowerCase();
-    if (cleanType.includes("feather")) {
-      // Determine if CS or ES
-      if (ip.endsWith(".3")) {
-        return "collection-segment-feather";
-      } else {
+    
+    if (cleanType.includes("feather") || cleanType.includes("controller")) {
+      if (activeProfile.layoutFamily === "stack750_800") {
+        // Stack 750 / Centipede logic
+        const parts = ip.split(".");
+        if (parts.length === 4) {
+          const lastOctet = parseInt(parts[3], 10);
+          if (lastOctet === 3 || lastOctet === 4) {
+            return "collection-segment-feather";
+          } else if (lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
+            return "energy-segment-feather";
+          }
+        }
         return "energy-segment-feather";
+      } else if (activeProfile.layoutFamily === "stack360") {
+        return "container-controller";
+      } else if (activeProfile.layoutFamily === "stack225_230") {
+        return "environmental-controller";
       }
+      return "environmental-controller";
     }
+
     if (cleanType.includes("pcs")) return "pcs";
     if (cleanType.includes("string") || cleanType.includes("bpc")) return "string-controller";
     if (cleanType.includes("ups")) return "ups";
     if (cleanType.includes("switch")) return "network-switch";
     if (cleanType.includes("moxa") || cleanType.includes("io")) return "moxa-io";
-    if (cleanType.includes("controller") || cleanType.includes("plc")) return "environmental-controller";
     if (cleanType.includes("stack")) return "stack-controller";
     if (cleanType.includes("container")) return "container-controller";
     return "unknown";
@@ -1087,7 +1179,7 @@ export function mergeLiveDiscoveryIntoTopology(
       existing.source = "merged";
     } else {
       // Unexpected device discovered
-      const inferredType = mapLiveType(l.deviceType || "unknown", ip);
+      const inferredType = classifyLiveDevice(l.deviceType || "unknown", ip, profile);
       let arrayIdx: number | undefined;
 
       // Simple array parsing from third octet
@@ -1231,56 +1323,70 @@ export function mergeLiveDiscoveryIntoTopology(
     warnings.push(`${unexpected.length} unexpected devices detected during live network scanning.`);
   }
 
-  let inferredLiveFamily: TopologyLayoutFamily | undefined;
-  let inferredLiveConfidence: number | undefined;
+  let inferredLiveFamily: TopologyLayoutFamily | undefined = profile.layoutFamily;
+  let inferredLiveConfidence: number | undefined = 100; // Default to active profile
 
   try {
+    const blockCache = getEmsCachedBlock();
     const frCache = getEmsCachedFirstResponder();
+
+    let v1, v2;
     if (frCache && frCache.data) {
-      const v1 = frCache.data.v1;
-      const v2 = frCache.data.v2;
+      v1 = frCache.data.v1;
+      v2 = frCache.data.v2;
+    }
 
-      // Detect Stack 750/800
-      if (v2 && Object.keys(v2).length > 0 && typeof v2.highVoltageInterlockOk !== "undefined") {
-        inferredLiveFamily = "stack750_800";
-        inferredLiveConfidence = 80;
-      }
-      
-      // Look for Stack 360 / Stack 225/230 markers in V1 (like ContainerConfiguration, SiteDataModel)
-      // Since we don't have the full raw payload here, we look at the presence of V1 specific fields if V2 is empty
-      if (v1 && Object.keys(v1).length > 0 && (!v2 || Object.keys(v2).length === 0 || typeof v2.highVoltageInterlockOk === "undefined")) {
-        inferredLiveFamily = "stack360"; // Base containerized assumption
-        inferredLiveConfidence = 70;
-        
-        // Check array data for distributed ec clues
-        let ecCount = 0;
-        devicesList.forEach(d => {
-          if (d.deviceType === "environmental-controller") ecCount++;
-        });
+    // Inference priority mapping
+    let inferred: TopologyLayoutFamily | undefined;
+    let confidence = 0;
 
-        if (ecCount > 10) {
-           inferredLiveFamily = "stack225_230";
-           inferredLiveConfidence = 85;
-        }
+    // 1. IP pattern fallback (40%)
+    let ecCount = 0;
+    devicesList.forEach(d => {
+      if (d.deviceType === "environmental-controller") ecCount++;
+    });
+    if (ecCount > 10) {
+       inferred = "stack225_230";
+       confidence = 40;
+    }
+
+    // 2. /firstresponder/data structure (80%)
+    if (v1 && Object.keys(v1).length > 0 && Array.isArray(v1.containers || v1.devices)) {
+      inferred = "stack360";
+      confidence = 80;
+    }
+
+    // 3. /v2/firstresponder/data structure (85%)
+    if (v2 && Object.keys(v2).length > 0 && Array.isArray(v2.segments || v2.devices)) {
+      // Look for SegmentType
+      const hasCentipede = Array.isArray(v2.devices) ? v2.devices.some((d:any) => d.segmentType === "ENERGY_SEGMENT" || d.segmentType === "COLLECTION_SEGMENT") : false;
+      if (hasCentipede || typeof v2.highVoltageInterlockOk !== "undefined") {
+        inferred = "stack750_800";
+        confidence = 85;
       }
     }
 
-    // Try to refine from block cache
-    const blockCache = getEmsCachedBlock();
+    // 4. Turtle active stack/config hints (stackDefinitionName) (90%)
     if (blockCache && blockCache.data && blockCache.data.system) {
       const stackDef = blockCache.data.system.stackDefinitionName;
       if (stackDef) {
         if (stackDef.includes("750") || stackDef.includes("800")) {
-          inferredLiveFamily = "stack750_800";
-          inferredLiveConfidence = 95;
+          inferred = "stack750_800";
+          confidence = 90;
         } else if (stackDef.includes("360")) {
-          inferredLiveFamily = "stack360";
-          inferredLiveConfidence = 95;
+          inferred = "stack360";
+          confidence = 90;
         } else if (stackDef.includes("225") || stackDef.includes("230")) {
-          inferredLiveFamily = "stack225_230";
-          inferredLiveConfidence = 95;
+          inferred = "stack225_230";
+          confidence = 90;
         }
       }
+    }
+
+    // We do not override an active profile automatically, but we report what we inferred
+    if (inferred && confidence >= 80) {
+      inferredLiveFamily = inferred;
+      inferredLiveConfidence = confidence;
     }
   } catch (e) {
     console.warn("Could not infer live topology family:", e);

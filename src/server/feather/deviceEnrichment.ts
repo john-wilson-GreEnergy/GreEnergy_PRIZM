@@ -3,6 +3,7 @@ import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { getFeatherCache } from "./featherClient";
 import { formatLostCommsEntry, formatFeatherDiagnosticValue } from "../../lib/featherErrorFormatter";
 import { formatPrizmUtcTimestamp } from "../../lib/timeFormat";
+import { getActiveTopologyProfile, mergeLiveDiscoveryIntoTopology } from "../topology/siteTopologyEngine";
 
 export interface FeatherHvacDevice {
   ip: string;
@@ -57,6 +58,17 @@ export interface FeatherHvacDevice {
   fssValid?: boolean;
   doorsValid?: boolean;
   segmentLabel?: string;
+
+  topology?: {
+    layoutFamily: string;
+    equipmentModel: string;
+    uiMode: string;
+    segmentType: string;
+    capabilities: any;
+    pairedStringNumbers?: number[];
+    containerIndex?: number;
+    stackIndex?: number;
+  };
 
   hvac1?: {
     controlsValid?: boolean;
@@ -735,6 +747,10 @@ export async function fetchEnrichedDevices() {
 
   // Populate entityDescription fallback logic
   const devices = Array.from(devicesMap.values());
+  // Apply topology merge
+  const activeTopologyProfile = getActiveTopologyProfile();
+  const normalizedTopology = mergeLiveDiscoveryIntoTopology(activeTopologyProfile);
+
   for (const d of devices) {
       if (!d.entityDescription) {
           if (d.displayKey && d.entitySubType) {
@@ -745,6 +761,24 @@ export async function fetchEnrichedDevices() {
                d.entityDescription = (d.raw!.directFeather as any).entityName;
           }
       }
+      
+      const topoDevice = normalizedTopology.devices.find(td => td.ip === d.ip);
+      if (topoDevice) {
+          d.topology = {
+              layoutFamily: activeTopologyProfile.layoutFamily,
+              equipmentModel: activeTopologyProfile.equipmentModel,
+              uiMode: activeTopologyProfile.uiMode,
+              segmentType: topoDevice.segmentType || "UNKNOWN",
+              capabilities: topoDevice.capabilities,
+              pairedStringNumbers: topoDevice.pairedStringNumbers,
+              containerIndex: topoDevice.containerIndex,
+              stackIndex: topoDevice.stackIndex,
+          };
+          if (!d.entityDescription) {
+              d.entityDescription = topoDevice.label;
+          }
+      }
+
       // do not default to generic placeholders here unless explicitly requested
       if (!d.warnInfo) d.warnInfo = [];
       if (!d.alarmFaults) d.alarmFaults = [];

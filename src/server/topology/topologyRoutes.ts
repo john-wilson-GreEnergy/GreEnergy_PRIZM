@@ -1080,7 +1080,8 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
 topologyRouter.get("/topology/active", (req, res) => {
   try {
     const active = getActiveTopologyProfile();
-    res.json({ success: true, profile: active });
+    const normalized = mergeLiveDiscoveryIntoTopology(active);
+    res.json({ success: true, profile: active, normalized });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to fetch active topology profile" });
   }

@@ -72,19 +72,21 @@ export default function SiteConfigurationDashboard({
 
   const fetchConfigData = async () => {
     try {
+      const isJson = (res: Response) => res.headers.get("content-type")?.includes("application/json");
+      
       const bRes = await fetch("/api/local/system/boot-status");
-      if (bRes.ok) setBootStatus(await bRes.json());
+      if (bRes.ok && isJson(bRes)) setBootStatus(await bRes.json());
 
       const cRes = await fetch("/api/local/ems/connection-status");
-      if (cRes.ok) setConnectionStatus(await cRes.json());
+      if (cRes.ok && isJson(cRes)) setConnectionStatus(await cRes.json());
 
       const pRes = await fetch("/api/local/cache/policy");
-      if (pRes.ok) {
+      if (pRes.ok && isJson(pRes)) {
         const policyData = await pRes.json();
         if (policyData && policyData.policy) setCachePolicy(policyData.policy);
       }
     } catch (e) {
-      console.error("[SiteConfigDashboard] Error fetching telemetry", e);
+      // Silently ignore network fetch errors to prevent console noise during restarts
     }
   };
 

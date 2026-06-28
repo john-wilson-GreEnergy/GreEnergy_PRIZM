@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 
 export interface SiteDataContextType {
   snapshot: any | null;
+  activeTopologyProfile: any | null;
   siteIdentity: any | null;
   liveStatus: any | null;
   sourceHealth: any[] | null;
@@ -91,6 +92,7 @@ function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boo
 
 export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [snapshot, setSnapshot] = useState<any | null>(null);
+  const [activeTopologyProfile, setActiveTopologyProfile] = useState<any | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -130,9 +132,10 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     try {
       const qs = force ? '?refresh=true' : '';
-      const response = await fetch(`/api/local/site-data/snapshot${qs}`, {
-        signal: controller.signal
-      });
+      const [response, topoResponse] = await Promise.all([
+        fetch(`/api/local/site-data/snapshot${qs}`, { signal: controller.signal }),
+        fetch('/api/local/topology/active', { signal: controller.signal })
+      ]);
       clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -145,6 +148,12 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
       
       const data = await response.json();
+      if (topoResponse.ok) {
+        const topoData = await topoResponse.json();
+        if (topoData.success && topoData.profile) {
+          setActiveTopologyProfile(topoData.profile);
+        }
+      }
       const previous = snapshotRef.current;
       const { degraded, reason } = isDegradedComparedToPrevious(data, previous);
 
@@ -224,6 +233,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const value: SiteDataContextType = {
     snapshot,
+    activeTopologyProfile,
     siteIdentity: snapshot?.siteIdentity || null,
     liveStatus,
     sourceHealth: snapshot?.rollups?.sourceHealth || null,

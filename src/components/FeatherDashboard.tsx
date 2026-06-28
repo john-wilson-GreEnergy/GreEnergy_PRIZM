@@ -41,7 +41,7 @@ import {
 } from "recharts";
 
 export default function FeatherDashboard({ active = true }: { active?: boolean }) {
-  const { snapshot, isInitialLoading, refreshNow } = useSiteData();
+  const { snapshot, activeTopologyProfile, isInitialLoading, refreshNow } = useSiteData();
   
   // Extract feather data locally to maintain backwards compatibility
   const featherData = useMemo(() => {
@@ -452,6 +452,38 @@ function getHvacSampleDetails(hvac: any) {
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
+    // 0. Use topology engine output if available
+    if (device.topology) {
+      if (device.topology.segmentType === "CONTAINER") {
+        return {
+          segmentIndex: device.topology.containerIndex || 1,
+          segmentType: "CONTAINER" as const,
+          displayLabel: `Container ${device.topology.containerIndex || 1}`
+        };
+      }
+      if (device.topology.segmentType === "STACK") {
+        return {
+          segmentIndex: device.topology.stackIndex || 1,
+          segmentType: "STACK" as const,
+          displayLabel: `Stack ${device.topology.stackIndex || 1}`
+        };
+      }
+      if (device.topology.segmentType === "CS") {
+        return {
+          segmentIndex: 1, // Usually CS1 or CS2
+          segmentType: "CS" as const,
+          displayLabel: "CS"
+        };
+      }
+      if (device.topology.segmentType === "ES") {
+        return {
+          segmentIndex: device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1,
+          segmentType: "ES" as const,
+          displayLabel: `ES ${device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1}`
+        };
+      }
+    }
+
     // 1. Direct priority check: stringIndex
     if (device.stringIndex !== undefined && device.stringIndex !== null) {
       const sIdx = Number(device.stringIndex);
@@ -1157,6 +1189,7 @@ function getHvacSampleDetails(hvac: any) {
     return (
       <FeatherDetailsView
         selectedDevice={selectedDevice}
+        activeTopologyProfile={activeTopologyProfile}
         onBack={() => setSelectedDevice(null)}
         triggerDevicePoll={triggerDevicePoll}
         isPollingDevice={isPollingDevice}
