@@ -448,11 +448,13 @@ function buildReportCoverage(sections: any, includeFirmware?: boolean): ReportCo
 
 export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): Promise<SiteDataSnapshot> {
   let refreshError: Error | null = null;
+  const warnings: string[] = [];
   if (options.refresh) {
     try {
       await triggerImmediatePoll();
     } catch (err: any) {
       refreshError = err;
+      warnings.push("Fresh refresh failed; snapshot generated from cached normalized data.");
     }
   }
 
@@ -553,10 +555,10 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
       if (minT === undefined || maxT === undefined) {
          let stringMin, stringMax;
          for (const s of arrayStrings) {
-             const mn = s.minCellTemperatureC ?? s.lowCellTempC;
-             const mx = s.maxCellTemperatureC ?? s.highCellTempC;
-             if (mn !== undefined && (stringMin === undefined || mn < stringMin)) stringMin = mn;
-             if (mx !== undefined && (stringMax === undefined || mx > stringMax)) stringMax = mx;
+             const mn = (s as any).minCellTemperatureC ?? (s as any).lowCellTempC ?? s.minCellTemperature;
+             const mx = (s as any).maxCellTemperatureC ?? (s as any).highCellTempC ?? s.maxCellTemperature;
+             if (mn !== undefined && mn !== null && (stringMin === undefined || mn < stringMin)) stringMin = mn;
+             if (mx !== undefined && mx !== null && (stringMax === undefined || mx > stringMax)) stringMax = mx;
          }
          if (minT === undefined) minT = stringMin;
          if (maxT === undefined) maxT = stringMax;
@@ -675,7 +677,7 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
   };
 
   let firmwareIncluded = false;
-  let firmwareSource = "unavailable";
+  let firmwareSource: "unavailable" | "triggered-ems-report" | "cached-snapshot" = "unavailable";
   let fwSummary = { turtleVersions: {}, scVersions: {}, bpcVersions: {}, featherVersions: {}, mismatchCount: 0, missingCount: 0 };
   let fwDetails: any[] = [];
   
@@ -736,11 +738,6 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
 
   const reportCoverage = buildReportCoverage(sectionsObj, options.includeFirmware);
   
-  const warnings = [];
-  if (refreshError) {
-    warnings.push("Fresh refresh failed; snapshot generated from cached normalized data.");
-  }
-
   const snapshot: SiteDataSnapshot = {
     snapshotId: uuidv4(),
     snapshotType: options.snapshotType || "manual",

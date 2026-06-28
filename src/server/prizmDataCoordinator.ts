@@ -2253,9 +2253,9 @@ export function clearSnapshot() {
     prizmCache.set('prizm-site-snapshot', null, { ttlMs: 0 });
 }
 
-export function triggerImmediatePoll() {
+export async function triggerImmediatePoll(): Promise<void> {
     isPolling = false; // Break any locks to force immediate poll
-    return doBackgroundPoll();
+    await doBackgroundPoll();
 }
 
 function isCollectionSegmentDevice(device: any) {

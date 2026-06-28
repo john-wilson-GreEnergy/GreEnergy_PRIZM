@@ -3,5 +3,5 @@ export async function getLatestFirmwareSnapshot(): Promise<any | null> {
 }
 
 export async function triggerFirmwareCapture(options?: any): Promise<void> {
-    // Stub
+    throw new Error("Firmware capture service is not implemented yet.");
 }
