@@ -90,6 +90,8 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 app.use("/api/local/reports", reportRoutes);
+import provisioningRoutes from "./src/server/deviceProvisioning/provisioningRoutes";
+app.use("/api/local/provisioning", provisioningRoutes);
 
 import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 app.use("/api/local/balancer-test", balancerTestRouter);

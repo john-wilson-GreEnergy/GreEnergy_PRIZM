@@ -1,0 +1,47 @@
+import { Router } from 'express';
+import { validateBundle } from './provisioningBundleValidator';
+import { saveSelectedBundle, getSelectedBundle, clearSelectedBundle, saveValidationToHistory } from './provisioningBundleStorage';
+
+const router = Router();
+
+router.post('/bundles/validate', (req, res) => {
+  const { bundlePath } = req.body;
+  if (!bundlePath) {
+    return res.status(400).json({ success: false, error: "bundlePath is required" });
+  }
+
+  try {
+    const result = validateBundle(bundlePath);
+    res.json({ success: true, validation: result });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/bundles/latest', (req, res) => {
+  const latest = getSelectedBundle();
+  res.json({ success: true, validation: latest });
+});
+
+router.post('/bundles/select', (req, res) => {
+  const { bundlePath } = req.body;
+  if (!bundlePath) {
+    return res.status(400).json({ success: false, error: "bundlePath is required" });
+  }
+
+  try {
+    const result = validateBundle(bundlePath);
+    saveSelectedBundle(result);
+    saveValidationToHistory(result);
+    res.json({ success: true, validation: result });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.delete('/bundles/selected', (req, res) => {
+  clearSelectedBundle();
+  res.json({ success: true });
+});
+
+export default router;

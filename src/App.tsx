@@ -32,6 +32,7 @@ import StringDashboard from "./components/StringDashboard";
 import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
 import PcsDashboard from "./components/PcsDashboard";
 import FeatherDashboard from "./components/FeatherDashboard";
+import ProvisioningDashboard from "./components/ProvisioningDashboard";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import StringFanCommandHold from "./components/StringFanCommandHold";
 import BalancerTestDashboard from "./components/BalancerTestDashboard";
@@ -97,7 +98,7 @@ export default function App() {
   const handleSetActiveTab = (tab: AppTabId | string) => {
     startTransition(() => setActiveTab(tab as AppTabId));
   };
-  const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold">("feather");
+  const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold" | "provisioning">("feather");
   const [loading, setLoading] = useState(true);
   const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
   const [manualRepolling, setManualRepolling] = useState(false);
@@ -805,6 +806,16 @@ export default function App() {
                     >
                       String Fan Command Hold
                     </button>
+                    <button
+                      onClick={() => setFeatherSub("provisioning")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        featherSub === "provisioning"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      Provisioning
+                    </button>
                   </div>
                   <div className={featherSub === "feather" ? "block" : "hidden"}>
                     <FeatherDashboard active={activeTab === "feather-hvac" && featherSub === "feather"} />
@@ -814,6 +825,9 @@ export default function App() {
                   </div>
                   <div className={featherSub === "fan-hold" ? "block" : "hidden"}>
                     <StringFanCommandHold active={activeTab === "feather-hvac" && featherSub === "fan-hold"} />
+                  </div>
+                  <div className={featherSub === "provisioning" ? "block" : "hidden"}>
+                    <ProvisioningDashboard active={activeTab === "feather-hvac" && featherSub === "provisioning"} />
                   </div>
                 </div>
               )}
