@@ -162,7 +162,7 @@ export function validateBundle(bundlePath: string): ProvisioningBundleValidation
   if (fs.existsSync(featherXmlPath)) {
     try {
       const content = fs.readFileSync(featherXmlPath, 'utf8');
-      if (content.includes('{io_logik_ip}') || /ioLogikIP/i.test(content) || /<parameter name="ip" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content) || /<property name="ipAddress" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content) || /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/.test(content)) {
+      if (content.includes('{io_logik_ip}') || /ioLogikIP/i.test(content) || /<parameter name="ip" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content) || /<property name="ipAddress" value="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"/i.test(content)) {
          result.inspections.push({ key: 'feather.xml', label: 'feather.xml structure', status: 'pass' });
          result.summary.inspectionPass++;
       } else {

@@ -97,6 +97,7 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 app.use("/api/local/reports", reportRoutes);
+app.use("/api/local/provisioning", provisioningRoutes);
 
 app.use("/api/local/balancer-test", balancerTestRouter);
 
