@@ -3,6 +3,81 @@ import { SiteHealthSnapshot, SiteReportPayload, ReportType } from './reportTypes
 import { ProfileStore } from '../profiles/profileStore';
 import { v4 as uuidv4 } from 'uuid';
 
+function getReportTopologyFamily(activeProfile: any): string {
+  return (
+    activeProfile?.topologyProfile?.layoutFamily ||
+    activeProfile?.activeTopologyProfile?.layoutFamily ||
+    activeProfile?.layoutFamily ||
+    activeProfile?.topologyFamily ||
+    inferLegacyTopologyFamily(activeProfile?.topologyModel) ||
+    "stack750_800"
+  );
+}
+
+function inferLegacyTopologyFamily(topologyModel: any): string {
+  if (!topologyModel) return "unknown";
+
+  if (
+    topologyModel.type === "standard-array-segment" ||
+    topologyModel.includeCollectionSegment === true ||
+    topologyModel.csSegment !== undefined ||
+    topologyModel.esSegmentStart !== undefined
+  ) {
+    return "stack750_800";
+  }
+
+  if (topologyModel.type === "custom-manual") {
+    return "custom";
+  }
+
+  return "unknown";
+}
+
+function getReportFleetCapacity(latest: PrizmSiteSnapshot): any {
+  const fromStringSummary =
+    latest.rollups?.stringSummary?.rollups?.fleetCapacity ||
+    latest.rollups?.stringSummary?.fleetCapacity;
+
+  if (fromStringSummary) return fromStringSummary;
+
+  const bess = latest.rollups?.bessFleetSummary || {};
+
+  return {
+    installedCapacityKWh:
+      bess.installedCapacityKWh ??
+      bess.totalInstalledKWh ??
+      bess.installedKWh ??
+      0,
+
+    availableStoredKWh:
+      bess.availableStoredKWh ??
+      bess.storedEnergyKWh ??
+      bess.totalStoredKWh ??
+      bess.onlineEnergyKWh ??
+      0,
+    onlineStoredKWh:
+      bess.onlineStoredKWh ?? 0,
+    nearlineStoredKWh:
+      bess.nearlineStoredKWh ?? 0,
+    offlineStoredKWh:
+      bess.offlineStoredKWh ?? 0,
+    notCommunicatingStoredKWh:
+      bess.notCommunicatingStoredKWh ?? 0,
+    systemSocPct:
+      bess.systemSocPct ??
+      bess.socPct ??
+      0,
+    availableChargeKW:
+      bess.availableChargeKW ??
+      bess.chargeLimitKW ??
+      null,
+    availableDischargeKW:
+      bess.availableDischargeKW ??
+      bess.dischargeLimitKW ??
+      null
+  };
+}
+
 export async function buildSiteSnapshot(label: string, notes?: string): Promise<SiteHealthSnapshot> {
   const latest = getLatestSnapshot();
   if (!latest) {
@@ -10,6 +85,7 @@ export async function buildSiteSnapshot(label: string, notes?: string): Promise<
   }
 
   const activeProfile = ProfileStore.getActiveProfile();
+  const fleetCapacity = getReportFleetCapacity(latest);
   
   return {
     snapshotId: uuidv4(),
@@ -22,11 +98,11 @@ export async function buildSiteSnapshot(label: string, notes?: string): Promise<
       siteName: activeProfile?.siteName
     },
     topologyProfileId: latest.siteIdentity.activeProfileId || undefined,
-    topologyFamily: activeProfile?.topologyModel?.layoutFamily || undefined,
+    topologyFamily: getReportTopologyFamily(activeProfile),
     normalizedData: {
       blockSummary: latest.rawSources?.block,
       stringSummary: latest.rollups?.stringSummary,
-      fleetCapacity: latest.rollups?.fleetCapacity,
+      fleetCapacity: fleetCapacity,
       cellMetrics: latest.normalized?.strings,
       pcs: latest.normalized?.pcs,
       emsApps: latest.normalized?.emsApps,
@@ -42,13 +118,13 @@ export async function buildSiteSnapshot(label: string, notes?: string): Promise<
       nearlineStrings: latest.rollups?.stringSummary?.buckets?.nearline || 0,
       offlineStrings: latest.rollups?.stringSummary?.buckets?.offline || 0,
       notCommunicatingStrings: latest.rollups?.stringSummary?.buckets?.notCommunicating || 0,
-      storedEnergyKWh: latest.rollups?.fleetCapacity?.availableStoredKWh || 0,
-      socPct: latest.rollups?.bessFleetSummary?.systemSocPct || 0,
+      storedEnergyKWh: fleetCapacity.availableStoredKWh || 0,
+      socPct: fleetCapacity.systemSocPct || 0,
       maxVoltageDeltaMv: latest.rollups?.stringSummary?.rollups?.online?.maxCellVoltageDeltaMv || 0,
       minCellVoltageMv: latest.rollups?.stringSummary?.rollups?.online?.minCellVoltageMv || 0,
       maxCellVoltageMv: latest.rollups?.stringSummary?.rollups?.online?.maxCellVoltageMv || 0,
-      maxCellTempF: latest.rollups?.stringSummary?.rollups?.online?.highCellTempC || 0,
-      maxTempDeltaF: latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC || 0,
+      maxCellTempC: latest.rollups?.stringSummary?.rollups?.online?.highCellTempC || 0,
+      maxTempDeltaC: latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC || 0,
       hvacMismatchCount: latest.normalized?.feather?.filter(f => f.hasMismatch).length || 0,
       directDeviceFailureCount: latest.rollups?.sourceHealth?.filter(s => s.status === 'failed' && s.sourceType === 'direct-ip').length || 0,
     },
@@ -71,6 +147,7 @@ export async function buildReportPayload(
   }
 
   const activeProfile = ProfileStore.getActiveProfile();
+  const fleetCapacity = getReportFleetCapacity(latest);
   
   const payload: SiteReportPayload = {
     reportId: `${reportType}-${Date.now()}`,
@@ -85,7 +162,7 @@ export async function buildReportPayload(
     topology: {
       profileId: latest.siteIdentity.activeProfileId || "none",
       profileName: latest.siteIdentity.activeProfileName || "None",
-      layoutFamily: activeProfile?.topologyModel?.layoutFamily || "standard",
+      layoutFamily: getReportTopologyFamily(activeProfile),
     },
     freshness: {
       overallStatus: latest.liveStatus?.state === "LIVE" ? "fresh" : (latest.liveStatus?.state === "PARTIAL" ? "partial" : (latest.liveStatus?.state === "CACHED" ? "stale" : "failed")),
@@ -96,24 +173,24 @@ export async function buildReportPayload(
   };
 
   if (reportType === "site-snapshot" || reportType === "custom") {
-    populateExecutiveSummary(payload, latest);
-    populateEnergyHealth(payload, latest);
+    populateExecutiveSummary(payload, latest, fleetCapacity);
+    populateEnergyHealth(payload, latest, fleetCapacity);
     populateThermalHealth(payload, latest);
     populateCorrectiveActions(payload, latest);
   }
 
   if (reportType === "thermal-health") {
-    populateExecutiveSummary(payload, latest);
+    populateExecutiveSummary(payload, latest, fleetCapacity);
     populateThermalHealth(payload, latest);
   }
 
   if (reportType === "energy-health") {
-    populateExecutiveSummary(payload, latest);
-    populateEnergyHealth(payload, latest);
+    populateExecutiveSummary(payload, latest, fleetCapacity);
+    populateEnergyHealth(payload, latest, fleetCapacity);
   }
 
   if (reportType === "corrective-actions") {
-    populateExecutiveSummary(payload, latest);
+    populateExecutiveSummary(payload, latest, fleetCapacity);
     populateCorrectiveActions(payload, latest);
   }
 
@@ -140,7 +217,7 @@ function getDefaultTitle(type: ReportType) {
   return map[type] || "Report";
 }
 
-function populateExecutiveSummary(payload: SiteReportPayload, latest: PrizmSiteSnapshot) {
+function populateExecutiveSummary(payload: SiteReportPayload, latest: PrizmSiteSnapshot, fleetCapacity: any) {
   payload.executiveSummary = {
     systemStatus: latest.liveStatus.state === "LIVE" ? "Online" : "Degraded",
     warningCount: latest.normalized?.correctiveActions?.filter(a => a.severity === "warning").length || 0,
@@ -149,18 +226,18 @@ function populateExecutiveSummary(payload: SiteReportPayload, latest: PrizmSiteS
     nearlineStrings: latest.rollups?.stringSummary?.buckets?.nearline || 0,
     offlineStrings: latest.rollups?.stringSummary?.buckets?.offline || 0,
     notCommunicatingStrings: latest.rollups?.stringSummary?.buckets?.notCommunicating || 0,
-    installedCapacityKWh: latest.rollups?.fleetCapacity?.installedCapacityKWh || 0,
-    storedEnergyKWh: latest.rollups?.fleetCapacity?.availableStoredKWh || 0,
-    socPct: latest.rollups?.bessFleetSummary?.systemSocPct || 0,
+    installedCapacityKWh: fleetCapacity.installedCapacityKWh || 0,
+    storedEnergyKWh: fleetCapacity.availableStoredKWh || 0,
+    socPct: fleetCapacity.systemSocPct || 0,
     pcsStatus: latest.normalized?.pcs?.some(p => p.status !== 'Online' && p.status !== 'Running') ? 'Warning' : 'Online',
     emsStatus: latest.liveStatus.state === "LIVE" ? "Connected" : "Offline",
   };
 }
 
-function populateEnergyHealth(payload: SiteReportPayload, latest: PrizmSiteSnapshot) {
+function populateEnergyHealth(payload: SiteReportPayload, latest: PrizmSiteSnapshot, fleetCapacity: any) {
   payload.energyHealth = {
     stringAvailabilityByArray: latest.rollups?.arraySummary || [],
-    fleetCapacity: latest.rollups?.fleetCapacity || {},
+    fleetCapacity: fleetCapacity,
     socByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, soc: a.onlineSOC })) || [],
     kWhByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, kWh: a.onlineAvailableKWh })) || [],
     voltageMetricsByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, min: a.measuredMinCellVoltage, max: a.measuredMaxCellVoltage, delta: a.cellVoltageDelta })) || [],

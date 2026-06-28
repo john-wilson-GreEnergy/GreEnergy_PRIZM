@@ -157,8 +157,8 @@ export interface SiteHealthSnapshot {
     maxVoltageDeltaMv?: number;
     minCellVoltageMv?: number;
     maxCellVoltageMv?: number;
-    maxCellTempF?: number;
-    maxTempDeltaF?: number;
+    maxCellTempC?: number;
+    maxTempDeltaC?: number;
     hvacMismatchCount?: number;
     directDeviceFailureCount?: number;
   };
