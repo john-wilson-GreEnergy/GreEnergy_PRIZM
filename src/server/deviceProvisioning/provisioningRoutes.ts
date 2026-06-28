@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validateBundle } from './provisioningBundleValidator';
+import { validateManifest } from './provisioningManifestValidator';
 import { saveSelectedBundle, getSelectedBundle, clearSelectedBundle, saveValidationToHistory } from './provisioningBundleStorage';
 
 const router = Router();
@@ -12,6 +13,20 @@ router.post('/bundles/validate', (req, res) => {
 
   try {
     const result = validateBundle(bundlePath);
+    res.json({ success: true, validation: result });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/bundles/validate-manifest', (req, res) => {
+  const manifest = req.body;
+  if (!manifest || !manifest.sourceLabel || !manifest.files) {
+    return res.status(400).json({ success: false, error: "Invalid manifest" });
+  }
+
+  try {
+    const result = validateManifest(manifest);
     res.json({ success: true, validation: result });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });
