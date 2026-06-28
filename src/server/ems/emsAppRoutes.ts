@@ -64,8 +64,8 @@ router.get("/control-capabilities", async (req, res) => {
     appCount: finalApps.length,
     apps: finalApps,
     warnings: [
-      "Power Control, Basic Op, and Scheduler are mapped from cloud but local config writes are pending.",
-      "HCP0001 and BS00001 are read-only because no cloud interaction point was observed."
+      "Power Control, Basic Op, and Scheduler are mapped from external but local config writes are pending.",
+      "HCP0001 and BS00001 are read-only because no external interaction point was observed."
     ],
     ...cacheMetadata
   });

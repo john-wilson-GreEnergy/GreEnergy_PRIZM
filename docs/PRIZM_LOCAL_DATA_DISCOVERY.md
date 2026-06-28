@@ -56,4 +56,4 @@ Based on our payload heuristic matching rules:
    - Read from `/tools/monitor/ems/blockviewer/data` where Arrays are nested within the blocks, or iterate `strings.csv` and group by the `ArrayIndex` column to dynamically calculate SOC / KW outputs.
 
 ## Validation Strategy
-The new `/api/local/data-discovery/site-equipment` API validates that these variables can be found purely on the local appliance network. Once these mappings are confirmed via the Data Discovery Dashboard tool, the subsequent iteration can safely implement these visual dashboards without relying on mock data or the upstream Kobold Cloud.
+The new `/api/local/data-discovery/site-equipment` API validates that these variables can be found purely on the local appliance network. Once these mappings are confirmed via the Data Discovery Dashboard tool, the subsequent iteration can safely implement these visual dashboards without relying on mock data or the upstream site-monitor Cloud.

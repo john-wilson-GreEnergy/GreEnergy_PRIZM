@@ -30,14 +30,14 @@ import {
   Server
 } from "lucide-react";
 
-import SystemDetailsView from "./kobold/SystemDetailsView";
-import ArraysView from "./kobold/ArraysView";
-import StringsView from "./kobold/StringsView";
-import SegmentsView from "./kobold/SegmentsView";
-import SensorsView from "./kobold/SensorsView";
-import HvacsView from "./kobold/HvacsView";
-import StackManagersView from "./kobold/StackManagersView";
-import UpsesView from "./kobold/UpsesView";
+import SystemDetailsView from "./site-monitor/SystemDetailsView";
+import ArraysView from "./site-monitor/ArraysView";
+import StringsView from "./site-monitor/StringsView";
+import SegmentsView from "./site-monitor/SegmentsView";
+import SensorsView from "./site-monitor/SensorsView";
+import HvacsView from "./site-monitor/HvacsView";
+import StackManagersView from "./site-monitor/StackManagersView";
+import UpsesView from "./site-monitor/UpsesView";
 import ConnectionSettings from "./ConnectionSettings";
 
 interface ModbusRegister {
@@ -53,7 +53,7 @@ interface ModbusRegister {
   liveValue?: string | number;
 }
 
-// Interfaces matching the Powin Kobold UI screenshots
+// Interfaces matching the EMS site-monitor UI screenshots
 interface EmsApp {
   priority: number;
   appCode: string;
@@ -234,7 +234,7 @@ const safeRemoveItem = (key: string): void => {
   }
 };
 
-export default function KoboldMonitor({ initialDevices }: { initialDevices: any[] }) {
+export default function site-monitorMonitor({ initialDevices }: { initialDevices: any[] }) {
   // --- REAL-TIME LOCAL EMS TURTLE CLIENT POLLING STATES ---
   const [emsConnection, setEmsConnection] = useState<any>(null);
   const [emsStatus, setEmsStatus] = useState<any>(null);
@@ -245,15 +245,15 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   // --- COMMISSIONING / UPLOAD STATES ---
   const [isCommissioned, setIsCommissioned] = useState<boolean>(() => {
-    return safeGetItem("bess_kobold_commissioned") === "true";
+    return safeGetItem("bess_site-monitor_commissioned") === "true";
   });
   
   const [csvFileName, setCsvFileName] = useState<string>(() => {
-    return safeGetItem("bess_kobold_csv_name") || "";
+    return safeGetItem("bess_site-monitor_csv_name") || "";
   });
 
   const [uploadedRecordsCount, setUploadedRecordsCount] = useState<number>(() => {
-    return parseInt(safeGetItem("bess_kobold_csv_count") || "0", 10);
+    return parseInt(safeGetItem("bess_site-monitor_csv_count") || "0", 10);
   });
 
   const [activeRegisters, setActiveRegisters] = useState<ModbusRegister[]>([]);
@@ -261,7 +261,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [uploadError, setUploadError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- KOBOLD MONITOR ACTIVE VIEWS ---
+  // --- site-monitor MONITOR ACTIVE VIEWS ---
   const [selectedCategory, setSelectedCategory] = useState<string>("System Details");
   const [searchStringQuery, setSearchStringQuery] = useState<string>("");
   const [arrayFilter, setArrayFilter] = useState<string>("ALL");
@@ -277,7 +277,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const [isInterceptorLive, setIsInterceptorLive] = useState<boolean>(true);
   const [isAligningScale, setIsAligningScale] = useState<boolean>(false);
   const [packetSearchQuery, setPacketSearchQuery] = useState<string>("");
-  const [localCloudOutage, setLocalCloudOutage] = useState<boolean>(false);
+  const [localWanOutage, setLocalWanOutage] = useState<boolean>(false);
   const [softBalancingOverride, setSoftBalancingOverride] = useState<boolean>(false);
   const [systemWideIsolation, setSystemWideIsolation] = useState<boolean>(false);
   const [simulatedIp, setSimulatedIp] = useState<string>("10.0.3.10");
@@ -290,7 +290,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   const handleToggleAlignment = async (nowAligned: boolean) => {
     setIsAligningScale(true);
     try {
-      const res = await fetch("/api/cloud-telemetry/align", {
+      const res = await fetch("/api/external-telemetry/align", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ aligned: nowAligned })
@@ -305,8 +305,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             time: new Date().toISOString().replace("T", " ").slice(0, 19),
             source: "GATEWAY_CALIBRATION",
             message: nowAligned 
-              ? "Applied power register scale factor calibration. Aligning local telemetry outputs with Cloud Stream."
-              : "Reset local app configuration to raw register values. Mismatches with Cloud stream expected.",
+              ? "Applied power register scale factor calibration. Aligning local telemetry outputs with EMS Stream."
+              : "Reset local app configuration to raw register values. Mismatches with EMS stream expected.",
             type: nowAligned ? "success" : "warning"
           },
           ...prev
@@ -321,7 +321,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   const handleForceExport = async () => {
     try {
-      const res = await fetch("/api/cloud-telemetry/trigger-export", { method: "POST" });
+      const res = await fetch("/api/external-telemetry/trigger-export", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setTelemetryPackets(prev => [data.latestPacket, ...prev]);
@@ -331,7 +331,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           {
             time: new Date().toISOString().replace("T", " ").slice(0, 19),
             source: "EGRESS_EXPORTER",
-            message: `Manual telemetry packet exported from 10.0.0.3 to cloud: ID ${data.latestPacket.id}`,
+            message: `Manual telemetry packet exported from 10.0.0.3 to EMS: ID ${data.latestPacket.id}`,
             type: "success"
           },
           ...prev
@@ -348,7 +348,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     )}`;
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", jsonString);
-    downloadAnchor.setAttribute("download", `intercepted_cloud_telemetry_${Date.now()}.json`);
+    downloadAnchor.setAttribute("download", `intercepted_ems_telemetry_${Date.now()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -356,25 +356,25 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   const handleToggleOutage = async (active: boolean) => {
     try {
-      const res = await fetch("/api/cloud-telemetry/outage", {
+      const res = await fetch("/api/external-telemetry/outage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active })
       });
       if (res.ok) {
         const data = await res.json();
-        setLocalCloudOutage(data.localCloudOutageActive);
-        if (data.cloudTelemetryPacket) {
+        setLocalWanOutage(data.localWanOutageActive);
+        if (data.externalTelemetryPacket) {
           setTelemetryPackets(prev => {
-            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            const index = prev.findIndex(p => p.id === data.externalTelemetryPacket.id);
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = data.cloudTelemetryPacket;
+              updated[index] = data.externalTelemetryPacket;
               return updated;
             }
-            return [data.cloudTelemetryPacket, ...prev];
+            return [data.externalTelemetryPacket, ...prev];
           });
-          setSelectedPacketId(data.cloudTelemetryPacket.id);
+          setSelectedPacketId(data.externalTelemetryPacket.id);
         }
         setNotifications(prev => [
           {
@@ -382,7 +382,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             source: "WAN_STATE",
             message: active 
               ? "Forced simulated WAN outage. Local PRIZM backup database buffering all site packets offline." 
-              : "Simulated WAN outage cleared. Local cloud synchronizer synchronized packet buffers.",
+              : "Simulated WAN outage cleared. Local EMS synchronizer synchronized packet buffers.",
             type: active ? "warning" : "success"
           },
           ...prev
@@ -395,7 +395,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   const handleToggleBalancing = async (active: boolean) => {
     try {
-      const res = await fetch("/api/cloud-telemetry/override-balancing", {
+      const res = await fetch("/api/external-telemetry/override-balancing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active })
@@ -403,17 +403,17 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       if (res.ok) {
         const data = await res.json();
         setSoftBalancingOverride(data.softBalancingOverride);
-        if (data.cloudTelemetryPacket) {
+        if (data.externalTelemetryPacket) {
           setTelemetryPackets(prev => {
-            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            const index = prev.findIndex(p => p.id === data.externalTelemetryPacket.id);
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = data.cloudTelemetryPacket;
+              updated[index] = data.externalTelemetryPacket;
               return updated;
             }
-            return [data.cloudTelemetryPacket, ...prev];
+            return [data.externalTelemetryPacket, ...prev];
           });
-          setSelectedPacketId(data.cloudTelemetryPacket.id);
+          setSelectedPacketId(data.externalTelemetryPacket.id);
         }
         setNotifications(prev => [
           {
@@ -434,7 +434,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
   const handleToggleCutoff = async (active: boolean) => {
     try {
-      const res = await fetch("/api/cloud-telemetry/cutoff", {
+      const res = await fetch("/api/external-telemetry/cutoff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active })
@@ -442,17 +442,17 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       if (res.ok) {
         const data = await res.json();
         setSystemWideIsolation(data.systemWideIsolationTriggered);
-        if (data.cloudTelemetryPacket) {
+        if (data.externalTelemetryPacket) {
           setTelemetryPackets(prev => {
-            const index = prev.findIndex(p => p.id === data.cloudTelemetryPacket.id);
+            const index = prev.findIndex(p => p.id === data.externalTelemetryPacket.id);
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = data.cloudTelemetryPacket;
+              updated[index] = data.externalTelemetryPacket;
               return updated;
             }
-            return [data.cloudTelemetryPacket, ...prev];
+            return [data.externalTelemetryPacket, ...prev];
           });
-          setSelectedPacketId(data.cloudTelemetryPacket.id);
+          setSelectedPacketId(data.externalTelemetryPacket.id);
         }
         setNotifications(prev => [
           {
@@ -475,7 +475,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
     setQueryLoading(true);
     setSimulatedQueryResult(null);
     try {
-      const res = await fetch(`/api/cloud-telemetry/query?ip=${simulatedIp}&register=${simulatedRegister}`);
+      const res = await fetch(`/api/external-telemetry/query?ip=${simulatedIp}&register=${simulatedRegister}`);
       if (res.ok) {
         const data = await res.json();
         setSimulatedQueryResult(data);
@@ -1033,12 +1033,12 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
     const fetchTelemetry = async () => {
       try {
-        const res = await fetch("/api/cloud-telemetry/packets");
+        const res = await fetch("/api/external-telemetry/packets");
         if (res.ok) {
           const data = await res.json();
           setTelemetryPackets(data.packets);
           setIsTelemetryAligned(data.calibrationAligned);
-          setLocalCloudOutage(data.localCloudOutageActive || false);
+          setLocalWanOutage(data.localWanOutageActive || false);
           setSoftBalancingOverride(data.softBalancingOverride || false);
           setSystemWideIsolation(data.systemWideIsolationTriggered || false);
           // Set initial selection if none is loaded
@@ -1047,7 +1047,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
           }
         }
       } catch (err) {
-        console.error("Failed to fetch cloud telemetry stream:", err);
+        console.error("Failed to fetch external telemetry stream:", err);
       }
     };
 
@@ -1285,9 +1285,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       const linesCount = csvContent.split("\n").filter(Boolean).length - 1;
       setUploadedRecordsCount(linesCount);
       
-      safeSetItem("bess_kobold_commissioned", "true");
-      safeSetItem("bess_kobold_csv_name", fileName);
-      safeSetItem("bess_kobold_csv_count", String(linesCount));
+      safeSetItem("bess_site-monitor_commissioned", "true");
+      safeSetItem("bess_site-monitor_csv_name", fileName);
+      safeSetItem("bess_site-monitor_csv_count", String(linesCount));
 
       // Append success log
       setNotifications(prev => [
@@ -1344,20 +1344,20 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
   };
 
   const loadDefaultMap = () => {
-    setCsvFileName("standard_powin_modbus_map.csv");
+    setCsvFileName("standard_EMS_modbus_map.csv");
     setUploadedRecordsCount(INITIAL_REGISTERS.length);
     setActiveRegisters(INITIAL_REGISTERS);
     setIsCommissioned(true);
 
-    safeSetItem("bess_kobold_commissioned", "true");
-    safeSetItem("bess_kobold_csv_name", "standard_powin_modbus_map.csv");
-    safeSetItem("bess_kobold_csv_count", String(INITIAL_REGISTERS.length));
+    safeSetItem("bess_site-monitor_commissioned", "true");
+    safeSetItem("bess_site-monitor_csv_name", "standard_EMS_modbus_map.csv");
+    safeSetItem("bess_site-monitor_csv_count", String(INITIAL_REGISTERS.length));
 
     setNotifications(prev => [
       { 
         time: new Date().toISOString().replace('T', ' ').slice(0, 19), 
         source: "COMMISSION", 
-        message: "Loaded the default Powin Modular Energy Modbus Mapping Schema successfully.", 
+        message: "Loaded the default EMS Modular Energy Modbus Mapping Schema successfully.", 
         type: "success" 
       },
       ...prev
@@ -1369,9 +1369,9 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
       setIsCommissioned(false);
       setCsvFileName("");
       setUploadedRecordsCount(0);
-      safeRemoveItem("bess_kobold_commissioned");
-      safeRemoveItem("bess_kobold_csv_name");
-      safeRemoveItem("bess_kobold_csv_count");
+      safeRemoveItem("bess_site-monitor_commissioned");
+      safeRemoveItem("bess_site-monitor_csv_name");
+      safeRemoveItem("bess_site-monitor_csv_count");
     }
   };
 
@@ -1461,18 +1461,18 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-black font-mono font-bold text-xs uppercase rounded transition-all flex items-center justify-center gap-2"
           >
             <Play size={12} fill="currentColor" />
-            Initialize Default Powin Solar Star BESS Map
+            Initialize Default EMS Solar Star BESS Map
           </button>
 
           <div className="mt-6 flex gap-4 text-center justify-center text-[10px] text-prizm-text-muted font-mono">
-            <span>PLATFORM: COBALT KOBOLD_BESS</span>
+            <span>PLATFORM: COBALT site-monitor_BESS</span>
             <span>PORT: 502 (RTU_TCP)</span>
             <span>DEFAULT UNIT_ID: 1</span>
           </div>
         </div>
       ) : (
 
-        // 2. KOBOLD ACTIVE SYSTEM LAYOUT
+        // 2. site-monitor ACTIVE SYSTEM LAYOUT
         <div className="flex flex-col min-h-[680px]">
           {renderConnectionBanner()}
           
@@ -1689,7 +1689,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
             {/* RIGHT COLUMN: DETAIL MAIN PANEL FRAMES */}
             <div className="flex-1 bg-prizm-surface-strong p-4 overflow-x-auto min-w-0">
               
-              {/* BRAND NEW KOBOLD SUB-VIEWS REPLICA */}
+              {/* BRAND NEW site-monitor SUB-VIEWS REPLICA */}
               {selectedCategory === "System Details" && (() => {
                 const sys = emsBlock?.data?.system;
                 const telemetryObj = sys ? {
@@ -1977,7 +1977,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                 </div>
               )}
 
-              {/* CATEGORY VIEW 2: STRING LIST (DEEP PAGINATED KOBOLD GRID FROM SCREENSHOT 1) */}
+              {/* CATEGORY VIEW 2: STRING LIST (DEEP PAGINATED site-monitor GRID FROM SCREENSHOT 1) */}
               {selectedCategory === "Legacy String List" && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-prizm-surface-strong p-3 rounded border border-prizm-border">
@@ -2933,8 +2933,8 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                             )}
                             <p className="text-[10px] font-mono text-prizm-text-muted mt-1 max-w-4xl">
                               {isTelemetryAligned 
-                                ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the Cloud stream targets."
-                                : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the Cloud requires applying the standard Powin scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the Cloud dashboard!"
+                                ? "Excellent! High-precision register calibration scales have been loaded into the local EMS gateway loop. Multipliers (Watts/Amps SF) exactly match the EMS stream targets."
+                                : "The local application currently displays raw/uncalibrated Modbus integers directly. However, the EMS egress exporter to the external system requires applying the standard EMS scale factor offsets (defined in modbus_map.csv). This triggers a mismatch where local displays are off by 10x or 100x compared to the EMS dashboard!"
                               }
                             </p>
                           </div>
@@ -2960,7 +2960,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               <tr className="bg-black/5 text-prizm-text-muted font-bold border-b border-prizm-border">
                                 <th className="p-2.5">Telemetry Parameter</th>
                                 <th className="p-2.5">Uncalibrated Local App View</th>
-                                <th className="p-2.5">Calibrated Cloud Stream Payload</th>
+                                <th className="p-2.5">Calibrated EMS Stream Payload</th>
                                 <th className="p-2.5">Multiplier Scale</th>
                                 <th className="p-2.5 text-center">Status</th>
                               </tr>
@@ -2971,7 +2971,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 <td className="p-2.5 text-cyan-300 font-bold">1,242.0 kW <span className="text-[9px] text-prizm-text-muted font-normal block">Raw holding register 84 value</span></td>
                                 <td className="p-2.5 text-emerald-400 font-bold">
                                   {isTelemetryAligned ? "124.2 kW" : "124,200.0 kW"}
-                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span>
+                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from EMS ingest packet</span>
                                 </td>
                                 <td className="p-2.5 text-prizm-text-muted">W_SF = 2 (Multiplier: 10^2)</td>
                                 <td className="p-2.5 text-center">
@@ -2987,7 +2987,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                 <td className="p-2.5 text-cyan-300 font-bold">450.0 A <span className="text-[9px] text-prizm-text-muted font-normal block">Raw register 691 integer</span></td>
                                 <td className="p-2.5 text-emerald-400 font-bold">
                                   {isTelemetryAligned ? "45.0 A" : "450.0 A"}
-                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span>
+                                  <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from EMS ingest packet</span>
                                 </td>
                                 <td className="p-2.5 text-prizm-text-muted">A_SF = -1 (Multiplier: 10^-1 = 0.1)</td>
                                 <td className="p-2.5 text-center">
@@ -3001,7 +3001,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                               <tr>
                                 <td className="p-2.5 font-bold text-prizm-text">Anode Cluster C (10.0.1.10) Temperature</td>
                                 <td className="p-2.5 text-cyan-300 font-bold">34.6 °C <span className="text-[9px] text-prizm-text-muted font-normal block">Module temp register 1163</span></td>
-                                <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from cloud ingest packet</span></td>
+                                <td className="p-2.5 text-emerald-400 font-bold">34.6 °C <span className="text-[9px] text-prizm-text-muted font-normal block">Parsed from EMS ingest packet</span></td>
                                 <td className="p-2.5 text-prizm-text-muted">No offset (10^0 = 1)</td>
                                 <td className="p-2.5 text-center">
                                   <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">MATCH</span>
@@ -3131,7 +3131,7 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] pt-1">
                                     <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Egress IP:</span> <span className="text-prizm-text-muted font-bold">{packet.sourceIp}</span></div>
                                     <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Source Component:</span> <span className="text-prizm-text-muted font-bold">{packet.sourceComponent}</span></div>
-                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Target Cloud:</span> <span className="text-prizm-text-muted font-bold truncate max-w-[120px]">{packet.destinationCloudEndpoint}</span></div>
+                                    <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Target System:</span> <span className="text-prizm-text-muted font-bold truncate max-w-[120px]">{packet.destinationExternalEndpoint}</span></div>
                                     <div className="flex justify-between"><span className="text-prizm-text-muted font-medium">Size on disk:</span> <span className="text-yellow-400 font-bold">{packet.rawPayloadSize}</span></div>
                                   </div>
                                 </div>
@@ -3161,21 +3161,21 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* TILE 1: DEMO SYSTEM WAN CONNECTION */}
                         <div className={`p-4 rounded-lg border font-mono space-y-3 transition-all ${
-                          localCloudOutage 
+                          localWanOutage 
                             ? "bg-prizm-danger/10 border-prizm-danger/20 text-prizm-danger"
                             : "bg-emerald-500/5 border-emerald-500/15 text-emerald-300"
                         }`}>
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold uppercase tracking-wider">WAN Demo Sync Connection</span>
-                            {localCloudOutage ? <Wifi size={16} className="text-prizm-danger animate-pulse" /> : <Wifi size={16} className="text-emerald-400" />}
+                            {localWanOutage ? <Wifi size={16} className="text-prizm-danger animate-pulse" /> : <Wifi size={16} className="text-emerald-400" />}
                           </div>
 
                           <div className="text-2xl font-black">
-                            {localCloudOutage ? "OUTAGEFALLBACK" : "CONNECTED"}
+                            {localWanOutage ? "OUTAGEFALLBACK" : "CONNECTED"}
                           </div>
                           
                           <p className="text-[10px] text-prizm-text-muted leading-relaxed font-sans">
-                            {localCloudOutage 
+                            {localWanOutage 
                               ? "CRITICAL: Internet Connection DOWN. Localized database backup store is recording all high-frequency Modbus registers with zero data loss."
                               : "STATUS NORMAL: Local BESS site registers are automatically synchronized with demo platform servers every 3000ms. All systems normal."
                             }
@@ -3183,14 +3183,14 @@ export default function KoboldMonitor({ initialDevices }: { initialDevices: any[
 
                           <button
                             type="button"
-                            onClick={() => handleToggleOutage(!localCloudOutage)}
+                            onClick={() => handleToggleOutage(!localWanOutage)}
                             className={`w-full py-1.5 rounded font-black text-xs uppercase tracking-wide border transition-all ${
-                              localCloudOutage 
+                              localWanOutage 
                                 ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30"
                                 : "bg-prizm-danger/10 text-prizm-danger border-prizm-danger/20 hover:bg-prizm-danger/10"
                             }`}
                           >
-                            {localCloudOutage ? "🔌 Reconnect WAN Bridge" : "⚠️ Cut WAN Bridge (Simulate Outage)"}
+                            {localWanOutage ? "🔌 Reconnect WAN Bridge" : "⚠️ Cut WAN Bridge (Simulate Outage)"}
                           </button>
                         </div>
 

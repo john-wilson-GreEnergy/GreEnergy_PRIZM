@@ -83,6 +83,11 @@ export interface SiteReportPayload {
       largestDelta: any[];
     };
     sensors: any[];
+    maxCellTemp?: number;
+    avgCellTemp?: number;
+    minCellTemp?: number;
+    maxTempDelta?: number;
+    hvacMismatchCount?: number;
   };
 
   controlsHealth?: {

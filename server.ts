@@ -11,7 +11,7 @@ import { topologyRouter } from "./src/server/topology/topologyRoutes";
 import modbusRouter from "./src/server/telemetry/modbusRoutes";
 import { rotationRouter } from "./src/server/rotationRoutes";
 import { balancingRouter } from "./src/server/balancingRoutes";
-import { cloudTelemetryRouter } from "./src/server/demo/cloudTelemetryMock";
+import { externalTelemetryRouter } from "./src/server/demo/externalTelemetryMock";
 import emsAppRoutes from "./src/server/ems/emsAppRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
 import storageRouter from "./src/server/storage/storageRoutes";
@@ -244,11 +244,11 @@ function recordCurl(device: BessDevice, endpoint: string, method: string, descri
   if (curlLogs.length > 50) curlLogs.pop();
 }
 
-// --- MODULARIZED CLOUD TELEMETRY INTERCEPTOR ---
+// --- MODULARIZED EXTERNAL TELEMETRY INTERCEPTOR ---
 import { 
   populateInitialHistory, 
   setBlockFetcher
-} from "./src/server/demo/cloudTelemetryMock";
+} from "./src/server/demo/externalTelemetryMock";
 
 
 
@@ -1407,7 +1407,7 @@ const demoTelemetryEnabled =
 if (demoTelemetryEnabled) {
   populateInitialHistory();
   setBlockFetcher(getEmsCachedBlock);
-  app.use("/api/cloud-telemetry", cloudTelemetryRouter);
+  app.use("/api/external-telemetry", externalTelemetryRouter);
 }
 
 // API: Fetch error logs
@@ -2598,7 +2598,7 @@ app.get("/tools/controls/modbusPoll/host/:host/port/:port/unitId/:unit/type/:typ
     const reg = startReg + i;
     let val = 0;
     
-    // Set realistic mock variables for SunSpec / Powin keys
+    // Set realistic mock variables for SunSpec / EMS keys
     if (reg === 2) val = 1; // Common ID
     else if (reg === 3) val = 66; // Length
     else if (reg === 72) val = Math.floor(Math.random() * 20) + 140; // Amps

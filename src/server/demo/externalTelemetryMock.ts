@@ -1,20 +1,20 @@
 import { Router } from "express";
 
-export interface CloudTelemetryPacket {
+export interface ExternalTelemetryPacket {
   id: string;
   timestamp: string;
   sourceIp: string;
   sourceComponent: string;
-  destinationCloudEndpoint: string;
+  destinationExternalEndpoint: string;
   transmissionProtocol: string;
   rawPayloadSize: string;
   responseStatus: string;
   payload: any;
 }
 
-export let cloudTelemetryPackets: CloudTelemetryPacket[] = [];
+export let externalTelemetryPackets: ExternalTelemetryPacket[] = [];
 export let telemetryCalibrationAligned = false;
-export let localCloudOutageActive = false;
+export let localWanOutageActive = false;
 export let softBalancingOverride = false;
 export let systemWideIsolationTriggered = false;
 
@@ -22,8 +22,8 @@ export function setTelemetryCalibrationAligned(val: boolean) {
   telemetryCalibrationAligned = val;
 }
 
-export function setLocalCloudOutageActive(val: boolean) {
-  localCloudOutageActive = val;
+export function setLocalWanOutageActive(val: boolean) {
+  localWanOutageActive = val;
 }
 
 export function setSoftBalancingOverride(val: boolean) {
@@ -174,8 +174,8 @@ export function generateTelemetryPacket() {
       controller_version: "v3.12.8-stable",
       timestamp_epoch: Math.floor(now.getTime() / 1000),
       ingest_channel: "production-live-us-west",
-      wan_tunnel_connection: localCloudOutageActive ? "DISCONNECTED" : "ESTABLISHED",
-      cloud_sync_state: localCloudOutageActive ? "FALLBACK_LOCAL_STORE" : "SYNCHRONIZED"
+      wan_tunnel_connection: localWanOutageActive ? "DISCONNECTED" : "ESTABLISHED",
+      wan_sync_state: localWanOutageActive ? "FALLBACK_LOCAL_STORE" : "SYNCHRONIZED"
     },
     bms_summary: {
       total_active_power_kw: parseFloat(rawActivePower.toFixed(2)),
@@ -193,27 +193,27 @@ export function generateTelemetryPacket() {
     downstream_devices: devStateList
   };
 
-  const pct: CloudTelemetryPacket = {
+  const pct: ExternalTelemetryPacket = {
     id: packetId,
     timestamp: now.toISOString(),
     sourceIp: "10.0.0.3",
     sourceComponent: "Primary EMS Controller",
-    destinationCloudEndpoint: "https://bess-cloud-ingest.greenergycare.com/bess/v2/ingest",
+    destinationExternalEndpoint: "https://bess-external-ingest.greenergycare.com/bess/v2/ingest",
     transmissionProtocol: "HTTPS POST",
     rawPayloadSize: `${(JSON.stringify(payload).length / 1024).toFixed(2)} KB`,
-    responseStatus: localCloudOutageActive ? "503 GATEWAY TIMEOUT (Internet Down)" : "202 ACCEPTED",
+    responseStatus: localWanOutageActive ? "503 GATEWAY TIMEOUT (Internet Down)" : "202 ACCEPTED",
     payload
   };
 
-  cloudTelemetryPackets.unshift(pct);
-  if (cloudTelemetryPackets.length > 50) {
-    cloudTelemetryPackets.pop();
+  externalTelemetryPackets.unshift(pct);
+  if (externalTelemetryPackets.length > 50) {
+    externalTelemetryPackets.pop();
   }
 }
 
 // Generate starting historical logs
 export function populateInitialHistory() {
-  cloudTelemetryPackets = [];
+  externalTelemetryPackets = [];
   for (let i = 15; i >= 0; i--) {
     const now = new Date(Date.now() - i * 60000);
     const packetId = "p_export_hist_" + Math.random().toString(36).substring(2, 9);
@@ -226,7 +226,7 @@ export function populateInitialHistory() {
         timestamp_epoch: Math.floor(now.getTime() / 1000),
         ingest_channel: "production-live-us-west",
         wan_tunnel_connection: "ESTABLISHED",
-        cloud_sync_state: "SYNCHRONIZED"
+        wan_sync_state: "SYNCHRONIZED"
       },
       bms_summary: {
         total_active_power_kw: telemetryCalibrationAligned ? 124.2 : 124200.0,
@@ -270,12 +270,12 @@ export function populateInitialHistory() {
       ]
     };
 
-    cloudTelemetryPackets.push({
+    externalTelemetryPackets.push({
       id: packetId,
       timestamp: now.toISOString(),
       sourceIp: "10.0.0.3",
       sourceComponent: "Primary EMS Controller",
-      destinationCloudEndpoint: "https://bess-cloud-ingest.greenergycare.com/bess/v2/ingest",
+      destinationExternalEndpoint: "https://bess-external-ingest.greenergycare.com/bess/v2/ingest",
       transmissionProtocol: "HTTPS POST",
       rawPayloadSize: `${(JSON.stringify(payload).length / 1024).toFixed(2)} KB`,
       responseStatus: "202 ACCEPTED",
@@ -285,21 +285,21 @@ export function populateInitialHistory() {
 }
 
 // Instantiate router
-export const cloudTelemetryRouter = Router();
+export const externalTelemetryRouter = Router();
 
-cloudTelemetryRouter.get("/packets", (req, res) => {
+externalTelemetryRouter.get("/packets", (req, res) => {
   res.json({
-    packets: cloudTelemetryPackets,
+    packets: externalTelemetryPackets,
     calibrationAligned: telemetryCalibrationAligned,
-    localCloudOutageActive,
+    localWanOutageActive,
     softBalancingOverride,
     systemWideIsolationTriggered
   });
 });
 
-cloudTelemetryRouter.post("/outage", (req, res) => {
+externalTelemetryRouter.post("/outage", (req, res) => {
   const { active } = req.body;
-  localCloudOutageActive = !!active;
+  localWanOutageActive = !!active;
   generateTelemetryPacket();
   
   const logMsg = {
@@ -307,22 +307,22 @@ cloudTelemetryRouter.post("/outage", (req, res) => {
     deviceId: "ems-controller",
     deviceName: "Primary EMS Controller",
     timestamp: new Date().toISOString(),
-    level: localCloudOutageActive ? "WARNING" : "INFO",
-    message: localCloudOutageActive 
+    level: localWanOutageActive ? "WARNING" : "INFO",
+    message: localWanOutageActive 
       ? "WAN Local Internet Link Dropped. Diverting telemetry packets to offline backup storage queue."
-      : "WAN Internet interface restored. Synchronizing packet buffers with cloud ingestion servers.",
-    code: localCloudOutageActive ? "WAN_CONNECTION_LOST" : "WAN_CONNECTION_RESTORED"
+      : "WAN Internet interface restored. Synchronizing packet buffers with EMS ingestion servers.",
+    code: localWanOutageActive ? "WAN_CONNECTION_LOST" : "WAN_CONNECTION_RESTORED"
   };
 
   res.json({
     success: true,
-    localCloudOutageActive,
-    cloudTelemetryPacket: cloudTelemetryPackets[0],
+    localWanOutageActive,
+    externalTelemetryPacket: externalTelemetryPackets[0],
     log: logMsg
   });
 });
 
-cloudTelemetryRouter.post("/override-balancing", (req, res) => {
+externalTelemetryRouter.post("/override-balancing", (req, res) => {
   const { active } = req.body;
   softBalancingOverride = !!active;
   generateTelemetryPacket();
@@ -330,11 +330,11 @@ cloudTelemetryRouter.post("/override-balancing", (req, res) => {
   res.json({
     success: true,
     softBalancingOverride,
-    cloudTelemetryPacket: cloudTelemetryPackets[0]
+    externalTelemetryPacket: externalTelemetryPackets[0]
   });
 });
 
-cloudTelemetryRouter.post("/cutoff", (req, res) => {
+externalTelemetryRouter.post("/cutoff", (req, res) => {
   const { active } = req.body;
   systemWideIsolationTriggered = !!active;
   generateTelemetryPacket();
@@ -342,24 +342,24 @@ cloudTelemetryRouter.post("/cutoff", (req, res) => {
   res.json({
     success: true,
     systemWideIsolationTriggered,
-    cloudTelemetryPacket: cloudTelemetryPackets[0]
+    externalTelemetryPacket: externalTelemetryPackets[0]
   });
 });
 
-cloudTelemetryRouter.get("/query", (req, res) => {
+externalTelemetryRouter.get("/query", (req, res) => {
   const { array } = req.query;
   const arrNum = Number(array);
   
   if (arrNum) {
-    const devices = (cloudTelemetryPackets[0]?.payload?.downstream_devices || [])
+    const devices = (externalTelemetryPackets[0]?.payload?.downstream_devices || [])
       .filter((d: any) => d.ip.startsWith(`10.0.${arrNum}.`));
     return res.json({ devices });
   }
 
-  res.json({ devices: cloudTelemetryPackets[0]?.payload?.downstream_devices || [] });
+  res.json({ devices: externalTelemetryPackets[0]?.payload?.downstream_devices || [] });
 });
 
-cloudTelemetryRouter.post("/align", (req, res) => {
+externalTelemetryRouter.post("/align", (req, res) => {
   const { active } = req.body;
   telemetryCalibrationAligned = !!active;
   generateTelemetryPacket();
@@ -370,11 +370,11 @@ cloudTelemetryRouter.post("/align", (req, res) => {
 });
 
 // Force export packet
-cloudTelemetryRouter.post("/trigger-export", (req, res) => {
+externalTelemetryRouter.post("/trigger-export", (req, res) => {
   generateTelemetryPacket();
   res.json({
     success: true,
     message: "Triggered standard telemetry payload export!",
-    latestPacket: cloudTelemetryPackets[0]
+    latestPacket: externalTelemetryPackets[0]
   });
 });

@@ -242,7 +242,7 @@ router.get("/discovery", async (req, res) => {
             },
             recommendedOverviewMapping: {
                sections: ["emsApps", "blockTopology", "pcs", "hvacCentipede", "ups", "arraySummary"],
-               notes: ["Data discovered locally maps accurately to cloud summary features."]
+               notes: ["Data discovered locally maps accurately to EMS summary features."]
             }
         };
         try {

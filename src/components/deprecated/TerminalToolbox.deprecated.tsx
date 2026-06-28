@@ -239,7 +239,7 @@ export default function TerminalToolbox({ devices }: { devices: any[] }) {
           
           let scaledVal: string | number = foundVal * scaleFactor;
           if (item.type === "string") {
-            scaledVal = foundVal === 100 ? "Powin BESS String" : "Active RTU Carrier Link";
+            scaledVal = foundVal === 100 ? "EMS BESS String" : "Active RTU Carrier Link";
           } else {
             scaledVal = Math.round(Number(scaledVal) * 100) / 100;
           }

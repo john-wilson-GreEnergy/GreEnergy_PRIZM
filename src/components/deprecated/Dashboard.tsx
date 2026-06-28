@@ -25,7 +25,7 @@ import {
   Legend 
 } from "recharts";
 import { BessDevice } from "../../types";
-import KoboldMonitor from "../demo/KoboldMonitor";
+import SiteMonitor from "../demo/SiteMonitor";
 
 interface DashboardProps {
   devices: BessDevice[];
@@ -112,7 +112,7 @@ export default function Dashboard({ devices, onTriggerControl, onSelectDevice }:
       </div>
 
       {viewMode === "local_monitor" ? (
-        <KoboldMonitor initialDevices={devices} />
+        <SiteMonitor initialDevices={devices} />
       ) : (
         <>
           {/* Overview Stat Cards Grid (HIGH DENSITY THEME) */}

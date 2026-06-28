@@ -64,7 +64,7 @@ export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], sta
             supportedLocally: interactionMeta.supportedLocally,
             safetyLevel: interactionMeta.safetyLevel,
             reason: interactionMeta.reason,
-            cloudEquivalent: interactionMeta.cloudEquivalent ?? null,
+            externalEquivalent: interactionMeta.externalEquivalent ?? null,
             confirmationEnable: interactionMeta.confirmationEnable ?? null,
             confirmationDisable: interactionMeta.confirmationDisable ?? null,
             fields: interactionMeta.fields ?? null,

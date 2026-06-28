@@ -60,5 +60,5 @@ This manual QA test procedure validates the deterministic target profile switchi
 
 - [ ] **Single Active Profile Match**: Enforced strictly at schema store level.
 - [ ] **Instant Cache Flushing**: Verified that profile swap nullifies older memory blocks.
-- [ ] **Zero Cloud Telemetry Leakage**: Verified that no calls traverse towards `kobold.powinservices.com`.
+- [ ] **Zero Cloud Telemetry Leakage**: Verified that no calls traverse towards `site-monitor.EMSservices.com`.
 - [ ] **Strict Offline Execution Support**: The app compiles, runs, and enforces bounds fully offline on the technician laptop LAN.

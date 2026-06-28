@@ -252,7 +252,12 @@ function populateThermalHealth(payload: SiteReportPayload, latest: PrizmSiteSnap
     deviceStatus: latest.normalized?.feather || [],
     tempMetricsByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, min: a.measuredMinCellTemperature, max: a.measuredMaxCellTemperature, delta: a.cellTemperatureDelta })) || [],
     tempOutliers: { hottest: [], coldest: [], largestDelta: [] }, // simplified
-    sensors: latest.normalized?.sensors || []
+    sensors: latest.normalized?.sensors || [],
+    maxCellTemp: latest.rollups?.stringSummary?.rollups?.online?.highCellTempC || 0,
+    avgCellTemp: latest.rollups?.stringSummary?.rollups?.online?.avgCellTempC || 0,
+    minCellTemp: latest.rollups?.stringSummary?.rollups?.online?.lowCellTempC || 0,
+    maxTempDelta: latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC || 0,
+    hvacMismatchCount: latest.normalized?.feather?.filter(f => f.hasMismatch).length || 0,
   };
 }
 
@@ -293,6 +298,7 @@ function populateComparison(payload: SiteReportPayload, before: SiteHealthSnapsh
       alarms: (after.keyMetrics.alarmCount || 0) - (before.keyMetrics.alarmCount || 0),
       warnings: (after.keyMetrics.warningCount || 0) - (before.keyMetrics.warningCount || 0),
       onlineStrings: (after.keyMetrics.onlineStrings || 0) - (before.keyMetrics.onlineStrings || 0),
+      maxTemp: (after.keyMetrics.maxCellTempC || 0) - (before.keyMetrics.maxCellTempC || 0),
     },
     resolvedFaults: [],
     newFaults: [],
