@@ -1,209 +1,5 @@
-import { getLatestSnapshot, PrizmSiteSnapshot } from '../prizmDataCoordinator';
-import { SiteHealthSnapshot, SiteReportPayload, ReportType } from './reportTypes';
-import { ProfileStore } from '../profiles/profileStore';
-import { v4 as uuidv4 } from 'uuid';
-
-function getReportTopologyFamily(activeProfile: any): string {
-  return (
-    activeProfile?.topologyProfile?.layoutFamily ||
-    activeProfile?.activeTopologyProfile?.layoutFamily ||
-    activeProfile?.layoutFamily ||
-    activeProfile?.topologyFamily ||
-    inferLegacyTopologyFamily(activeProfile?.topologyModel) ||
-    "stack750_800"
-  );
-}
-
-function inferLegacyTopologyFamily(topologyModel: any): string {
-  if (!topologyModel) return "unknown";
-
-  if (
-    topologyModel.type === "standard-array-segment" ||
-    topologyModel.includeCollectionSegment === true ||
-    topologyModel.csSegment !== undefined ||
-    topologyModel.esSegmentStart !== undefined
-  ) {
-    return "stack750_800";
-  }
-
-  if (topologyModel.type === "custom-manual") {
-    return "custom";
-  }
-
-  return "unknown";
-}
-
-function getReportFleetCapacity(latest: PrizmSiteSnapshot): any {
-  const fromStringSummary =
-    latest.rollups?.stringSummary?.rollups?.fleetCapacity ||
-    latest.rollups?.stringSummary?.fleetCapacity;
-
-  if (fromStringSummary) return fromStringSummary;
-
-  const bess = latest.rollups?.bessFleetSummary || {};
-
-  return {
-    installedCapacityKWh:
-      bess.installedCapacityKWh ??
-      bess.totalInstalledKWh ??
-      bess.installedKWh ??
-      0,
-
-    availableStoredKWh:
-      bess.availableStoredKWh ??
-      bess.storedEnergyKWh ??
-      bess.totalStoredKWh ??
-      bess.onlineEnergyKWh ??
-      0,
-    onlineStoredKWh:
-      bess.onlineStoredKWh ?? 0,
-    nearlineStoredKWh:
-      bess.nearlineStoredKWh ?? 0,
-    offlineStoredKWh:
-      bess.offlineStoredKWh ?? 0,
-    notCommunicatingStoredKWh:
-      bess.notCommunicatingStoredKWh ?? 0,
-    systemSocPct:
-      bess.systemSocPct ??
-      bess.socPct ??
-      0,
-    availableChargeKW:
-      bess.availableChargeKW ??
-      bess.chargeLimitKW ??
-      null,
-    availableDischargeKW:
-      bess.availableDischargeKW ??
-      bess.dischargeLimitKW ??
-      null
-  };
-}
-
-export async function buildSiteSnapshot(label: string, notes?: string): Promise<SiteHealthSnapshot> {
-  const latest = getLatestSnapshot();
-  if (!latest) {
-    throw new Error('No normalized data available to capture snapshot.');
-  }
-
-  const activeProfile = ProfileStore.getActiveProfile();
-  const fleetCapacity = getReportFleetCapacity(latest);
-  
-  return {
-    snapshotId: uuidv4(),
-    label,
-    capturedAt: new Date().toISOString(),
-    notes,
-    site: {
-      stationCode: latest.siteIdentity.stationCode || undefined,
-      blockIndex: latest.siteIdentity.blockIndex || undefined,
-      siteName: activeProfile?.siteName
-    },
-    topologyProfileId: latest.siteIdentity.activeProfileId || undefined,
-    topologyFamily: getReportTopologyFamily(activeProfile),
-    normalizedData: {
-      blockSummary: latest.rawSources?.block,
-      stringSummary: latest.rollups?.stringSummary,
-      fleetCapacity: fleetCapacity,
-      cellMetrics: latest.normalized?.strings,
-      pcs: latest.normalized?.pcs,
-      emsApps: latest.normalized?.emsApps,
-      featherHvac: latest.normalized?.feather,
-      siteSensors: latest.normalized?.sensors,
-      correctiveActions: latest.normalized?.correctiveActions,
-      sourceHealth: latest.rollups?.sourceHealth,
-    },
-    keyMetrics: {
-      warningCount: latest.normalized?.correctiveActions?.filter(a => a.severity === "warning").length || 0,
-      alarmCount: latest.normalized?.correctiveActions?.filter(a => a.severity === "fault" || a.severity === "alarm").length || 0,
-      onlineStrings: latest.rollups?.stringSummary?.buckets?.online || 0,
-      nearlineStrings: latest.rollups?.stringSummary?.buckets?.nearline || 0,
-      offlineStrings: latest.rollups?.stringSummary?.buckets?.offline || 0,
-      notCommunicatingStrings: latest.rollups?.stringSummary?.buckets?.notCommunicating || 0,
-      storedEnergyKWh: fleetCapacity.availableStoredKWh || 0,
-      socPct: fleetCapacity.systemSocPct || 0,
-      maxVoltageDeltaMv: latest.rollups?.stringSummary?.rollups?.online?.maxCellVoltageDeltaMv || 0,
-      minCellVoltageMv: latest.rollups?.stringSummary?.rollups?.online?.minCellVoltageMv || 0,
-      maxCellVoltageMv: latest.rollups?.stringSummary?.rollups?.online?.maxCellVoltageMv || 0,
-      maxCellTempC: latest.rollups?.stringSummary?.rollups?.online?.highCellTempC || 0,
-      maxTempDeltaC: latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC || 0,
-      hvacMismatchCount: latest.normalized?.feather?.filter(f => f.hasMismatch).length || 0,
-      directDeviceFailureCount: latest.rollups?.sourceHealth?.filter(s => s.status === 'failed' && s.sourceType === 'direct-ip').length || 0,
-    },
-    freshness: latest.liveStatus,
-    mockOrFallbackDetected: latest.liveStatus?.source === "offline" || latest.liveStatus?.source === "cache"
-  };
-}
-
-export async function buildReportPayload(
-  reportType: ReportType,
-  options: {
-    titleOverride?: string;
-    notes?: string;
-    snapshots?: SiteHealthSnapshot[];
-  }
-): Promise<SiteReportPayload> {
-  const latest = getLatestSnapshot();
-  if (!latest) {
-    throw new Error('No normalized data available to generate report.');
-  }
-
-  const activeProfile = ProfileStore.getActiveProfile();
-  const fleetCapacity = getReportFleetCapacity(latest);
-  
-  const payload: SiteReportPayload = {
-    reportId: `${reportType}-${Date.now()}`,
-    reportType,
-    title: options.titleOverride || getDefaultTitle(reportType),
-    generatedAt: new Date().toISOString(),
-    site: {
-      siteName: activeProfile?.siteName || "Unknown Site",
-      stationCode: latest.siteIdentity.stationCode || "-",
-      blockIndex: latest.siteIdentity.blockIndex || 1,
-    },
-    topology: {
-      profileId: latest.siteIdentity.activeProfileId || "none",
-      profileName: latest.siteIdentity.activeProfileName || "None",
-      layoutFamily: getReportTopologyFamily(activeProfile),
-    },
-    freshness: {
-      overallStatus: latest.liveStatus?.state === "LIVE" ? "fresh" : (latest.liveStatus?.state === "PARTIAL" ? "partial" : (latest.liveStatus?.state === "CACHED" ? "stale" : "failed")),
-      sources: Array.isArray(latest.rollups?.sourceHealth) ? latest.rollups?.sourceHealth : [],
-      mockOrFallbackDetected: Boolean(latest.liveStatus?.source === "offline" || latest.liveStatus?.source === "cache"),
-      warnings: Array.isArray(latest.liveStatus?.warnings) ? latest.liveStatus?.warnings : []
-    }
-  };
-
-  if (reportType === "site-snapshot" || reportType === "custom") {
-    populateExecutiveSummary(payload, latest, fleetCapacity);
-    populateEnergyHealth(payload, latest, fleetCapacity);
-    populateThermalHealth(payload, latest);
-    populateCorrectiveActions(payload, latest);
-  }
-
-  if (reportType === "thermal-health") {
-    populateExecutiveSummary(payload, latest, fleetCapacity);
-    populateThermalHealth(payload, latest);
-  }
-
-  if (reportType === "energy-health") {
-    populateExecutiveSummary(payload, latest, fleetCapacity);
-    populateEnergyHealth(payload, latest, fleetCapacity);
-  }
-
-  if (reportType === "corrective-actions") {
-    populateExecutiveSummary(payload, latest, fleetCapacity);
-    populateCorrectiveActions(payload, latest);
-  }
-
-  if (reportType === "comparison" && options.snapshots && options.snapshots.length === 2) {
-    populateComparison(payload, options.snapshots[0], options.snapshots[1]);
-  }
-
-  if (options.notes) {
-    payload.appendix = { ...payload.appendix, notes: options.notes };
-  }
-
-  return payload;
-}
+import { SiteReportPayload, ReportType } from './reportTypes';
+import { SiteDataSnapshot } from './siteSnapshotTypes';
 
 function getDefaultTitle(type: ReportType) {
   const map: Record<ReportType, string> = {
@@ -217,88 +13,148 @@ function getDefaultTitle(type: ReportType) {
   return map[type] || "Report";
 }
 
-function populateExecutiveSummary(payload: SiteReportPayload, latest: PrizmSiteSnapshot, fleetCapacity: any) {
-  payload.executiveSummary = {
-    systemStatus: latest.liveStatus.state === "LIVE" ? "Online" : "Degraded",
-    warningCount: latest.normalized?.correctiveActions?.filter(a => a.severity === "warning").length || 0,
-    alarmCount: latest.normalized?.correctiveActions?.filter(a => a.severity === "fault" || a.severity === "alarm").length || 0,
-    onlineStrings: latest.rollups?.stringSummary?.buckets?.online || 0,
-    nearlineStrings: latest.rollups?.stringSummary?.buckets?.nearline || 0,
-    offlineStrings: latest.rollups?.stringSummary?.buckets?.offline || 0,
-    notCommunicatingStrings: latest.rollups?.stringSummary?.buckets?.notCommunicating || 0,
-    installedCapacityKWh: fleetCapacity.installedCapacityKWh || 0,
-    storedEnergyKWh: fleetCapacity.availableStoredKWh || 0,
-    socPct: fleetCapacity.systemSocPct || 0,
-    pcsStatus: latest.normalized?.pcs?.some(p => p.status !== 'Online' && p.status !== 'Running') ? 'Warning' : 'Online',
-    emsStatus: latest.liveStatus.state === "LIVE" ? "Connected" : "Offline",
-  };
-}
-
-function populateEnergyHealth(payload: SiteReportPayload, latest: PrizmSiteSnapshot, fleetCapacity: any) {
-  payload.energyHealth = {
-    stringAvailabilityByArray: latest.rollups?.arraySummary || [],
-    fleetCapacity: fleetCapacity,
-    socByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, soc: a.onlineSOC })) || [],
-    kWhByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, kWh: a.onlineAvailableKWh })) || [],
-    voltageMetricsByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, min: a.measuredMinCellVoltage, max: a.measuredMaxCellVoltage, delta: a.cellVoltageDelta })) || [],
-    voltageOutliers: { lowest: [], highest: [], largestDelta: [] }, // simplified
-    pcs: latest.normalized?.pcs || []
-  };
-}
-
-function populateThermalHealth(payload: SiteReportPayload, latest: PrizmSiteSnapshot) {
-  payload.thermalHealth = {
-    hvacSummary: latest.rollups?.featherSummary || {},
-    deviceStatus: latest.normalized?.feather || [],
-    tempMetricsByArray: latest.rollups?.arraySummary?.map(a => ({ array: a.arrayIndex, min: a.measuredMinCellTemperature, max: a.measuredMaxCellTemperature, delta: a.cellTemperatureDelta })) || [],
-    tempOutliers: { hottest: [], coldest: [], largestDelta: [] }, // simplified
-    sensors: latest.normalized?.sensors || [],
-    maxCellTemp: latest.rollups?.stringSummary?.rollups?.online?.highCellTempC || 0,
-    avgCellTemp: latest.rollups?.stringSummary?.rollups?.online?.avgCellTempC || 0,
-    minCellTemp: latest.rollups?.stringSummary?.rollups?.online?.lowCellTempC || 0,
-    maxTempDelta: latest.rollups?.stringSummary?.rollups?.online?.maxCellTempDeltaC || 0,
-    hvacMismatchCount: latest.normalized?.feather?.filter(f => f.hasMismatch).length || 0,
-  };
-}
-
-function populateCorrectiveActions(payload: SiteReportPayload, latest: PrizmSiteSnapshot) {
-  const rawActions = latest.normalized?.correctiveActions || [];
-  
-  // Group actions
-  const grouped: Record<string, any> = {};
-  for (const a of rawActions) {
-    const key = `${a.faultCode}-${a.source}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        severity: a.severity,
-        fault: a.faultCode,
-        faultName: a.faultName || a.title || a.message || a.faultCode,
-        affectedCount: 0,
-        suggestedAction: a.suggestedAction || a.repairAction || "Check physical connections and confirm parameters",
-        source: a.source,
-        firstSeen: a.firstSeen,
-        lastSeen: a.timestamp
-      };
+export function buildReportPackageFromSnapshot(
+  snapshot: SiteDataSnapshot,
+  reportType: ReportType,
+  options: {
+    titleOverride?: string;
+    notes?: string;
+    comparisonSnapshot?: SiteDataSnapshot;
+  }
+): SiteReportPayload {
+  const payload: SiteReportPayload = {
+    reportId: `${reportType}-${Date.now()}`,
+    reportType,
+    title: options.titleOverride || getDefaultTitle(reportType),
+    generatedAt: new Date().toISOString(),
+    site: {
+      siteName: snapshot.site?.siteName || "Unknown Site",
+      stationCode: snapshot.site?.stationCode || "-",
+      blockIndex: snapshot.site?.blockIndex || 1,
+    },
+    topology: {
+      profileId: snapshot.topology?.activeProfileId || "none",
+      profileName: snapshot.topology?.activeProfileName || "None",
+      layoutFamily: snapshot.topology?.topologyFamily,
+    },
+    freshness: {
+      overallStatus: snapshot.sourceCoverage?.overallStatus || "unknown",
+      sources: snapshot.sourceCoverage?.rows?.map(r => ({
+        name: r.key,
+        sourceType: r.sourceType as any,
+        required: r.required,
+        status: r.status as any,
+        lastUpdated: r.lastUpdated
+      })) || [],
+      mockOrFallbackDetected: snapshot.mockOrFallbackDetected,
+      warnings: snapshot.warnings || []
     }
-    grouped[key].affectedCount++;
+  };
+
+  if (reportType === "site-snapshot" || reportType === "custom") {
+    populateExecutiveSummary(payload, snapshot);
+    populateEnergyHealth(payload, snapshot);
+    populateThermalHealth(payload, snapshot);
+    populateCorrectiveActions(payload, snapshot);
   }
 
-  payload.correctiveActions = {
-    summary: { activeAlarms: payload.executiveSummary?.alarmCount || 0, activeWarnings: payload.executiveSummary?.warningCount || 0 },
-    groupedActions: Object.values(grouped),
-    expandedTargets: rawActions
+  if (reportType === "thermal-health") {
+    populateExecutiveSummary(payload, snapshot);
+    populateThermalHealth(payload, snapshot);
+  }
+
+  if (reportType === "energy-health") {
+    populateExecutiveSummary(payload, snapshot);
+    populateEnergyHealth(payload, snapshot);
+  }
+
+  if (reportType === "corrective-actions") {
+    populateExecutiveSummary(payload, snapshot);
+    populateCorrectiveActions(payload, snapshot);
+  }
+
+  if (reportType === "comparison" && options.comparisonSnapshot) {
+    populateComparison(payload, options.comparisonSnapshot, snapshot);
+  }
+
+  if (options.notes) {
+    payload.appendix = { ...payload.appendix, notes: options.notes };
+  }
+
+  return payload;
+}
+
+function populateExecutiveSummary(payload: SiteReportPayload, snapshot: SiteDataSnapshot) {
+  const ex = snapshot.sections?.executive;
+  payload.executiveSummary = {
+    systemStatus: ex?.siteReadiness === "ready" ? "Online" : "Degraded",
+    warningCount: ex?.warningCount || 0,
+    alarmCount: ex?.alarmCount || 0,
+    onlineStrings: ex?.onlineStrings || 0,
+    nearlineStrings: ex?.nearlineStrings || 0,
+    offlineStrings: ex?.offlineStrings || 0,
+    notCommunicatingStrings: ex?.notCommunicatingStrings || 0,
+    installedCapacityKWh: ex?.installedCapacityKWh || 0,
+    storedEnergyKWh: ex?.storedEnergyKWh || 0,
+    socPct: ex?.systemSocPct || 0,
+    pcsStatus: snapshot.sections?.pcs?.online === snapshot.sections?.pcs?.total ? 'Online' : 'Warning',
+    emsStatus: ex?.emsStatus || "Offline",
   };
 }
 
-function populateComparison(payload: SiteReportPayload, before: SiteHealthSnapshot, after: SiteHealthSnapshot) {
+function populateEnergyHealth(payload: SiteReportPayload, snapshot: SiteDataSnapshot) {
+  const en = snapshot.sections?.energy;
+  payload.energyHealth = {
+    stringAvailabilityByArray: en?.byArray || [],
+    fleetCapacity: en?.fleetCapacity,
+    socByArray: en?.byArray?.map(a => ({ array: a.arrayIndex, soc: a.socPct })) || [],
+    kWhByArray: en?.byArray?.map(a => ({ array: a.arrayIndex, kWh: a.storedKWh })) || [],
+    voltageMetricsByArray: en?.voltageByArray || [],
+    voltageOutliers: en?.voltageOutliers || { lowest: [], highest: [], largestDelta: [] },
+    pcs: snapshot.sections?.pcs?.rows || []
+  };
+}
+
+function populateThermalHealth(payload: SiteReportPayload, snapshot: SiteDataSnapshot) {
+  const th = snapshot.sections?.thermal;
+  payload.thermalHealth = {
+    hvacSummary: {},
+    deviceStatus: th?.hvacDevices || [],
+    tempMetricsByArray: th?.tempByArray || [],
+    tempOutliers: th?.thermalOutliers || { hottest: [], coldest: [], largestDelta: [] },
+    sensors: [],
+    maxCellTemp: th?.metrics?.maxCellTempF,
+    avgCellTemp: th?.metrics?.avgCellTempF,
+    minCellTemp: th?.metrics?.minCellTempF,
+    maxTempDelta: th?.metrics?.maxTempDeltaF,
+    hvacMismatchCount: th?.metrics?.hvacFeedbackMismatches,
+  };
+}
+
+function populateCorrectiveActions(payload: SiteReportPayload, snapshot: SiteDataSnapshot) {
+  const ca = snapshot.sections?.correctiveActions;
+  payload.correctiveActions = {
+    summary: { 
+      activeAlarms: ca?.summary?.alarmGroups || 0, 
+      activeWarnings: ca?.summary?.warningGroups || 0 
+    },
+    groupedActions: ca?.groupedActions || [],
+    expandedTargets: ca?.groupedActions?.flatMap(g => g.targets) || []
+  };
+}
+
+function populateComparison(payload: SiteReportPayload, before: SiteDataSnapshot, after: SiteDataSnapshot) {
+  const bEx = before.sections?.executive;
+  const aEx = after.sections?.executive;
+  
   payload.comparison = {
     beforeSnapshotId: before.snapshotId,
     afterSnapshotId: after.snapshotId,
     deltas: {
-      alarms: (after.keyMetrics.alarmCount || 0) - (before.keyMetrics.alarmCount || 0),
-      warnings: (after.keyMetrics.warningCount || 0) - (before.keyMetrics.warningCount || 0),
-      onlineStrings: (after.keyMetrics.onlineStrings || 0) - (before.keyMetrics.onlineStrings || 0),
-      maxTemp: (after.keyMetrics.maxCellTempC || 0) - (before.keyMetrics.maxCellTempC || 0),
+      alarms: (aEx?.alarmCount || 0) - (bEx?.alarmCount || 0),
+      warnings: (aEx?.warningCount || 0) - (bEx?.warningCount || 0),
+      onlineStrings: (aEx?.onlineStrings || 0) - (bEx?.onlineStrings || 0),
+      maxTemp: (after.sections?.thermal?.metrics?.maxCellTempF || 0) - (before.sections?.thermal?.metrics?.maxCellTempF || 0),
     },
     resolvedFaults: [],
     newFaults: [],

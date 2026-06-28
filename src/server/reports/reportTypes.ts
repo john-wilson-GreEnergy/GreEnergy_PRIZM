@@ -120,58 +120,6 @@ export interface SiteReportPayload {
   };
 }
 
-export interface SiteHealthSnapshot {
-  snapshotId: string;
-  label: string;
-  capturedAt: string;
-  capturedBy?: string;
-  notes?: string;
-
-  site: {
-    stationCode?: string;
-    blockIndex?: number;
-    siteName?: string;
-  };
-
-  topologyProfileId?: string;
-  topologyFamily?: string;
-
-  normalizedData: {
-    blockSummary?: any;
-    stringSummary?: any;
-    fleetCapacity?: any;
-    cellMetrics?: any;
-    siteHealth?: any;
-    pcs?: any;
-    emsApps?: any;
-    featherHvac?: any;
-    siteSensors?: any;
-    correctiveActions?: any;
-    sourceHealth?: any;
-  };
-
-  keyMetrics: {
-    warningCount?: number;
-    alarmCount?: number;
-    onlineStrings?: number;
-    nearlineStrings?: number;
-    offlineStrings?: number;
-    notCommunicatingStrings?: number;
-    storedEnergyKWh?: number;
-    socPct?: number;
-    maxVoltageDeltaMv?: number;
-    minCellVoltageMv?: number;
-    maxCellVoltageMv?: number;
-    maxCellTempC?: number;
-    maxTempDeltaC?: number;
-    hvacMismatchCount?: number;
-    directDeviceFailureCount?: number;
-  };
-
-  freshness: any;
-  mockOrFallbackDetected: boolean;
-}
-
 export interface ReportIndexEntry {
   reportId: string;
   reportType: ReportType;

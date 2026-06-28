@@ -1,7 +1,9 @@
 import { Router } from 'express';
-import { buildSiteSnapshot, buildReportPayload } from './reportBuilder';
+import { buildSiteDataSnapshot, compareSiteSnapshots } from './siteSnapshotEngine';
+import { buildReportPackageFromSnapshot } from './reportBuilder';
 import { generatePdf } from './pdfRenderer';
-import { saveSnapshot, getSnapshots, getSnapshot, deleteSnapshot, saveReport, getReportIndex, getReportPath, deleteReport } from './reportStorage';
+import { getSnapshotsIndex, loadSnapshot, deleteSnapshot as delSnapshot } from './siteSnapshotStorage';
+import { saveReport, getReportIndex, getReportPath, deleteReport } from './reportStorage';
 import { ReportType } from './reportTypes';
 import { parse } from 'json2csv';
 
@@ -11,9 +13,18 @@ const router = Router();
 router.post('/snapshots/capture', async (req, res) => {
   try {
     const { label, notes } = req.body;
-    const snapshot = await buildSiteSnapshot(label || 'Manual Capture', notes);
-    await saveSnapshot(snapshot);
+    const snapshot = await buildSiteDataSnapshot({ snapshotType: 'manual', label: label || 'Manual Capture', notes });
     res.json({ success: true, snapshotId: snapshot.snapshotId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/snapshots/build', async (req, res) => {
+  try {
+    const options = req.body;
+    const snapshot = await buildSiteDataSnapshot(options);
+    res.json({ success: true, snapshot });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -21,7 +32,7 @@ router.post('/snapshots/capture', async (req, res) => {
 
 router.get('/snapshots', async (req, res) => {
   try {
-    const snapshots = await getSnapshots();
+    const snapshots = getSnapshotsIndex();
     res.json({ success: true, snapshots });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -30,7 +41,7 @@ router.get('/snapshots', async (req, res) => {
 
 router.get('/snapshots/:snapshotId', async (req, res) => {
   try {
-    const snapshot = await getSnapshot(req.params.snapshotId);
+    const snapshot = loadSnapshot(req.params.snapshotId);
     if (!snapshot) {
       return res.status(404).json({ success: false, error: 'Snapshot not found' });
     }
@@ -42,7 +53,7 @@ router.get('/snapshots/:snapshotId', async (req, res) => {
 
 router.delete('/snapshots/:snapshotId', async (req, res) => {
   try {
-    await deleteSnapshot(req.params.snapshotId);
+    delSnapshot(req.params.snapshotId);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -52,16 +63,26 @@ router.delete('/snapshots/:snapshotId', async (req, res) => {
 // Report Generation helper
 async function handleReportGeneration(req: any, res: any, reportType: ReportType) {
   try {
-    const { titleOverride, notes, snapshotIds } = req.body;
+    const { titleOverride, notes, snapshotIds, snapshotOptions } = req.body;
     
-    let snapshots: any[] = [];
-    if (snapshotIds && snapshotIds.length === 2) {
-       const before = await getSnapshot(snapshotIds[0]);
-       const after = await getSnapshot(snapshotIds[1]);
-       if (before && after) snapshots = [before, after];
+    let snapshot;
+    let comparisonSnapshot;
+
+    if (snapshotIds && snapshotIds.length === 2 && reportType === 'comparison') {
+       comparisonSnapshot = loadSnapshot(snapshotIds[0]);
+       snapshot = loadSnapshot(snapshotIds[1]);
+    } else if (snapshotIds && snapshotIds.length === 1) {
+       snapshot = loadSnapshot(snapshotIds[0]);
+    } else {
+       // build on the fly
+       snapshot = await buildSiteDataSnapshot({ ...snapshotOptions, snapshotType: 'report' });
     }
     
-    const payload = await buildReportPayload(reportType, { titleOverride, notes, snapshots });
+    if (!snapshot) {
+        throw new Error("Failed to load or build Site Data Snapshot for report");
+    }
+
+    const payload = buildReportPackageFromSnapshot(snapshot, reportType, { titleOverride, notes, comparisonSnapshot });
     
     // Generate PDF
     const pdfBuffer = await generatePdf(payload);
