@@ -42,6 +42,56 @@ type ProvisioningBundleManifest = {
   directories: string[];
 };
 
+const commandKeywords = [
+  "contains provisioning commands",
+  "controlled execution",
+  "sudo",
+  "service tomcat8",
+  "scp",
+  "ssh",
+  "sed",
+  "cp",
+  "chmod"
+];
+
+const isExpectedProvisioningCommandWarning = (validation: any) => {
+  if (!validation || validation.status !== 'partial') return false;
+  
+  const checkText = (text: string) => {
+    const lower = text.toLowerCase();
+    return commandKeywords.some(kw => lower.includes(kw.toLowerCase()));
+  };
+
+  const warnings = validation.warnings || [];
+  const inspectionNotes = (validation.inspections || [])
+    .filter((ins: any) => ins.status === 'warn')
+    .map((ins: any) => ins.notes || "");
+
+  const allIssues = [...warnings, ...inspectionNotes];
+  
+  if (allIssues.length === 0) return false;
+
+  return allIssues.every(issue => checkText(issue));
+};
+
+const getValidationDisplayStatus = (validation: any) => {
+  if (isExpectedProvisioningCommandWarning(validation)) {
+    return 'READY FOR PLANNING';
+  }
+  return validation.status.toUpperCase();
+};
+
+const getValidationStatusExplanation = (validation: any) => {
+  if (isExpectedProvisioningCommandWarning(validation)) {
+    return "This bundle passed file and configuration validation. The remaining warnings identify provisioning commands that PRIZM must execute in a controlled future run.";
+  }
+  if (validation.status === 'ready') return "READY means all required files passed validation with no warnings.";
+  if (validation.status === 'partial') return "PARTIAL means the bundle is structurally usable, but PRIZM found warnings that should be reviewed before provisioning.";
+  if (validation.status === 'blocked') return "BLOCKED means required files or directories are missing or invalid.";
+  if (validation.status === 'invalid') return "INVALID means the selected folder could not be read or does not appear to be a provisioning bundle.";
+  return "";
+};
+
 export default function ProvisioningDashboard({ active }: ProvisioningDashboardProps) {
   const [bundlePath, setBundlePath] = useState('');
   const [validation, setValidation] = useState<any>(null);
@@ -329,25 +379,24 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
              <div className="flex items-center justify-between">
                 <CardTitle>Validation Results</CardTitle>
                 <div className={`px-3 py-1 rounded text-sm font-bold flex items-center gap-2 ${
+                  getValidationDisplayStatus(validation) === 'READY FOR PLANNING' ? 'bg-sky-100 text-sky-700' :
                   validation.status === 'ready' ? 'bg-emerald-100 text-emerald-700' :
                   validation.status === 'partial' ? 'bg-amber-100 text-amber-700' :
                   validation.status === 'blocked' ? 'bg-red-100 text-red-700' :
                   'bg-slate-100 text-slate-700'
                 }`}>
                   {validation.status === 'ready' && <CheckCircle className="w-4 h-4" />}
-                  {validation.status === 'partial' && <AlertTriangle className="w-4 h-4" />}
+                  {getValidationDisplayStatus(validation) === 'READY FOR PLANNING' && <CheckCircle className="w-4 h-4" />}
+                  {getValidationDisplayStatus(validation) === 'PARTIAL' && <AlertTriangle className="w-4 h-4" />}
                   {(validation.status === 'blocked' || validation.status === 'invalid') && <ShieldAlert className="w-4 h-4" />}
-                  {validation.status.toUpperCase()}
+                  {getValidationDisplayStatus(validation)}
                 </div>
              </div>
              <div className="text-xs text-slate-600 mt-2">
                Validated At: {new Date(validation.validatedAt).toLocaleString()}
              </div>
              <div className="text-sm text-slate-600 mt-2">
-               {validation.status === 'ready' && "READY means all required files passed validation with no warnings."}
-               {validation.status === 'partial' && "PARTIAL means the bundle is structurally usable, but PRIZM found warnings that should be reviewed before provisioning."}
-               {validation.status === 'blocked' && "BLOCKED means required files or directories are missing or invalid."}
-               {validation.status === 'invalid' && "INVALID means the selected folder could not be read or does not appear to be a provisioning bundle."}
+               {getValidationStatusExplanation(validation)}
              </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -363,7 +412,9 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
             
             {validation.warnings.length > 0 && (
                <div className="p-4 bg-amber-100 border border-amber-200 rounded">
-                  <h4 className="text-amber-800 font-medium mb-2">Warnings</h4>
+                  <h4 className="text-amber-800 font-medium mb-2">
+                    {getValidationDisplayStatus(validation) === 'READY FOR PLANNING' ? 'Provisioning Command Review' : 'Warnings'}
+                  </h4>
                   <ul className="list-disc pl-5 space-y-1">
                     {validation.warnings.map((w: string, i: number) => <li key={i} className="text-amber-800 text-sm">{w}</li>)}
                   </ul>
