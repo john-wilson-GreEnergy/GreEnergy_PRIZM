@@ -1,6 +1,30 @@
 import PDFDocument from 'pdfkit';
 import { SiteReportPayload } from './reportTypes';
 
+function safeText(value: any, fallback = "--"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+}
+
+function safeUpper(value: any, fallback = "UNKNOWN"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value).toUpperCase();
+}
+
+function safeNumber(value: any, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function safeFixed(value: any, digits = 1, fallback = "0.0"): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(digits) : fallback;
+}
+
+function asArray<T = any>(value: any): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
@@ -22,7 +46,7 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
       // Page 1: Header / Cover
       doc.fontSize(24).fillColor(BRAND_GREEN).text('GreEnergy PRIZM', { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(18).fillColor(TEXT_MAIN).text(payload.title, { align: 'center' });
+      doc.fontSize(18).fillColor(TEXT_MAIN).text(safeText(payload.title, 'Report'), { align: 'center' });
       doc.moveDown(1);
       
       // Metadata box
@@ -30,22 +54,22 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
       doc.moveDown(1);
       
       doc.fontSize(10).fillColor(TEXT_MUTED);
-      doc.text(`Site Name:`, 65, doc.y, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.site.siteName || '-'}`);
-      doc.text(`Station Code:`, 65, doc.y + 5, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.site.stationCode || '-'}`);
-      doc.text(`Block Index:`, 65, doc.y + 10, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.site.blockIndex || '-'}`);
-      doc.text(`Topology Profile:`, 65, doc.y + 15, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.topology.profileName || '-'}`);
-      doc.text(`Generated At:`, 65, doc.y + 20, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.generatedAt}`);
-      doc.text(`Report ID:`, 65, doc.y + 25, { continued: true }).fillColor(TEXT_MAIN).text(` ${payload.reportId}`);
+      doc.text(`Site Name:`, 65, doc.y, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.site?.siteName)}`);
+      doc.text(`Station Code:`, 65, doc.y + 5, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.site?.stationCode)}`);
+      doc.text(`Block Index:`, 65, doc.y + 10, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.site?.blockIndex)}`);
+      doc.text(`Topology Profile:`, 65, doc.y + 15, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.topology?.profileName)}`);
+      doc.text(`Generated At:`, 65, doc.y + 20, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.generatedAt)}`);
+      doc.text(`Report ID:`, 65, doc.y + 25, { continued: true }).fillColor(TEXT_MAIN).text(` ${safeText(payload.reportId)}`);
       
       doc.moveDown(4);
 
       // Freshness
-      if (payload.freshness.mockOrFallbackDetected) {
+      if (payload.freshness?.mockOrFallbackDetected) {
         doc.fillColor(DANGER).fontSize(12).text('WARNING: Local fallback / mock data detected — not valid live site data', { align: 'center' });
-      } else if (payload.freshness.overallStatus === 'stale') {
+      } else if (payload.freshness?.overallStatus === 'stale') {
         doc.fillColor(WARNING).fontSize(12).text('WARNING: Generated from stale data cache', { align: 'center' });
       } else {
-        doc.fillColor(BRAND_GREEN).fontSize(12).text(`Data Freshness: ${payload.freshness.overallStatus.toUpperCase()}`, { align: 'center' });
+        doc.fillColor(BRAND_GREEN).fontSize(12).text(`Data Freshness: ${safeUpper(payload.freshness?.overallStatus)}`, { align: 'center' });
       }
       doc.moveDown(2);
 
@@ -57,11 +81,11 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
         const es = payload.executiveSummary;
         
         doc.fontSize(10).fillColor(TEXT_MAIN);
-        doc.text(`System Status: ${es.systemStatus}`);
-        doc.text(`Alarms: ${es.alarmCount} | Warnings: ${es.warningCount}`);
-        doc.text(`Strings: ${es.onlineStrings} Online, ${es.nearlineStrings} Nearline, ${es.offlineStrings} Offline`);
-        doc.text(`Stored Energy: ${(es.storedEnergyKWh || 0).toFixed(1)} kWh / ${(es.installedCapacityKWh || 0).toFixed(1)} kWh`);
-        doc.text(`System SOC: ${(es.socPct || 0).toFixed(1)}%`);
+        doc.text(`System Status: ${safeText(es.systemStatus)}`);
+        doc.text(`Alarms: ${safeNumber(es.alarmCount)} | Warnings: ${safeNumber(es.warningCount)}`);
+        doc.text(`Strings: ${safeNumber(es.onlineStrings)} Online, ${safeNumber(es.nearlineStrings)} Nearline, ${safeNumber(es.offlineStrings)} Offline`);
+        doc.text(`Stored Energy: ${safeFixed(es.storedEnergyKWh)} kWh / ${safeFixed(es.installedCapacityKWh)} kWh`);
+        doc.text(`System SOC: ${safeFixed(es.socPct)}%`);
         doc.moveDown(2);
       }
 
@@ -72,9 +96,14 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
         doc.moveDown(1);
         
         doc.fontSize(10);
-        payload.energyHealth.voltageMetricsByArray.forEach(arr => {
-           doc.text(`Array ${arr.array}: Min ${arr.min}mV, Max ${arr.max}mV, Delta ${arr.delta}mV`);
-        });
+        const energyMetrics = asArray(payload.energyHealth.voltageMetricsByArray);
+        if (energyMetrics.length === 0) {
+           doc.fillColor(TEXT_MUTED).text('No energy health data available in this snapshot.');
+        } else {
+           energyMetrics.forEach(arr => {
+              doc.text(`Array ${safeText(arr.array)}: Min ${safeText(arr.min)}mV, Max ${safeText(arr.max)}mV, Delta ${safeText(arr.delta)}mV`);
+           });
+        }
       }
 
       // Thermal Health
@@ -84,9 +113,14 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
         doc.moveDown(1);
         
         doc.fontSize(10);
-        payload.thermalHealth.tempMetricsByArray.forEach(arr => {
-           doc.text(`Array ${arr.array}: Min ${arr.min}C, Max ${arr.max}C, Delta ${arr.delta}C`);
-        });
+        const tempMetrics = asArray(payload.thermalHealth.tempMetricsByArray);
+        if (tempMetrics.length === 0) {
+           doc.fillColor(TEXT_MUTED).text('No thermal health data available in this snapshot.');
+        } else {
+           tempMetrics.forEach(arr => {
+              doc.text(`Array ${safeText(arr.array)}: Min ${safeText(arr.min)}C, Max ${safeText(arr.max)}C, Delta ${safeText(arr.delta)}C`);
+           });
+        }
       }
       
       // Corrective Actions
@@ -96,23 +130,36 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
         doc.moveDown(1);
         
         doc.fontSize(10);
-        payload.correctiveActions.groupedActions.forEach(a => {
-           doc.fillColor(a.severity === 'fault' || a.severity === 'alarm' ? DANGER : WARNING)
-              .text(`[${a.severity.toUpperCase()}] ${a.faultName} (Count: ${a.affectedCount})`);
-           doc.fillColor(TEXT_MUTED).text(`Action: ${a.suggestedAction}`);
-           doc.moveDown(0.5);
-        });
+        const actions = asArray(payload.correctiveActions.groupedActions);
+        if (actions.length === 0) {
+           doc.fillColor(TEXT_MUTED).text('No corrective actions available in this snapshot.');
+        } else {
+           actions.forEach(a => {
+              const severity = safeUpper(a?.severity || a?.level || a?.status, "UNSPECIFIED");
+              const isAlarm = severity.includes("ALARM") || severity.includes("FAULT") || severity.includes("ERROR");
+              
+              doc.fillColor(isAlarm ? DANGER : WARNING)
+                 .text(`[${severity}] ${safeText(a.faultName)} (Count: ${safeNumber(a.affectedCount)})`);
+              doc.fillColor(TEXT_MUTED).text(`Action: ${safeText(a.suggestedAction)}`);
+              doc.moveDown(0.5);
+           });
+        }
       }
 
       // Controls and source health
-      if (payload.freshness.sources && payload.freshness.sources.length > 0) {
+      if (payload.freshness?.sources && asArray(payload.freshness.sources).length > 0) {
         doc.addPage();
         doc.fontSize(14).fillColor(TEXT_MAIN).text('Controls / Communications / Source Health', { underline: true });
         doc.moveDown(1);
         doc.fontSize(10).fillColor(TEXT_MAIN);
-        payload.freshness.sources.forEach(s => {
-           doc.text(`[${s.status.toUpperCase()}] ${s.name} (${s.sourceType})`);
-        });
+        const sources = asArray(payload.freshness.sources);
+        if (sources.length === 0) {
+           doc.fillColor(TEXT_MUTED).text('No source health data available in this snapshot.');
+        } else {
+           sources.forEach(s => {
+              doc.text(`[${safeUpper(s?.status, "UNKNOWN")}] ${safeText(s.name)} (${safeText(s.sourceType)})`);
+           });
+        }
       }
       
       // Comparison
@@ -121,9 +168,9 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
          doc.fontSize(14).fillColor(TEXT_MAIN).text('Before / After Comparison', { underline: true });
          doc.moveDown(1);
          doc.fontSize(10).fillColor(TEXT_MAIN);
-         doc.text(`Alarms Delta: ${payload.comparison.deltas.alarms}`);
-         doc.text(`Warnings Delta: ${payload.comparison.deltas.warnings}`);
-         doc.text(`Online Strings Delta: ${payload.comparison.deltas.onlineStrings}`);
+         doc.text(`Alarms Delta: ${safeNumber(payload.comparison?.deltas?.alarms)}`);
+         doc.text(`Warnings Delta: ${safeNumber(payload.comparison?.deltas?.warnings)}`);
+         doc.text(`Online Strings Delta: ${safeNumber(payload.comparison?.deltas?.onlineStrings)}`);
       }
       
       // Footer
@@ -131,7 +178,7 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
       for (let i = 0; i < pages.count; i++) {
         doc.switchToPage(i);
         doc.fontSize(8).fillColor(TEXT_MUTED).text(
-          `Generated ${payload.generatedAt} | PRIZM Report ID: ${payload.reportId} | Page ${i + 1} of ${pages.count}`,
+          `Generated ${safeText(payload.generatedAt)} | PRIZM Report ID: ${safeText(payload.reportId)} | Page ${i + 1} of ${pages.count}`,
           50,
           doc.page.height - 40,
           { align: 'center' }
@@ -144,3 +191,4 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
     }
   });
 }
+

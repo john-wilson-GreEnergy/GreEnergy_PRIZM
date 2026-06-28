@@ -166,9 +166,9 @@ export async function buildReportPayload(
     },
     freshness: {
       overallStatus: latest.liveStatus?.state === "LIVE" ? "fresh" : (latest.liveStatus?.state === "PARTIAL" ? "partial" : (latest.liveStatus?.state === "CACHED" ? "stale" : "failed")),
-      sources: latest.rollups?.sourceHealth || [],
-      mockOrFallbackDetected: latest.liveStatus?.source === "offline" || latest.liveStatus?.source === "cache",
-      warnings: latest.liveStatus?.warnings || []
+      sources: Array.isArray(latest.rollups?.sourceHealth) ? latest.rollups?.sourceHealth : [],
+      mockOrFallbackDetected: Boolean(latest.liveStatus?.source === "offline" || latest.liveStatus?.source === "cache"),
+      warnings: Array.isArray(latest.liveStatus?.warnings) ? latest.liveStatus?.warnings : []
     }
   };
 

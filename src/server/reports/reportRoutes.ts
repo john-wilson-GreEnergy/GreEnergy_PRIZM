@@ -89,7 +89,15 @@ async function handleReportGeneration(req: any, res: any, reportType: ReportType
       warnings: payload.freshness.warnings
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error("[reports] Failed to generate report", {
+      reportType,
+      error: err?.message,
+      stack: err?.stack
+    });
+    res.status(500).json({ 
+      success: false, 
+      error: err?.message || "Failed to generate report" 
+    });
   }
 }
 
