@@ -67,6 +67,9 @@ import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleP
 import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
 import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
+import { resolveCorrectiveAction } from "./src/server/correctiveActions/correctiveActionResolver";
+import { STACK750_FAULT_MATRIX, MATRIX_METADATA } from "./src/server/correctiveActions/correctiveActionMatrix";
+
 
 
 
@@ -152,6 +155,29 @@ app.get("/api/local/corrective-actions", (req, res) => {
   const snapshot = prizmDataCoordinator.getLatestSnapshot();
   if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
   res.json(snapshot.normalized.correctiveActions || []);
+});
+
+app.get("/api/local/corrective-actions/matrix", (req, res) => {
+  res.json({
+    metadata: MATRIX_METADATA,
+    totalEntries: STACK750_FAULT_MATRIX.length,
+    systemCounts: STACK750_FAULT_MATRIX.reduce((acc: any, curr) => {
+      acc[curr.system] = (acc[curr.system] || 0) + 1;
+      return acc;
+    }, {})
+  });
+});
+
+app.post("/api/local/corrective-actions/resolve", (req, res) => {
+  const { items } = req.body || { items: [] };
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: "items must be an array" });
+  }
+  const resolved = items.map(item => resolveCorrectiveAction(item));
+  res.json({
+    success: true,
+    resolved
+  });
 });
 
 app.get("/api/local/system/boot-status", (req, res) => {
@@ -1628,9 +1654,18 @@ async function generateCorrectiveActionsPdf(
   activeProfile: any,
   correctiveActions: any[]
 ): Promise<void> {
+  // Let's resolve the actions with the matrix first to ensure we have enriched data
+  const enrichedActions = correctiveActions.map(act => {
+    const resolved = resolveCorrectiveAction(act);
+    return {
+      ...act,
+      resolved
+    };
+  });
+
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 50, size: "A4" });
+      const doc = new PDFDocument({ margin: 50, size: "A4", bufferPages: true });
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
 
@@ -1639,22 +1674,21 @@ async function generateCorrectiveActionsPdf(
       const TEXT_MUTED = "#64748b";
       const BORDER_LIGHT = "#e2e8f0";
       const BG_ALT = "#f8fafc";
-      const DANGER = "#ef4444";
-      const WARNING = "#f59e0b";
-      const INFO = "#3b82f6";
+      const DANGER = "#ef4444";     // Alarm/Critical
+      const WARNING = "#f59e0b";    // Warning
+      const INFO = "#3b82f6";       // Info
 
-      // 1. Header Line / Accent
+      // Draw Top Accent bar on page 1
       doc.rect(50, 40, 495, 4).fill(BRAND_GREEN);
       doc.y = 60;
 
-      // Logo and Title
-      doc.fontSize(10).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 60);
-      doc.fontSize(18).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("FIELD REMEDIATION & PUNCH LIST REPORT", 50, 75);
+      // Title & Subtitle
+      doc.fontSize(10).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GREENERGY PRIZM", 50, 60);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("PRIZM CORRECTIVE ACTION SUMMARY", 50, 75);
       
-      // Divider
       doc.moveTo(50, 100).lineTo(545, 100).strokeColor(BORDER_LIGHT).stroke();
-      
-      // Metadata Panel (compact box)
+
+      // Metadata Panel (Executive Summary Info)
       const metaY = 115;
       doc.rect(50, metaY, 495, 75).fillAndStroke(BG_ALT, BORDER_LIGHT);
       
@@ -1663,147 +1697,297 @@ async function generateCorrectiveActionsPdf(
       doc.font("Helvetica").fillColor(TEXT_MUTED).text("Generated At:", 70, metaY + 32).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(new Date().toUTCString(), 160, metaY + 32);
       doc.font("Helvetica").fillColor(TEXT_MUTED).text("Active Profile:", 70, metaY + 49).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(activeProfile.profileName || "Active-Live Profile", 160, metaY + 49);
 
-      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Total Outstanding:", 330, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${correctiveActions.length} active issues`, 430, metaY + 15);
-      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Report Status:", 330, metaY + 32).font("Helvetica-Bold").fillColor(correctiveActions.length > 0 ? DANGER : BRAND_GREEN).text(correctiveActions.length > 0 ? "ACTION REQUIRED" : "NOMINAL", 430, metaY + 32);
+      const openCount = enrichedActions.length;
+      const criticalCount = enrichedActions.filter(a => a.level === "ALARM").length;
+      const warningCount = enrichedActions.filter(a => a.level === "WARNING").length;
+      const matchedCount = enrichedActions.filter(a => a.resolved?.matched).length;
+      const manualCount = enrichedActions.filter(a => !a.resolved?.matched).length;
+
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Total Open Issues:", 330, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${openCount} active`, 430, metaY + 15);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Severity Breakdown:", 330, metaY + 32).font("Helvetica-Bold").fillColor(criticalCount > 0 ? DANGER : BRAND_GREEN).text(`${criticalCount} Critical, ${warningCount} Warning`, 430, metaY + 32);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Matrix Match Rate:", 330, metaY + 49).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${matchedCount} matched, ${manualCount} manual`, 430, metaY + 49);
 
       doc.y = metaY + 110;
 
-      // Status Check banner
-      if (correctiveActions.length === 0) {
-        doc.rect(50, doc.y, 495, 40).fillAndStroke("#ecfdf5", "#a7f3d0");
-        doc.fontSize(10).font("Helvetica-Bold").fillColor("#065f46").text("✔ SYSTEM STATUS NOMINAL: No corrective action entries or active faults present.", 70, doc.y + 15);
-        doc.moveDown(2);
+      // Draw Executive Summary Cards/Bento Panel
+      doc.fontSize(11).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("EXECUTIVE SUMMARY OVERVIEW", 50, doc.y);
+      doc.moveDown(0.4);
+
+      const summaryBoxY = doc.y;
+      doc.rect(50, summaryBoxY, 155, 55).fillAndStroke(BG_ALT, BORDER_LIGHT);
+      doc.rect(220, summaryBoxY, 155, 55).fillAndStroke(BG_ALT, BORDER_LIGHT);
+      doc.rect(390, summaryBoxY, 155, 55).fillAndStroke(BG_ALT, BORDER_LIGHT);
+
+      // Card 1
+      doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text("OPEN CORRECTIVE ACTIONS", 60, summaryBoxY + 10);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(openCount > 0 ? DANGER : BRAND_GREEN).text(String(openCount), 60, summaryBoxY + 24);
+
+      // Card 2
+      doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text("CRITICAL ALERTS", 230, summaryBoxY + 10);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(criticalCount > 0 ? DANGER : BRAND_GREEN).text(String(criticalCount), 230, summaryBoxY + 24);
+
+      // Card 3
+      doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text("MATRIX MATCH RATE", 400, summaryBoxY + 10);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(BRAND_GREEN).text(`${Math.round((matchedCount / (openCount || 1)) * 100)}%`, 400, summaryBoxY + 24);
+
+      doc.y = summaryBoxY + 70;
+
+      if (openCount === 0) {
+        doc.rect(50, doc.y, 495, 45).fillAndStroke("#ecfdf5", "#a7f3d0");
+        doc.fontSize(10).font("Helvetica-Bold").fillColor("#065f46").text("✔ SYSTEM STATUS NOMINAL: No open corrective actions or active faults detected.", 70, doc.y + 16);
       } else {
-        // Items
-        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Outstanding Corrective Action Items", 50, doc.y);
+        // Section 1: PRIORITY CORRECTIVE ACTIONS
+        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 1: PRIORITY CORRECTIVE ACTIONS", 50, doc.y);
         doc.moveDown(0.5);
 
-        correctiveActions.forEach((act, idx) => {
-          // If we are getting close to the page bottom, start on a new page
-          if (doc.y > 600) {
+        enrichedActions.forEach((act, idx) => {
+          // Check for page break before starting a new item card
+          if (doc.y > 580) {
             doc.addPage();
-            // Re-draw small header on subsequent pages
             doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Corrective Action Summary (Cont.)", 50, 50);
             doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
             doc.y = 80;
           }
 
           let itemStartY = doc.y;
           const severityColor = act.level === "ALARM" ? DANGER : (act.level === "WARNING" ? WARNING : INFO);
+          const resolved = act.resolved;
 
-          // We'll write the text contents first, updating doc.y dynamically
-          doc.y = itemStartY + 12; // Initial padding inside the card
+          // Padding inside the card
+          doc.y = itemStartY + 12;
 
           // 1. Fault header
           doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${act.fault}`, 70);
-          doc.moveDown(0.3);
+          doc.moveDown(0.4);
 
           // 2. Metadata / metrics in dynamic layout
-          doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED).text("Target Class:", 70);
-          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.object, 170, doc.y - 11);
+          doc.fontSize(8).font("Helvetica").fillColor(TEXT_MUTED).text("Target Class:", 70);
+          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.object || "System Component", 170, doc.y - 11);
 
           doc.font("Helvetica").fillColor(TEXT_MUTED).text("Source Component:", 70);
-          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source, 170, doc.y - 11);
+          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source || "Unknown", 170, doc.y - 11);
 
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Remedy Action:", 70);
-          doc.font("Helvetica-Bold").fillColor(BRAND_GREEN).text(act.suggestedAction, 170, doc.y - 11);
-
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Current Status:", 70);
-          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.status, 170, doc.y - 11);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Matrix Match:", 70);
+          const matchLabel = resolved?.matched 
+            ? `Corrective Matrix Match: ${resolved.confidence}` 
+            : "Manual review recommended (No exact matrix match)";
+          doc.font("Helvetica-Bold").fillColor(resolved?.matched ? BRAND_GREEN : WARNING).text(matchLabel, 170, doc.y - 11);
 
           doc.moveDown(0.5);
 
-          // 3. Delineated list of affected segments
+          // Matrix Enhanced Remediation Guidance Block
+          doc.fontSize(8.5).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("REMEDIATION & TROUBLESHOOTING GUIDANCE:", 70);
+          doc.moveDown(0.2);
+
+          // Bullet points of recommended actions
+          if (resolved?.recommendedActions?.length) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("  Recommended Actions:", 70);
+            resolved.recommendedActions.forEach((action: string) => {
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(`  • ${action}`, 80);
+            });
+            doc.moveDown(0.2);
+          }
+
+          // Validation Checks
+          if (resolved?.validationChecks?.length) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Validation Checks:", 70);
+            resolved.validationChecks.forEach((check: string) => {
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(`  • ${check}`, 80);
+            });
+            doc.moveDown(0.2);
+          }
+
+          // Clearing Criteria
+          if (resolved?.clearingCriteria?.length) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Clearing Criteria:", 70);
+            resolved.clearingCriteria.forEach((crit: string) => {
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text(`  • ${crit}`, 80);
+            });
+            doc.moveDown(0.2);
+          }
+
+          // Escalation / Replacement if any
+          if (resolved?.replacementGuidance?.length || resolved?.escalationGuidance?.length) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  SOP / Replacement & Escalation Guidance:", 70);
+            const extraGuidance = [
+              ...(resolved.replacementGuidance || []),
+              ...(resolved.escalationGuidance || [])
+            ];
+            extraGuidance.forEach((gStr: string) => {
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text(`  • ${gStr}`, 80);
+            });
+            doc.moveDown(0.3);
+          }
+
+          // List of affected energy segments (truncated to max 8)
           const affList = act.affected || [];
           if (affList.length > 0) {
-            doc.fontSize(9).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Affected Energy Segments / Strings:", 70);
-            doc.moveDown(0.3);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`Affected Energy Segments (${affList.length}):`, 70);
+            doc.moveDown(0.2);
 
-            affList.forEach((aff: any) => {
-              // Check if we need to add a page break inside the card list!
-              if (doc.y > 740) {
-                // Close current card border & bar on the current page
-                const itemHeightBeforeBreak = doc.y - itemStartY + 10;
-                doc.rect(50, itemStartY, 495, itemHeightBeforeBreak).strokeColor(BORDER_LIGHT).stroke();
-                doc.rect(51, itemStartY + 1, 6, itemHeightBeforeBreak - 2).fill(severityColor);
-
-                doc.addPage();
-                // Re-draw small header on subsequent pages
-                doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-                doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
-                doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
-                doc.y = 80;
-
-                itemStartY = doc.y;
-                doc.y = itemStartY + 12;
+            const displayLimit = 8;
+            const toRender = affList.slice(0, displayLimit);
+            toRender.forEach((aff: any) => {
+              const bIdx = aff.blockIndex ?? 1;
+              const aIdx = aff.arrayIndex ?? 1;
+              const sNum = aff.stringIndex ?? null;
+              let esLabel = "";
+              let stringDetail = "";
+              if (sNum && sNum > 0) {
+                const esNum = Math.ceil(sNum / 2);
+                esLabel = `ES${esNum}`;
+                const side = aff.side || (sNum % 2 === 1 ? "A-Side" : "B-Side");
+                stringDetail = ` / String ${sNum} / ${side}`;
+              } else {
+                esLabel = aff.energySegmentIndex ? `ES${aff.energySegmentIndex}` : "ES1";
               }
 
-              const affText = `• ${aff.label || "Unknown Segment"}${aff.ip ? ` (IP: ${aff.ip})` : ""}`;
-              doc.fontSize(8.5).font("Helvetica").fillColor(TEXT_MAIN).text(affText, 90);
+              const bpcVal = aff.batteryPackIndex ?? aff.bpcIndex ?? null;
+              const cgVal = aff.cellGroupIndex ?? aff.cgIndex ?? null;
+              let bpcCgDetail = "";
+              if (bpcVal !== null && bpcVal !== undefined && bpcVal !== "") {
+                bpcCgDetail += ` / BPC ${bpcVal}`;
+                if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
+                  bpcCgDetail += ` / CG ${cgVal}`;
+                }
+              } else if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
+                bpcCgDetail += ` / CG ${cgVal}`;
+              }
+
+              const ipVal = aff.ip ?? aff.deviceIp ?? "";
+              const ipDetail = ipVal ? ` (IP: ${ipVal})` : "";
+
+              const affText = `• Block ${bIdx} / Array ${aIdx} / ${esLabel}${stringDetail}${bpcCgDetail}${ipDetail}`;
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(affText, 90);
             });
+
+            if (affList.length > displayLimit) {
+              doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`• ... and ${affList.length - displayLimit} more affected targets (condensed)`, 90);
+            }
             doc.moveDown(0.4);
           }
 
-          // 4. Notes line
-          // Ensure we don't draw notes lines past page boundaries
-          if (doc.y > 730) {
-            const itemHeightBeforeBreak = doc.y - itemStartY + 10;
-            doc.rect(50, itemStartY, 495, itemHeightBeforeBreak).strokeColor(BORDER_LIGHT).stroke();
-            doc.rect(51, itemStartY + 1, 6, itemHeightBeforeBreak - 2).fill(severityColor);
-
-            doc.addPage();
-            doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
-            doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
-            doc.y = 80;
-
-            itemStartY = doc.y;
-            doc.y = itemStartY + 12;
-          }
-
+          // Quick Technician Notes line inside card (No signatures!)
           doc.moveTo(70, doc.y).lineTo(525, doc.y).strokeColor(BORDER_LIGHT).stroke();
-          doc.moveDown(0.4);
-          doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Technician Notes: ____________________________________________________________________", 70);
+          doc.moveDown(0.3);
+          doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Field Repair Notes: ____________________________________________________________________", 70);
           
-          doc.moveDown(1.5);
+          doc.moveDown(1.2);
           const itemEndY = doc.y;
           const itemHeight = itemEndY - itemStartY;
 
-          // Draw item border and severity color bar
+          // Draw card outline & left accent bar
           doc.rect(50, itemStartY, 495, itemHeight).strokeColor(BORDER_LIGHT).stroke();
           doc.rect(51, itemStartY + 1, 6, itemHeight - 2).fill(severityColor);
 
-          // Add margin for the next item
           doc.y = itemEndY + 15;
         });
+
+        // SECTION 2: SYSTEM SUMMARY & RESOLVER COVERAGE MATRIX
+        if (doc.y > 550) {
+          doc.addPage();
+          doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+          doc.y = 60;
+        }
+
+        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 2: RESOLVED MATRIX CATEGORY DEPLOYMENT", doc.y);
+        doc.moveDown(0.4);
+
+        const categories = [
+          { name: "Battery / String / BPC / Cell Group", matchKey: ["string", "bpc", "cell-group", "balancing"] },
+          { name: "Environmental (HVAC / Thermal)", matchKey: ["hvac"] },
+          { name: "Safety & Fire Protection", matchKey: ["fire"] },
+          { name: "Control Power (UPS)", matchKey: ["ups"] },
+          { name: "PCS / Meter / Transformer", matchKey: ["pcs", "meter", "transformer"] },
+          { name: "Network / Infrastructure / Other", matchKey: ["unknown"] }
+        ];
+
+        categories.forEach(cat => {
+          const catIssues = enrichedActions.filter(act => {
+            const sys = act.resolved?.system || "unknown";
+            if (cat.matchKey.includes(sys)) return true;
+            if (cat.matchKey.includes("unknown") && !categories.some(c => c !== cat && c.matchKey.includes(sys))) return true;
+            return false;
+          });
+
+          if (catIssues.length > 0) {
+            doc.fontSize(9).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`■ ${cat.name} (${catIssues.length} issues)`, 70);
+            doc.moveDown(0.2);
+
+            catIssues.forEach(ci => {
+              doc.fontSize(8).font("Helvetica").fillColor(TEXT_MAIN).text(`  - [${ci.level}] ${ci.fault}  --> Remedy: ${ci.resolved?.recommendedActions?.[0] || ci.suggestedAction}`, 80);
+            });
+            doc.moveDown(0.3);
+          }
+        });
+
+        // SECTION 3: ITEMS REQUIRING MANUAL REVIEW
+        const manualItems = enrichedActions.filter(act => !act.resolved?.matched);
+        if (manualItems.length > 0) {
+          doc.moveDown(0.5);
+          if (doc.y > 580) {
+            doc.addPage();
+            doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+            doc.y = 60;
+          }
+
+          doc.fontSize(11).font("Helvetica-Bold").fillColor(WARNING).text("SECTION 3: ITEMS REQUIRING MANUAL REVIEW", doc.y);
+          doc.moveDown(0.4);
+
+          manualItems.forEach((ci, miIdx) => {
+            doc.fontSize(8.5).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`  ${miIdx + 1}. [${ci.level}] ${ci.fault}`, 70);
+            doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`     Details: ${ci.details || "None"}. Suggested fallback action: ${ci.suggestedAction}`, 70);
+            doc.moveDown(0.2);
+          });
+        }
       }
 
-      // Sign-off Block
-      if (doc.y + 110 > 750) {
+      // SECTION 4: EXPORT METADATA & COMPLIANCE SUMMARY (replaces sign-off block)
+      if (doc.y > 600) {
         doc.addPage();
         doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
         doc.y = 60;
       }
 
-      doc.moveDown(1);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(BORDER_LIGHT).stroke();
-      doc.moveDown(1);
-
-      doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Utility / Lead Auditor Sign-off");
       doc.moveDown(1.5);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(BORDER_LIGHT).stroke();
+      doc.moveDown(0.8);
 
-      const signY = doc.y;
-      doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED);
-      
-      doc.text("Name: _______________________", 70, signY);
-      doc.text("Signature: _______________________", 300, signY);
-      
-      doc.text("Date: _______________________", 70, signY + 30);
-      doc.text("Time:      _______________________", 300, signY + 30);
+      doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 4: EXPORT METADATA & REPORT NOTES");
+      doc.moveDown(0.4);
 
-      doc.rect(50, signY + 60, 495, 20).fill(BG_ALT);
-      doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MUTED).text("CONFIDENTIAL - FOR INTERNAL GREENERGY FIELD OPERATION USE ONLY", 50, signY + 66, { align: "center", width: 495 });
+      doc.fontSize(8).font("Helvetica").fillColor(TEXT_MUTED);
+      doc.text("Source Data Integration: Direct Local PRIZM API Gateway", 70);
+      doc.text("Troubleshooting Core Engine: Stack750 Action Knowledge Matrix v2.0", 70);
+      doc.text(`Active Profile Target Site Name: ${activeProfile.siteName || "Prizm BESS Station"}`, 70);
+      doc.text("Export Engine version: v1.3.1 (React-Pdf-Core)", 70);
+      
+      doc.moveDown(0.6);
+      doc.font("Helvetica-Bold").text("Remediation Notes:", 70);
+      doc.font("Helvetica-Oblique").text("This PRIZM Remediation Summary contains machine-enhanced corrective diagnostics referenced directly from the Stack750 Technical Troubleshooting Manual. Always consult high-voltage safety SOPs prior to performing any hardware maintenance on-site.", 70);
+
+      doc.moveDown(1.5);
+      const confY = doc.y;
+      doc.rect(50, confY, 495, 20).fill(BG_ALT);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MUTED).text("CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY", 50, confY + 6, { align: "center", width: 495 });
+
+      // Run second-pass on all pages to draw standard, beautiful running footers with Page Numbers!
+      const range = doc.bufferedPageRange();
+      for (let i = 0; i < range.count; i++) {
+        doc.switchToPage(i);
+
+        // Header (only on page 2+)
+        if (i > 0) {
+          doc.fontSize(7).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 20);
+          doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED).text(`PRIZM Corrective Action Summary  |  Station ${stationCode}`, 50, 30, { align: "right", width: 495 });
+          doc.moveTo(50, 42).lineTo(545, 42).strokeColor(BORDER_LIGHT).stroke();
+        }
+
+        // Standard Footer
+        doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED);
+        doc.text(`Generated by GreEnergy PRIZM  |  Station ${stationCode}  |  Page ${i + 1} of ${range.count}`, 50, 790, { align: "center", width: 495 });
+      }
 
       doc.end();
 
@@ -1843,24 +2027,98 @@ app.post("/api/local/reports/generate", async (req, res) => {
     const rawStrings: any = getEmsCachedRawStrings() || {};
 
     // Get corrective actions
-    const rawCorrectiveActions = getCorrectiveActionsFromNormalizedFaults() || [];
-    const correctiveActions = rawCorrectiveActions.map(act => {
-      const level = act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "FAULT";
-      const firstAffected = act.affected[0];
-      const source = firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System";
-      const object = act.affected.length === 1 ? firstAffected.label : "Multiple";
+    const snapshot = prizmDataCoordinator.getLatestSnapshot();
+    const rawCorrectiveActions = snapshot?.normalized?.correctiveActions && snapshot.normalized.correctiveActions.length > 0
+      ? snapshot.normalized.correctiveActions
+      : (getCorrectiveActionsFromNormalizedFaults() || []).map(act => {
+          const firstAffected = act.affected[0];
+          return {
+            level: act.severity === "alarm" ? "ALARM" : act.severity === "warning" ? "WARNING" : "FAULT",
+            source: firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System",
+            faultName: act.faultLabel,
+            suggestedAction: act.suggestedAction,
+            affected: act.affected.map(aff => ({
+              blockIndex: aff.blockIndex || 1,
+              arrayIndex: aff.arrayIndex || 1,
+              stringIndex: aff.stringIndex,
+              energySegmentIndex: aff.segmentIndex,
+              side: aff.stringIndex ? (aff.stringIndex % 2 === 1 ? "A-Side" : "B-Side") : "",
+              batteryPackIndex: (aff as any).bpcIndex ?? (aff as any).batteryPackIndex ?? null,
+              cellGroupIndex: (aff as any).cellGroupIndex ?? (aff as any).cgIndex ?? null,
+              deviceIp: aff.ip,
+              label: aff.label
+            }))
+          };
+        });
+
+    const correctiveActions = rawCorrectiveActions.map((act: any) => {
+      const level = String(act.level || act.severity || "warning").toUpperCase();
+      const firstAffected = act.affected?.[0] || {};
+      const source = act.source || (firstAffected?.source === "EMS" || firstAffected?.source === "ems" ? "String Controller" : firstAffected?.source === "feather" ? "Feather/HVAC" : "System");
+      const count = act.affected?.length || 0;
+
+      const affectedMapped = (act.affected || []).map((aff: any) => {
+        const sNum = aff.stringIndex ?? aff.stringNumber ?? null;
+        const esNum = sNum ? Math.ceil(sNum / 2) : (aff.energySegmentIndex ?? aff.segmentIndex ?? null);
+        const side = aff.side || aff.stringSide || (sNum ? (sNum % 2 === 1 ? "A-Side" : "B-Side") : "");
+        const bpcVal = aff.batteryPackIndex ?? aff.bpcIndex ?? null;
+        const cgVal = aff.cellGroupIndex ?? aff.cgIndex ?? null;
+
+        return {
+          blockIndex: aff.blockIndex ?? 1,
+          arrayIndex: aff.arrayIndex ?? 1,
+          stringIndex: sNum,
+          energySegmentIndex: esNum,
+          side: side,
+          batteryPackIndex: bpcVal,
+          cellGroupIndex: cgVal,
+          ip: aff.deviceIp ?? aff.ip,
+          label: aff.label ?? aff.callout ?? `Block ${aff.blockIndex ?? 1} / Array ${aff.arrayIndex ?? 1} / ES${esNum ?? 1}`
+        };
+      });
+
+      let object = "Multiple";
+      if (count === 1 && affectedMapped[0]) {
+        const aff = affectedMapped[0];
+        const bIdx = aff.blockIndex ?? 1;
+        const aIdx = aff.arrayIndex ?? 1;
+        const sNum = aff.stringIndex;
+        let esLabel = "";
+        let stringDetail = "";
+        if (sNum && sNum > 0) {
+          const esNum = Math.ceil(sNum / 2);
+          esLabel = `ES${esNum}`;
+          const side = aff.side || (sNum % 2 === 1 ? "A-Side" : "B-Side");
+          stringDetail = ` / String ${sNum} / ${side}`;
+        } else {
+          esLabel = aff.energySegmentIndex ? `ES${aff.energySegmentIndex}` : "ES1";
+        }
+        const bpcVal = aff.batteryPackIndex;
+        const cgVal = aff.cellGroupIndex;
+        let bpcCgDetail = "";
+        if (bpcVal !== null && bpcVal !== undefined && bpcVal !== "") {
+          bpcCgDetail += ` / BPC ${bpcVal}`;
+          if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
+            bpcCgDetail += ` / CG ${cgVal}`;
+          }
+        } else if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
+          bpcCgDetail += ` / CG ${cgVal}`;
+        }
+        object = `Block ${bIdx} / Array ${aIdx} / ${esLabel}${stringDetail}${bpcCgDetail}`;
+      }
+
       return {
         level,
         source,
-        fault: act.faultLabel,
+        fault: act.faultName || act.faultLabel || act.fault || "Unknown Fault",
         object,
-        details: "Affected: " + act.affected.length + " unit(s) / " + act.affected.map((u: any) => u.label).join(", "),
-        firstSeen: new Date().toISOString(),
-        count: act.affected.length,
-        suggestedAction: act.suggestedAction,
+        details: "Affected: " + count + " unit(s)",
+        firstSeen: act.firstSeen || new Date().toISOString(),
+        count,
+        suggestedAction: act.suggestedAction || "Inspect status and verify parameters",
         status: "Open - Field Check Required",
         notes: "Diagnostic state auto-locked via Prizm active loop analysis",
-        affected: act.affected
+        affected: affectedMapped
       };
     });
 

@@ -11,6 +11,8 @@ import { getSegmentName } from "./siteData/segmentTranslator";
 import { buildNormalizedStringsData } from "./stringsDashboard";
 import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
+import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionResolver";
+
 
 
 export type NormalizedArraySummary = any;
@@ -3066,6 +3068,15 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
        };
     });
     
+    const resolvedResult = resolveCorrectiveAction({
+      code: group.code,
+      faultName: group.faultName,
+      fault: fields.faultLabel,
+      details: `Affected: ${affectedSummary}`,
+      source: group.source === "existing" ? "EMS" : group.source,
+      component: group.source === "existing" ? "EMS" : group.source
+    });
+
     return {
       id: `action-${group.severity}-${(group.code || group.faultName).toLowerCase().replace(/[^a-z0-9]/g, "-")}`,
       ...fields, // code, codeNumber, codeType, faultLabel, faultName, severity, level
@@ -3076,6 +3087,7 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       affectedCount: affectedEvents.length,
       affectedSummary,
       suggestedAction: group.suggestedAction,
+      resolved: resolvedResult,
       navigationTarget,
       affected: targets,
       affectedTargets: targets
