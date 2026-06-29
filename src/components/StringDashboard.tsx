@@ -45,8 +45,28 @@ function getContactorVisualState(row: any) {
       ? ((commandedClosed && actualClosed) || (commandedOpen && actualOpen))
       : null;
 
+  const actualDotColor = actualClosed ? "blue" : actualOpen ? "gray" : "red";
+
+  function getIndividualContactorDotColor(value: any) {
+    if (value === true) return "blue";
+    if (value === false) return "gray";
+    return "red";
+  }
+
+  const positiveDotColor =
+    typeof row.positiveContactorClosed === "boolean"
+      ? getIndividualContactorDotColor(row.positiveContactorClosed)
+      : actualDotColor;
+
+  const negativeDotColor =
+    typeof row.negativeContactorClosed === "boolean"
+      ? getIndividualContactorDotColor(row.negativeContactorClosed)
+      : actualDotColor;
+
   return {
-    actualDotColor: actualClosed ? "blue" : actualOpen ? "gray" : "red",
+    actualDotColor,
+    positiveDotColor,
+    negativeDotColor,
     matchDotColor:
       matchesCommand === true ? "green" :
       matchesCommand === false ? "red" :
@@ -715,8 +735,9 @@ const handleManualRefresh = async () => {
                   
                   // Contactor Dots
                   const contactorState = getContactorVisualState(s);
-                  const contDot1 = getTailwindClasses(contactorState.actualDotColor);
-                  const contDot2 = getTailwindClasses(contactorState.matchDotColor);
+                  const contDot1 = getTailwindClasses(contactorState.positiveDotColor);
+                  const contDot2 = getTailwindClasses(contactorState.negativeDotColor);
+                  const contDot3 = getTailwindClasses(contactorState.matchDotColor);
                   
                   // Fans logic & color mapping
                   const MAX_FAN_RPM = 7500;
@@ -890,10 +911,11 @@ const handleManualRefresh = async () => {
 <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
-                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected ? "CLOSED" : "OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed !== undefined ? (s.positiveContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Negative: ${s.negativeContactorClosed !== undefined ? (s.negativeContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Reclose Count: ${s.recloseCount ?? "--"} | Status: ${contactorState.actualLabel} (${contactorState.matchLabel})`}
+                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected ? "CLOSED" : "OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed !== undefined ? (s.positiveContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Negative: ${s.negativeContactorClosed !== undefined ? (s.negativeContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Actual: ${contactorState.actualLabel} | Match: ${contactorState.matchLabel} | Reclose Count: ${s.recloseCount ?? "--"}`}
                        >
                            <div className={`w-2 h-2 rounded-full ${contDot1}`}></div>
                            <div className={`w-2 h-2 rounded-full ${contDot2}`}></div>
+                           <div className={`w-2 h-2 rounded-full ${contDot3}`}></div>
                            <span className="ml-1 text-[9px] text-prizm-text-muted">R:{s.recloseCount ?? "--"}</span>
                        </div>
                     </td>

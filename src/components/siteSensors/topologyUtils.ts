@@ -407,3 +407,17 @@ export function formatEntityKey(key: string): string {
   }
   return key;
 }
+
+export function isPhysicalSensorEnclosureRow(row: any): boolean {
+  if (!row) return false;
+  const displayName = String(row.location?.displayName || row.topology?.displayName || "").toLowerCase();
+  const enclosureType = row.location?.enclosureType || row.topology?.enclosureType;
+
+  if (displayName.includes("enclosure string modules")) return false;
+  if (displayName.includes("string modules")) return false;
+  if (displayName.includes("header")) return false;
+  if (displayName.includes("group")) return false;
+
+  return enclosureType === "CollectionSegment" || enclosureType === "EnergySegment";
+}
+

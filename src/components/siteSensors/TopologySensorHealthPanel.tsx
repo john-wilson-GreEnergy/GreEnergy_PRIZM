@@ -43,7 +43,8 @@ import {
   matchesSearch,
   formatActiveState,
   formatAvailability,
-  formatEntityKey
+  formatEntityKey,
+  isPhysicalSensorEnclosureRow
 } from "./topologyUtils";
 import SiteOverheadSensorMap from "./SiteOverheadSensorMap";
 
@@ -139,7 +140,7 @@ export default function TopologySensorHealthPanel() {
     const name = row.location?.displayName || "";
     const arrayMatch = name.match(/Array\s+(\d+)/i);
     const arrNum = arrayMatch ? arrayMatch[1] : "1";
-    const isCS = row.location?.enclosureType === "CollectionSegment";
+    const isCS = row.location?.enclosureType === "CollectionSegment" || name.includes(" CS") || name.endsWith("- CS");
     
     if (isCS) {
       return `Array ${arrNum} - CS`;
@@ -153,11 +154,14 @@ export default function TopologySensorHealthPanel() {
   const physicalRows = useMemo(() => {
     if (!data?.rows) return [];
     return data.rows.filter((row) => {
+      if (!isPhysicalSensorEnclosureRow(row)) return false;
       if (!row.location) return false;
       const index = row.location.enclosureIndex;
-      if (index === null || index < 1) return false;
-      
       const name = row.location.displayName || "";
+      
+      const isCS = row.location.enclosureType === "CollectionSegment" || name.includes(" CS") || name.endsWith("- CS");
+      if (!isCS && (index === null || index < 1)) return false;
+      
       // No Array 0 or ES-1 displaying
       if (name.includes("Array 0") || name.includes("ES-1")) return false;
       return true;
@@ -184,14 +188,19 @@ export default function TopologySensorHealthPanel() {
       const arrB = getArrayNumber(b.location?.displayName || "");
       if (arrA !== arrB) return arrA - arrB;
       
+      const nameA = a.location?.displayName || "";
+      const nameB = b.location?.displayName || "";
       const typeA = a.location?.enclosureType || "";
       const typeB = b.location?.enclosureType || "";
-      if (typeA !== typeB) {
-        return typeB.localeCompare(typeA); // CS before ES
-      }
+      
+      const isCSA = typeA === "CollectionSegment" || nameA.includes(" CS") || nameA.endsWith("- CS");
+      const isCSB = typeB === "CollectionSegment" || nameB.includes(" CS") || nameB.endsWith("- CS");
 
-      const posA = a.location?.enclosureIndex || 0;
-      const posB = b.location?.enclosureIndex || 0;
+      if (isCSA && !isCSB) return -1;
+      if (!isCSA && isCSB) return 1;
+
+      const posA = isCSA ? 0 : (a.location?.enclosureIndex || 0);
+      const posB = isCSB ? 0 : (b.location?.enclosureIndex || 0);
       return posA - posB;
     });
   }, [physicalRows]);

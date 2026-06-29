@@ -11,14 +11,30 @@ import {
   Sparkles,
   ArrowRight
 } from "lucide-react";
-import { BlockSensorMatrixRow, NormalizedSensorCell } from "./topologyUtils";
+import { BlockSensorMatrixRow, NormalizedSensorCell, isPhysicalSensorEnclosureRow } from "./topologyUtils";
 import { getArrayLocalEnergySegmentNumber } from "../../lib/segmentNumbering";
+
+function formatResolvedSensorState(cell: any) {
+  if (!cell) return "UNKNOWN";
+  if (cell.displayState === "normal") return "CLEAR";
+  if (cell.displayState === "open") return "OPEN";
+  if (cell.displayState === "alarm") return "ALARM";
+  if (cell.displayState === "fault") return "FAULT";
+  if (cell.displayState === "warning") return "WARNING";
+  if (cell.displayState === "unavailable") return "UNAVAILABLE";
+  if (cell.displayState === "not-monitored") return "NOT MONITORED";
+  if (cell.rawState && cell.rawState !== "UNKNOWN") return cell.rawState;
+  if (cell.displayValue && cell.displayValue !== "Unknown") return cell.displayValue;
+  if (cell.healthy === true && cell.tripped !== true) return "CLEAR";
+  return "UNKNOWN";
+}
 
 interface SiteOverheadSensorMapProps {
   rows: BlockSensorMatrixRow[];
   selectedRow: BlockSensorMatrixRow | null;
   onSelectRow: (row: BlockSensorMatrixRow) => void;
 }
+
 
 interface SegmentSummary {
   arrayIndex: number;
@@ -75,9 +91,12 @@ export default function SiteOverheadSensorMap({
       enclosureType: row.location?.enclosureType,
     });
     
-    const isCS = resolvedNumOrCS === "CS";
+    const displayName = row.location?.displayName || row.topology?.displayName || "";
+    const enclosureType = row.location?.enclosureType || row.topology?.enclosureType;
+    const isCS = enclosureType === "CollectionSegment" || displayName.includes(" CS") || displayName.endsWith("- CS") || resolvedNumOrCS === "CS";
+    
     const segmentType = isCS ? "CS" : "ES";
-    const segmentNumber = typeof resolvedNumOrCS === "number" ? resolvedNumOrCS : 0;
+    const segmentNumber = isCS ? 0 : (typeof resolvedNumOrCS === "number" ? resolvedNumOrCS : 0);
     const label = isCS ? "CS" : `ES${segmentNumber}`;
 
     const monitoredSensors: any[] = [];
@@ -96,7 +115,7 @@ export default function SiteOverheadSensorMap({
           displayState: cell.displayState || "unknown",
           healthy: cell.healthy ?? true,
           tripped: isTripped,
-          displayValue: cell.displayValue || "Unknown",
+          displayValue: formatResolvedSensorState(cell),
           category
         });
       } else {
@@ -183,14 +202,9 @@ export default function SiteOverheadSensorMap({
   const arrayGroups = useMemo(() => {
     const groups: Record<number, SegmentSummary[]> = {};
     rows.forEach((row) => {
+      if (!isPhysicalSensorEnclosureRow(row)) return;
       if (!row.location) return;
-      const index = row.location.enclosureIndex;
-      const isCS = row.location.enclosureType === "CollectionSegment" || (row.location.displayName || "").toLowerCase().includes("collection");
-      if (!isCS && (index === null || index === undefined || index < 1)) return;
       
-      const name = row.location.displayName || "";
-      if (name.includes("Array 0") || name.includes("ES-1")) return;
-
       const summary = getSegmentSummary(row);
       const arrNum = summary.arrayIndex;
       if (arrNum === 999) return;
