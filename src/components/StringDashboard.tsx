@@ -9,6 +9,74 @@ import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
 import { useSiteData } from '../context/SiteDataContext';
 
+function getContactorVisualState(row: any) {
+  const stateHasContactorProps = typeof row.positiveContactorClosed === "boolean" && typeof row.negativeContactorClosed === "boolean";
+  
+  const actualClosed =
+    row.contactorClosed === true ||
+    row.contactorsClosed === true ||
+    row.actualContactorState === "CLOSED" ||
+    row.contactorFeedback === "CLOSED" ||
+    (stateHasContactorProps && row.positiveContactorClosed === true && row.negativeContactorClosed === true);
+
+  const actualOpen =
+    row.contactorClosed === false ||
+    row.contactorsClosed === false ||
+    row.actualContactorState === "OPEN" ||
+    row.contactorFeedback === "OPEN" ||
+    (stateHasContactorProps && row.positiveContactorClosed === false && row.negativeContactorClosed === false);
+
+  const commandedClosed =
+    row.commandedContactorState === "CLOSED" ||
+    row.contactorCommand === "CLOSE" ||
+    row.closeCommanded === true ||
+    row.contactorsCloseExpected === true;
+
+  const commandedOpen =
+    row.commandedContactorState === "OPEN" ||
+    row.contactorCommand === "OPEN" ||
+    row.openCommanded === true ||
+    row.contactorsCloseExpected === false;
+
+  const commandKnown = commandedClosed || commandedOpen;
+
+  const matchesCommand =
+    commandKnown
+      ? ((commandedClosed && actualClosed) || (commandedOpen && actualOpen))
+      : null;
+
+  return {
+    actualDotColor: actualClosed ? "blue" : actualOpen ? "gray" : "red",
+    matchDotColor:
+      matchesCommand === true ? "green" :
+      matchesCommand === false ? "red" :
+      "amber",
+    actualLabel: actualClosed ? "Closed" : actualOpen ? "Open" : "Unknown / Fault",
+    matchLabel:
+      matchesCommand === true ? "Command matched" :
+      matchesCommand === false ? "Command mismatch" :
+      "Command unknown / pending"
+  };
+}
+
+function getTailwindClasses(color: string) {
+  switch (color) {
+    case "blue":
+      return "bg-blue-400 shadow-[0_0_5px_rgba(96,165,250,0.5)]";
+    case "gray":
+      return "bg-prizm-text-muted/30";
+    case "green":
+      return "bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
+    case "red":
+      return "bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]";
+    case "amber":
+    case "yellow":
+      return "bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]";
+    default:
+      return "bg-prizm-text-muted/30";
+  }
+}
+
 interface StringDetailErrorBoundaryProps {
   children: React.ReactNode;
   onBack?: () => void;
@@ -646,23 +714,9 @@ const handleManualRefresh = async () => {
                   const rotDot3 = alertsState === 'alarm' ? 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]' : alertsState === 'warning' ? 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]' : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]';
                   
                   // Contactor Dots
-                  const stateHasContactorProps = typeof s.positiveContactorClosed === "boolean" && typeof s.negativeContactorClosed === "boolean";
-                  const overallContactorClosed = stateHasContactorProps 
-                        ? (s.positiveContactorClosed && s.negativeContactorClosed) 
-                        : s.contactorClosed;
-                  
-                  const contDot1 = overallContactorClosed ? 'bg-blue-400 shadow-[0_0_5px_rgba(96,165,250,0.5)]' : 'bg-prizm-text-muted/30';
-                  
-                  let contDot2 = 'bg-prizm-text-muted/30';
-                  let contDot3 = 'bg-prizm-text-muted/30';
-                  if (typeof s.contactorsCloseExpected === "boolean" && stateHasContactorProps) {
-                        contDot2 = s.positiveContactorClosed === s.contactorsCloseExpected ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]';
-                        contDot3 = s.negativeContactorClosed === s.contactorsCloseExpected ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]';
-                  } else if (stateHasContactorProps) {
-                        // Without expected, we can just show physical state or default to unknown
-                        contDot2 = s.positiveContactorClosed ? 'bg-blue-400 border border-transparent' : 'bg-prizm-bg border border-prizm-text-muted/50';
-                        contDot3 = s.negativeContactorClosed ? 'bg-blue-400 border border-transparent' : 'bg-prizm-bg border border-prizm-text-muted/50';
-                  }
+                  const contactorState = getContactorVisualState(s);
+                  const contDot1 = getTailwindClasses(contactorState.actualDotColor);
+                  const contDot2 = getTailwindClasses(contactorState.matchDotColor);
                   
                   // Fans logic & color mapping
                   const MAX_FAN_RPM = 7500;
@@ -836,11 +890,10 @@ const handleManualRefresh = async () => {
 <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
-                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected?"CLOSED":"OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed!==undefined?(s.positiveContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Negative: ${s.negativeContactorClosed!==undefined?(s.negativeContactorClosed?"CLOSED":"OPEN"):"Unknown"} | Reclose Count: ${s.recloseCount ?? "--"}`}
+                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected ? "CLOSED" : "OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed !== undefined ? (s.positiveContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Negative: ${s.negativeContactorClosed !== undefined ? (s.negativeContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Reclose Count: ${s.recloseCount ?? "--"} | Status: ${contactorState.actualLabel} (${contactorState.matchLabel})`}
                        >
                            <div className={`w-2 h-2 rounded-full ${contDot1}`}></div>
                            <div className={`w-2 h-2 rounded-full ${contDot2}`}></div>
-                           <div className={`w-2 h-2 rounded-full ${contDot3}`}></div>
                            <span className="ml-1 text-[9px] text-prizm-text-muted">R:{s.recloseCount ?? "--"}</span>
                        </div>
                     </td>
