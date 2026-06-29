@@ -1,5 +1,6 @@
 import * as prizmCache from "./src/server/cache/prizmCache";
 import AdmZip from "adm-zip";
+import PDFDocument from "pdfkit";
 import { getCorrectiveActionsFromNormalizedFaults } from "./src/server/faults/normalizedFaultSource";
 import safetyFaultClearRouter from "./src/server/safetyFaultClear";
 import stringsDashboardRouter from "./src/server/stringsDashboard";
@@ -1621,8 +1622,138 @@ app.post("/api/local/reports/cleanup", (req, res) => {
   }
 });
 
+async function generateCorrectiveActionsPdf(
+  filePath: string,
+  stationCode: string,
+  activeProfile: any,
+  correctiveActions: any[]
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50, size: "A4" });
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+
+      const BRAND_GREEN = "#32A97B";
+      const TEXT_MAIN = "#1e293b";
+      const TEXT_MUTED = "#64748b";
+      const BORDER_LIGHT = "#e2e8f0";
+      const BG_ALT = "#f8fafc";
+      const DANGER = "#ef4444";
+      const WARNING = "#f59e0b";
+      const INFO = "#3b82f6";
+
+      // 1. Header Line / Accent
+      doc.rect(50, 40, 495, 4).fill(BRAND_GREEN);
+      doc.y = 60;
+
+      // Logo and Title
+      doc.fontSize(10).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 60);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("FIELD REMEDIATION & PUNCH LIST REPORT", 50, 75);
+      
+      // Divider
+      doc.moveTo(50, 100).lineTo(545, 100).strokeColor(BORDER_LIGHT).stroke();
+      
+      // Metadata Panel (compact box)
+      const metaY = 115;
+      doc.rect(50, metaY, 495, 75).fillAndStroke(BG_ALT, BORDER_LIGHT);
+      
+      doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED);
+      doc.text("Station Code:", 70, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(stationCode, 160, metaY + 15);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Generated At:", 70, metaY + 32).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(new Date().toUTCString(), 160, metaY + 32);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Active Profile:", 70, metaY + 49).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(activeProfile.profileName || "Active-Live Profile", 160, metaY + 49);
+
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Total Outstanding:", 330, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${correctiveActions.length} active issues`, 430, metaY + 15);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Report Status:", 330, metaY + 32).font("Helvetica-Bold").fillColor(correctiveActions.length > 0 ? DANGER : BRAND_GREEN).text(correctiveActions.length > 0 ? "ACTION REQUIRED" : "NOMINAL", 430, metaY + 32);
+
+      doc.y = metaY + 110;
+
+      // Status Check banner
+      if (correctiveActions.length === 0) {
+        doc.rect(50, doc.y, 495, 40).fillAndStroke("#ecfdf5", "#a7f3d0");
+        doc.fontSize(10).font("Helvetica-Bold").fillColor("#065f46").text("✔ SYSTEM STATUS NOMINAL: No corrective action entries or active faults present.", 70, doc.y + 15);
+        doc.moveDown(2);
+      } else {
+        // Items
+        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Outstanding Corrective Action Items", 50, doc.y);
+        doc.moveDown(0.5);
+
+        correctiveActions.forEach((act, idx) => {
+          // Check if we need a page break (each item is roughly 120-140pt high)
+          if (doc.y + 140 > 750) {
+            doc.addPage();
+            // Re-draw small header on subsequent pages
+            doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List", 50, 50);
+            doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
+            doc.y = 80;
+          }
+
+          const itemY = doc.y;
+          const severityColor = act.level === "ALARM" ? DANGER : (act.level === "WARNING" ? WARNING : INFO);
+
+          // Draw item container
+          doc.rect(50, itemY, 495, 125).strokeColor(BORDER_LIGHT).stroke();
+
+          // Severity indicator block
+          doc.rect(51, itemY + 1, 6, 123).fill(severityColor);
+
+          // Header
+          doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${act.fault}`, 70, itemY + 12);
+          doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED).text(`Target: ${act.object}`, 70, itemY + 28);
+
+          // Key metrics inside item
+          doc.fontSize(8).font("Helvetica").fillColor(TEXT_MUTED).text("Source:", 70, itemY + 45).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source, 120, itemY + 45);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Occurrence:", 70, itemY + 58).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.details, 120, itemY + 58);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Remedy Action:", 70, itemY + 71).font("Helvetica-Bold").fillColor(BRAND_GREEN).text(act.suggestedAction, 120, itemY + 71);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Status:", 70, itemY + 84).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.status, 120, itemY + 84);
+
+          // Notes Line
+          doc.moveTo(70, itemY + 108).lineTo(525, itemY + 108).strokeColor(BORDER_LIGHT).stroke();
+          doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Technician Notes: ____________________________________________________________________", 70, itemY + 112);
+
+          doc.y = itemY + 135;
+        });
+      }
+
+      // Sign-off Block
+      if (doc.y + 110 > 750) {
+        doc.addPage();
+        doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+        doc.y = 60;
+      }
+
+      doc.moveDown(1);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(BORDER_LIGHT).stroke();
+      doc.moveDown(1);
+
+      doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Utility / Lead Auditor Sign-off");
+      doc.moveDown(1.5);
+
+      const signY = doc.y;
+      doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED);
+      
+      doc.text("Name: _______________________", 70, signY);
+      doc.text("Signature: _______________________", 300, signY);
+      
+      doc.text("Date: _______________________", 70, signY + 30);
+      doc.text("Time:      _______________________", 300, signY + 30);
+
+      doc.rect(50, signY + 60, 495, 20).fill(BG_ALT);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MUTED).text("CONFIDENTIAL - FOR INTERNAL GREENERGY FIELD OPERATION USE ONLY", 50, signY + 66, { align: "center", width: 495 });
+
+      doc.end();
+
+      stream.on("finish", () => resolve());
+      stream.on("error", (err) => reject(err));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // 6. POST: Generate Report
-app.post("/api/local/reports/generate", (req, res) => {
+app.post("/api/local/reports/generate", async (req, res) => {
   try {
     const { reportType, format, includeRawJson, includeCsv, includePdf } = req.body;
     
@@ -1762,45 +1893,55 @@ app.post("/api/local/reports/generate", (req, res) => {
         });
 
       } else if (cleanFormat === "pdf") {
-        // PDF Summary output (rendered as an elegant structured text report file)
+        // PDF Summary output (rendered as an elegant PDF binary file)
         const filename = `${prefix}.pdf`;
         const filePath = path.join(reportsDir, filename);
-        let content = `================================================================================\n`;
-        content += `                 PRIZM FIELD REMEDIATION & PUNCH LIST REPORT                    \n`;
-        content += `================================================================================\n\n`;
-        content += `Station-Code:      ${stationCode}\n`;
-        content += `Generated At:      ${new Date().toUTCString()}\n`;
-        content += `Active Profile:    ${activeProfile.profileName || "Active-Live Profile"}\n`;
-        content += `Total Outstanding: ${correctiveActions.length} active issues detected\n`;
-        content += `--------------------------------------------------------------------------------\n\n`;
         
-        if (correctiveActions.length === 0) {
-          content += `✔ SYSTEM STATUS NOMINAL: No corrective action entries or faults present.\n`;
-        } else {
-          correctiveActions.forEach((act, idx) => {
-            content += `${idx + 1}. [${act.level}] ${act.fault} on ${act.object}\n`;
-            content += `   Source:           ${act.source}\n`;
-            content += `   Detailed Context: ${act.details}\n`;
-            content += `   Remedy Action:    ${act.suggestedAction}\n`;
-            content += `   Status:           ${act.status}\n`;
-            content += `   Technician Notes: ________________________________________________________\n\n`;
+        try {
+          await generateCorrectiveActionsPdf(filePath, stationCode, activeProfile, correctiveActions);
+          const stat = fs.statSync(filePath);
+          return res.json({
+            success: true,
+            reportId: filename,
+            filename,
+            sizeBytes: stat.size,
+            downloadUrl: `/api/local/reports/download/${filename}`
+          });
+        } catch (pdfErr: any) {
+          console.error("Failed to generate real PDF, falling back to text file", pdfErr);
+          // Fallback to text file so that it at least completes
+          let content = `================================================================================\n`;
+          content += `                 PRIZM FIELD REMEDIATION & PUNCH LIST REPORT                    \n`;
+          content += `================================================================================\n\n`;
+          content += `Station-Code:      ${stationCode}\n`;
+          content += `Generated At:      ${new Date().toUTCString()}\n`;
+          content += `Active Profile:    ${activeProfile.profileName || "Active-Live Profile"}\n`;
+          content += `Total Outstanding: ${correctiveActions.length} active issues detected\n`;
+          content += `--------------------------------------------------------------------------------\n\n`;
+          
+          if (correctiveActions.length === 0) {
+            content += `✔ SYSTEM STATUS NOMINAL: No corrective action entries or faults present.\n`;
+          } else {
+            correctiveActions.forEach((act, idx) => {
+              content += `${idx + 1}. [${act.level}] ${act.fault} on ${act.object}\n`;
+              content += `   Source:           ${act.source}\n`;
+              content += `   Detailed Context: ${act.details}\n`;
+              content += `   Remedy Action:    ${act.suggestedAction}\n`;
+              content += `   Status:           ${act.status}\n`;
+              content += `   Technician Notes: ________________________________________________________\n\n`;
+            });
+          }
+          content += `--------------------------------------------------------------------------------\n`;
+          fs.writeFileSync(filePath, content, "utf-8");
+          const stat = fs.statSync(filePath);
+          return res.json({
+            success: true,
+            reportId: filename,
+            filename,
+            sizeBytes: stat.size,
+            downloadUrl: `/api/local/reports/download/${filename}`
           });
         }
-        content += `--------------------------------------------------------------------------------\n`;
-        content += `Utility / Lead Auditor Sign-off:\n\n`;
-        content += `Name:   _______________________     Signature: _______________________\n`;
-        content += `Date:   _______________________     Time:      _______________________\n`;
-        content += `================================================================================\n`;
-
-        fs.writeFileSync(filePath, content, "utf-8");
-        const stat = fs.statSync(filePath);
-        return res.json({
-          success: true,
-          reportId: filename,
-          filename,
-          sizeBytes: stat.size,
-          downloadUrl: `/api/local/reports/download/${filename}`
-        });
       } else {
         // JSON format
         const filename = `${prefix}.json`;
