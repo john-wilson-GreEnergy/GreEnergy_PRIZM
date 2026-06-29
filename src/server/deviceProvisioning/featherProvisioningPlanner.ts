@@ -6,9 +6,10 @@ export function buildProvisioningPlanPreview(
   targetFeatherIp: string,
   featherIndex: number,
   ioLogikIp: string,
+  ioLogikSource: "calculated" | "override" | "user-input",
   targetLabel: string | undefined,
-  bundleValidation: ProvisioningBundleValidationResult,
-  bundleSource: { mode: "manifest" | "server-path", sourceLabel: string, bundlePath: string }
+  bundleValidation: ProvisioningBundleValidationResult | any,
+  bundleSource: { mode: "manifest" | "server-path" | "prizm-workspace", sourceLabel: string, bundlePath: string }
 ): ProvisioningPlanPreview {
   const plan: ProvisioningPlanPreview = {
     planId: uuidv4(),
@@ -29,7 +30,7 @@ export function buildProvisioningPlanPreview(
     calculatedValues: [
       { key: 'targetFeatherIp', label: 'Target Feather IP', value: targetFeatherIp, source: 'user-input' },
       { key: 'featherIndex', label: 'Feather Index', value: featherIndex, source: 'user-input' },
-      { key: 'ioLogikIp', label: 'ioLogik IP', value: ioLogikIp, source: 'user-input' } // Or calculated depending on how it was passed, but we treat as input here
+      { key: 'ioLogikIp', label: 'ioLogik IP', value: ioLogikIp, source: ioLogikSource }
     ],
     steps: [],
     warnings: [],
@@ -37,11 +38,23 @@ export function buildProvisioningPlanPreview(
   };
 
   // Validations
-  const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-  if (!ipRegex.test(targetFeatherIp)) {
+  const isValidIp = (ip: string) => {
+    if (!ip) return false;
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    for (const part of parts) {
+      if (part === '') return false; // No empty octets
+      if (!/^\d+$/.test(part)) return false; // Must be numeric
+      const num = parseInt(part, 10);
+      if (num < 0 || num > 255) return false; // 0 through 255
+    }
+    return true;
+  };
+
+  if (!isValidIp(targetFeatherIp)) {
     plan.errors.push(`Invalid Target Feather IP: ${targetFeatherIp}`);
   }
-  if (!ipRegex.test(ioLogikIp)) {
+  if (!isValidIp(ioLogikIp)) {
     plan.errors.push(`Invalid ioLogik IP: ${ioLogikIp}`);
   }
   if (typeof featherIndex !== 'number' || isNaN(featherIndex)) {

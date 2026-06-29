@@ -13,7 +13,7 @@ export type ProvisioningPlanPreview = {
     bundleType?: string;
     bundleStatus?: string;
     bundleDisplayStatus?: string;
-    sourceMode: "manifest" | "server-path";
+    sourceMode: "manifest" | "server-path" | "prizm-workspace";
     sourceLabel?: string;
     bundlePath?: string;
   };

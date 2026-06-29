@@ -4,7 +4,18 @@ import { validateManifest } from './provisioningManifestValidator';
 import { saveSelectedBundle, getSelectedBundle, clearSelectedBundle, saveValidationToHistory } from './provisioningBundleStorage';
 import { buildProvisioningPlanPreview } from './featherProvisioningPlanner';
 
+import { validateProvisioningWorkspace } from './provisioningWorkspaceValidator';
+
 const router = Router();
+
+router.get('/workspace/validate', async (req, res) => {
+  try {
+    const result = await validateProvisioningWorkspace();
+    res.json({ success: true, validation: result });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 
 router.post('/bundles/validate', (req, res) => {
   const { bundlePath } = req.body;
@@ -61,7 +72,7 @@ router.delete('/bundles/selected', (req, res) => {
 });
 
 router.post('/plans/preview', (req, res) => {
-  const { targetFeatherIp, featherIndex, ioLogikIp, targetLabel, bundleValidation, bundleSource } = req.body;
+  const { targetFeatherIp, featherIndex, ioLogikIp, ioLogikSource, targetLabel, bundleValidation, bundleSource } = req.body;
   if (!targetFeatherIp || featherIndex === undefined || !ioLogikIp || !bundleValidation || !bundleSource) {
     return res.status(400).json({ success: false, error: "Missing required fields" });
   }
@@ -71,6 +82,7 @@ router.post('/plans/preview', (req, res) => {
       targetFeatherIp,
       Number(featherIndex),
       ioLogikIp,
+      ioLogikSource || "user-input",
       targetLabel,
       bundleValidation,
       bundleSource

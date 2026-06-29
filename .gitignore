@@ -14,3 +14,15 @@ coverage/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Provisioning workspace
+provisioning/site-files/netmaps/*.csv
+provisioning/site-files/baseline/*.tar
+provisioning/site-files/war/*.war
+provisioning/site-files/overrides/*.json
+provisioning/site-files/overrides/*.xml
+provisioning/site-files/**/*.log
+provisioning/site-files/**/*.bak
+
+!provisioning/site-files/**/README.md
+!provisioning/site-files/**/.gitkeep
