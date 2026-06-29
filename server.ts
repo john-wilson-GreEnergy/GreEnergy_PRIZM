@@ -1872,21 +1872,44 @@ async function generateCorrectiveActionsPdf(
 
       // Run second-pass on all pages to draw standard, beautiful running footers with Page Numbers!
       const range = doc.bufferedPageRange();
-      for (let i = 0; i < range.count; i++) {
+      for (let i = range.start; i < range.start + range.count; i++) {
         doc.switchToPage(i);
 
+        const pageNumber = i - range.start + 1;
+        const totalPages = range.count;
+
         // Header (only on page 2+)
-        if (i > 0) {
-          doc.fontSize(7).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 20);
-          doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED).text(`PRIZM Corrective Action Summary  |  Station ${stationCode}`, 50, 30, { align: "right", width: 495 });
+        if (pageNumber > 1) {
+          doc.fontSize(7).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 20, { lineBreak: false });
+          doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED).text(`PRIZM Corrective Action Summary  |  Station ${stationCode}`, 50, 30, { align: "right", width: 495, lineBreak: false });
           doc.moveTo(50, 42).lineTo(545, 42).strokeColor(BORDER_LIGHT).stroke();
         }
 
-        // Standard Footer
-        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(TEXT_MUTED);
-        doc.text("CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY", 50, 775, { align: "center", width: 495 });
-        doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED);
-        doc.text(`GreEnergy PRIZM | Corrective Action Summary | Station ${stationCode} | Page ${i + 1} of ${range.count}`, 50, 790, { align: "center", width: 495 });
+        // Standard Footer - Confidential Line
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(TEXT_MUTED);
+        doc.text(
+          "CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY",
+          50,
+          doc.page.height - 45,
+          {
+            width: doc.page.width - 100,
+            align: "center",
+            lineBreak: false
+          }
+        );
+
+        // Standard Footer - Page Number Line
+        doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED);
+        doc.text(
+          `GreEnergy PRIZM | Corrective Action Summary | Station ${stationCode} | Page ${pageNumber} of ${totalPages}`,
+          50,
+          doc.page.height - 32,
+          {
+            width: doc.page.width - 100,
+            align: "center",
+            lineBreak: false
+          }
+        );
       }
 
       doc.end();
