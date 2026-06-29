@@ -116,6 +116,31 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
   const [networkType, setNetworkType] = useState<"in-network" | "external">("in-network");
   const [featherType, setFeatherType] = useState<"CS" | "ES">("ES");
 
+  const [sshUsername, setSshUsername] = useState('moxa');
+  const [sshPassword, setSshPassword] = useState('');
+  const [sudoPassword, setSudoPassword] = useState('');
+  const [useSamePasswordForSudo, setUseSamePasswordForSudo] = useState(false);
+
+  // Clear credentials when unmounted
+  useEffect(() => {
+    return () => {
+      setSshPassword('');
+      setSudoPassword('');
+    };
+  }, []);
+
+  // Clear passwords on source mode changes
+  useEffect(() => {
+    setSshPassword('');
+    setSudoPassword('');
+  }, [sourceMode]);
+
+  // Clear passwords on workflow mode changes
+  useEffect(() => {
+    setSshPassword('');
+    setSudoPassword('');
+  }, [workflowMode]);
+
   // Auto-calculate ioLogik IP
   useEffect(() => {
     let ipToCalculateFrom = finalFeatherIp;
@@ -330,6 +355,10 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
       setBundlePath('');
       setCurrentManifest(null);
       setPlanPreview(null);
+      setSshUsername('moxa');
+      setSshPassword('');
+      setSudoPassword('');
+      setUseSamePasswordForSudo(false);
     } catch (e) {
       console.error(e);
     }
@@ -430,7 +459,11 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
           targetLabel,
           bundleValidation: targetValidation,
           workspaceValidation: workspaceValidation,
-          bundleSource
+          bundleSource,
+          sshUsername,
+          sshPasswordProvided: !!sshPassword,
+          sudoPasswordProvided: useSamePasswordForSudo ? !!sshPassword : !!sudoPassword,
+          useSamePasswordForSudo
         })
       });
       const data = await res.json();
@@ -969,6 +1002,57 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                  </div>
                </div>
                
+                <div className="mt-6 pt-6 border-t border-prizm-border">
+                  <h5 className="font-semibold text-prizm-text text-base mb-3">Runtime Credentials</h5>
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Target SSH Username</label>
+                      <input 
+                        type="text" 
+                        className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                        value={sshUsername}
+                        onChange={(e) => setSshUsername(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Target SSH Password</label>
+                      <input 
+                        type="password" 
+                        className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                        placeholder="Blank"
+                        value={sshPassword}
+                        onChange={(e) => setSshPassword(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Sudo Password</label>
+                      <input 
+                        type="password" 
+                        className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm disabled:opacity-50"
+                        placeholder={useSamePasswordForSudo ? "Same as SSH" : "Blank"}
+                        value={useSamePasswordForSudo ? sshPassword : sudoPassword}
+                        onChange={(e) => setSudoPassword(e.target.value)}
+                        disabled={useSamePasswordForSudo}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <input 
+                      type="checkbox" 
+                      id="useSamePasswordForSudo"
+                      className="rounded border-prizm-border text-prizm-primary focus:ring-prizm-primary h-4 w-4 cursor-pointer"
+                      checked={useSamePasswordForSudo}
+                      onChange={(e) => setUseSamePasswordForSudo(e.target.checked)}
+                    />
+                    <label htmlFor="useSamePasswordForSudo" className="text-sm text-slate-700 select-none cursor-pointer">
+                      Use same password for SSH and sudo
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Credentials are only used during a future controlled provisioning run. They are not stored, logged, or saved in templates.
+                  </p>
+                </div>
+                
                <div className="flex items-center justify-between mt-4">
                  <div className="text-sm text-slate-500 italic">
                    Plan preview does not run commands, copy files, change network settings, or connect to the target device.
@@ -1094,6 +1178,21 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                             Requires Credentials
                           </span>
                         </div>
+
+                        {(step.requiresCredentials || step.requiresSudo) && (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {step.requiresCredentials && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 text-xs font-medium text-slate-600 border border-slate-200">
+                                SSH credentials required.
+                              </span>
+                            )}
+                            {step.requiresSudo && (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-50 text-xs font-medium text-amber-700 border border-amber-200">
+                                Sudo credentials required.
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {step.commandsPreview && step.commandsPreview.length > 0 && (
                           <div className="mt-3">

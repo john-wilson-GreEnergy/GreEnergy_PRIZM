@@ -15,7 +15,11 @@ export function buildProvisioningPlanPreview(
   ioLogikSource: "calculated" | "override" | "user-input" | undefined,
   targetLabel: string | undefined,
   bundleValidation: ProvisioningBundleValidationResult | any,
-  bundleSource: { mode: "manifest" | "server-path" | "prizm-workspace", sourceLabel: string, bundlePath: string }
+  bundleSource: { mode: "manifest" | "server-path" | "prizm-workspace", sourceLabel: string, bundlePath: string },
+  sshUsername?: string,
+  sshPasswordProvided?: boolean,
+  sudoPasswordProvided?: boolean,
+  useSamePasswordForSudo?: boolean
 ): ProvisioningPlanPreview {
   const plan: ProvisioningPlanPreview = {
     planId: uuidv4(),
@@ -33,7 +37,11 @@ export function buildProvisioningPlanPreview(
       featherIndex,
       ioLogikIp,
       ioLogikSource,
-      targetLabel
+      targetLabel,
+      sshUsername,
+      sshPasswordProvided,
+      sudoPasswordProvided,
+      useSamePasswordForSudo
     },
     bundle: {
       bundleStatus: bundleValidation.status,
@@ -207,6 +215,7 @@ export function buildProvisioningPlanPreview(
       description: 'Backup existing remote network interfaces before overwrite.',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh PRIZM_TARGET_USER@${startingIp} "cp /etc/network/interfaces /etc/network/interfaces.bak_$(date +%Y%m%d%H%M%S)"`
       ]
@@ -223,6 +232,7 @@ export function buildProvisioningPlanPreview(
       description: networkType === 'in-network' ? 'Write static final IP and gateway' : 'Switch appropriate interface to DHCP',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       filesWritten: [
         `/etc/network/interfaces`
       ]
@@ -239,6 +249,7 @@ export function buildProvisioningPlanPreview(
       description: 'Write /etc/resolv.conf with nameserver 8.8.8.8.',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       filesWritten: [
         `/etc/resolv.conf`
       ]
@@ -255,6 +266,7 @@ export function buildProvisioningPlanPreview(
       description: 'Reboot target and wait for post-baseline IP reachability.',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh PRIZM_TARGET_USER@${startingIp} "sudo reboot"`
       ]
@@ -303,6 +315,7 @@ export function buildProvisioningPlanPreview(
       description: `Execute featherScript.sh on target`,
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh PRIZM_TARGET_USER@${postBaselineIp} "cd ~/deploy && chmod +x featherScript.sh && sudo ./featherScript.sh"`
       ]
@@ -402,6 +415,7 @@ export function buildProvisioningPlanPreview(
       description: `Backup existing identity and configs`,
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh PRIZM_TARGET_USER@${hatcheryTargetIp} "tar -czf hatchery_backup_$(date +%Y%m%d%H%M%S).tar.gz /etc/powin"`
       ]
@@ -418,6 +432,7 @@ export function buildProvisioningPlanPreview(
       description: 'Update identity and IP configuration files with target-specific values.',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       filesWritten: [
         `fourbaidentity.json (featherIndex -> ${featherIndex})`,
         `feather.json (featherIndex -> ${featherIndex})`,
@@ -436,6 +451,7 @@ export function buildProvisioningPlanPreview(
       description: 'Update feather.xml ioLogik target',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       filesWritten: [
         `feather.xml (ioLogik target -> ${ioLogikIp})`
       ]
@@ -459,6 +475,7 @@ export function buildProvisioningPlanPreview(
       description: `Update serial settings based on Feather Type ${featherType}`,
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       filesWritten: [
         `feather.properties`,
       ],
@@ -494,6 +511,7 @@ export function buildProvisioningPlanPreview(
       description: 'Execute hatchery_configure_feather_powin.sh',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh -t PRIZM_TARGET_USER@${hatcheryTargetIp} "cd ~/hatchery && sudo ./hatchery_configure_feather_powin.sh"`
       ]
@@ -510,6 +528,7 @@ export function buildProvisioningPlanPreview(
       description: 'Execute hatchery_install_war.sh with feather.war and feather.xml',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh -t PRIZM_TARGET_USER@${hatcheryTargetIp} "cd ~/hatchery && sudo ./hatchery_install_war.sh feather.war feather.xml"`
       ]
@@ -526,6 +545,7 @@ export function buildProvisioningPlanPreview(
       description: 'Restart tomcat8 service',
       wouldModifyTarget: true,
       requiresCredentials: true,
+      requiresSudo: true,
       commandsPreview: [
         `ssh -t PRIZM_TARGET_USER@${hatcheryTargetIp} "sudo service tomcat8 restart"`
       ]

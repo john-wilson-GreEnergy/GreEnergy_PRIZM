@@ -15,6 +15,10 @@ export type ProvisioningPlanPreview = {
     ioLogikIp?: string;
     ioLogikSource?: "calculated" | "override" | "user-input";
     targetLabel?: string;
+    sshUsername?: string;
+    sshPasswordProvided?: boolean;
+    sudoPasswordProvided?: boolean;
+    useSamePasswordForSudo?: boolean;
   };
   bundle: {
     bundleId?: string;
@@ -42,6 +46,7 @@ export type ProvisioningPlanPreview = {
     description: string;
     wouldModifyTarget: boolean;
     requiresCredentials: boolean;
+    requiresSudo?: boolean;
     commandsPreview?: string[];
     filesRead?: string[];
     filesWritten?: string[];

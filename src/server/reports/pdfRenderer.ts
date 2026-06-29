@@ -66,6 +66,93 @@ function formatPowerKw(value: any): string {
   return num.toFixed(1) + " kW";
 }
 
+function compressComponentList(components: string[]): string {
+  if (components.length === 0) return "String-level";
+  
+  // Group by BPC
+  const bpcToCgs = new Map<number, Set<number>>();
+  const generalBpcs = new Set<number>();
+  const generalCgs = new Set<number>();
+  const otherStrings: string[] = [];
+  
+  for (const comp of components) {
+    const bpcCgMatch = comp.match(/BPC\s*(\d+)\s*CG\s*(\d+)/i);
+    if (bpcCgMatch) {
+      const bpc = parseInt(bpcCgMatch[1], 10);
+      const cg = parseInt(bpcCgMatch[2], 10);
+      if (!bpcToCgs.has(bpc)) bpcToCgs.set(bpc, new Set());
+      bpcToCgs.get(bpc)!.add(cg);
+      continue;
+    }
+    
+    const bpcMatch = comp.match(/BPC\s*(\d+)/i);
+    if (bpcMatch) {
+      const bpc = parseInt(bpcMatch[1], 10);
+      generalBpcs.add(bpc);
+      continue;
+    }
+    
+    const cgMatch = comp.match(/CG\s*(\d+)/i);
+    if (cgMatch) {
+      const cg = parseInt(cgMatch[1], 10);
+      generalCgs.add(cg);
+      continue;
+    }
+    
+    otherStrings.push(comp);
+  }
+  
+  const resultParts: string[] = [];
+  
+  // Sort BPCs
+  const sortedBpcs = Array.from(bpcToCgs.keys()).sort((a, b) => a - b);
+  for (const bpc of sortedBpcs) {
+    const cgs = Array.from(bpcToCgs.get(bpc)!).sort((a, b) => a - b);
+    if (cgs.length === 0) {
+      resultParts.push(`BPC ${bpc}`);
+    } else {
+      // Compress consecutive CGs if possible
+      const cgRanges: string[] = [];
+      let start = cgs[0];
+      let prev = cgs[0];
+      
+      for (let i = 1; i <= cgs.length; i++) {
+        const curr = cgs[i];
+        if (curr === prev + 1) {
+          prev = curr;
+        } else {
+          if (start === prev) {
+            cgRanges.push(`${start}`);
+          } else if (prev === start + 1) {
+            cgRanges.push(`${start},${prev}`);
+          } else {
+            cgRanges.push(`${start}-${prev}`);
+          }
+          if (curr !== undefined) {
+            start = curr;
+            prev = curr;
+          }
+        }
+      }
+      resultParts.push(`BPC ${bpc} (CG ${cgRanges.join(',')})`);
+    }
+  }
+  
+  if (generalBpcs.size > 0) {
+    const bpcs = Array.from(generalBpcs).sort((a, b) => a - b);
+    resultParts.push(`BPCs ${bpcs.join(',')}`);
+  }
+  
+  if (generalCgs.size > 0) {
+    const cgs = Array.from(generalCgs).sort((a, b) => a - b);
+    resultParts.push(`CGs ${cgs.join(',')}`);
+  }
+  
+  resultParts.push(...otherStrings);
+  
+  return resultParts.join(", ");
+}
+
 // --- Layout Colors & Constants ---
 
 const BRAND_GREEN = '#32A97B';
@@ -419,7 +506,15 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
         
         drawSectionHeader(doc, 'Corrective Actions', 'Active faults and suggested troubleshooting steps');
         
-        const actions = asArray(payload.correctiveActions.groupedActions);
+        const rawActions = asArray(payload.correctiveActions.groupedActions);
+        const actions = rawActions.filter((issue: any) => {
+          const name = (issue.faultName || issue.fault || "").toLowerCase();
+          const code = String(issue.code || issue.id || "");
+          if (code === "2534" || code === "2561" || name.includes("2534") || name.includes("2561")) {
+            return false;
+          }
+          return true;
+        });
         
         if (actions.length === 0) {
            doc.fontSize(10).fillColor(TEXT_MUTED).text('No active corrective actions were present in this snapshot.');
@@ -444,32 +539,101 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
               doc.fillColor(TEXT_MUTED).text(`Suggested Action: ${safeText(a.suggestedAction)}`);
               doc.moveDown(0.5);
               
-              const relatedTargets = asArray(payload.correctiveActions?.expandedTargets)
-                .filter(t => t.faultCode === a.fault && t.source === a.source);
+              const targetsList = asArray(a.targets);
+              if (targetsList.length > 0) {
+                 const locationGroups: Record<string, {
+                   array: string;
+                   stack: string;
+                   string: string;
+                   side: string;
+                   deviceIp: string;
+                   components: string[];
+                 }> = {};
 
-              if (relatedTargets.length > 0) {
-                 // Limit to a reasonable number to avoid 500 page PDFs for spammy faults
+                 targetsList.forEach((t: any) => {
+                   const arrayVal = t.arrayIndex ?? t.arrayNumber ?? t.array;
+                   const arrayStr = arrayVal !== undefined && arrayVal !== null ? `A${arrayVal}` : "-";
+
+                   let stackStr = "-";
+                   if (t.blockIndex !== undefined && t.blockIndex !== null) {
+                     stackStr = `B${t.blockIndex}`;
+                   } else if (t.segmentIndex !== undefined && t.segmentIndex !== null) {
+                     stackStr = `ES${t.segmentIndex}`;
+                   } else if (t.energySegmentIndex !== undefined && t.energySegmentIndex !== null) {
+                     stackStr = `ES${t.energySegmentIndex}`;
+                   } else if (t.energySegmentNumber !== undefined && t.energySegmentNumber !== null) {
+                     stackStr = `ES${t.energySegmentNumber}`;
+                   } else if (t.stack !== undefined && t.stack !== null) {
+                     stackStr = String(t.stack);
+                   } else if (t.container !== undefined && t.container !== null) {
+                     stackStr = String(t.container);
+                   }
+
+                   const stringVal = t.stringIndex ?? t.stringNumber ?? t.string;
+                   const stringStr = stringVal !== undefined && stringVal !== null ? `Str ${stringVal}` : "-";
+
+                   const sideStr = t.side ?? t.stringSide ?? "-";
+                   const deviceIpStr = t.deviceIp ?? t.ip ?? "-";
+
+                   const bpcVal = t.bpcIndex ?? t.batteryPackIndex ?? t.bpc;
+                   const cgVal = t.cellGroupIndex ?? t.cgIndex ?? t.cellGroup;
+
+                   let componentStr = "";
+                   if (bpcVal !== undefined && bpcVal !== null && bpcVal !== "") {
+                     if (cgVal !== undefined && cgVal !== null && cgVal !== "") {
+                       componentStr = `BPC ${bpcVal} CG ${cgVal}`;
+                     } else {
+                       componentStr = `BPC ${bpcVal}`;
+                     }
+                   } else if (cgVal !== undefined && cgVal !== null && cgVal !== "") {
+                     componentStr = `CG ${cgVal}`;
+                   }
+
+                   const groupKey = `${arrayStr}|${stackStr}|${stringStr}|${sideStr}|${deviceIpStr}`;
+                   if (!locationGroups[groupKey]) {
+                     locationGroups[groupKey] = {
+                       array: arrayStr,
+                       stack: stackStr,
+                       string: stringStr,
+                       side: sideStr,
+                       deviceIp: deviceIpStr,
+                       components: []
+                     };
+                   }
+
+                   if (componentStr) {
+                     locationGroups[groupKey].components.push(componentStr);
+                   }
+                 });
+
                  const maxTargets = 20;
-                 const displayedTargets = relatedTargets.slice(0, maxTargets);
-                 
-                 const tRows = displayedTargets.map(t => [
-                   safeText(t.target?.array, '-'),
-                   safeText(t.target?.stack || t.target?.container, '-'),
-                   safeText(t.target?.string, '-'),
-                   safeText(t.target?.side, '-'),
-                   safeText(t.target?.deviceIp, '-')
-                 ]);
-                 
+                 const allUniqueLocations = Object.values(locationGroups);
+                 const displayedLocations = allUniqueLocations.slice(0, maxTargets);
+
+                 const tRows = displayedLocations.map(g => {
+                   const uniqueComps = Array.from(new Set(g.components));
+                   const consolidatedStr = compressComponentList(uniqueComps);
+                   return [
+                     g.array,
+                     g.stack,
+                     g.string,
+                     g.side,
+                     g.deviceIp,
+                     consolidatedStr
+                   ];
+                 });
+
                  drawTableProper(doc, [
-                   { header: 'Array', width: 60 },
-                   { header: 'Stack/ES', width: 90 },
-                   { header: 'String', width: 80 },
-                   { header: 'Side', width: 80 },
-                   { header: 'Device IP', width: 120 }
+                   { header: 'Array', width: 50 },
+                   { header: 'Stack/ES', width: 60 },
+                   { header: 'String', width: 60 },
+                   { header: 'Side', width: 65 },
+                   { header: 'Device IP', width: 90 },
+                   { header: 'Affected Components', width: 170 }
                  ], tRows);
-                 
-                 if (relatedTargets.length > maxTargets) {
-                    doc.fontSize(8).fillColor(TEXT_MUTED).text(`... and ${relatedTargets.length - maxTargets} more targets not shown`, MARGIN, doc.y);
+
+                 if (allUniqueLocations.length > maxTargets) {
+                    doc.fontSize(8).fillColor(TEXT_MUTED).text(`... and ${allUniqueLocations.length - maxTargets} more unique locations not shown`, MARGIN, doc.y);
                     doc.moveDown(0.5);
                  }
               }

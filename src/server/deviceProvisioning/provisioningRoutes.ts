@@ -86,7 +86,11 @@ router.post('/plans/preview', (req, res) => {
     targetLabel,
     bundleValidation,
     workspaceValidation,
-    bundleSource
+    bundleSource,
+    sshUsername,
+    sshPasswordProvided,
+    sudoPasswordProvided,
+    useSamePasswordForSudo
   } = req.body;
 
   if (!workflowMode || !startingTargetState || !bundleValidation || !bundleSource) {
@@ -107,7 +111,11 @@ router.post('/plans/preview', (req, res) => {
       ioLogikSource,
       targetLabel,
       bundleValidation,
-      bundleSource
+      bundleSource,
+      sshUsername,
+      sshPasswordProvided,
+      sudoPasswordProvided,
+      useSamePasswordForSudo
     );
     res.json({ success: true, plan });
   } catch (e: any) {
