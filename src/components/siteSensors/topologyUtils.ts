@@ -42,6 +42,18 @@ export interface NormalizedSensorCell {
   displayValue: string;
   friendlyName?: string;
   sensorRole: string;
+
+  rawPresent?: boolean;
+  rawState?: string;
+  rawTripped?: boolean | null;
+  rawHealthy?: boolean;
+  monitoredByProfile?: boolean;
+  visibleInDefaultView?: boolean;
+  contributesToHealth?: boolean;
+  displayState?: "normal" | "open" | "alarm" | "fault" | "warning" | "unavailable" | "not-monitored" | "unknown";
+  healthState?: string;
+  reason?: string;
+  capability?: string;
 }
 
 export interface BlockSensorMatrixRow {

@@ -84,7 +84,23 @@ interface EmsProfile {
     }
   } | null;
   topologyModel?: TopologyModel;
+  sensorMonitoringProfile?: any;
 }
+
+const DEFAULT_SENSOR_PROFILE = {
+  collectionSegment: {
+    dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
+    manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
+    io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
+    hydrogen: false, hydrogenFault: false, envControllerVent: false
+  },
+  energySegment: {
+    dataUnavailable: true, batteryDoors: true, topCapDoors: true,
+    envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
+    io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+    acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
+  }
+};
 
 interface ConnectionSettingsProps {
   onProfileChanged?: () => void;
@@ -540,7 +556,8 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
       arrayCount: 8,
       stringsPerArray: 40,
       notes: "",
-      topologyModel: getDefaultTopologyModel()
+      topologyModel: getDefaultTopologyModel(),
+      sensorMonitoringProfile: JSON.parse(JSON.stringify(DEFAULT_SENSOR_PROFILE))
     });
     setFormIsNew(true);
     setFormError("");
@@ -572,7 +589,8 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
     };
     setFormProfile({
       ...p,
-      topologyModel: formTopology
+      topologyModel: formTopology,
+      sensorMonitoringProfile: p.sensorMonitoringProfile || JSON.parse(JSON.stringify(DEFAULT_SENSOR_PROFILE))
     });
     setFormIsNew(false);
     setFormError("");
@@ -1104,6 +1122,197 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                     min={1}
                     max={65535}
                   />
+                </div>
+
+                {/* Sensor Monitoring Profile settings */}
+                <div className="space-y-3 md:col-span-2 pt-4">
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-1">
+                    <div className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wide">Sensor Monitoring Profile</div>
+                    <button
+                      type="button"
+                      onClick={() => setFormProfile(prev => ({ ...prev, sensorMonitoringProfile: JSON.parse(JSON.stringify(DEFAULT_SENSOR_PROFILE)) }))}
+                      className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-semibold transition-colors"
+                    >
+                      Reset to Stack750/Kobold Default
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 italic">
+                    Select which sensor channels are actively monitored. Unchecked channels will be marked "Not Monitored", hidden from the default view, and will NOT affect system health calculations.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    {/* Collection Segment */}
+                    <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
+                      <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200/60 flex items-center justify-between">
+                        <span>Collection Segment (CS)</span>
+                        <div className="flex gap-2 text-[8px]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...(formProfile.sensorMonitoringProfile?.collectionSegment || DEFAULT_SENSOR_PROFILE.collectionSegment) };
+                              Object.keys(updated).forEach(k => { (updated as any)[k] = true; });
+                              setFormProfile(prev => ({
+                                ...prev,
+                                sensorMonitoringProfile: {
+                                  ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                  collectionSegment: updated as any
+                                }
+                              }));
+                            }}
+                            className="text-emerald-600 hover:underline font-bold"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...(formProfile.sensorMonitoringProfile?.collectionSegment || DEFAULT_SENSOR_PROFILE.collectionSegment) };
+                              Object.keys(updated).forEach(k => { (updated as any)[k] = false; });
+                              setFormProfile(prev => ({
+                                ...prev,
+                                sensorMonitoringProfile: {
+                                  ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                  collectionSegment: updated as any
+                                }
+                              }));
+                            }}
+                            className="text-slate-500 hover:underline font-bold"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto pr-1">
+                        {Object.entries({
+                          dataUnavailable: "Data Unavailable",
+                          acDoors: "AC Doors",
+                          dcDoors: "DC Doors",
+                          topCapDoors: "Lower Top Cap Doors",
+                          manualVentilation: "Manual Ventilation",
+                          smoke: "Smoke Alarm",
+                          fireTrouble: "Fire Trouble",
+                          fire: "Fire Alarm",
+                          io: "Lost IO Comms",
+                          heat: "Heat Alarm",
+                          upsAlarm: "UPS / E-Stop Relays",
+                          moisture: "Moisture Sensor",
+                          leakDetector: "Leak Detector",
+                          hydrogen: "Hydrogen Alarm",
+                          hydrogenFault: "Hydrogen Fault",
+                          envControllerVent: "Env Ventilation"
+                        }).map(([key, label]) => {
+                          const isChecked = !!(formProfile.sensorMonitoringProfile?.collectionSegment?.[key as keyof typeof DEFAULT_SENSOR_PROFILE.collectionSegment] ?? DEFAULT_SENSOR_PROFILE.collectionSegment[key as keyof typeof DEFAULT_SENSOR_PROFILE.collectionSegment]);
+                          return (
+                            <label key={key} className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer hover:text-slate-950">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const segment = { ...(formProfile.sensorMonitoringProfile?.collectionSegment || DEFAULT_SENSOR_PROFILE.collectionSegment) };
+                                  (segment as any)[key] = e.target.checked;
+                                  setFormProfile(prev => ({
+                                    ...prev,
+                                    sensorMonitoringProfile: {
+                                      ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                      collectionSegment: segment as any
+                                    }
+                                  }));
+                                }}
+                                className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 border-slate-300"
+                              />
+                              <span className="truncate">{label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Energy Segment */}
+                    <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
+                      <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200/60 flex items-center justify-between">
+                        <span>Energy Segment (ES)</span>
+                        <div className="flex gap-2 text-[8px]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...(formProfile.sensorMonitoringProfile?.energySegment || DEFAULT_SENSOR_PROFILE.energySegment) };
+                              Object.keys(updated).forEach(k => { (updated as any)[k] = true; });
+                              setFormProfile(prev => ({
+                                ...prev,
+                                sensorMonitoringProfile: {
+                                  ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                  energySegment: updated as any
+                                }
+                              }));
+                            }}
+                            className="text-emerald-600 hover:underline font-bold"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...(formProfile.sensorMonitoringProfile?.energySegment || DEFAULT_SENSOR_PROFILE.energySegment) };
+                              Object.keys(updated).forEach(k => { (updated as any)[k] = false; });
+                              setFormProfile(prev => ({
+                                ...prev,
+                                sensorMonitoringProfile: {
+                                  ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                  energySegment: updated as any
+                                }
+                              }));
+                            }}
+                            className="text-slate-500 hover:underline font-bold"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto pr-1">
+                        {Object.entries({
+                          dataUnavailable: "Data Unavailable",
+                          batteryDoors: "Battery Doors",
+                          topCapDoors: "Lower Top Cap Doors",
+                          envControllerVent: "Env Ventilation",
+                          smoke: "Smoke Alarm",
+                          hydrogenFault: "Hydrogen Fault",
+                          hydrogen: "Hydrogen Alarm",
+                          io: "Lost IO Comms",
+                          heat: "Heat Alarm",
+                          fireTrouble: "Fire Trouble",
+                          moisture: "Moisture Sensor",
+                          fire: "Fire Alarm",
+                          acDoors: "AC Doors",
+                          dcDoors: "DC Doors",
+                          manualVentilation: "Manual Ventilation",
+                          upsAlarm: "UPS / E-Stop Relays"
+                        }).map(([key, label]) => {
+                          const isChecked = !!(formProfile.sensorMonitoringProfile?.energySegment?.[key as keyof typeof DEFAULT_SENSOR_PROFILE.energySegment] ?? DEFAULT_SENSOR_PROFILE.energySegment[key as keyof typeof DEFAULT_SENSOR_PROFILE.energySegment]);
+                          return (
+                            <label key={key} className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer hover:text-slate-950">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const segment = { ...(formProfile.sensorMonitoringProfile?.energySegment || DEFAULT_SENSOR_PROFILE.energySegment) };
+                                  (segment as any)[key] = e.target.checked;
+                                  setFormProfile(prev => ({
+                                    ...prev,
+                                    sensorMonitoringProfile: {
+                                      ...(prev.sensorMonitoringProfile || DEFAULT_SENSOR_PROFILE),
+                                      energySegment: segment as any
+                                    }
+                                  }));
+                                }}
+                                className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 border-slate-300"
+                              />
+                              <span className="truncate">{label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-1 md:col-span-2 mt-4">

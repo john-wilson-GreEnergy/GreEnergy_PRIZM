@@ -313,6 +313,17 @@ export default function TopologySensorHealthPanel() {
       ? ` [Cap: ${cellAny.capability || "expected"}, State: ${cellAny.displayState || "normal"}]`
       : "";
 
+    if (cellAny.displayState === "not-monitored") {
+      return (
+        <span
+          title={`${cell.friendlyName || "Sensor"}: Not Monitored under active profile${debugSuffix}`}
+          className={`h-5 px-1 inline-flex items-center justify-center text-[9px] font-semibold rounded bg-slate-100 text-slate-500 border border-slate-200 ${highlightStyle}`}
+        >
+          N/M
+        </span>
+      );
+    }
+
     if (cell.tripped === true) {
       return (
         <span
@@ -717,7 +728,7 @@ export default function TopologySensorHealthPanel() {
           <div className="border-t border-slate-100 pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
             <div className="flex flex-col space-y-1">
               <label className="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider flex items-center gap-1 font-mono">
-                <Shield size={11} className="text-indigo-600" /> Site Profile Capability Resolver
+                <Shield size={11} className="text-indigo-600" /> Active Site Monitoring View Mode
               </label>
               <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200 w-fit">
                 <button
@@ -730,7 +741,7 @@ export default function TopologySensorHealthPanel() {
                       : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
                   }`}
                 >
-                  Expected Only
+                  Profile View (Monitored Only)
                 </button>
                 <button
                   type="button"
@@ -754,7 +765,7 @@ export default function TopologySensorHealthPanel() {
                       : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
                   }`}
                 >
-                  Show Unsupported
+                  Raw EMS View (Diagnostic / All)
                 </button>
               </div>
             </div>
@@ -834,21 +845,28 @@ export default function TopologySensorHealthPanel() {
                       const locationLabel = formatRowLocationName(row);
 
                       // Group doors cell info (Surgical door logic per requirement)
-                      const acTripped = row.doorSensors.acDoors?.tripped === true;
-                      const dcTripped = row.doorSensors.dcDoors?.tripped === true;
-                      const capTripped = row.doorSensors.topCapDoors?.tripped === true;
-                      const batTripped = row.doorSensors.batteryDoors?.tripped === true;
+                      const acCell = row.doorSensors.acDoors;
+                      const dcCell = row.doorSensors.dcDoors;
+                      const capCell = row.doorSensors.topCapDoors;
+                      const batCell = row.doorSensors.batteryDoors;
+
+                      const acApplicable = !!acCell && acCell.applicable !== false && acCell.monitoredByProfile !== false;
+                      const dcApplicable = !!dcCell && dcCell.applicable !== false && dcCell.monitoredByProfile !== false;
+                      const capApplicable = !!capCell && capCell.applicable !== false && capCell.monitoredByProfile !== false;
+                      const batApplicable = !!batCell && batCell.applicable !== false && batCell.monitoredByProfile !== false;
+
+                      const acTripped = acApplicable && acCell.tripped === true;
+                      const dcTripped = dcApplicable && dcCell.tripped === true;
+                      const capTripped = capApplicable && capCell.tripped === true;
+                      const batTripped = batApplicable && batCell.tripped === true;
+
                       const doorCellAggregate: NormalizedSensorCell = {
-                        applicable:
-                          row.doorSensors.acDoors?.applicable ||
-                          row.doorSensors.dcDoors?.applicable ||
-                          row.doorSensors.topCapDoors?.applicable ||
-                          row.doorSensors.batteryDoors?.applicable,
+                        applicable: acApplicable || dcApplicable || capApplicable || batApplicable,
                         healthy:
-                          row.doorSensors.acDoors?.healthy &&
-                          row.doorSensors.dcDoors?.healthy &&
-                          row.doorSensors.topCapDoors?.healthy &&
-                          row.doorSensors.batteryDoors?.healthy,
+                          (!acApplicable || acCell.healthy) &&
+                          (!dcApplicable || dcCell.healthy) &&
+                          (!capApplicable || capCell.healthy) &&
+                          (!batApplicable || batCell.healthy),
                         tripped: acTripped || dcTripped || capTripped || batTripped,
                         status: acTripped ? "AC Door Open" : dcTripped ? "DC Door Open" : "Doors Closed",
                         displayValue: acTripped || dcTripped ? "Open" : "Closed",

@@ -50,6 +50,47 @@ export interface CapacityProfile {
   notes?: string;
 }
 
+export interface SensorMonitoringProfile {
+  collectionSegment: {
+    dataUnavailable: boolean;
+    acDoors: boolean;
+    dcDoors: boolean;
+    topCapDoors: boolean;
+    manualVentilation: boolean;
+    smoke: boolean;
+    fireTrouble: boolean;
+    fire: boolean;
+    io: boolean;
+    heat: boolean;
+    upsAlarm: boolean;
+    moisture: boolean;
+    leakDetector: boolean;
+    hydrogen: boolean;
+    hydrogenFault: boolean;
+    envControllerVent: boolean;
+    [key: string]: boolean;
+  };
+  energySegment: {
+    dataUnavailable: boolean;
+    batteryDoors: boolean;
+    topCapDoors: boolean;
+    envControllerVent: boolean;
+    smoke: boolean;
+    hydrogenFault: boolean;
+    hydrogen: boolean;
+    io: boolean;
+    heat: boolean;
+    fireTrouble: boolean;
+    moisture: boolean;
+    fire: boolean;
+    acDoors: boolean;
+    dcDoors: boolean;
+    manualVentilation: boolean;
+    upsAlarm: boolean;
+    [key: string]: boolean;
+  };
+}
+
 export interface EmsProfile {
   id: string;
   profileName: string;
@@ -70,6 +111,7 @@ export interface EmsProfile {
   updatedAt: string;
   topologyModel?: TopologyModel;
   capacityProfile?: CapacityProfile;
+  sensorMonitoringProfile?: SensorMonitoringProfile;
   ipLayout?: {
     arraySubnetMode?: "third-octet" | "explicit-map" | "custom";
     baseNetwork?: string;

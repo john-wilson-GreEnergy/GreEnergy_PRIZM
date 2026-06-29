@@ -722,7 +722,8 @@ app.post("/api/settings/profiles", (req, res) => {
       arrayCount: profileToValidate.arrayCount,
       stringsPerArray: profileToValidate.stringsPerArray,
       notes: profileToValidate.notes || "",
-      topologyModel: profileToValidate.topologyModel
+      topologyModel: profileToValidate.topologyModel,
+      sensorMonitoringProfile: req.body.sensorMonitoringProfile
     }, !!activate);
 
     if (activate) {
@@ -826,6 +827,7 @@ app.put("/api/settings/profiles/:id", (req, res) => {
     if (body.notes !== undefined) updates.notes = body.notes;
     if (body.isActive !== undefined) updates.isActive = !!body.isActive;
     if (body.topologyModel !== undefined) updates.topologyModel = body.topologyModel;
+    if (body.sensorMonitoringProfile !== undefined) updates.sensorMonitoringProfile = body.sensorMonitoringProfile;
 
     // Validate merged profile before updating
     const mergedObj = {

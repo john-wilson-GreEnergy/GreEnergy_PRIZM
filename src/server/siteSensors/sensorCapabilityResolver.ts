@@ -1,130 +1,15 @@
 import { EmsProfile } from "../profiles/profileTypes";
 import { NormalizedSensorCell } from "./siteSensorsRoutes";
-import { ResolvedSensorDisplay, getSensorCapability, SensorCapability, SensorDisplayState } from "./sensorCapabilityMatrix";
 
-export function resolveSensorDisplayStatus(params: {
-  rawCell: NormalizedSensorCell;
-  sensorKey: string;
-  enclosureType: "CS" | "ES" | "UNKNOWN";
-  activeProfile: EmsProfile | null;
-}): ResolvedSensorDisplay {
-  const { rawCell, sensorKey, enclosureType, activeProfile } = params;
-
-  // 1. Determine if telemetry is present and what raw value it contains
-  const displayVal = rawCell.displayValue || "";
-  const isMissing = !rawCell.applicable || 
-                    rawCell.tripped === null || 
-                    ["offline", "disabled", "not ready", "unavailable"].includes(displayVal.toLowerCase()) ||
-                    rawCell.status === "Offline" ||
-                    rawCell.status === "Disabled";
-
-  const isTripped = rawCell.tripped === true || 
-                    (typeof rawCell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(rawCell.value.toLowerCase().trim())) ||
-                    displayVal.toUpperCase() === "TRIPPED";
-
-  const isNormal = !isMissing && !isTripped;
-
-  // 2. Resolve capability
-  const { capability, reason: capabilityReason } = getSensorCapability(
-    sensorKey,
-    enclosureType,
-    activeProfile,
-    !isMissing
-  );
-
-  // 3. Setup default display values
-  let label = rawCell.friendlyName || rawCell.label || sensorKey;
-  let rawState: string | null = null;
-  if (isMissing) {
-    rawState = "UNAVAILABLE";
-  } else if (isTripped) {
-    rawState = "TRIPPED";
-  } else {
-    rawState = "NORMAL";
+export function mapToCanonicalProfileKey(sensorKey: string): string {
+  const k = sensorKey.trim();
+  if (k === "dataCommunications" || k === "dataUnavailable" || k === "envControllerLostComms") {
+    return "dataUnavailable";
   }
-
-  let displayState: SensorDisplayState = "unknown";
-  let shouldDisplay = true;
-  let badgeTone: "green" | "yellow" | "red" | "gray" | "blue" = "gray";
-  let reason = "";
-
-  // Helper to determine active state for expected/optional sensors
-  const getActiveStateForSensor = (key: string): SensorDisplayState => {
-    const k = key.toLowerCase();
-    if (k.includes("door")) return "open";
-    if (k.includes("fire") || k.includes("smoke")) return "alarm";
-    if (k.includes("leak") || k.includes("moisture") || k.includes("hydrogen")) return "fault";
-    return "fault";
-  };
-
-  // 4. Resolve capability & telemetry status matrix
-  if (capability === "unsupported") {
-    if (isTripped) {
-      shouldDisplay = true;
-      displayState = "unexpected-active-signal";
-      badgeTone = "red";
-      reason = "Unexpected active signal on unsupported sensor channel; check site profile or EMS mapping.";
-    } else {
-      shouldDisplay = false;
-      displayState = "not-applicable";
-      badgeTone = "gray";
-      reason = "Sensor not configured for this enclosure type; EMS normal appears to be default telemetry.";
-    }
-  } else if (capability === "expected") {
-    if (isMissing) {
-      shouldDisplay = true;
-      displayState = "unavailable";
-      badgeTone = "yellow";
-      reason = `Sensor is expected but telemetry is currently unavailable. (${capabilityReason})`;
-    } else if (isTripped) {
-      shouldDisplay = true;
-      displayState = getActiveStateForSensor(sensorKey);
-      badgeTone = "red";
-      reason = `Expected sensor is active/tripped! Status: ${rawCell.status || "Alarm Triggered"}`;
-    } else {
-      shouldDisplay = true;
-      displayState = "normal";
-      badgeTone = "green";
-      reason = "Expected sensor is present and reporting normal status.";
-    }
-  } else if (capability === "optional") {
-    if (isMissing) {
-      shouldDisplay = false;
-      displayState = "not-installed";
-      badgeTone = "gray";
-      reason = "Sensor is optional and no live telemetry is available.";
-    } else if (isTripped) {
-      shouldDisplay = true;
-      displayState = getActiveStateForSensor(sensorKey);
-      badgeTone = "red";
-      reason = `Optional sensor is present and reporting active trip signal! Status: ${rawCell.status || "Alarm Triggered"}`;
-    } else {
-      shouldDisplay = true;
-      displayState = "normal";
-      badgeTone = "green";
-      reason = "Optional sensor is present and reporting normal status.";
-    }
-  } else {
-    // unknown/fallback
-    shouldDisplay = true;
-    displayState = isTripped ? "fault" : (isMissing ? "unavailable" : "normal");
-    badgeTone = isTripped ? "red" : (isMissing ? "yellow" : "green");
-    reason = "Sensor capability is unknown; displaying raw reported state.";
+  if (k === "lostComms" || k === "io" || k === "ioLogic") {
+    return "io";
   }
-
-  return {
-    sensorKey,
-    label,
-    enclosureType,
-    capability,
-    rawState,
-    displayState,
-    shouldDisplay,
-    badgeTone,
-    source: rawCell.sourcePath || "EMS",
-    reason,
-    raw: rawCell
-  };
+  return k;
 }
 
 /**
@@ -137,22 +22,100 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
 
     const resolveCell = (cell: any, key: string) => {
       if (!cell) return cell;
-      const resolved = resolveSensorDisplayStatus({
-        rawCell: cell,
-        sensorKey: key,
-        enclosureType,
-        activeProfile
-      });
+
+      // Determine isMissing and isTripped
+      const displayVal = cell.displayValue || "";
+      const isMissing = !cell.applicable || 
+                        cell.tripped === null || 
+                        ["offline", "disabled", "not ready", "unavailable"].includes(displayVal.toLowerCase()) ||
+                        cell.status === "Offline" ||
+                        cell.status === "Disabled";
+
+      const isTripped = cell.tripped === true || 
+                        (typeof cell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(cell.value.toLowerCase().trim())) ||
+                        displayVal.toUpperCase() === "TRIPPED";
+
+      const canonicalKey = mapToCanonicalProfileKey(key);
+      const profile = activeProfile?.sensorMonitoringProfile;
+
+      let monitoredByProfile = false;
+      if (enclosureType === "CS") {
+        const csProfile = profile?.collectionSegment || {
+          dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
+          manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
+          io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
+          hydrogen: false, hydrogenFault: false, envControllerVent: false
+        };
+        monitoredByProfile = !!csProfile[canonicalKey];
+      } else {
+        const esProfile = profile?.energySegment || {
+          dataUnavailable: true, batteryDoors: true, topCapDoors: true,
+          envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
+          io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+          acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
+        };
+        monitoredByProfile = !!esProfile[canonicalKey];
+      }
+
+      const rawPresent = !isMissing;
+      const rawApplicable = !!cell.applicable;
+      const rawHealthy = !isTripped && !isMissing && (cell.healthy !== false);
+      const rawTripped = isTripped;
+
+      let rawState = "NORMAL";
+      if (isMissing) {
+        rawState = "UNAVAILABLE";
+      } else if (isTripped) {
+        rawState = "TRIPPED";
+      }
+
+      const contributesToHealth = monitoredByProfile;
+      const visibleInDefaultView = monitoredByProfile;
+
+      let displayState: "normal" | "open" | "alarm" | "fault" | "warning" | "unavailable" | "not-monitored" | "unknown" = "unknown";
+      let reason = "";
+
+      if (!monitoredByProfile) {
+        displayState = "not-monitored";
+        reason = `Unmonitored under active profile (${canonicalKey})`;
+      } else if (isMissing) {
+        displayState = "unavailable";
+        reason = `Monitored sensor (${canonicalKey}) is unavailable`;
+      } else if (isTripped) {
+        const k = canonicalKey.toLowerCase();
+        if (k.includes("door")) {
+          displayState = "open";
+        } else if (k.includes("fire") || k.includes("smoke") || k.includes("alarm")) {
+          displayState = "alarm";
+        } else if (k.includes("fault") || k.includes("leak") || k.includes("moisture") || k.includes("hydrogen")) {
+          displayState = "fault";
+        } else {
+          displayState = "fault";
+        }
+        reason = `Monitored sensor (${canonicalKey}) is tripped!`;
+      } else {
+        displayState = "normal";
+        reason = `Monitored sensor (${canonicalKey}) is normal`;
+      }
 
       return {
         ...cell,
-        applicable: resolved.shouldDisplay,
-        capability: resolved.capability,
-        shouldDisplay: resolved.shouldDisplay,
-        displayState: resolved.displayState,
-        reason: resolved.reason,
-        badgeTone: resolved.badgeTone,
-        rawState: resolved.rawState
+        applicable: monitoredByProfile, // Hide from standard view if not in profile
+        healthy: !isTripped && !isMissing,
+        tripped: isTripped,
+
+        rawPresent,
+        rawApplicable,
+        rawState,
+        rawHealthy,
+        rawTripped,
+        monitoredByProfile,
+        visibleInDefaultView,
+        contributesToHealth,
+        displayState,
+        healthState: displayState,
+        reason,
+        capability: monitoredByProfile ? "expected" : "unsupported"
       };
     };
 
@@ -177,19 +140,23 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
     // Resolve otherSensors
     const otherSensors = { ...row.otherSensors };
     Object.keys(otherSensors).forEach((k) => {
-      otherSensors[k] = resolveCell(otherSensors[k], k);
+      if (Array.isArray(otherSensors[k])) {
+        otherSensors[k] = otherSensors[k].map((item: any) => resolveCell(item, k));
+      } else {
+        otherSensors[k] = resolveCell(otherSensors[k], k);
+      }
     });
 
-    // Recalculate row health based on the RESOLVED/APPLICABLE cells
+    // Recalculate row health based ONLY on contributesToHealth === true cells
     let rowHealthy = true;
     let severity: "OK" | "Warning" | "Critical" = "OK";
     const findings: string[] = [];
 
     const checkCellHealth = (cell: any, label: string) => {
-      if (!cell || !cell.applicable) return;
-      
-      const isCellHealthy = cell.healthy && cell.displayState !== "unavailable" && cell.displayState !== "unexpected-active-signal";
-      const isCellTripped = cell.tripped === true || ["alarm", "fault", "open", "unexpected-active-signal"].includes(cell.displayState);
+      if (!cell || cell.contributesToHealth !== true) return;
+
+      const isCellHealthy = cell.healthy && cell.displayState !== "unavailable";
+      const isCellTripped = cell.tripped === true || ["alarm", "fault", "open"].includes(cell.displayState);
 
       if (!isCellHealthy || isCellTripped) {
         rowHealthy = false;
@@ -209,7 +176,13 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
     Object.keys(emergencySensors).forEach(k => checkCellHealth(emergencySensors[k], emergencySensors[k]?.label || k));
     Object.keys(comStatus).forEach(k => checkCellHealth(comStatus[k], comStatus[k]?.label || k));
     Object.keys(doorSensors).forEach(k => checkCellHealth(doorSensors[k], doorSensors[k]?.label || k));
-    Object.keys(otherSensors).forEach(k => checkCellHealth(otherSensors[k], otherSensors[k]?.label || k));
+    Object.keys(otherSensors).forEach(k => {
+      if (Array.isArray(otherSensors[k])) {
+        otherSensors[k].forEach((item: any, idx: number) => checkCellHealth(item, `${item?.label || k} [${idx + 1}]`));
+      } else {
+        checkCellHealth(otherSensors[k], otherSensors[k]?.label || k);
+      }
+    });
 
     return {
       ...row,
@@ -224,4 +197,3 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
     };
   });
 }
-

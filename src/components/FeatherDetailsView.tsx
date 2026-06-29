@@ -267,6 +267,7 @@ export default function FeatherDetailsView({
   const [binaryChartUnit, setBinaryChartUnit] = useState<1 | 2>(1);
   const [showValidationMatrix, setShowValidationMatrix] = useState<boolean>(false);
   const [showDetectorDebug, setShowDetectorDebug] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<"profile" | "raw">("profile");
 
   const topologyUi = useMemo(() => {
     return getTopologyUiCapabilities(activeTopologyProfile, selectedDevice);
@@ -576,14 +577,26 @@ export default function FeatherDetailsView({
         }
       ];
 
-      return rawItems.filter((item) => {
-        if (item.cell) {
-          if (item.cell.applicable === false && item.tripped !== true) {
-            return false;
+      const processedItems = rawItems.filter((item) => {
+        if (viewMode === "profile") {
+          if (item.cell) {
+            if (item.cell.monitoredByProfile === false && item.tripped !== true) {
+              return false;
+            }
           }
         }
         return true;
+      }).map((item) => {
+        if (item.cell && item.cell.monitoredByProfile === false) {
+          return {
+            ...item,
+            isUnmonitored: true,
+            displayValue: item.tripped ? `${item.displayValue} (UNMONITORED)` : "NOT MONITORED"
+          };
+        }
+        return item;
       });
+      return processedItems;
     } else {
       return [
         { label: "FSS Alarm (Fire/Smoke Signal)", value: selectedDevice.fssSignals?.fssAlarm ?? selectedDevice.fssSignals?.smokeAlarm ?? null, type: "Alarm" },
@@ -593,7 +606,7 @@ export default function FeatherDetailsView({
         { label: "Water/Condensate Sensor", value: selectedDevice.fssSignals?.leakAlarm ?? null, type: "Alarm" }
       ];
     }
-  }, [matchingRow, selectedDevice, resolvedSegment]);
+  }, [matchingRow, selectedDevice, resolvedSegment, viewMode]);
 
   const detectorSourceDebug = useMemo(() => {
     if (!selectedDevice) return null;
@@ -991,6 +1004,36 @@ export default function FeatherDetailsView({
               {showDetectorDebug ? "Hide Debug" : "Source Debug"}
             </button>
           </div>
+
+          {/* Highly visible custom styled Profile/Raw EMS View Toggle */}
+          <div className="flex items-center justify-between mb-3 bg-zinc-900 border border-zinc-800 p-1 rounded-md select-none">
+            <span className="text-[9px] text-zinc-400 uppercase font-extrabold pl-1.5 font-mono">View Mode:</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setViewMode("profile")}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                  viewMode === "profile"
+                    ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30 shadow-xs"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Profile View (Monitored)
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("raw")}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                  viewMode === "raw"
+                    ? "bg-zinc-800 text-zinc-300 border border-zinc-700/50 shadow-xs"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Raw EMS (All)
+              </button>
+            </div>
+          </div>
+
           {showDetectorDebug ? (
             <div className="bg-black/40 border border-prizm-border/40 rounded p-2 text-[8px] font-mono overflow-auto max-h-[300px]">
               <pre className="text-cyan-400">{JSON.stringify(detectorSourceDebug, null, 2)}</pre>
@@ -1001,7 +1044,9 @@ export default function FeatherDetailsView({
                 let badgeClass = "bg-black/30 text-prizm-text-muted/60";
                 let textValue = s.displayValue || "--";
 
-                if (textValue === "UNKNOWN") {
+                if (s.isUnmonitored) {
+                  badgeClass = "bg-zinc-800/80 text-zinc-400 border border-zinc-700/40";
+                } else if (textValue === "UNKNOWN") {
                   badgeClass = "bg-gray-500/10 text-gray-400 border border-gray-500/20";
                 } else if (s.value !== undefined && s.value !== null) {
                   const isTrue = s.value === true;

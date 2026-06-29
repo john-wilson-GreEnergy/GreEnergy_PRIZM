@@ -1198,6 +1198,18 @@ export interface NormalizedSensorCell {
   rawValue?: any;
   activeStateSource?: string | null;
   labelFromStatusMessage?: string | null;
+
+  rawPresent?: boolean;
+  rawState?: string;
+  rawTripped?: boolean | null;
+  rawHealthy?: boolean;
+  monitoredByProfile?: boolean;
+  visibleInDefaultView?: boolean;
+  contributesToHealth?: boolean;
+  displayState?: "normal" | "open" | "alarm" | "fault" | "warning" | "unavailable" | "not-monitored" | "unknown";
+  healthState?: string;
+  reason?: string;
+  capability?: string;
 }
 
 export interface SourceHealth {

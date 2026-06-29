@@ -1,9 +1,50 @@
 import fs from "fs";
 import path from "path";
-import { EmsProfile, TopologyModel } from "./profileTypes";
+import { EmsProfile, TopologyModel, SensorMonitoringProfile } from "./profileTypes";
 
 const PROFILES_DIR = path.join(process.cwd(), "data");
 const PROFILES_FILE = path.join(PROFILES_DIR, "prizm_connection_profiles.json");
+
+export function getDefaultSensorMonitoringProfile(): SensorMonitoringProfile {
+  return {
+    collectionSegment: {
+      dataUnavailable: true,
+      acDoors: true,
+      dcDoors: true,
+      topCapDoors: true,
+      manualVentilation: true,
+      smoke: true,
+      fireTrouble: true,
+      fire: true,
+      io: true,
+      heat: true,
+      upsAlarm: true,
+      moisture: false,
+      leakDetector: false,
+      hydrogen: false,
+      hydrogenFault: false,
+      envControllerVent: false
+    },
+    energySegment: {
+      dataUnavailable: true,
+      batteryDoors: true,
+      topCapDoors: true,
+      envControllerVent: true,
+      smoke: true,
+      hydrogenFault: true,
+      hydrogen: true,
+      io: true,
+      heat: true,
+      fireTrouble: true,
+      moisture: true,
+      fire: false,
+      acDoors: false,
+      dcDoors: false,
+      manualVentilation: false,
+      upsAlarm: false
+    }
+  };
+}
 
 export function getDefaultTopologyModel(): TopologyModel {
   return {
@@ -83,7 +124,8 @@ function getDefaultProfile(): EmsProfile {
     lastTestedAt: null,
     lastTestResult: null,
     topologyModel: getDefaultTopologyModel(),
-    capacityProfile: getDefaultCapacityProfile()
+    capacityProfile: getDefaultCapacityProfile(),
+    sensorMonitoringProfile: getDefaultSensorMonitoringProfile()
   };
 }
 
@@ -119,6 +161,10 @@ export class ProfileStore {
               if (p.modbusUnitId === undefined) { p.modbusUnitId = 1; modified = true; }
               if (p.arrayCount === undefined) { p.arrayCount = 8; modified = true; }
               if (p.stringsPerArray === undefined) { p.stringsPerArray = 40; modified = true; }
+              if (!p.sensorMonitoringProfile) {
+                p.sensorMonitoringProfile = getDefaultSensorMonitoringProfile();
+                modified = true;
+              }
               if (!p.capacityProfile) {
                 p.capacityProfile = getDefaultCapacityProfile();
                 modified = true;
