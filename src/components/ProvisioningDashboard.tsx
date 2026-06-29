@@ -520,6 +520,18 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                     </div>
                   )}
 
+                  {workspaceValidation.status === 'blocked' && workspaceValidation.inspections.find((i: any) => i.key === 'template-credential-scan' && i.status === 'fail') && (
+                    <div className="p-4 bg-red-100 border border-red-200 rounded">
+                      <h4 className="text-red-700 font-bold mb-2 flex items-center gap-2"><ShieldAlert className="w-5 h-5" /> Security Block</h4>
+                      <p className="text-red-700 text-sm mb-2 font-medium">Repo-managed provisioning templates contain hardcoded credentials. Remove credentials before planning or execution.</p>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {workspaceValidation.inspections.find((i: any) => i.key === 'template-credential-scan')?.notes?.split('; ').filter(Boolean).map((note: string, idx: number) => (
+                           <li key={idx} className="text-red-700 text-xs">{note}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-6">
                     <div>
                       <h4 className="font-medium text-prizm-text mb-3">Repo Templates</h4>

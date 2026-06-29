@@ -1,4 +1,9 @@
 #!/bin/bash
+# PRIZM Provisioning Template
+# Reference / preview asset for controlled provisioning planning.
+# Do not store credentials in this file.
+# Do not run manually unless reviewed and approved for the target site.
+
 
 SCRIPT_PATH='/etc/powin/scripts/'
 SUDO_USER='tomcat8'

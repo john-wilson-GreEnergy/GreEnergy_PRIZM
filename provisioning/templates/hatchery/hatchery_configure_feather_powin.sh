@@ -1,4 +1,9 @@
 #!/bin/bash
+# PRIZM Provisioning Template
+# Reference / preview asset for controlled provisioning planning.
+# Do not store credentials in this file.
+# Do not run manually unless reviewed and approved for the target site.
+
 
 FILE_DIR=${1:-'./'}
 CRON_SCRIPT_DIR=${2:-'./cronScripts/'}

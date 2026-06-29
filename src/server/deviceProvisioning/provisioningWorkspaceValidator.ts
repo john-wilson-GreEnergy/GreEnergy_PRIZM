@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
 import { ProvisioningWorkspaceValidationResult } from './provisioningWorkspaceTypes';
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_WORKSPACE_ROOT = path.join(process.cwd(), 'provisioning');
 
@@ -50,6 +54,9 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
       return result;
     }
 
+    let hasHardcodedCredentials = false;
+    let credentialNotes: string[] = [];
+
     const checkFile = (relPath: string): { exists: boolean; sizeBytes: number; isPlaceholder: boolean; readable: boolean; notes: string[] } => {
       const fullPath = path.join(workspaceRoot, relPath);
       if (!fs.existsSync(fullPath)) return { exists: false, sizeBytes: 0, isPlaceholder: false, readable: false, notes: [] };
@@ -58,6 +65,24 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
         if (stats.size === 0) return { exists: true, sizeBytes: 0, isPlaceholder: false, readable: true, notes: ["File is empty"] };
         const content = fs.readFileSync(fullPath, 'utf8');
         const isPlaceholder = content.includes("Template placeholder") || content.includes("replace with approved GreEnergy provisioning script");
+        
+        const credentialPatterns = [
+          "sshpass -p moxa",
+          "echo moxa | sudo -S",
+          "password=moxa",
+          "passwd=moxa",
+          'PRIZM_TARGET_PASSWORD="${PRIZM_TARGET_PASSWORD:-moxa}"',
+          'PRIZM_SUDO_PASSWORD="${PRIZM_SUDO_PASSWORD:-moxa}"'
+        ];
+        for (const pattern of credentialPatterns) {
+          if (content.includes(pattern)) {
+             hasHardcodedCredentials = true;
+             if (!credentialNotes.includes(`Found hardcoded credential pattern in ${relPath}: '${pattern}'`)) {
+                 credentialNotes.push(`Found hardcoded credential pattern in ${relPath}: '${pattern}'`);
+             }
+          }
+        }
+
         const notes: string[] = [];
         const warnKeywords = ["sudo", "service tomcat8", "scp", "ssh", "sed", "cp", "chmod"];
         const foundKeywords = warnKeywords.filter(kw => content.includes(kw));
@@ -161,11 +186,33 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
       }
     }
 
+    if (hasHardcodedCredentials) {
+      result.inspections.push({ key: 'template-credential-scan', label: 'Template Credential Scan', status: 'fail', notes: credentialNotes.join('; ') });
+      result.summary.inspectionFail++;
+    } else {
+      result.inspections.push({ key: 'template-credential-scan', label: 'Template Credential Scan', status: 'pass' });
+      result.summary.inspectionPass++;
+    }
+
     // TAR inspection
     const tarFile = result.siteFiles.find(f => f.path === 'site-files/baseline/deploy-redux.tar');
     if (tarFile && tarFile.status === 'present') {
-      result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'warn', notes: "deploy-redux.tar is present but internal contents were not inspected." });
-      result.summary.inspectionWarn++;
+      const fullTarPath = path.join(workspaceRoot, 'site-files/baseline/deploy-redux.tar');
+      try {
+        const { stdout } = await execFileAsync('tar', ['-tf', fullTarPath], { maxBuffer: 1024 * 1024 });
+        if (stdout.includes('deploy/featherScript.sh')) {
+           result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'pass', notes: "Found deploy/featherScript.sh" });
+           result.summary.inspectionPass++;
+        } else {
+           result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'fail', notes: "Missing deploy/featherScript.sh in tar listing" });
+           result.summary.inspectionFail++;
+           // Since baseline needs this file, invalidate the baseline workflow
+           result.supportedWorkflows.baselineOnly = false;
+        }
+      } catch(e: any) {
+        result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'warn', notes: "deploy-redux.tar is present but tar listing is unavailable on this host." });
+        result.summary.inspectionWarn++;
+      }
     }
 
     // Workflow support logic
@@ -192,6 +239,8 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
 
     // Determine overall status
     if (!result.supportedWorkflows.baselineOnly && !result.supportedWorkflows.hatcheryOnly) {
+      result.status = "blocked";
+    } else if (hasHardcodedCredentials) {
       result.status = "blocked";
     } else {
       const hasWarnings = result.summary.inspectionWarn > 0 || result.repoTemplates.some(t => !!t.notes);
