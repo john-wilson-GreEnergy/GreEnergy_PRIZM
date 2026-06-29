@@ -12,6 +12,7 @@ import {
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { getTopologyUiCapabilities } from "../lib/topologyUiCapabilities";
+import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -293,115 +294,34 @@ export default function FeatherDetailsView({
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
-    // 0. Use topology engine output if available
-    if (device.topology) {
-      if (device.topology.segmentType === "CONTAINER") {
-        return {
-          segmentIndex: device.topology.containerIndex || 1,
-          segmentType: "CONTAINER" as const,
-          displayLabel: `Container ${device.topology.containerIndex || 1}`
-        };
-      }
-      if (device.topology.segmentType === "STACK") {
-        return {
-          segmentIndex: device.topology.stackIndex || 1,
-          segmentType: "STACK" as const,
-          displayLabel: `Stack ${device.topology.stackIndex || 1}`
-        };
-      }
-      if (device.topology.segmentType === "CS") {
-        return {
-          segmentIndex: 1, // Usually CS1 or CS2
-          segmentType: "CS" as const,
-          displayLabel: "CS"
-        };
-      }
-      if (device.topology.segmentType === "ES") {
-        return {
-          segmentIndex: device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1,
-          segmentType: "ES" as const,
-          displayLabel: `ES ${device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1}`
-        };
-      }
-    }
+    const arrayIndex = device.arrayIndex !== undefined && device.arrayIndex !== null ? Number(device.arrayIndex) : undefined;
+    
+    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
+      arrayIndex,
+      enclosureIndex: device.topology?.enclosureIndex ?? device.enclosureIndex,
+      segmentIndex: device.topology?.segmentIndex ?? device.segmentIndex,
+      segmentPosition: device.topology?.segmentPosition ?? device.segmentPosition,
+      energySegmentIndex: device.energySegmentIndex,
+      segmentLabel: device.segmentLabel ?? device.topology?.segmentLabel,
+      displayName: device.displayName ?? device.topology?.displayName,
+      ip: device.ip,
+      enclosureType: device.enclosureType ?? device.topology?.enclosureType,
+    });
 
-    // 1. Direct priority check: stringIndex
-    if (device.stringIndex !== undefined && device.stringIndex !== null) {
-      const sIdx = Number(device.stringIndex);
-      if (!isNaN(sIdx)) {
-        if (sIdx >= 1 && sIdx <= 16) {
-          const esIndex = Math.ceil(sIdx / 2);
-          return {
-            segmentIndex: esIndex,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${esIndex}`
-          };
-        } else if (sIdx >= 17 && sIdx <= 18) {
-          const csIndex = sIdx - 16;
-          return {
-            segmentIndex: csIndex,
-            segmentType: "CS" as const,
-            displayLabel: `CS ${csIndex}`
-          };
-        }
-      }
-    }
-
-    // 2. Fallback to direct energySegmentIndex or segmentIndex fields
-    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+    if (resolvedNumOrCS === "CS") {
       return {
-        segmentIndex: Number(device.energySegmentIndex),
-        segmentType: "ES" as const,
-        displayLabel: `ES ${Number(device.energySegmentIndex)}`
-      };
-    }
-    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
-      return {
-        segmentIndex: Number(device.segmentIndex),
-        segmentType: "ES" as const,
-        displayLabel: `ES ${Number(device.segmentIndex)}`
+        segmentIndex: 1,
+        segmentType: "CS" as const,
+        displayLabel: "CS"
       };
     }
 
-    // 3. Fallback to textual tokens (segmentLabel, entityDescription, entityKeyToken, etc.)
-    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
-    for (const token of tokens) {
-      if (token) {
-        const matchES = token.match(/ES\s*(\d+)/i);
-        if (matchES) {
-          const idx = parseInt(matchES[1], 10);
-          return {
-            segmentIndex: idx,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${idx}`
-          };
-        }
-        const matchCS = token.match(/CS\s*(\d+)/i);
-        if (matchCS) {
-          const idx = parseInt(matchCS[1], 10);
-          return {
-            segmentIndex: idx,
-            segmentType: "CS" as const,
-            displayLabel: `CS ${idx}`
-          };
-        }
-      }
-    }
-
-    // 4. IP-based derivation as last resort
-    if (device.ip) {
-      const parts = device.ip.split(".");
-      if (parts.length === 4) {
-        const lastOctet = parseInt(parts[3], 10);
-        if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
-          const idx = ((lastOctet - 10) / 5) + 1;
-          return {
-            segmentIndex: idx,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${idx}`
-          };
-        }
-      }
+    if (typeof resolvedNumOrCS === "number") {
+      return {
+        segmentIndex: resolvedNumOrCS,
+        segmentType: "ES" as const,
+        displayLabel: `ES ${resolvedNumOrCS}`
+      };
     }
 
     return {
@@ -426,15 +346,33 @@ export default function FeatherDetailsView({
   const matchingRow = useMemo(() => {
     if (!topologyData?.rows) return null;
     const arrayIndex = selectedDevice.arrayIndex;
-    const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
-    if (arrayIndex === undefined || energySegmentIndex === null) return null;
+    if (arrayIndex === undefined || arrayIndex === null) return null;
+
+    const selectedResolved = resolveFeatherSegment(selectedDevice);
+    const isSelectedCS = selectedResolved.segmentType === "CS";
+    const selectedES = selectedResolved.segmentType === "ES" ? selectedResolved.segmentIndex : null;
 
     return topologyData.rows.find((row: any) => {
       if (!row.location) return false;
       const rowArray = getArrayNumber(row.location.displayName || "");
-      const rowEs = row.location.enclosureIndex || row.location.segmentPosition;
-      const isES = row.location.enclosureType === "EnergySegment" || row.location.displayName?.includes("ES");
-      return Number(rowArray) === Number(arrayIndex) && Number(rowEs) === Number(energySegmentIndex) && isES;
+      if (Number(rowArray) !== Number(arrayIndex)) return false;
+
+      const rowResolvedNumOrCS = getArrayLocalEnergySegmentNumber({
+        arrayIndex: rowArray,
+        enclosureIndex: row.location.enclosureIndex,
+        segmentIndex: row.topology?.segmentIndex,
+        segmentPosition: row.location.segmentPosition ?? row.topology?.segmentPosition,
+        energySegmentIndex: row.topology?.energySegmentIndex,
+        segmentLabel: row.topology?.segmentLabel,
+        displayName: row.location.displayName || row.topology?.displayName,
+        enclosureType: row.location.enclosureType,
+      });
+
+      if (isSelectedCS) {
+        return rowResolvedNumOrCS === "CS" || row.location.enclosureType === "CollectionSegment";
+      } else {
+        return rowResolvedNumOrCS === selectedES && (row.location.enclosureType === "EnergySegment" || (row.location.displayName || "").toLowerCase().includes("es"));
+      }
     });
   }, [topologyData, selectedDevice]);
 
@@ -566,7 +504,7 @@ export default function FeatherDetailsView({
           cell: other.fireTrouble
         },
         {
-          label: "Leak Detector",
+          label: (emergency.moisture?.displayName || emergency.moisture?.label) || "Moisture / Top Cap Moisture",
           ...resolveDetectorState(
             emergency.moisture,
             selectedDevice.fssSignals?.leakAlarm ?? null,
@@ -580,9 +518,11 @@ export default function FeatherDetailsView({
       const processedItems = rawItems.filter((item) => {
         if (viewMode === "profile") {
           if (item.cell) {
-            if (item.cell.monitoredByProfile === false && item.tripped !== true) {
+            if (item.cell.monitoredByProfile === false || item.cell.contributesToHealth === false) {
               return false;
             }
+          } else {
+            return false;
           }
         }
         return true;

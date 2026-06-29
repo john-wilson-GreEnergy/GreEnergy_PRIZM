@@ -98,13 +98,14 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         rawState = "TRIPPED";
       }
 
-      const contributesToHealth = monitoredByProfile;
+      let contributesToHealth = monitoredByProfile;
       const visibleInDefaultView = monitoredByProfile;
 
       let displayState: "normal" | "open" | "alarm" | "fault" | "warning" | "unavailable" | "not-monitored" | "unknown" = "unknown";
       let reason = "";
 
       if (!monitoredByProfile) {
+        contributesToHealth = false;
         displayState = "not-monitored";
         reason = `Unmonitored under active profile (${canonicalKey})`;
       } else if (isMissing) {

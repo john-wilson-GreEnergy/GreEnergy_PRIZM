@@ -28,6 +28,7 @@ import { sortByIPv4 } from "../lib/ipUtils";
 import { useSiteData } from '../context/SiteDataContext';
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { normalizeVoltage } from "../lib/voltageNormalizer";
+import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
 import FeatherDetailsView from "./FeatherDetailsView";
 import { 
   ResponsiveContainer, 
@@ -452,115 +453,34 @@ function getHvacSampleDetails(hvac: any) {
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
-    // 0. Use topology engine output if available
-    if (device.topology) {
-      if (device.topology.segmentType === "CONTAINER") {
-        return {
-          segmentIndex: device.topology.containerIndex || 1,
-          segmentType: "CONTAINER" as const,
-          displayLabel: `Container ${device.topology.containerIndex || 1}`
-        };
-      }
-      if (device.topology.segmentType === "STACK") {
-        return {
-          segmentIndex: device.topology.stackIndex || 1,
-          segmentType: "STACK" as const,
-          displayLabel: `Stack ${device.topology.stackIndex || 1}`
-        };
-      }
-      if (device.topology.segmentType === "CS") {
-        return {
-          segmentIndex: 1, // Usually CS1 or CS2
-          segmentType: "CS" as const,
-          displayLabel: "CS"
-        };
-      }
-      if (device.topology.segmentType === "ES") {
-        return {
-          segmentIndex: device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1,
-          segmentType: "ES" as const,
-          displayLabel: `ES ${device.topology.pairedStringNumbers?.[0] ? Math.ceil(device.topology.pairedStringNumbers[0] / 2) : 1}`
-        };
-      }
-    }
+    const arrayIndex = device.arrayIndex !== undefined && device.arrayIndex !== null ? Number(device.arrayIndex) : undefined;
+    
+    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
+      arrayIndex,
+      enclosureIndex: device.topology?.enclosureIndex ?? device.enclosureIndex,
+      segmentIndex: device.topology?.segmentIndex ?? device.segmentIndex,
+      segmentPosition: device.topology?.segmentPosition ?? device.segmentPosition,
+      energySegmentIndex: device.energySegmentIndex,
+      segmentLabel: device.segmentLabel ?? device.topology?.segmentLabel,
+      displayName: device.displayName ?? device.topology?.displayName,
+      ip: device.ip,
+      enclosureType: device.enclosureType ?? device.topology?.enclosureType,
+    });
 
-    // 1. Direct priority check: stringIndex
-    if (device.stringIndex !== undefined && device.stringIndex !== null) {
-      const sIdx = Number(device.stringIndex);
-      if (!isNaN(sIdx)) {
-        if (sIdx >= 1 && sIdx <= 16) {
-          const esIndex = Math.ceil(sIdx / 2);
-          return {
-            segmentIndex: esIndex,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${esIndex}`
-          };
-        } else if (sIdx >= 17 && sIdx <= 18) {
-          const csIndex = sIdx - 16;
-          return {
-            segmentIndex: csIndex,
-            segmentType: "CS" as const,
-            displayLabel: `CS ${csIndex}`
-          };
-        }
-      }
-    }
-
-    // 2. Fallback to direct energySegmentIndex or segmentIndex fields
-    if (device.energySegmentIndex !== undefined && device.energySegmentIndex !== null && !isNaN(Number(device.energySegmentIndex))) {
+    if (resolvedNumOrCS === "CS") {
       return {
-        segmentIndex: Number(device.energySegmentIndex),
-        segmentType: "ES" as const,
-        displayLabel: `ES ${Number(device.energySegmentIndex)}`
-      };
-    }
-    if (device.segmentIndex !== undefined && device.segmentIndex !== null && !isNaN(Number(device.segmentIndex))) {
-      return {
-        segmentIndex: Number(device.segmentIndex),
-        segmentType: "ES" as const,
-        displayLabel: `ES ${Number(device.segmentIndex)}`
+        segmentIndex: 1,
+        segmentType: "CS" as const,
+        displayLabel: "CS"
       };
     }
 
-    // 3. Fallback to textual tokens (segmentLabel, entityDescription, entityKeyToken, etc.)
-    const tokens = [device.segmentLabel, device.entityDescription, device.entityKeyToken, device.ip];
-    for (const token of tokens) {
-      if (token) {
-        const matchES = token.match(/ES\s*(\d+)/i);
-        if (matchES) {
-          const idx = parseInt(matchES[1], 10);
-          return {
-            segmentIndex: idx,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${idx}`
-          };
-        }
-        const matchCS = token.match(/CS\s*(\d+)/i);
-        if (matchCS) {
-          const idx = parseInt(matchCS[1], 10);
-          return {
-            segmentIndex: idx,
-            segmentType: "CS" as const,
-            displayLabel: `CS ${idx}`
-          };
-        }
-      }
-    }
-
-    // 4. IP-based derivation as last resort
-    if (device.ip) {
-      const parts = device.ip.split(".");
-      if (parts.length === 4) {
-        const lastOctet = parseInt(parts[3], 10);
-        if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
-          const idx = ((lastOctet - 10) / 5) + 1;
-          return {
-            segmentIndex: idx,
-            segmentType: "ES" as const,
-            displayLabel: `ES ${idx}`
-          };
-        }
-      }
+    if (typeof resolvedNumOrCS === "number") {
+      return {
+        segmentIndex: resolvedNumOrCS,
+        segmentType: "ES" as const,
+        displayLabel: `ES ${resolvedNumOrCS}`
+      };
     }
 
     return {
@@ -594,26 +514,18 @@ function getHvacSampleDetails(hvac: any) {
     });
     
     const energySegmentIndex = getEnergySegmentIndex(selectedDevice);
-    if (energySegmentIndex === null) {
-      const strIdx = selectedDevice.stringIndex;
-      if (strIdx === null || strIdx === undefined) return [];
-      const numStrIdx = Number(strIdx);
-      return stringsInArray.filter((s: any) => {
-        const sNum = s.stringNumber !== undefined ? s.stringNumber : s.stringIndex;
-        return Number(sNum) === numStrIdx;
-      });
-    }
+    if (energySegmentIndex === null) return [];
     
-    const strA = energySegmentIndex * 2 - 1;
-    const strB = energySegmentIndex * 2;
+    const strA = (energySegmentIndex - 1) * 2 + 1;
+    const strB = strA + 1;
     
     return stringsInArray.filter((s: any) => {
       const sNum = s.stringNumber !== undefined ? s.stringNumber : s.stringIndex;
       if (sNum === undefined || sNum === null) return false;
       const num = Number(sNum);
-      return num === strA || num === strB || num === Number(selectedDevice.stringIndex);
+      return num === strA || num === strB;
     });
-  }, [selectedDevice?.ip, selectedDevice?.stringIndex, selectedDevice?.arrayIndex, snapshot?.normalized?.strings]);
+  }, [selectedDevice, snapshot?.normalized?.strings]);
 
   const pairedStringDebug = useMemo(() => {
     if (!selectedDevice) return null;

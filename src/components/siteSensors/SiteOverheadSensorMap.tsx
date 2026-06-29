@@ -12,6 +12,7 @@ import {
   ArrowRight
 } from "lucide-react";
 import { BlockSensorMatrixRow, NormalizedSensorCell } from "./topologyUtils";
+import { getArrayLocalEnergySegmentNumber } from "../../lib/segmentNumbering";
 
 interface SiteOverheadSensorMapProps {
   rows: BlockSensorMatrixRow[];
@@ -62,23 +63,21 @@ export default function SiteOverheadSensorMap({
   const getSegmentSummary = (row: BlockSensorMatrixRow): SegmentSummary => {
     const name = row.location?.displayName || "";
     const arrayIndex = getArrayNumber(name);
-    const isCS = row.location?.enclosureType === "CollectionSegment";
+    
+    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
+      arrayIndex,
+      enclosureIndex: row.location?.enclosureIndex,
+      segmentIndex: row.topology?.segmentIndex,
+      segmentPosition: row.location?.segmentPosition ?? row.topology?.segmentPosition,
+      energySegmentIndex: row.topology?.energySegmentIndex,
+      segmentLabel: row.topology?.segmentLabel,
+      displayName: row.location?.displayName || row.topology?.displayName,
+      enclosureType: row.location?.enclosureType,
+    });
+    
+    const isCS = resolvedNumOrCS === "CS";
     const segmentType = isCS ? "CS" : "ES";
-    const segmentNumber = (() => {
-      if (isCS) return 0;
-      if (row.location?.segmentPosition !== null && row.location?.segmentPosition !== undefined) {
-        return row.location.segmentPosition;
-      }
-      if (row.topology?.segmentPosition !== null && row.topology?.segmentPosition !== undefined) {
-        return row.topology.segmentPosition;
-      }
-      const dispName = row.location?.displayName || row.topology?.displayName || "";
-      const esMatch = dispName.match(/ES(\d+)/i);
-      if (esMatch) {
-        return parseInt(esMatch[1], 10);
-      }
-      return row.location?.enclosureIndex || 1;
-    })();
+    const segmentNumber = typeof resolvedNumOrCS === "number" ? resolvedNumOrCS : 0;
     const label = isCS ? "CS" : `ES${segmentNumber}`;
 
     const monitoredSensors: any[] = [];
@@ -186,7 +185,8 @@ export default function SiteOverheadSensorMap({
     rows.forEach((row) => {
       if (!row.location) return;
       const index = row.location.enclosureIndex;
-      if (index === null || index < 1) return;
+      const isCS = row.location.enclosureType === "CollectionSegment" || (row.location.displayName || "").toLowerCase().includes("collection");
+      if (!isCS && (index === null || index === undefined || index < 1)) return;
       
       const name = row.location.displayName || "";
       if (name.includes("Array 0") || name.includes("ES-1")) return;

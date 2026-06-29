@@ -700,8 +700,8 @@ function getPointStatus(
 
 router.get("/graph", async (req, res) => {
   const startedAt = Date.now();
-  const refreshRequested = req.query.refresh === "true" || req.query.sample === "true";
-  const sampleRequested = req.query.sample === "true";
+  const sampleRequested = req.query.sample === "true" || req.query.useSample === "true";
+  const refreshRequested = req.query.refresh === "true" || sampleRequested;
 
   const rows = buildSiteDistributionRows();
 
@@ -711,7 +711,7 @@ router.get("/graph", async (req, res) => {
   let isSampled = false;
   let cacheHit = true;
 
-  const sampleParamsExist = req.query.refresh === "true" || req.query.sample === "true";
+  const sampleParamsExist = sampleRequested;
   const needsSampling = baseVoltageRows === 0 && baseTempRows === 0 && sampleParamsExist;
 
   const profile = ProfileStore.getActiveProfile();
@@ -726,7 +726,6 @@ router.get("/graph", async (req, res) => {
     isSampled = true;
     cacheHit = false;
 
-    const profile = ProfileStore.getActiveProfile();
     const baseUrl = profile ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "unknown";
 
     if (baseUrl !== "unknown") {
@@ -777,7 +776,8 @@ router.get("/graph", async (req, res) => {
                 minCellTemperature: normalizeTemp(sv.minCellGroupTemp),
                 socPct: parseSafeNum(sv.soc),
                 operationalState: sv.stringConnectionState,
-                outRotation: sv.outRotation ?? sv.outRotationState
+                outRotation: sv.outRotation ?? sv.outRotationState,
+                timestamp: Date.now()
               });
             }
           }
@@ -797,9 +797,14 @@ router.get("/graph", async (req, res) => {
       });
       await Promise.all(workers);
 
-      prizmCache.set(cacheKey, sampledResults, { ttlMs: 60000 });
+      const cachedObj = {
+        data: sampledResults,
+        timestamp: Date.now()
+      };
+
+      prizmCache.set(cacheKey, cachedObj, { ttlMs: 60000 });
       if (arrayParam !== undefined && Number.isFinite(arrayParam)) {
-        prizmCache.set(`site_health_graph_sample_ARRAY_${arrayParam}`, sampledResults, { ttlMs: 60000 });
+        prizmCache.set(`site_health_graph_sample_ARRAY_${arrayParam}`, cachedObj, { ttlMs: 60000 });
       }
     }
   }
@@ -827,10 +832,12 @@ router.get("/graph", async (req, res) => {
     }
   }
 
-  const sampleCache = prizmCache.get<any>(cacheKey);
+  const allowSampleFallback = sampleRequested || (baseVoltageRows === 0 && baseTempRows === 0);
+  const sampleCache = allowSampleFallback ? prizmCache.get<any>(cacheKey) : null;
   const sampleMap = new Map<string, any>();
-  if (sampleCache && Array.isArray(sampleCache.data)) {
-    for (const s of sampleCache.data) {
+  if (sampleCache) {
+    const rawData = Array.isArray(sampleCache) ? sampleCache : (Array.isArray(sampleCache.data) ? sampleCache.data : []);
+    for (const s of rawData) {
       sampleMap.set(`${s.arrayIndex}:${s.stringIndex}`, s);
     }
   }
@@ -854,44 +861,244 @@ router.get("/graph", async (req, res) => {
   for (const row of rows) {
     const { arrayIndex, stringIndex } = row;
 
-    const voltRes = resolveVoltage(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap, sampleRequested);
-    const tempRes = resolveTemperature(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap, sampleRequested);
-
-    if (voltRes.source.includes("sampled") || tempRes.source.includes("sampled")) {
-      sourceCountSampled++;
-    } else if (voltRes.source.includes("dashboard") || tempRes.source.includes("dashboard")) {
-      sourceCountDashboard++;
-    } else if (voltRes.source.includes("distribution") || tempRes.source.includes("distribution")) {
-      sourceCountDist++;
-    }
-
     const dSample = sampleMap.get(`${arrayIndex}:${stringIndex}`);
     const dEnriched = enrichedMap.get(`${arrayIndex}:${stringIndex}`);
     const dBase = baseMap.get(`${arrayIndex}:${stringIndex}`);
 
-    const hasDistOrDashboard = 
-      (row && firstNumeric(row.stackVoltage, (row as any).measuredVoltage, (row as any).calculatedVoltage) !== undefined) ||
-      enrichedMap.has(`${arrayIndex}:${stringIndex}`) ||
-      baseMap.has(`${arrayIndex}:${stringIndex}`);
+    // Determine primary source
+    let primaryMetricSource: "site-distribution" | "string-dashboard-cache" | "stringviewer-sampled" | "unavailable" = "unavailable";
+    
+    const rowVolt = row.stackVoltage !== undefined && row.stackVoltage !== null ? row.stackVoltage : ((row as any).measuredVoltage !== undefined ? (row as any).measuredVoltage : (row as any).calculatedVoltage);
+    const dashVolt = dEnriched?.stackVoltage ?? dEnriched?.measuredVoltage ?? dEnriched?.calculatedVoltage ?? dBase?.stackVoltage ?? dBase?.measuredVoltage ?? dBase?.calculatedVoltage;
+    const sampleVolt = dSample?.measuredVoltage ?? dSample?.calculatedVoltage ?? dSample?.busVoltage;
 
-    const sampleAllowed = sampleRequested || !hasDistOrDashboard;
+    if (rowVolt !== undefined && rowVolt !== null) {
+      primaryMetricSource = "site-distribution";
+    } else if (dashVolt !== undefined && dashVolt !== null) {
+      primaryMetricSource = "string-dashboard-cache";
+    } else if (allowSampleFallback && sampleVolt !== undefined && sampleVolt !== null) {
+      primaryMetricSource = "stringviewer-sampled";
+    } else {
+      if (row) {
+        primaryMetricSource = "site-distribution";
+      } else if (dEnriched || dBase) {
+        primaryMetricSource = "string-dashboard-cache";
+      } else if (allowSampleFallback && dSample) {
+        primaryMetricSource = "stringviewer-sampled";
+      }
+    }
 
-    const socRes = resolveSOC(row, dSample, dEnriched, dBase, sampleAllowed);
-    const socPct = socRes.value;
+    if (primaryMetricSource === "site-distribution") {
+      sourceCountDist++;
+    } else if (primaryMetricSource === "string-dashboard-cache") {
+      sourceCountDashboard++;
+    } else if (primaryMetricSource === "stringviewer-sampled") {
+      sourceCountSampled++;
+    }
 
-    const communicating = dSample?.operationalState !== undefined
-      ? dSample.operationalState !== "OFFLINE"
-      : row.communicating;
+    // Constraint helpers
+    const isSampleAllowedForField = (field: string) => {
+      if (sampleRequested) return true;
+      if (field === "communicating" || field === "rotation") return false;
+      if (field === "soc") return false;
+      if (primaryMetricSource === "site-distribution") return false;
+      return true;
+    };
 
-    const outRotation = dSample?.outRotation !== undefined
-      ? dSample.outRotation
-      : row.outRotation ?? !row.inRotation;
+    // 1. Voltage
+    let voltage: number | undefined = undefined;
+    let voltageSource = "unavailable";
+    if (primaryMetricSource === "site-distribution" && rowVolt !== undefined && rowVolt !== null) {
+      voltage = rowVolt;
+      voltageSource = "site-distribution";
+    } else if (primaryMetricSource === "string-dashboard-cache" && dashVolt !== undefined && dashVolt !== null) {
+      voltage = dashVolt;
+      voltageSource = "string-dashboard-cache";
+    } else if (primaryMetricSource === "stringviewer-sampled" && sampleVolt !== undefined && sampleVolt !== null) {
+      voltage = sampleVolt;
+      voltageSource = "stringviewer-sampled";
+    } else {
+      if (rowVolt !== undefined && rowVolt !== null) {
+        voltage = rowVolt;
+        voltageSource = "site-distribution";
+      } else if (dashVolt !== undefined && dashVolt !== null) {
+        voltage = dashVolt;
+        voltageSource = "string-dashboard-cache";
+      } else if (isSampleAllowedForField("voltage") && sampleVolt !== undefined && sampleVolt !== null) {
+        voltage = sampleVolt;
+        voltageSource = "stringviewer-sampled";
+      }
+    }
 
-    const inRotation = !outRotation;
+    // 2. Temperature
+    let temperature: number | undefined = undefined;
+    let temperatureSource = "unavailable";
+    const rowTemp = row.maxCellTempC;
+    const dashTemp = dEnriched?.maxCellTempC ?? dEnriched?.maxCellTemperature ?? dBase?.maxCellTempC ?? dBase?.maxCellTemperature;
+    const sampleTemp = dSample?.maxCellTemperature ?? dSample?.maxCellTempC;
+
+    if (primaryMetricSource === "site-distribution" && rowTemp !== undefined && rowTemp !== null) {
+      temperature = rowTemp;
+      temperatureSource = "site-distribution";
+    } else if (primaryMetricSource === "string-dashboard-cache" && dashTemp !== undefined && dashTemp !== null) {
+      temperature = dashTemp;
+      temperatureSource = "string-dashboard-cache";
+    } else if (primaryMetricSource === "stringviewer-sampled" && sampleTemp !== undefined && sampleTemp !== null) {
+      temperature = sampleTemp;
+      temperatureSource = "stringviewer-sampled";
+    } else {
+      if (rowTemp !== undefined && rowTemp !== null) {
+        temperature = rowTemp;
+        temperatureSource = "site-distribution";
+      } else if (dashTemp !== undefined && dashTemp !== null) {
+        temperature = dashTemp;
+        temperatureSource = "string-dashboard-cache";
+      } else if (isSampleAllowedForField("temperature") && sampleTemp !== undefined && sampleTemp !== null) {
+        temperature = sampleTemp;
+        temperatureSource = "stringviewer-sampled";
+      }
+    }
+
+    // 3. SOC
+    let socPct: number | undefined = undefined;
+    let socSource = "unavailable";
+    const rowSoc = row.socPct;
+    const dashSoc = dEnriched?.socPct ?? dBase?.socPct;
+    const sampleSoc = dSample?.socPct;
+
+    if (primaryMetricSource === "site-distribution" && rowSoc !== undefined && rowSoc !== null) {
+      socPct = rowSoc;
+      socSource = "site-distribution";
+    } else if (primaryMetricSource === "string-dashboard-cache" && dashSoc !== undefined && dashSoc !== null) {
+      socPct = dashSoc;
+      socSource = "string-dashboard-cache";
+    } else if (primaryMetricSource === "stringviewer-sampled" && sampleSoc !== undefined && sampleSoc !== null) {
+      socPct = sampleSoc;
+      socSource = "stringviewer-sampled";
+    } else {
+      if (rowSoc !== undefined && rowSoc !== null) {
+        socPct = rowSoc;
+        socSource = "site-distribution";
+      } else if (dashSoc !== undefined && dashSoc !== null) {
+        socPct = dashSoc;
+        socSource = "string-dashboard-cache";
+      } else if (isSampleAllowedForField("soc") && sampleSoc !== undefined && sampleSoc !== null) {
+        socPct = sampleSoc;
+        socSource = "stringviewer-sampled";
+      }
+    }
+
+    // 4. Communicating
+    let communicating: boolean | undefined = undefined;
+    let communicatingSource = "unavailable";
+    const rowComm = row.communicating;
+    const dashComm = dEnriched?.communicating ?? dBase?.communicating;
+    const sampleComm = dSample?.operationalState !== undefined ? (dSample.operationalState !== "OFFLINE") : undefined;
+
+    if (primaryMetricSource === "site-distribution" && rowComm !== undefined && rowComm !== null) {
+      communicating = rowComm;
+      communicatingSource = "site-distribution";
+    } else if (primaryMetricSource === "string-dashboard-cache" && dashComm !== undefined && dashComm !== null) {
+      communicating = dashComm;
+      communicatingSource = "string-dashboard-cache";
+    } else if (primaryMetricSource === "stringviewer-sampled" && sampleComm !== undefined && sampleComm !== null) {
+      communicating = sampleComm;
+      communicatingSource = "stringviewer-sampled";
+    } else {
+      if (rowComm !== undefined && rowComm !== null) {
+        communicating = rowComm;
+        communicatingSource = "site-distribution";
+      } else if (dashComm !== undefined && dashComm !== null) {
+        communicating = dashComm;
+        communicatingSource = "string-dashboard-cache";
+      } else if (isSampleAllowedForField("communicating") && sampleComm !== undefined && sampleComm !== null) {
+        communicating = sampleComm;
+        communicatingSource = "stringviewer-sampled";
+      }
+    }
+    if (communicating === undefined) {
+      communicating = true;
+      communicatingSource = "default";
+    }
+
+    // 5. Rotation
+    let inRotation: boolean | undefined = undefined;
+    let rotationSource = "unavailable";
+    const rowRot = row.inRotation ?? (row.outRotation !== undefined ? !row.outRotation : undefined);
+    const dashRot = dEnriched?.inRotation ?? (dEnriched?.outRotation !== undefined ? !dEnriched.outRotation : (dBase?.inRotation ?? (dBase?.outRotation !== undefined ? !dBase.outRotation : undefined)));
+    const sampleRot = dSample?.outRotation !== undefined ? !dSample.outRotation : undefined;
+
+    if (primaryMetricSource === "site-distribution" && rowRot !== undefined && rowRot !== null) {
+      inRotation = rowRot;
+      rotationSource = "site-distribution";
+    } else if (primaryMetricSource === "string-dashboard-cache" && dashRot !== undefined && dashRot !== null) {
+      inRotation = dashRot;
+      rotationSource = "string-dashboard-cache";
+    } else if (primaryMetricSource === "stringviewer-sampled" && sampleRot !== undefined && sampleRot !== null) {
+      inRotation = sampleRot;
+      rotationSource = "stringviewer-sampled";
+    } else {
+      if (rowRot !== undefined && rowRot !== null) {
+        inRotation = rowRot;
+        rotationSource = "site-distribution";
+      } else if (dashRot !== undefined && dashRot !== null) {
+        inRotation = dashRot;
+        rotationSource = "string-dashboard-cache";
+      } else if (isSampleAllowedForField("rotation") && sampleRot !== undefined && sampleRot !== null) {
+        inRotation = sampleRot;
+        rotationSource = "stringviewer-sampled";
+      }
+    }
+    if (inRotation === undefined) {
+      inRotation = true;
+      rotationSource = "default";
+    }
+
+    // 6. Cell min/avg/max fields
+    const resolveField = (
+      fieldName: string,
+      rowVal: number | undefined,
+      dashVal: number | undefined,
+      sampleVal: number | undefined
+    ) => {
+      let val = undefined;
+      let src = "unavailable";
+
+      if (primaryMetricSource === "site-distribution" && rowVal !== undefined && rowVal !== null) {
+        val = rowVal;
+        src = "site-distribution";
+      } else if (primaryMetricSource === "string-dashboard-cache" && dashVal !== undefined && dashVal !== null) {
+        val = dashVal;
+        src = "string-dashboard-cache";
+      } else if (primaryMetricSource === "stringviewer-sampled" && sampleVal !== undefined && sampleVal !== null) {
+        val = sampleVal;
+        src = "stringviewer-sampled";
+      } else {
+        if (rowVal !== undefined && rowVal !== null) {
+          val = rowVal;
+          src = "site-distribution";
+        } else if (dashVal !== undefined && dashVal !== null) {
+          val = dashVal;
+          src = "string-dashboard-cache";
+        } else if (isSampleAllowedForField(fieldName) && sampleVal !== undefined && sampleVal !== null) {
+          val = sampleVal;
+          src = "stringviewer-sampled";
+        }
+      }
+      return { val, src };
+    };
+
+    const minCellVoltRes = resolveField("minCellVoltage", row.minCellVoltage, dEnriched?.minCellVoltage ?? dBase?.minCellVoltage, dSample?.minCellVoltage);
+    const avgCellVoltRes = resolveField("avgCellVoltage", row.avgCellVoltage, dEnriched?.avgCellVoltage ?? dBase?.avgCellVoltage, dSample?.avgCellVoltage);
+    const maxCellVoltRes = resolveField("maxCellVoltage", row.maxCellVoltage, dEnriched?.maxCellVoltage ?? dBase?.maxCellVoltage, dSample?.maxCellVoltage);
+
+    const minCellTempRes = resolveField("minCellTempC", row.minCellTempC, dEnriched?.minCellTempC ?? dEnriched?.minCellTemperature ?? dBase?.minCellTempC ?? dBase?.minCellTemperature, dSample?.minCellTempC ?? dSample?.minCellTemperature);
+    const avgCellTempRes = resolveField("avgCellTempC", row.avgCellTempC, dEnriched?.avgCellTempC ?? dEnriched?.avgCellTemperature ?? dBase?.avgCellTempC ?? dBase?.avgCellTemperature, dSample?.avgCellTempC ?? dSample?.avgCellTemperature);
+    const maxCellTempRes = resolveField("maxCellTempC", row.maxCellTempC, dEnriched?.maxCellTempC ?? dEnriched?.maxCellTemperature ?? dBase?.maxCellTempC ?? dBase?.maxCellTemperature, dSample?.maxCellTempC ?? dSample?.maxCellTemperature);
 
     const style = getPointStatus(
-      voltRes.value,
-      tempRes.value,
+      voltage,
+      temperature,
       communicating,
       inRotation,
       lowVolt,
@@ -910,28 +1117,41 @@ router.get("/graph", async (req, res) => {
       stringIndex,
       displayLabel: row.displayLabel || `A${arrayIndex}-S${stringIndex}`,
       ip: row.ip || dEnriched?.stringControllerIp || dBase?.stringControllerIp || "Unknown",
-      voltage: voltRes.value,
-      temperature: tempRes.value,
+      voltage,
+      temperature,
       socPct,
       communicating,
       inRotation,
       statusColor: style.statusColor,
       statusLabel: style.statusLabel,
       metricSource: {
-        voltage: voltRes.source,
-        temperature: tempRes.source,
-        soc: socRes.source,
+        voltage: voltageSource,
+        temperature: temperatureSource,
+        soc: socSource,
+        primary: primaryMetricSource,
         rowSourceTimestamp: (row as any).timestamp || null,
         sampleAgeMs: dSample?.timestamp ? (Date.now() - Number(dSample.timestamp)) : null
       },
+      fieldSources: {
+        voltage: voltageSource,
+        soc: socSource,
+        minCellVoltage: minCellVoltRes.src,
+        avgCellVoltage: avgCellVoltRes.src,
+        maxCellVoltage: maxCellVoltRes.src,
+        minCellTempC: minCellTempRes.src,
+        avgCellTempC: avgCellTempRes.src,
+        maxCellTempC: maxCellTempRes.src,
+        communicating: communicatingSource,
+        rotation: rotationSource
+      },
       sourcePath: row.sourcePath,
-      minCellVoltage: row.minCellVoltage !== undefined ? row.minCellVoltage : (dSample?.minCellVoltage ?? dEnriched?.minCellVoltage ?? dBase?.minCellVoltage),
-      avgCellVoltage: row.avgCellVoltage !== undefined ? row.avgCellVoltage : (dSample?.avgCellVoltage ?? dEnriched?.avgCellVoltage ?? dBase?.avgCellVoltage),
-      maxCellVoltage: row.maxCellVoltage !== undefined ? row.maxCellVoltage : (dSample?.maxCellVoltage ?? dEnriched?.maxCellVoltage ?? dBase?.maxCellVoltage),
-      minCellTempC: row.minCellTempC !== undefined ? row.minCellTempC : (dSample?.minCellTempC ?? dSample?.minCellTemperature ?? dEnriched?.minCellTempC ?? dEnriched?.minCellTemperature ?? dBase?.minCellTempC ?? dBase?.minCellTemperature),
-      avgCellTempC: row.avgCellTempC !== undefined ? row.avgCellTempC : (dSample?.avgCellTempC ?? dSample?.avgCellTemperature ?? dEnriched?.avgCellTempC ?? dEnriched?.avgCellTemperature ?? dBase?.avgCellTempC ?? dBase?.avgCellTemperature),
-      maxCellTempC: row.maxCellTempC !== undefined ? row.maxCellTempC : (dSample?.maxCellTempC ?? dSample?.maxCellTemperature ?? dEnriched?.maxCellTempC ?? dEnriched?.maxCellTemperature ?? dBase?.maxCellTempC ?? dBase?.maxCellTemperature),
-      stackVoltage: voltRes.value
+      minCellVoltage: minCellVoltRes.val,
+      avgCellVoltage: avgCellVoltRes.val,
+      maxCellVoltage: maxCellVoltRes.val,
+      minCellTempC: minCellTempRes.val,
+      avgCellTempC: avgCellTempRes.val,
+      maxCellTempC: maxCellTempRes.val,
+      stackVoltage: voltage
     };
 
     if (req.query.includeRaw === "true") {
