@@ -102,17 +102,28 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
   const [error, setError] = useState<string | null>(null);
   const [currentManifest, setCurrentManifest] = useState<ProvisioningBundleManifest | null>(null);
 
-  const [targetFeatherIp, setTargetFeatherIp] = useState('');
   const [featherIndex, setFeatherIndex] = useState('');
   const [ioLogikIp, setIoLogikIp] = useState('');
   const [ioLogikSource, setIoLogikSource] = useState<"calculated" | "override" | "user-input">("user-input");
   const [targetLabel, setTargetLabel] = useState('');
   const [planPreview, setPlanPreview] = useState<any>(null);
 
+  const [workflowMode, setWorkflowMode] = useState<"baseline-only" | "hatchery-only" | "baseline-and-hatchery">("baseline-and-hatchery");
+  const [startingTargetState, setStartingTargetState] = useState<"default-ip" | "existing-site-ip">("default-ip");
+  const [startingIp, setStartingIp] = useState('192.168.3.127');
+  const [finalFeatherIp, setFinalFeatherIp] = useState('');
+  const [gateway, setGateway] = useState('10.0.0.1');
+  const [networkType, setNetworkType] = useState<"in-network" | "external">("in-network");
+  const [featherType, setFeatherType] = useState<"CS" | "ES">("ES");
+
   // Auto-calculate ioLogik IP
   useEffect(() => {
-    if (targetFeatherIp) {
-      const parts = targetFeatherIp.split('.');
+    let ipToCalculateFrom = finalFeatherIp;
+    if (workflowMode === 'hatchery-only' && startingTargetState === 'existing-site-ip') {
+      ipToCalculateFrom = startingIp;
+    }
+    if (ipToCalculateFrom) {
+      const parts = ipToCalculateFrom.split('.');
       if (parts.length === 4) {
         const last = parseInt(parts[3], 10);
         if (!isNaN(last) && last < 255) {
@@ -124,7 +135,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
         }
       }
     }
-  }, [targetFeatherIp]);
+  }, [finalFeatherIp, startingIp, workflowMode, startingTargetState]);
 
   const fetchSelectedBundle = async () => {
     try {
@@ -341,26 +352,38 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
       return true;
     };
 
-    if (!isValidIp(targetFeatherIp)) {
-      setError("Invalid Target Feather IP");
+    if (!isValidIp(startingIp)) {
+      setError("Invalid Starting IP");
       setLoading(false);
       return;
     }
     
-    if (isNaN(parseInt(featherIndex, 10))) {
+    if (workflowMode === 'baseline-and-hatchery' && !isValidIp(finalFeatherIp)) {
+      setError("Invalid Final Feather IP");
+      setLoading(false);
+      return;
+    }
+
+    if (workflowMode === 'baseline-only' && startingTargetState === 'default-ip' && networkType === 'in-network' && !isValidIp(finalFeatherIp)) {
+      setError("Invalid Final Feather IP");
+      setLoading(false);
+      return;
+    }
+    
+    if ((workflowMode === 'hatchery-only' || workflowMode === 'baseline-and-hatchery') && isNaN(parseInt(featherIndex, 10))) {
       setError("Feather Index must be numeric");
       setLoading(false);
       return;
     }
 
-    if (!isValidIp(ioLogikIp)) {
+    if ((workflowMode === 'hatchery-only' || workflowMode === 'baseline-and-hatchery') && !isValidIp(ioLogikIp)) {
       setError("Invalid ioLogik IP");
       setLoading(false);
       return;
     }
 
-    if (targetFeatherIp.endsWith('.255') && ioLogikSource !== 'override') {
-      setError("Target Feather IP ends in .255. You must manually override the ioLogik IP.");
+    if (finalFeatherIp && finalFeatherIp.endsWith('.255') && ioLogikSource !== 'override') {
+      setError("Final Feather IP ends in .255. You must manually override the ioLogik IP.");
       setLoading(false);
       return;
     }
@@ -394,12 +417,19 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          targetFeatherIp,
-          featherIndex: parseInt(featherIndex, 10),
+          workflowMode,
+          startingTargetState,
+          startingIp,
+          finalFeatherIp,
+          gateway,
+          networkType,
+          featherType,
+          featherIndex: featherIndex ? parseInt(featherIndex, 10) : undefined,
           ioLogikIp,
           ioLogikSource,
           targetLabel,
           bundleValidation: targetValidation,
+          workspaceValidation: workspaceValidation,
           bundleSource
         })
       });
@@ -812,17 +842,97 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
             )}
 
             <div className={`mt-8 ${sourceMode === 'external' ? 'border-t border-prizm-border pt-6' : ''}`}>
-               <h4 className="font-medium text-prizm-text mb-4">Provisioning Plan Preview</h4>
-               <div className="grid grid-cols-4 gap-4 mb-6">
+               <h4 className="font-medium text-prizm-text mb-4">Feather Setup Plan Preview</h4>
+               <div className="grid grid-cols-2 gap-4 mb-4">
                  <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Target Feather IP</label>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Workflow Mode</label>
+                   <select 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     value={workflowMode}
+                     onChange={(e: any) => setWorkflowMode(e.target.value)}
+                   >
+                     <option value="baseline-only">Baseline only</option>
+                     <option value="hatchery-only">Hatchery only</option>
+                     <option value="baseline-and-hatchery">Baseline + Hatchery</option>
+                   </select>
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Starting Target State</label>
+                   <select 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     value={startingTargetState}
+                     onChange={(e: any) => {
+                       setStartingTargetState(e.target.value);
+                       if (e.target.value === 'default-ip') setStartingIp('192.168.3.127');
+                       else setStartingIp(finalFeatherIp);
+                     }}
+                   >
+                     <option value="default-ip">Default IP / New Feather</option>
+                     <option value="existing-site-ip">Existing Site IP</option>
+                   </select>
+                 </div>
+               </div>
+               
+               {startingTargetState === 'default-ip' && (
+                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
+                   <strong>Warning:</strong> Only one default-IP Feather should be connected during adoption. PRIZM must be running on a machine that can reach 192.168.3.127. The technician may need to manually assign a temporary 192.168.3.x address to the local network adapter. PRIZM does not change host adapter settings in preview mode.
+                 </div>
+               )}
+
+               <div className="grid grid-cols-4 gap-4 mb-4">
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Starting IP</label>
+                   <input 
+                     type="text" 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     value={startingIp}
+                     onChange={(e) => setStartingIp(e.target.value)}
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Final Feather IP</label>
                    <input 
                      type="text" 
                      className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
                      placeholder="10.0.7.25"
-                     value={targetFeatherIp}
-                     onChange={(e) => setTargetFeatherIp(e.target.value)}
+                     value={finalFeatherIp}
+                     onChange={(e) => setFinalFeatherIp(e.target.value)}
                    />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Gateway</label>
+                   <input 
+                     type="text" 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     placeholder="10.0.0.1"
+                     value={gateway}
+                     onChange={(e) => setGateway(e.target.value)}
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Network Type</label>
+                   <select 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     value={networkType}
+                     onChange={(e: any) => setNetworkType(e.target.value)}
+                   >
+                     <option value="in-network">In-Network</option>
+                     <option value="external">External</option>
+                   </select>
+                 </div>
+               </div>
+
+               <div className="grid grid-cols-4 gap-4 mb-6">
+                 <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Feather Type</label>
+                   <select 
+                     className="w-full bg-prizm-surface border border-prizm-border rounded px-3 py-2 text-prizm-text focus:outline-none focus:border-prizm-primary text-sm"
+                     value={featherType}
+                     onChange={(e: any) => setFeatherType(e.target.value)}
+                   >
+                     <option value="ES">ES</option>
+                     <option value="CS">CS</option>
+                   </select>
                  </div>
                  <div>
                    <label className="block text-sm font-medium text-slate-700 mb-1">Feather Index / Identity</label>
@@ -861,11 +971,11 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                
                <div className="flex items-center justify-between mt-4">
                  <div className="text-sm text-slate-500 italic">
-                   Plan preview does not run commands, copy files, or connect to the target device.
+                   Plan preview does not run commands, copy files, change network settings, or connect to the target device.
                  </div>
                  <button
                    onClick={handleGeneratePlan}
-                   disabled={loading || !targetFeatherIp || !featherIndex || !ioLogikIp}
+                   disabled={loading || !startingIp}
                    className="bg-prizm-surface border border-prizm-border text-prizm-text px-6 py-2 rounded hover:bg-prizm-panel flex items-center gap-2 transition-colors disabled:opacity-50"
                  >
                    <Play className="w-4 h-4" /> Generate Plan Preview
@@ -885,10 +995,17 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                 <div className="grid grid-cols-2 gap-6 mb-6">
                   <div className="bg-prizm-surface border border-prizm-border p-4 rounded-lg">
                     <h5 className="font-medium text-slate-700 mb-2">Target Summary</h5>
-                    <div className="space-y-1 text-sm text-slate-600">
-                      <div>Target Feather IP: <span className="font-medium text-slate-800">{planPreview.target.targetFeatherIp}</span></div>
-                      <div>Feather Index: <span className="font-medium text-slate-800">{planPreview.target.featherIndex}</span></div>
-                      <div>ioLogik IP: <span className="font-medium text-slate-800">{planPreview.target.ioLogikIp}</span> <span className="text-xs text-slate-400 capitalize">({planPreview.calculatedValues?.find((v: any) => v.key === 'ioLogikIp')?.source || 'user-input'})</span></div>
+                    <div className="grid grid-cols-2 gap-2 text-sm text-slate-600">
+                      <div>Workflow: <span className="font-medium text-slate-800">{planPreview.target.workflowMode}</span></div>
+                      <div>Starting State: <span className="font-medium text-slate-800">{planPreview.target.startingTargetState}</span></div>
+                      <div>Starting IP: <span className="font-medium text-slate-800">{planPreview.target.startingIp}</span></div>
+                      {planPreview.target.finalFeatherIp && <div>Final IP: <span className="font-medium text-slate-800">{planPreview.target.finalFeatherIp}</span></div>}
+                      {planPreview.target.postBaselineIp && <div>Post-Baseline IP: <span className="font-medium text-slate-800">{planPreview.target.postBaselineIp}</span></div>}
+                      <div>Gateway: <span className="font-medium text-slate-800">{planPreview.target.gateway}</span></div>
+                      <div>Network Type: <span className="font-medium text-slate-800">{planPreview.target.networkType}</span></div>
+                      {planPreview.target.featherType && <div>Feather Type: <span className="font-medium text-slate-800">{planPreview.target.featherType}</span></div>}
+                      {planPreview.target.featherIndex !== undefined && <div>Feather Index: <span className="font-medium text-slate-800">{planPreview.target.featherIndex}</span></div>}
+                      {planPreview.target.ioLogikIp && <div>ioLogik IP: <span className="font-medium text-slate-800">{planPreview.target.ioLogikIp}</span> <span className="text-xs text-slate-400 capitalize">({planPreview.target.ioLogikSource})</span></div>}
                       {planPreview.target.targetLabel && (
                         <div>Label: <span className="font-medium text-slate-800">{planPreview.target.targetLabel}</span></div>
                       )}
@@ -900,6 +1017,14 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                       <div>Source: <span className="font-medium text-slate-800">{planPreview.bundle.sourceLabel}</span></div>
                       <div>Mode: <span className="font-medium text-slate-800">{planPreview.bundle.sourceMode}</span></div>
                       <div>Status: <span className="font-medium text-slate-800 uppercase">{planPreview.bundle.bundleStatus}</span></div>
+                      {planPreview.bundle.sourceMode === 'prizm-workspace' && (
+                        <div>Workspace Workflows: <span className="font-medium text-slate-800">
+                          {[
+                            workspaceValidation?.supportedWorkflows?.baselineOnly ? 'Baseline' : '',
+                            workspaceValidation?.supportedWorkflows?.hatcheryOnly ? 'Hatchery' : '',
+                          ].filter(Boolean).join(', ')}
+                        </span></div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -923,9 +1048,18 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                     </ul>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <h5 className="font-medium text-slate-700">Planned Steps (No commands have been executed)</h5>
-                    {planPreview.steps.map((step: any) => (
+                  <div className="space-y-6">
+                    <div className="bg-slate-50 border border-slate-200 p-4 rounded text-center text-slate-600 font-medium">
+                      No commands have been executed. This is a planning preview only.
+                    </div>
+                    
+                    {['baseline', 'hatchery', 'verification', 'record'].map(stage => {
+                      const stageSteps = planPreview.steps.filter((s: any) => s.stageGroup === stage || (!s.stageGroup && stage === 'record'));
+                      if (stageSteps.length === 0) return null;
+                      return (
+                        <div key={stage} className="space-y-4">
+                          <h5 className="font-medium text-slate-700 text-lg border-b border-slate-200 pb-2 capitalize">{stage} Stage</h5>
+                          {stageSteps.map((step: any) => (
                       <div key={step.stepId} className="border border-prizm-border rounded-lg bg-prizm-panel overflow-hidden">
                         <div className={`p-3 border-b border-prizm-border flex justify-between items-center ${
                           step.riskLevel === 'high' ? 'bg-red-50' : step.riskLevel === 'medium' ? 'bg-amber-50' : 'bg-slate-50'
@@ -964,7 +1098,7 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                         {step.commandsPreview && step.commandsPreview.length > 0 && (
                           <div className="mt-3">
                             <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Commands (Preview)</div>
-                            <pre className="bg-slate-900 text-slate-300 p-2 rounded text-xs font-mono overflow-x-auto">
+                            <pre className="bg-slate-900 text-slate-300 p-2 rounded text-xs font-mono overflow-x-auto whitespace-pre-wrap">
                               {step.commandsPreview.join('\n')}
                             </pre>
                           </div>
@@ -989,8 +1123,11 @@ export default function ProvisioningDashboard({ active }: ProvisioningDashboardP
                         )}
                       </div>
                     </div>
-                  ))}
-                </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}

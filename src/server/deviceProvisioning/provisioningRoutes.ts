@@ -72,17 +72,39 @@ router.delete('/bundles/selected', (req, res) => {
 });
 
 router.post('/plans/preview', (req, res) => {
-  const { targetFeatherIp, featherIndex, ioLogikIp, ioLogikSource, targetLabel, bundleValidation, bundleSource } = req.body;
-  if (!targetFeatherIp || featherIndex === undefined || !ioLogikIp || !bundleValidation || !bundleSource) {
+  const {
+    workflowMode,
+    startingTargetState,
+    startingIp,
+    finalFeatherIp,
+    gateway,
+    networkType,
+    featherType,
+    featherIndex,
+    ioLogikIp,
+    ioLogikSource,
+    targetLabel,
+    bundleValidation,
+    workspaceValidation,
+    bundleSource
+  } = req.body;
+
+  if (!workflowMode || !startingTargetState || !bundleValidation || !bundleSource) {
     return res.status(400).json({ success: false, error: "Missing required fields" });
   }
 
   try {
     const plan = buildProvisioningPlanPreview(
-      targetFeatherIp,
-      Number(featherIndex),
+      workflowMode,
+      startingTargetState,
+      startingIp,
+      finalFeatherIp,
+      gateway,
+      networkType,
+      featherType,
+      featherIndex !== undefined ? Number(featherIndex) : undefined,
       ioLogikIp,
-      ioLogikSource || "user-input",
+      ioLogikSource,
       targetLabel,
       bundleValidation,
       bundleSource

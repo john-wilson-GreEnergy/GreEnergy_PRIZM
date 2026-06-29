@@ -3,9 +3,17 @@ export type ProvisioningPlanPreview = {
   createdAt: string;
   status: "preview-only" | "invalid";
   target: {
-    targetFeatherIp: string;
-    featherIndex: number;
-    ioLogikIp: string;
+    workflowMode: "baseline-only" | "hatchery-only" | "baseline-and-hatchery";
+    startingTargetState: "default-ip" | "existing-site-ip";
+    startingIp: string;
+    finalFeatherIp: string;
+    postBaselineIp: string;
+    gateway: string;
+    networkType: "in-network" | "external";
+    featherType?: "CS" | "ES";
+    featherIndex?: number;
+    ioLogikIp?: string;
+    ioLogikSource?: "calculated" | "override" | "user-input";
     targetLabel?: string;
   };
   bundle: {
@@ -27,6 +35,7 @@ export type ProvisioningPlanPreview = {
     stepId: string;
     order: number;
     title: string;
+    stageGroup?: "baseline" | "hatchery" | "verification" | "record";
     category: "precheck" | "backup" | "stage" | "patch" | "install" | "restart" | "validate" | "record";
     executionType: "future-controlled-command" | "future-file-copy" | "future-config-edit" | "future-validation" | "manual-review";
     riskLevel: "low" | "medium" | "high";
