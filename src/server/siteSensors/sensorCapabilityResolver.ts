@@ -25,36 +25,65 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
 
       // Determine isMissing and isTripped
       const displayVal = cell.displayValue || "";
-      const isMissing = !cell.applicable || 
-                        cell.tripped === null || 
-                        ["offline", "disabled", "not ready", "unavailable"].includes(displayVal.toLowerCase()) ||
-                        cell.status === "Offline" ||
-                        cell.status === "Disabled";
+      const lowerDisplay = displayVal.toLowerCase().trim();
+      const lowerStatus = (cell.status || "").toLowerCase().trim();
+      const statusMsg = (cell.statusMessage || "").toLowerCase().trim();
 
-      const isTripped = cell.tripped === true || 
-                        (typeof cell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(cell.value.toLowerCase().trim())) ||
-                        displayVal.toUpperCase() === "TRIPPED";
+      // Fix 2: Explicit unavailable indicators
+      const isExplicitUnavailable = 
+        ["offline", "disabled", "not ready", "unavailable"].includes(lowerDisplay) ||
+        lowerStatus === "offline" ||
+        lowerStatus === "disabled" ||
+        cell.communicating === false ||
+        cell.enabled === false ||
+        cell.ready === false ||
+        statusMsg.includes("lost") ||
+        statusMsg.includes("unavailable") ||
+        statusMsg.includes("offline");
+
+      const isMissing = isExplicitUnavailable;
+
+      // Fix 2: Determine isTripped
+      let isTripped = cell.tripped === true || 
+                       (typeof cell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(cell.value.toLowerCase().trim())) ||
+                       lowerDisplay === "tripped";
+
+      if (cell.tripped === null || cell.tripped === undefined) {
+        // treat as normal unless statusMessage explicitly says fault/alarm/trouble/open/lost/unavailable
+        const hasFaultStatusMsg = ["fault", "alarm", "trouble", "open", "lost", "unavailable"].some(word => statusMsg.includes(word));
+        isTripped = hasFaultStatusMsg;
+      }
 
       const canonicalKey = mapToCanonicalProfileKey(key);
       const profile = activeProfile?.sensorMonitoringProfile;
 
+      const defaultCS = {
+        dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
+        manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
+        io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
+        hydrogen: false, hydrogenFault: false, envControllerVent: false
+      };
+
+      const defaultES = {
+        dataUnavailable: true, batteryDoors: true, topCapDoors: true,
+        envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
+        io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+        acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
+      };
+
       let monitoredByProfile = false;
       if (enclosureType === "CS") {
-        const csProfile = profile?.collectionSegment || {
-          dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
-          manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
-          io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
-          hydrogen: false, hydrogenFault: false, envControllerVent: false
-        };
-        monitoredByProfile = !!csProfile[canonicalKey];
+        if (profile?.collectionSegment) {
+          monitoredByProfile = profile.collectionSegment[canonicalKey] === true;
+        } else {
+          monitoredByProfile = !!(defaultCS as any)[canonicalKey];
+        }
       } else {
-        const esProfile = profile?.energySegment || {
-          dataUnavailable: true, batteryDoors: true, topCapDoors: true,
-          envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
-          io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
-          acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
-        };
-        monitoredByProfile = !!esProfile[canonicalKey];
+        if (profile?.energySegment) {
+          monitoredByProfile = profile.energySegment[canonicalKey] === true;
+        } else {
+          monitoredByProfile = !!(defaultES as any)[canonicalKey];
+        }
       }
 
       const rawPresent = !isMissing;
@@ -101,8 +130,8 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
       return {
         ...cell,
         applicable: monitoredByProfile, // Hide from standard view if not in profile
-        healthy: !isTripped && !isMissing,
-        tripped: isTripped,
+        healthy: !contributesToHealth ? true : (!isTripped && !isMissing),
+        tripped: contributesToHealth ? isTripped : false,
 
         rawPresent,
         rawApplicable,
@@ -205,23 +234,33 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
     const canonicalKey = mapToCanonicalProfileKey(point.pointRole);
     const profile = activeProfile?.sensorMonitoringProfile;
 
+    const defaultCS = {
+      dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
+      manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
+      io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
+      hydrogen: false, hydrogenFault: false, envControllerVent: false
+    };
+
+    const defaultES = {
+      dataUnavailable: true, batteryDoors: true, topCapDoors: true,
+      envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
+      io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+      acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
+    };
+
     let monitoredByProfile = false;
     if (enclosureType === "CS") {
-      const csProfile = profile?.collectionSegment || {
-        dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
-        manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
-        io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
-        hydrogen: false, hydrogenFault: false, envControllerVent: false
-      };
-      monitoredByProfile = !!csProfile[canonicalKey];
+      if (profile?.collectionSegment) {
+        monitoredByProfile = profile.collectionSegment[canonicalKey] === true;
+      } else {
+        monitoredByProfile = !!(defaultCS as any)[canonicalKey];
+      }
     } else {
-      const esProfile = profile?.energySegment || {
-        dataUnavailable: true, batteryDoors: true, topCapDoors: true,
-        envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
-        io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
-        acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
-      };
-      monitoredByProfile = !!esProfile[canonicalKey];
+      if (profile?.energySegment) {
+        monitoredByProfile = profile.energySegment[canonicalKey] === true;
+      } else {
+        monitoredByProfile = !!(defaultES as any)[canonicalKey];
+      }
     }
 
     const contributesToHealth = monitoredByProfile;

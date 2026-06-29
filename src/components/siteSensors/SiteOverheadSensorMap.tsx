@@ -64,7 +64,21 @@ export default function SiteOverheadSensorMap({
     const arrayIndex = getArrayNumber(name);
     const isCS = row.location?.enclosureType === "CollectionSegment";
     const segmentType = isCS ? "CS" : "ES";
-    const segmentNumber = isCS ? 0 : (row.location?.enclosureIndex || row.location?.segmentPosition || 1);
+    const segmentNumber = (() => {
+      if (isCS) return 0;
+      if (row.location?.segmentPosition !== null && row.location?.segmentPosition !== undefined) {
+        return row.location.segmentPosition;
+      }
+      if (row.topology?.segmentPosition !== null && row.topology?.segmentPosition !== undefined) {
+        return row.topology.segmentPosition;
+      }
+      const dispName = row.location?.displayName || row.topology?.displayName || "";
+      const esMatch = dispName.match(/ES(\d+)/i);
+      if (esMatch) {
+        return parseInt(esMatch[1], 10);
+      }
+      return row.location?.enclosureIndex || 1;
+    })();
     const label = isCS ? "CS" : `ES${segmentNumber}`;
 
     const monitoredSensors: any[] = [];

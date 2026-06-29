@@ -123,6 +123,9 @@ export interface SiteHealthGraphPoint {
   metricSource: {
     voltage: string;
     temperature: string;
+    soc?: string;
+    rowSourceTimestamp?: string | number | null;
+    sampleAgeMs?: number | null;
   };
   sourcePath: string;
   minCellVoltage?: number;
@@ -921,6 +924,32 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: getStatusColorHex(d.statusColor) }} />
             STATUS: {d.statusLabel}
           </div>
+
+          {d.metricSource && (
+            <div className="pt-1.5 border-t border-prizm-border/40 mt-1.5 space-y-0.5 text-[9px] text-slate-400">
+              <span className="font-bold text-slate-500 uppercase block tracking-wider font-sans">Metrics Resolution Diagnostics:</span>
+              <div className="flex justify-between">
+                <span>Voltage Source:</span>
+                <span className="text-white font-semibold">{d.metricSource.voltage}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Temperature Source:</span>
+                <span className="text-white font-semibold">{d.metricSource.temperature}</span>
+              </div>
+              {d.metricSource.soc && (
+                <div className="flex justify-between">
+                  <span>SOC Source:</span>
+                  <span className="text-white font-semibold">{d.metricSource.soc}</span>
+                </div>
+              )}
+              {d.metricSource.sampleAgeMs !== undefined && d.metricSource.sampleAgeMs !== null && (
+                <div className="flex justify-between text-yellow-400/90">
+                  <span>Sample Age:</span>
+                  <span>{(d.metricSource.sampleAgeMs / 1000).toFixed(1)}s</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       );
     }

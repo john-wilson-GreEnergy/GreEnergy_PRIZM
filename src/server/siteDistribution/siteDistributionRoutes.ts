@@ -481,15 +481,31 @@ function resolveVoltage(
   row: any,
   sampleMap: Map<string, any>,
   enrichedMap: Map<string, any>,
-  baseMap: Map<string, any>
+  baseMap: Map<string, any>,
+  sampleRequested: boolean
 ): { value: number | undefined; source: string } {
   const key = `${arrayIndex}:${stringIndex}`;
-  const sources = [
-    { name: "stringviewer-sampled", data: sampleMap.get(key) },
-    { name: "string-dashboard-cache", data: enrichedMap.get(key) },
-    { name: "string-dashboard-cache", data: baseMap.get(key) },
-    { name: "site-distribution", data: row }
-  ];
+
+  const hasDistOrDashboard = 
+    (row && firstNumeric(row.stackVoltage, row.measuredVoltage, row.calculatedVoltage) !== undefined) ||
+    enrichedMap.has(key) ||
+    baseMap.has(key);
+
+  const sampleAllowed = sampleRequested || !hasDistOrDashboard;
+
+  const sources: { name: string; data: any }[] = [];
+  if (row) {
+    sources.push({ name: "site-distribution", data: row });
+  }
+  if (enrichedMap.has(key)) {
+    sources.push({ name: "string-dashboard-cache", data: enrichedMap.get(key) });
+  }
+  if (baseMap.has(key)) {
+    sources.push({ name: "string-dashboard-cache", data: baseMap.get(key) });
+  }
+  if (sampleAllowed && sampleMap.has(key)) {
+    sources.push({ name: "stringviewer-sampled", data: sampleMap.get(key) });
+  }
 
   for (const src of sources) {
     if (!src.data) continue;
@@ -511,6 +527,22 @@ function resolveVoltage(
     if (acv !== undefined) return { value: acv, source: `${src.name}-cell-voltage-fallback` };
   }
 
+  // Absolute fallback to stringviewer-sampled if we literally have nothing else
+  if (sampleMap.has(key)) {
+    const d = sampleMap.get(key);
+    const mv = firstNumeric(d.measuredVoltage, d.measuredStringVoltage, d.voltageMeasured, d.voltageMeas);
+    if (mv !== undefined) return { value: mv, source: "stringviewer-sampled-fallback" };
+
+    const cv = firstNumeric(d.calculatedVoltage, d.calculatedStringVoltage, d.voltageCalculated, d.voltageCalc);
+    if (cv !== undefined) return { value: cv, source: "stringviewer-sampled-fallback" };
+
+    const bv = firstNumeric(d.busVoltage, d.dcBusVoltage, d.voltageDcBus, d.voltageBus);
+    if (bv !== undefined) return { value: bv, source: "stringviewer-sampled-fallback" };
+
+    const sv = firstNumeric(d.stackVoltage, d.stackVoltageVdc, d.dcVoltage);
+    if (sv !== undefined) return { value: sv, source: "stringviewer-sampled-fallback" };
+  }
+
   return { value: undefined, source: "unavailable" };
 }
 
@@ -520,15 +552,31 @@ function resolveTemperature(
   row: any,
   sampleMap: Map<string, any>,
   enrichedMap: Map<string, any>,
-  baseMap: Map<string, any>
+  baseMap: Map<string, any>,
+  sampleRequested: boolean
 ): { value: number | undefined; source: string } {
   const key = `${arrayIndex}:${stringIndex}`;
-  const sources = [
-    { name: "stringviewer-sampled", data: sampleMap.get(key) },
-    { name: "string-dashboard-cache", data: enrichedMap.get(key) },
-    { name: "string-dashboard-cache", data: baseMap.get(key) },
-    { name: "site-distribution", data: row }
-  ];
+
+  const hasDistOrDashboard = 
+    (row && normalizeTemp(row.maxCellTempC, row.avgCellTempC) !== undefined) ||
+    enrichedMap.has(key) ||
+    baseMap.has(key);
+
+  const sampleAllowed = sampleRequested || !hasDistOrDashboard;
+
+  const sources: { name: string; data: any }[] = [];
+  if (row) {
+    sources.push({ name: "site-distribution", data: row });
+  }
+  if (enrichedMap.has(key)) {
+    sources.push({ name: "string-dashboard-cache", data: enrichedMap.get(key) });
+  }
+  if (baseMap.has(key)) {
+    sources.push({ name: "string-dashboard-cache", data: baseMap.get(key) });
+  }
+  if (sampleAllowed && sampleMap.has(key)) {
+    sources.push({ name: "stringviewer-sampled", data: sampleMap.get(key) });
+  }
 
   for (const src of sources) {
     if (!src.data) continue;
@@ -545,6 +593,39 @@ function resolveTemperature(
 
     const stt = normalizeTemp(d.stackTemperatureC, d.stackTempC, d.stackTemperature, d.tempC, d.temperatureC);
     if (stt !== undefined) return { value: stt, source: src.name };
+  }
+
+  // Absolute fallback
+  if (sampleMap.has(key)) {
+    const d = sampleMap.get(key);
+    const mxt = normalizeTemp(d.maxCellTemperature, d.maxCellGroupTemp, d.maxCellTempC, d.maxCellTemp, d.maxCellTemperatureC);
+    if (mxt !== undefined) return { value: mxt, source: "stringviewer-sampled-fallback" };
+  }
+
+  return { value: undefined, source: "unavailable" };
+}
+
+function resolveSOC(
+  row: any,
+  dSample: any,
+  dEnriched: any,
+  dBase: any,
+  sampleAllowed: boolean
+): { value: number | undefined; source: string } {
+  if (row && row.socPct !== undefined && row.socPct !== null) {
+    return { value: row.socPct, source: "site-distribution" };
+  }
+  if (dEnriched && dEnriched.socPct !== undefined && dEnriched.socPct !== null) {
+    return { value: dEnriched.socPct, source: "string-dashboard-cache" };
+  }
+  if (dBase && dBase.socPct !== undefined && dBase.socPct !== null) {
+    return { value: dBase.socPct, source: "string-dashboard-cache" };
+  }
+  if (sampleAllowed && dSample && dSample.socPct !== undefined && dSample.socPct !== null) {
+    return { value: dSample.socPct, source: "stringviewer-sampled" };
+  }
+  if (dSample && dSample.socPct !== undefined && dSample.socPct !== null) {
+    return { value: dSample.socPct, source: "stringviewer-sampled-fallback" };
   }
   return { value: undefined, source: "unavailable" };
 }
@@ -633,7 +714,13 @@ router.get("/graph", async (req, res) => {
   const sampleParamsExist = req.query.refresh === "true" || req.query.sample === "true";
   const needsSampling = baseVoltageRows === 0 && baseTempRows === 0 && sampleParamsExist;
 
-  const cacheKey = "site_health_graph_sample_ALL";
+  const profile = ProfileStore.getActiveProfile();
+  const stationCode = profile?.stationCode || "default";
+  const blockIndex = profile?.blockIndex ?? 0;
+  const profileId = profile?.id || "no_profile";
+  const arrayParam = req.query.array ? Number(req.query.array) : undefined;
+  const arraySuffix = arrayParam !== undefined ? `_ARRAY_${arrayParam}` : "_ALL";
+  const cacheKey = `site_health_graph_sample_${stationCode}_B${blockIndex}_P${profileId}${arraySuffix}`;
 
   if (needsSampling) {
     isSampled = true;
@@ -767,8 +854,8 @@ router.get("/graph", async (req, res) => {
   for (const row of rows) {
     const { arrayIndex, stringIndex } = row;
 
-    const voltRes = resolveVoltage(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap);
-    const tempRes = resolveTemperature(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap);
+    const voltRes = resolveVoltage(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap, sampleRequested);
+    const tempRes = resolveTemperature(arrayIndex, stringIndex, row, sampleMap, enrichedMap, baseMap, sampleRequested);
 
     if (voltRes.source.includes("sampled") || tempRes.source.includes("sampled")) {
       sourceCountSampled++;
@@ -781,7 +868,16 @@ router.get("/graph", async (req, res) => {
     const dSample = sampleMap.get(`${arrayIndex}:${stringIndex}`);
     const dEnriched = enrichedMap.get(`${arrayIndex}:${stringIndex}`);
     const dBase = baseMap.get(`${arrayIndex}:${stringIndex}`);
-    const socPct = firstNumeric(dSample?.socPct, dEnriched?.socPct, dBase?.socPct, row.socPct);
+
+    const hasDistOrDashboard = 
+      (row && firstNumeric(row.stackVoltage, (row as any).measuredVoltage, (row as any).calculatedVoltage) !== undefined) ||
+      enrichedMap.has(`${arrayIndex}:${stringIndex}`) ||
+      baseMap.has(`${arrayIndex}:${stringIndex}`);
+
+    const sampleAllowed = sampleRequested || !hasDistOrDashboard;
+
+    const socRes = resolveSOC(row, dSample, dEnriched, dBase, sampleAllowed);
+    const socPct = socRes.value;
 
     const communicating = dSample?.operationalState !== undefined
       ? dSample.operationalState !== "OFFLINE"
@@ -823,7 +919,10 @@ router.get("/graph", async (req, res) => {
       statusLabel: style.statusLabel,
       metricSource: {
         voltage: voltRes.source,
-        temperature: tempRes.source
+        temperature: tempRes.source,
+        soc: socRes.source,
+        rowSourceTimestamp: (row as any).timestamp || null,
+        sampleAgeMs: dSample?.timestamp ? (Date.now() - Number(dSample.timestamp)) : null
       },
       sourcePath: row.sourcePath,
       minCellVoltage: row.minCellVoltage !== undefined ? row.minCellVoltage : (dSample?.minCellVoltage ?? dEnriched?.minCellVoltage ?? dBase?.minCellVoltage),
@@ -914,9 +1013,17 @@ router.get("/graph", async (req, res) => {
 });
 
 router.get("/graph/debug", (req, res) => {
+  const profile = ProfileStore.getActiveProfile();
+  const stationCode = profile?.stationCode || "default";
+  const blockIndex = profile?.blockIndex ?? 0;
+  const profileId = profile?.id || "no_profile";
+  const arrayParam = req.query.array ? Number(req.query.array) : undefined;
+  const arraySuffix = arrayParam !== undefined ? `_ARRAY_${arrayParam}` : "_ALL";
+  const cacheKey = `site_health_graph_sample_${stationCode}_B${blockIndex}_P${profileId}${arraySuffix}`;
+
   const dashboardCacheBase = prizmCache.get<any>("string_dashboard_base_ALL");
   const dashboardCacheEnriched = prizmCache.get<any>("string_dashboard_enriched_ALL");
-  const sampleCache = prizmCache.get<any>("site_health_graph_sample_ALL");
+  const sampleCache = prizmCache.get<any>(cacheKey) || prizmCache.get<any>("site_health_graph_sample_ALL");
 
   const baseStrings = dashboardCacheBase?.data?.strings || [];
   const enrichedStrings = dashboardCacheEnriched?.data?.strings || [];
