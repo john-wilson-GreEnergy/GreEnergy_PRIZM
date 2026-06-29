@@ -60,6 +60,8 @@ export default function TopologySensorHealthPanel() {
   const [selectedHealth, setSelectedHealth] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showDebug, setShowDebug] = useState<boolean>(false);
+  const [capabilityFilter, setCapabilityFilter] = useState<"expected" | "optional" | "all">("expected");
+  const [showSourceDebug, setShowSourceDebug] = useState<boolean>(false);
 
   // Pagination for point browser (Section 5)
   const [pointLimit, setPointLimit] = useState<number>(250);
@@ -109,6 +111,25 @@ export default function TopologySensorHealthPanel() {
   const getArrayNumber = (displayName: string): number => {
     const m = displayName.match(/Array\s+(\d+)/i);
     return m ? parseInt(m[1], 10) : 999;
+  };
+
+  const expectedOnly = capabilityFilter === "expected";
+  const includeOptional = capabilityFilter === "optional";
+  const showUnsupported = capabilityFilter === "all";
+
+  const shouldShowCellByToggles = (cell: any) => {
+    if (!cell) return false;
+    const cap = cell.capability || "expected";
+    if (expectedOnly) {
+      return cap === "expected";
+    }
+    if (includeOptional) {
+      return cap === "expected" || cap === "optional";
+    }
+    if (showUnsupported) {
+      return true;
+    }
+    return !!cell.applicable;
   };
 
   // Helper to format Row Location Name beautifully (Section 4 requirements)
@@ -282,16 +303,20 @@ export default function TopologySensorHealthPanel() {
 
   // Render tiny compact dots inside matrix cells (Section 4)
   const renderCellIndicator = (cell: NormalizedSensorCell, isHighlighted = false) => {
-    if (!cell || !cell.applicable) {
+    if (!cell || !shouldShowCellByToggles(cell)) {
       return <span className="text-slate-300 font-normal select-none font-mono text-[10px]">-</span>;
     }
 
     const highlightStyle = isHighlighted ? "ring-2 ring-indigo-500 scale-110" : "";
+    const cellAny = cell as any;
+    const debugSuffix = showSourceDebug 
+      ? ` [Cap: ${cellAny.capability || "expected"}, State: ${cellAny.displayState || "normal"}]`
+      : "";
 
     if (cell.tripped === true) {
       return (
         <span
-          title={`${cell.friendlyName || "Sensor Tripped"}: ${cell.status}`}
+          title={`${cell.friendlyName || "Sensor Tripped"}: ${cell.status}${debugSuffix}`}
           className={`h-5 px-1.5 inline-flex items-center justify-center text-[9px] font-bold rounded bg-red-105 text-red-700 border border-red-200 animate-pulse ${highlightStyle}`}
         >
           TRIP
@@ -302,7 +327,7 @@ export default function TopologySensorHealthPanel() {
     if (!cell.healthy) {
       return (
         <span
-          title={`${cell.friendlyName || "Sensor Issue"}: ${cell.status}`}
+          title={`${cell.friendlyName || "Sensor Issue"}: ${cell.status}${debugSuffix}`}
           className={`h-5 px-1.5 inline-flex items-center justify-center text-[9px] font-bold rounded bg-amber-100 text-amber-800 border border-amber-200 ${highlightStyle}`}
         >
           FAULT
@@ -312,7 +337,7 @@ export default function TopologySensorHealthPanel() {
 
     return (
       <span
-        title={cell.friendlyName || "Sensor Healthy"}
+        title={`${cell.friendlyName || "Sensor Healthy"}${debugSuffix}`}
         className={`h-4 w-4 inline-flex items-center justify-center rounded-full bg-emerald-100 border border-emerald-200 ${highlightStyle}`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
@@ -687,6 +712,70 @@ export default function TopologySensorHealthPanel() {
               )}
             </div>
           )}
+
+          {/* Site Profile Capability Filter & Source Telemetry Toggles */}
+          <div className="border-t border-slate-100 pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
+            <div className="flex flex-col space-y-1">
+              <label className="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider flex items-center gap-1 font-mono">
+                <Shield size={11} className="text-indigo-600" /> Site Profile Capability Resolver
+              </label>
+              <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200 w-fit">
+                <button
+                  type="button"
+                  id="toggle-expected-only"
+                  onClick={() => setCapabilityFilter("expected")}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                    capabilityFilter === "expected"
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                  }`}
+                >
+                  Expected Only
+                </button>
+                <button
+                  type="button"
+                  id="toggle-include-optional"
+                  onClick={() => setCapabilityFilter("optional")}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                    capabilityFilter === "optional"
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                  }`}
+                >
+                  Include Optional
+                </button>
+                <button
+                  type="button"
+                  id="toggle-show-unsupported"
+                  onClick={() => setCapabilityFilter("all")}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                    capabilityFilter === "all"
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                  }`}
+                >
+                  Show Unsupported
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col space-y-1">
+              <label className="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider font-mono">Source Diagnostic Logs</label>
+              <button
+                type="button"
+                id="toggle-source-debug"
+                onClick={() => setShowSourceDebug(!showSourceDebug)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-semibold transition-all ${
+                  showSourceDebug
+                    ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-extrabold shadow-2xs"
+                    : "bg-white hover:bg-slate-50 border-slate-200 text-slate-650"
+                }`}
+              >
+                <Info size={13} />
+                {showSourceDebug ? "Source Debug: ACTIVE" : "Show Source Debug"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

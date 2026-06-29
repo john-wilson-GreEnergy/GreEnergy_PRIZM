@@ -481,7 +481,7 @@ export default function FeatherDetailsView({
         return { tripped: null, value: null, displayValue: "UNKNOWN", cell: null };
       };
 
-      return [
+      const rawItems = [
         {
           label: "Data Unavailable",
           ...resolveDetectorState(
@@ -489,7 +489,8 @@ export default function FeatherDetailsView({
             selectedDevice.reachable === false ? true : (selectedDevice.reachable === true ? false : null),
             "Fault"
           ),
-          type: "Fault"
+          type: "Fault",
+          cell: comStatus.dataCommunications
         },
         {
           label: "Battery Doors",
@@ -499,7 +500,8 @@ export default function FeatherDetailsView({
             "Door"
           ),
           isDoor: true,
-          type: "Door"
+          type: "Door",
+          cell: doors.batteryDoors
         },
         {
           label: "Lower Top Cap",
@@ -509,7 +511,8 @@ export default function FeatherDetailsView({
             "Door"
           ),
           isDoor: true,
-          type: "Door"
+          type: "Door",
+          cell: doors.topCapDoors
         },
         {
           label: "Emergency Ventilation",
@@ -518,7 +521,8 @@ export default function FeatherDetailsView({
             (selectedDevice.fssSignals as any)?.envControllerVent ?? null,
             "Alarm"
           ),
-          type: "Alarm"
+          type: "Alarm",
+          cell: other.envControllerVent
         },
         {
           label: "Hydrogen Fault",
@@ -527,7 +531,8 @@ export default function FeatherDetailsView({
             selectedDevice.fssSignals?.hydrogenFault ?? null,
             "Fault"
           ),
-          type: "Fault"
+          type: "Fault",
+          cell: other.hydrogenFault
         },
         {
           label: "Hydrogen Alarm",
@@ -536,7 +541,8 @@ export default function FeatherDetailsView({
             selectedDevice.fssSignals?.hydrogenAlarm ?? null,
             "Alarm"
           ),
-          type: "Alarm"
+          type: "Alarm",
+          cell: other.hydrogen
         },
         {
           label: "I/O Logic",
@@ -545,7 +551,8 @@ export default function FeatherDetailsView({
             (selectedDevice.fssSignals as any)?.ioLogic ?? null,
             "Fault"
           ),
-          type: "Fault"
+          type: "Fault",
+          cell: comStatus.io
         },
         {
           label: "Fire Trouble",
@@ -554,7 +561,8 @@ export default function FeatherDetailsView({
             selectedDevice.fssSignals?.fssTrouble ?? selectedDevice.fssSignals?.fireTrouble ?? null,
             "Trouble"
           ),
-          type: "Trouble"
+          type: "Trouble",
+          cell: other.fireTrouble
         },
         {
           label: "Leak Detector",
@@ -563,9 +571,19 @@ export default function FeatherDetailsView({
             selectedDevice.fssSignals?.leakAlarm ?? null,
             "Alarm"
           ),
-          type: "Alarm"
+          type: "Alarm",
+          cell: emergency.moisture
         }
       ];
+
+      return rawItems.filter((item) => {
+        if (item.cell) {
+          if (item.cell.applicable === false && item.tripped !== true) {
+            return false;
+          }
+        }
+        return true;
+      });
     } else {
       return [
         { label: "FSS Alarm (Fire/Smoke Signal)", value: selectedDevice.fssSignals?.fssAlarm ?? selectedDevice.fssSignals?.smokeAlarm ?? null, type: "Alarm" },

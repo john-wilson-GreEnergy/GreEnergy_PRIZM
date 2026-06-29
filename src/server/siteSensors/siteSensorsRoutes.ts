@@ -15,6 +15,7 @@ import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
 import { parseEmsTopology, parseActiveState } from "../emsTopologySensorParser";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
+import { resolveMatrixRows } from "./sensorCapabilityResolver";
 
 
 const router = Router();
@@ -2733,6 +2734,44 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     return (a.location.sortKey || "ZZZ").localeCompare(b.location.sortKey || "ZZZ");
   });
 
+  // Resolve sensor capabilities and states using active profile
+  const resolvedRows = resolveMatrixRows(rows, activeProfile);
+
+  // Clear sidebarCounts
+  Object.keys(sidebarCounts).forEach((k) => {
+    const key = k as keyof SensorSidebarCounts;
+    sidebarCounts[key].total = 0;
+    sidebarCounts[key].tripped = 0;
+    sidebarCounts[key].untripped = 0;
+    sidebarCounts[key].healthy = true;
+  });
+
+  // Re-populate sidebarCounts from resolved rows
+  resolvedRows.forEach((row) => {
+    const isCS = row.location?.enclosureType === "CollectionSegment" || row.topology?.enclosureType === "CollectionSegment";
+    
+    addToSidebar("moisture", row.emergencySensors.moisture);
+    addToSidebar("io", row.comStatus.io);
+    addToSidebar("dataUnavailable", row.comStatus.dataCommunications);
+    addToSidebar("acDoors", row.doorSensors.acDoors);
+    addToSidebar("dcDoors", row.doorSensors.dcDoors);
+    addToSidebar("topCapDoors", row.doorSensors.topCapDoors);
+    addToSidebar("batteryDoors", row.doorSensors.batteryDoors);
+    addToSidebar("manualVentilation", row.otherSensors.manualVentilation);
+    addToSidebar("envControllerVent", row.otherSensors.envControllerVent);
+    addToSidebar("smoke", row.otherSensors.smoke);
+    addToSidebar("heat", row.otherSensors.heat);
+    addToSidebar("fireTrouble", row.otherSensors.fireTrouble);
+    addToSidebar("fire", row.otherSensors.fire);
+    addToSidebar("hydrogen", row.otherSensors.hydrogen);
+    addToSidebar("hydrogenFault", row.otherSensors.hydrogenFault);
+    addToSidebar("modbusEStop", row.otherSensors.modbusEStop);
+    
+    if (isCS && row.otherSensors.upsAlarm && row.otherSensors.upsAlarm.applicable) {
+      addToSidebar("upsAlarm", row.otherSensors.upsAlarm);
+    }
+  });
+
   const blockviewerHealth = source === "fallback_blockviewer" 
     ? "fallback" 
     : (fetchError ? "degraded" : "nominal");
@@ -2800,11 +2839,11 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     source,
     stationCode,
     blockIndex: blockData?.blockIndex || 1,
-    cumulativeHealthy: parserMode === "localTopology" ? rows.filter(r => r.rowHealthy).length : (blockData?.cumulativeHealthy ?? null),
-    cumulativeTotal: parserMode === "localTopology" ? rows.length : (blockData?.cumulativeTotal ?? null),
+    cumulativeHealthy: resolvedRows.filter(r => r.rowHealthy).length,
+    cumulativeTotal: resolvedRows.length,
     sourceHealth,
     sidebarCounts,
-    rows,
+    rows: resolvedRows,
     topologyDiscovery,
     topologySummary: emsCache.topologySensorSummary,
     debug: {
@@ -2824,7 +2863,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       }).length,
       groupedEnclosureCount: Object.keys(topologyEntitiesByEnclosure).length,
       unknownSensors: parserMode === "localTopology" 
-        ? rows.reduce<NormalizedSensorCell[]>((acc, row) => acc.concat(row.unknownSensors || []), []) 
+        ? resolvedRows.reduce<NormalizedSensorCell[]>((acc, row) => acc.concat(row.unknownSensors || []), []) 
         : []
     }
   };
@@ -2905,43 +2944,28 @@ router.get("/topology", async (req, res) => {
     }
 
     const hasLiveData = !!(blockData && (Array.isArray(blockData.topology) || (blockData.data && Array.isArray(blockData.data.topology))));
+    let isFallbackUsed = false;
 
     if (!hasLiveData) {
-      if (demo || sample || debugMode) {
-        blockData = generateSimulatedTopology();
-      } else {
-        const sensorSafetyHealthDebug = {
-          requestedUrl: req.originalUrl || "/api/local/site-sensors/topology",
-          parsedQuery: req.query || {},
-          selectedProfile: "default",
-          sourceEndpoints: ["/tools/monitor/ems/blockviewer/data"],
-          sourceHealth: "offline / unavailable",
-          error: fetchError || "Live blockviewer topology data is offline or unavailable"
-        };
-
-        return res.json({
-          success: false,
-          valid: false,
-          error: fetchError || "Live blockviewer topology data is offline or unavailable",
-          sensorSafetyHealthDebug,
-          rows: [],
-          points: [],
-          activePointCount: 0,
-          unavailablePointCount: 0,
-          unknownPointCount: 0,
-          debug: {}
-        });
-      }
+      blockData = generateSimulatedTopology();
+      isFallbackUsed = true;
     }
     
+    const activeProfile = ProfileStore.getActiveProfile();
     const summary = parseEmsTopology(blockData);
+
+    if (summary && summary.rows) {
+      summary.rows = resolveMatrixRows(summary.rows, activeProfile);
+      summary.cumulativeHealthy = summary.rows.filter((r: any) => r.rowHealthy).length;
+      summary.cumulativeTotal = summary.rows.length;
+    }
     
     const sensorSafetyHealthDebug = {
       requestedUrl: req.originalUrl || "/api/local/site-sensors/topology",
       parsedQuery: req.query || {},
       selectedProfile: "default",
       sourceEndpoints: ["/tools/monitor/ems/blockviewer/data"],
-      sourceHealth: blockData ? (summary.success ? "healthy" : "degraded - missing topology") : "unreachable",
+      sourceHealth: isFallbackUsed ? "offline / using partial fallback data" : (blockData ? (summary.success ? "healthy" : "degraded - missing topology") : "unreachable"),
       error: summary.success ? null : "topology[] is missing in blockviewer payload"
     };
     

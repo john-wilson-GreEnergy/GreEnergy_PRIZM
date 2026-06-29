@@ -55,6 +55,8 @@ export interface NormalizedTopologySensorSummary {
   unknownPointCount: number;
   points: NormalizedTopologySensorPoint[];
   rows: BlockSensorMatrixRow[];
+  cumulativeHealthy?: number;
+  cumulativeTotal?: number;
   debug: {
     topLevelKeys: string[];
     booleanStateFieldsDiscovered: string[];
