@@ -1705,11 +1705,10 @@ async function generateCorrectiveActionsPdf(
       const criticalCount = enrichedActions.filter(a => a.level === "ALARM").length;
       const warningCount = enrichedActions.filter(a => a.level === "WARNING").length;
       const matchedCount = enrichedActions.filter(a => a.resolved?.matched).length;
-      const manualCount = enrichedActions.filter(a => !a.resolved?.matched).length;
 
-      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Total Open Issues:", 330, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${openCount} active`, 430, metaY + 15);
-      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Severity Breakdown:", 330, metaY + 32).font("Helvetica-Bold").fillColor(criticalCount > 0 ? DANGER : BRAND_GREEN).text(`${criticalCount} Critical, ${warningCount} Warning`, 430, metaY + 32);
-      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Matrix Match Rate:", 330, metaY + 49).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${matchedCount} matched, ${manualCount} manual`, 430, metaY + 49);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Total Open Issues:", 330, metaY + 15).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${openCount} active`, 460, metaY + 15);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Severity Breakdown:", 330, metaY + 32).font("Helvetica-Bold").fillColor(criticalCount > 0 ? DANGER : BRAND_GREEN).text(`${criticalCount} Critical, ${warningCount} Warning`, 460, metaY + 32);
+      doc.font("Helvetica").fillColor(TEXT_MUTED).text("Troubleshooting Guidance status:", 330, metaY + 49).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${matchedCount} matched, ${openCount - matchedCount} fallback`, 460, metaY + 49);
 
       doc.y = metaY + 110;
 
@@ -1731,8 +1730,8 @@ async function generateCorrectiveActionsPdf(
       doc.fontSize(18).font("Helvetica-Bold").fillColor(criticalCount > 0 ? DANGER : BRAND_GREEN).text(String(criticalCount), 230, summaryBoxY + 24);
 
       // Card 3
-      doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text("MATRIX MATCH RATE", 400, summaryBoxY + 10);
-      doc.fontSize(18).font("Helvetica-Bold").fillColor(BRAND_GREEN).text(`${Math.round((matchedCount / (openCount || 1)) * 100)}%`, 400, summaryBoxY + 24);
+      doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text("TROUBLESHOOTING LIBRARY MATCHES", 400, summaryBoxY + 10);
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(BRAND_GREEN).text(String(matchedCount), 400, summaryBoxY + 24);
 
       doc.y = summaryBoxY + 70;
 
@@ -1741,7 +1740,7 @@ async function generateCorrectiveActionsPdf(
         doc.fontSize(10).font("Helvetica-Bold").fillColor("#065f46").text("✔ SYSTEM STATUS NOMINAL: No open corrective actions or active faults detected.", 70, doc.y + 16);
       } else {
         // Section 1: PRIORITY CORRECTIVE ACTIONS
-        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 1: PRIORITY CORRECTIVE ACTIONS", 50, doc.y);
+        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("PRIORITY CORRECTIVE ACTIONS", 50, doc.y);
         doc.moveDown(0.5);
 
         enrichedActions.forEach((act, idx) => {
@@ -1762,7 +1761,8 @@ async function generateCorrectiveActionsPdf(
           doc.y = itemStartY + 12;
 
           // 1. Fault header
-          doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${act.fault}`, 70);
+          const issueName = resolved?.resolvedTroubleshooting?.issueName || act.fault;
+          doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${issueName}`, 70);
           doc.moveDown(0.4);
 
           // 2. Metadata / metrics in dynamic layout
@@ -1773,7 +1773,6 @@ async function generateCorrectiveActionsPdf(
           doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source || "Unknown", 170, doc.y - 11);
 
           doc.font("Helvetica").fillColor(TEXT_MUTED).text("Resolution Source:", 70);
-          const issueName = resolved?.resolvedTroubleshooting?.issueName || act.fault;
           const resolutionSource = resolved?.matched 
             ? `PRIZM Troubleshooting Library - ${issueName}` 
             : "PRIZM Troubleshooting Library - Default Advisory Fallback";
@@ -1784,6 +1783,15 @@ async function generateCorrectiveActionsPdf(
           // Matrix Enhanced Remediation Guidance Block
           doc.fontSize(8.5).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("REMEDIATION & TROUBLESHOOTING GUIDANCE:", 70);
           doc.moveDown(0.2);
+
+          // Power Checks, when applicable
+          const isBpcPowerIssue = resolved?.system === "balancing" || resolved?.system === "bpc" || resolved?.resolvedTroubleshooting?.id === "bpc-not-balancing" || resolved?.resolvedTroubleshooting?.id === "bpc-disconnect";
+          if (isBpcPowerIssue) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Power Checks:", 70);
+            doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text("  • 24VDC balancing power", 80);
+            doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text("  • 12VDC BPC control / logic power", 80);
+            doc.moveDown(0.2);
+          }
 
           // Bullet points of recommended actions
           if (resolved?.recommendedActions?.length) {
@@ -1807,31 +1815,32 @@ async function generateCorrectiveActionsPdf(
           if (resolved?.clearingCriteria?.length) {
             doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Clearing Criteria:", 70);
             resolved.clearingCriteria.forEach((crit: string) => {
-              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text(`  • ${crit}`, 80);
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(`  • ${crit}`, 80);
             });
             doc.moveDown(0.2);
           }
 
-          // Escalation / Replacement if any
-          if (resolved?.replacementGuidance?.length || resolved?.escalationGuidance?.length) {
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  SOP / Replacement & Escalation Guidance:", 70);
-            const extraGuidance = [
-              ...(resolved.replacementGuidance || []),
-              ...(resolved.escalationGuidance || [])
-            ];
-            extraGuidance.forEach((gStr: string) => {
-              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED).text(`  • ${gStr}`, 80);
+          // Field Notes / Escalation Guidance
+          const technicianDetail = resolved?.resolvedTroubleshooting?.technicianDetail;
+          if (technicianDetail) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Field Notes / Escalation Guidance:", 70);
+            doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(`  • ${technicianDetail}`, 80);
+            doc.moveDown(0.3);
+          } else if (resolved?.escalationGuidance?.length) {
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("  Field Notes / Escalation Guidance:", 70);
+            resolved.escalationGuidance.forEach((gStr: string) => {
+              doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(`  • ${gStr}`, 80);
             });
             doc.moveDown(0.3);
           }
 
-          // List of affected energy segments (truncated to max 8)
+          // List of affected targets
           const affList = act.affected || [];
           if (affList.length > 0) {
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`Affected Energy Segments (${affList.length}):`, 70);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`Affected Targets (${affList.length}):`, 70);
             doc.moveDown(0.2);
 
-            const displayLimit = 8;
+            const displayLimit = 15;
             const toRender = affList.slice(0, displayLimit);
             toRender.forEach((aff: any) => {
               const affText = `• ${formatAffectedTargetForDisplay(aff, resolved?.system, resolved?.resolvedTroubleshooting?.detailView)}`;
@@ -1839,7 +1848,7 @@ async function generateCorrectiveActionsPdf(
             });
 
             if (affList.length > displayLimit) {
-              doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`• ... and ${affList.length - displayLimit} more affected targets (condensed)`, 90);
+              doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`• ... and ${affList.length - displayLimit} more affected targets`, 90);
             }
             doc.moveDown(0.4);
           }
@@ -1859,94 +1868,7 @@ async function generateCorrectiveActionsPdf(
 
           doc.y = itemEndY + 15;
         });
-
-        // SECTION 2: SYSTEM SUMMARY & RESOLVER COVERAGE MATRIX
-        if (doc.y > 550) {
-          doc.addPage();
-          doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-          doc.y = 60;
-        }
-
-        doc.fontSize(12).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 2: RESOLVED MATRIX CATEGORY DEPLOYMENT", doc.y);
-        doc.moveDown(0.4);
-
-        const categories = [
-          { name: "Battery / String / BPC / Cell Group", matchKey: ["string", "bpc", "cell-group", "balancing"] },
-          { name: "Environmental (HVAC / Thermal)", matchKey: ["hvac"] },
-          { name: "Safety & Fire Protection", matchKey: ["fire"] },
-          { name: "Control Power (UPS)", matchKey: ["ups"] },
-          { name: "PCS / Meter / Transformer", matchKey: ["pcs", "meter", "transformer"] },
-          { name: "Network / Infrastructure / Other", matchKey: ["unknown"] }
-        ];
-
-        categories.forEach(cat => {
-          const catIssues = enrichedActions.filter(act => {
-            const sys = act.resolved?.system || "unknown";
-            if (cat.matchKey.includes(sys)) return true;
-            if (cat.matchKey.includes("unknown") && !categories.some(c => c !== cat && c.matchKey.includes(sys))) return true;
-            return false;
-          });
-
-          if (catIssues.length > 0) {
-            doc.fontSize(9).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`■ ${cat.name} (${catIssues.length} issues)`, 70);
-            doc.moveDown(0.2);
-
-            catIssues.forEach(ci => {
-              doc.fontSize(8).font("Helvetica").fillColor(TEXT_MAIN).text(`  - [${ci.level}] ${ci.fault}  --> Remedy: ${ci.resolved?.recommendedActions?.[0] || ci.suggestedAction}`, 80);
-            });
-            doc.moveDown(0.3);
-          }
-        });
-
-        // SECTION 3: ITEMS REQUIRING MANUAL REVIEW
-        const manualItems = enrichedActions.filter(act => !act.resolved?.matched);
-        if (manualItems.length > 0) {
-          doc.moveDown(0.5);
-          if (doc.y > 580) {
-            doc.addPage();
-            doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-            doc.y = 60;
-          }
-
-          doc.fontSize(11).font("Helvetica-Bold").fillColor(WARNING).text("SECTION 3: ITEMS REQUIRING MANUAL REVIEW", doc.y);
-          doc.moveDown(0.4);
-
-          manualItems.forEach((ci, miIdx) => {
-            doc.fontSize(8.5).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`  ${miIdx + 1}. [${ci.level}] ${ci.fault}`, 70);
-            doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`     Details: ${ci.details || "None"}. Suggested fallback action: ${ci.suggestedAction}`, 70);
-            doc.moveDown(0.2);
-          });
-        }
       }
-
-      // SECTION 4: EXPORT METADATA & COMPLIANCE SUMMARY (replaces sign-off block)
-      if (doc.y > 600) {
-        doc.addPage();
-        doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-        doc.y = 60;
-      }
-
-      doc.moveDown(1.5);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(BORDER_LIGHT).stroke();
-      doc.moveDown(0.8);
-
-      doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("SECTION 4: EXPORT METADATA & REPORT NOTES");
-      doc.moveDown(0.4);
-
-      doc.fontSize(8).font("Helvetica").fillColor(TEXT_MUTED);
-      doc.text("Source Data Integration: Direct Local PRIZM API Gateway", 70);
-      doc.text("Troubleshooting Core Engine: Stack750 Action Knowledge Matrix v2.0", 70);
-      doc.text(`Active Profile Target Site Name: ${activeProfile.siteName || "Prizm BESS Station"}`, 70);
-      doc.text("Export Engine version: v1.3.1 (React-Pdf-Core)", 70);
-      
-      doc.moveDown(0.6);
-      doc.font("Helvetica-Bold").text("Remediation Notes:", 70);
-      doc.font("Helvetica-Oblique").text("This PRIZM Remediation Summary contains machine-enhanced corrective diagnostics referenced directly from the Stack750 Technical Troubleshooting Manual. Always consult high-voltage safety SOPs prior to performing any hardware maintenance on-site.", 70);
-
-      doc.moveDown(1.5);
-      const confY = doc.y;
-      doc.rect(50, confY, 495, 20).fill(BG_ALT);
-      doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MUTED).text("CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY", 50, confY + 6, { align: "center", width: 495 });
 
       // Run second-pass on all pages to draw standard, beautiful running footers with Page Numbers!
       const range = doc.bufferedPageRange();
@@ -1961,8 +1883,10 @@ async function generateCorrectiveActionsPdf(
         }
 
         // Standard Footer
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(TEXT_MUTED);
+        doc.text("CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY", 50, 775, { align: "center", width: 495 });
         doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MUTED);
-        doc.text(`Generated by GreEnergy PRIZM  |  Station ${stationCode}  |  Page ${i + 1} of ${range.count}`, 50, 790, { align: "center", width: 495 });
+        doc.text(`GreEnergy PRIZM | Corrective Action Summary | Station ${stationCode} | Page ${i + 1} of ${range.count}`, 50, 790, { align: "center", width: 495 });
       }
 
       doc.end();

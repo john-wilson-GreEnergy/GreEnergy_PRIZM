@@ -63,22 +63,27 @@ export const TROUBLESHOOTING_KB: TroubleshootingEntry[] = [
     component: "BPC",
     issueName: "BPC Not Balancing",
     aliases: [
+      "BPC Not Balancing",
       "CellGroup Charge Balancer Warning",
       "CellGroup Discharge Balancer Warning",
-      "Balancer Warning"
+      "Balancer Warning",
+      "BPC balancing warning",
+      "cell group balancing warning"
     ],
     warningCodes: [2073, 2074],
-    summaryAction: "Verify 24V DC control/balancing power and BPC balancing circuit before replacing the BPC.",
+    summaryAction: "Verify 24VDC balancing power, BPC control power status, and affected balancing harnesses before replacing the BPC.",
     recommendedActions: [
-      "Confirm 24V DC control/balancing power is present at the affected BPC.",
-      "Inspect the BPC DC control/balancing power connector and related harness seating.",
+      "Confirm 24VDC balancing power is present at the affected BPC.",
+      "Confirm 12VDC BPC control / logic power is present if BPC communication or status appears abnormal.",
+      "Inspect the BPC power harnesses and connector seating.",
       "Inspect BPC balancing harness ports and affected cell-group balancing harness connections.",
       "Verify the affected BPC is communicating and reporting valid cell-group telemetry.",
-      "Replace the BPC only after DC power, harness seating, and telemetry checks fail."
+      "Replace the BPC only after 24VDC balancing power, 12VDC control power, harness seating, and telemetry checks fail."
     ],
     validationChecks: [
-      "Confirm 24V DC supply is present and stable under load.",
-      "Verify BPC communication is active in String Details.",
+      "Measure 24VDC balancing supply under load.",
+      "Measure 12VDC BPC control / logic supply if the BPC is offline or unstable.",
+      "Confirm BPC communication is active in String Details.",
       "Verify affected BPC and CG indexes match the active warning target.",
       "Confirm balancing status changes after corrective action or after a new balancing command."
     ],
@@ -88,9 +93,9 @@ export const TROUBLESHOOTING_KB: TroubleshootingEntry[] = [
       "Cell-group balancing state and target voltage display correctly in String Details."
     ],
     detailView: "string",
-    managerSummary: "Active balancing circuits on this cell-group's BPC are inactive. Check 24V DC control/balancing power prior to hardware replacement.",
-    technicianDetail: "Measure 24V DC power inputs under load on the BPC diagnostic terminals. Verify connection tightness and inspect balancing trace wires.",
-    fieldCorrections: "Do not describe this as AC power to the BPC. Treat this as 24V DC control/balancing power for PRIZM corrective-action language."
+    managerSummary: "BPC/cell-group balancing issue. Verify 24VDC balancing power, 12VDC BPC control / logic power where needed, and harnessing before replacement.",
+    technicianDetail: "Use the affected target list to locate Array / ES / String / Side / BPC / CG. Verify 24VDC balancing power at the affected BPC. Verify 12VDC BPC control / logic power if communication/status is abnormal. Check BPC power harnesses and connector seating. Check BPC balancing harness ports and cell-group balancing harnesses. Confirm cell-group voltage data is valid in String Details. Retest balancing if needed.",
+    fieldCorrections: "Do not describe this as AC power to the BPC. Treat 24VDC as BPC balancing power. Treat 12VDC as BPC control / logic power. Keep AC power language only for upstream enclosure, breaker, Team Box, HVAC, or string-controller supply checks."
   },
   {
     id: "cgc-disconnect",
@@ -132,28 +137,35 @@ export const TROUBLESHOOTING_KB: TroubleshootingEntry[] = [
     system: "bpc",
     component: "BPC",
     issueName: "BPC Disconnect",
-    aliases: ["BPC Disconnected", "BPC Offline", "BPC Disconnect - Not All BPC"],
+    aliases: ["BPC Disconnected", "BPC Offline", "BPC Disconnect - Not All BPC", "BPC Disconnect All", "BPC Disconnect Partial"],
     faultCodes: [1024],
     warningCodes: [2024],
     infoCodes: [3024],
-    summaryAction: "Inspect BPC power harness and SC CAN communication loop.",
+    summaryAction: "Verify BPC 12VDC control power, 24VDC harness path, and CAN communications cabling before replacement.",
     recommendedActions: [
-      "Check BPC power connector seating (12V/24V harness).",
-      "Verify BPC communications cabling and RJ45 connection locks.",
-      "Inspect first affected BPC in the daisy chain.",
-      "Perform Power-to-Control (PTC) cycle on the BPC string.",
-      "Replace BPC if diagnostic LEDs indicate internal processor lock."
+      "Confirm 12VDC BPC control / logic power is present and stable.",
+      "Confirm 24VDC harness/power path is integral and secure where applicable.",
+      "Check String Controller (SC) CAN communication cable and connections.",
+      "Check BPC communication cables and RJ45 daisy chain ports.",
+      "Check first affected BPC connections in the chain.",
+      "Power cycle BPC loop only after documenting current status.",
+      "Replace BPC only after power and communication checks fail."
     ],
     validationChecks: [
-      "Confirm DC supply voltage at the BPC input terminals is 24V (+/- 1V).",
-      "Inspect CAN communication line continuity."
+      "Measure 12VDC BPC control / logic power under load.",
+      "Measure 24VDC balancing/harness supply if applicable.",
+      "Check SC CAN cable integrity and resistance.",
+      "Verify BPC comms cable link lights and continuity.",
+      "Confirm BPC telemetry is restored after communication checks."
     ],
     clearingCriteria: [
-      "BPC reports online and streams telemetry to String Controller."
+      "The BPC disconnect warning/alarm clears from EMS.",
+      "All BPC units in the lineup report online with valid cell telemetry stream."
     ],
     detailView: "string",
-    managerSummary: "BPC Disconnect warning indicates loss of diagnostic telemetry from one or more BPC units. Investigate communication chain loop and 24V control power.",
-    technicianDetail: "Locate target BPC and check green power and communication status LEDs. Verify daisy chain input and output RJ45 terminals."
+    managerSummary: "BPC disconnect pattern detected. Verify 12VDC control/logic power and serial CAN loops before authorizing BPC replacement.",
+    technicianDetail: "Confirm 12VDC BPC control / logic power. Confirm 24VDC harness/power path where applicable. Check SC CAN cable. Check BPC comms cable. Check first affected BPC connections. Power cycle only after documenting current status. Replace BPC only after power and communication checks fail.",
+    fieldCorrections: "Ensure BPC power circuits are clearly distinguished: 12VDC is BPC control/logic power, 24VDC is balancing power. AC power checking is not applicable for BPC units directly."
   },
   {
     id: "abnormal-cell-voltage",

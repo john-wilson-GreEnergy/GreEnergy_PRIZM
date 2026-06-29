@@ -1364,46 +1364,72 @@ export default function SiteOperationsDashboard({
                                 </div>
                                 {issue.affected && issue.affected.length > 0 ? (
                                   <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[180px] overflow-y-auto no-scrollbar bg-black/20 divide-y divide-prizm-border/10">
-                                    {issue.affected.map((aff: any, affIdx: number) => (
-                                      <div
-                                        key={affIdx}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleActionClick(aff);
-                                        }}
-                                        className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center"
-                                      >
-                                        <span className="text-prizm-text font-bold truncate">
-                                          {formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
-                                        </span>
-                                        <span className="text-[8px] bg-black/30 px-1 rounded text-prizm-text-muted">
-                                          {aff.source || "EMS"}
-                                        </span>
-                                      </div>
-                                    ))}
+                                    {(() => {
+                                      const affCount = issue.affected.length;
+                                      const displayLimit = 15;
+                                      const toShow = affCount <= displayLimit ? issue.affected : issue.affected.slice(0, displayLimit);
+                                      const listElems = toShow.map((aff: any, affIdx: number) => (
+                                        <div
+                                          key={affIdx}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleActionClick(aff);
+                                          }}
+                                          className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center"
+                                        >
+                                          <span className="text-prizm-text font-bold truncate">
+                                            {formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
+                                          </span>
+                                          <span className="text-[8px] bg-black/30 px-1 rounded text-prizm-text-muted">
+                                            {aff.source || "EMS"}
+                                          </span>
+                                        </div>
+                                      ));
+                                      if (affCount > displayLimit) {
+                                        listElems.push(
+                                          <div key="condensed-indicator" className="py-1.5 px-2.5 bg-black/30 text-prizm-text-muted italic text-[9px]">
+                                            ... and {affCount - displayLimit} more affected targets
+                                          </div>
+                                        );
+                                      }
+                                      return listElems;
+                                    })()}
                                   </div>
                                 ) : (
                                   <div className="grid grid-cols-2 gap-1.5 max-h-[140px] overflow-y-auto no-scrollbar">
-                                    {(issue.occurrences || []).map((occ: any, oIdx: number) => {
-                                      const label = occ.enclosureLabel || occ.deviceIp || occ.endpoint || "Unknown Unit";
-                                      return (
-                                        <div
-                                          key={oIdx}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleActionClick({
-                                              ...occ,
-                                              ip: occ.deviceIp || occ.endpoint,
-                                              source: issue.source || (occ.deviceIp ? "hvac" : "ems")
-                                            });
-                                          }}
-                                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-prizm-surface-strong/40 rounded border border-prizm-border/30 hover:bg-prizm-primary/15 hover:border-prizm-primary/60 cursor-pointer transition-all truncate"
-                                        >
-                                          <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse"></span>
-                                          <span className="truncate text-prizm-text" title={label}>{label}</span>
-                                        </div>
-                                      );
-                                    })}
+                                    {(() => {
+                                      const occCount = (issue.occurrences || []).length;
+                                      const displayLimit = 15;
+                                      const toShow = occCount <= displayLimit ? (issue.occurrences || []) : (issue.occurrences || []).slice(0, displayLimit);
+                                      const listElems = toShow.map((occ: any, oIdx: number) => {
+                                        const label = occ.enclosureLabel || occ.deviceIp || occ.endpoint || "Unknown Unit";
+                                        return (
+                                          <div
+                                            key={oIdx}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleActionClick({
+                                                ...occ,
+                                                ip: occ.deviceIp || occ.endpoint,
+                                                source: issue.source || (occ.deviceIp ? "hvac" : "ems")
+                                              });
+                                            }}
+                                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-prizm-surface-strong/40 rounded border border-prizm-border/30 hover:bg-prizm-primary/15 hover:border-prizm-primary/60 cursor-pointer transition-all truncate"
+                                          >
+                                            <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse"></span>
+                                            <span className="truncate text-prizm-text" title={label}>{label}</span>
+                                          </div>
+                                        );
+                                      });
+                                      if (occCount > displayLimit) {
+                                        listElems.push(
+                                          <div key="condensed-occ-indicator" className="col-span-2 py-1 px-2.5 bg-black/30 text-prizm-text-muted italic text-[9px] rounded border border-prizm-border/20">
+                                            ... and {occCount - displayLimit} more affected targets
+                                          </div>
+                                        );
+                                      }
+                                      return listElems;
+                                    })()}
                                   </div>
                                 )}
                               </div>
