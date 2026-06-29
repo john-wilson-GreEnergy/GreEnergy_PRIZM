@@ -194,6 +194,8 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
       result.summary.inspectionPass++;
     }
 
+    let baselineTarInspectionStatus: "pass" | "warn" | "fail" | "not-applicable" = "not-applicable";
+
     // TAR inspection
     const tarFile = result.siteFiles.find(f => f.path === 'site-files/baseline/deploy-redux.tar');
     if (tarFile && tarFile.status === 'present') {
@@ -203,21 +205,23 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
         if (stdout.includes('deploy/featherScript.sh')) {
            result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'pass', notes: "Found deploy/featherScript.sh" });
            result.summary.inspectionPass++;
+           baselineTarInspectionStatus = "pass";
         } else {
-           result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'fail', notes: "Missing deploy/featherScript.sh in tar listing" });
+           result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'fail', notes: "deploy-redux.tar does not contain deploy/featherScript.sh, so baseline workflow is not supported." });
            result.summary.inspectionFail++;
-           // Since baseline needs this file, invalidate the baseline workflow
-           result.supportedWorkflows.baselineOnly = false;
+           baselineTarInspectionStatus = "fail";
         }
       } catch(e: any) {
         result.inspections.push({ key: 'deploy-redux.tar', label: 'TAR Inspection: deploy-redux.tar', status: 'warn', notes: "deploy-redux.tar is present but tar listing is unavailable on this host." });
         result.summary.inspectionWarn++;
+        baselineTarInspectionStatus = "warn";
       }
     }
 
     // Workflow support logic
     const hasValidBaselineTemplate = result.repoTemplates.some(t => t.category === 'baseline' && t.status === 'present');
     const hasValidHatcheryTemplates = result.repoTemplates.filter(t => t.category === 'hatchery').every(t => t.status === 'present');
+    const hasPlaceholderHatcheryTemplates = result.repoTemplates.some(t => t.category === 'hatchery' && t.status === 'placeholder');
     
     const hasValidBaselineSiteFiles = tarFile && tarFile.status === 'present';
     const hasValidHatcherySiteFiles = ['netmap_entity.csv', 'netmap_string.csv', 'netmap_other.csv'].every(csv => {
@@ -225,16 +229,30 @@ export async function validateProvisioningWorkspace(): Promise<ProvisioningWorks
         return file && file.status === 'present';
       }) && result.siteFiles.some(f => f.path === 'site-files/war/feather.war' && f.status === 'present');
 
-    if (hasValidBaselineTemplate && hasValidBaselineSiteFiles) {
+    const hasNetmapFail = result.inspections.some(i => i.key.startsWith('netmap_') && i.status === 'fail');
+
+    if (hasValidBaselineTemplate && hasValidBaselineSiteFiles && (baselineTarInspectionStatus === 'pass' || baselineTarInspectionStatus === 'warn') && !hasHardcodedCredentials) {
       result.supportedWorkflows.baselineOnly = true;
     }
     
-    if (hasValidHatcheryTemplates && hasValidHatcherySiteFiles && result.summary.inspectionFail === 0) {
+    if (baselineTarInspectionStatus === 'fail') {
+      result.supportedWorkflows.baselineOnly = false;
+    }
+    
+    if (hasValidHatcheryTemplates && !hasPlaceholderHatcheryTemplates && hasValidHatcherySiteFiles && !hasNetmapFail && !hasHardcodedCredentials) {
       result.supportedWorkflows.hatcheryOnly = true;
+    }
+    
+    if (hasHardcodedCredentials) {
+       result.supportedWorkflows.baselineOnly = false;
+       result.supportedWorkflows.hatcheryOnly = false;
+       result.supportedWorkflows.baselineAndHatchery = false;
     }
     
     if (result.supportedWorkflows.baselineOnly && result.supportedWorkflows.hatcheryOnly) {
       result.supportedWorkflows.baselineAndHatchery = true;
+    } else {
+      result.supportedWorkflows.baselineAndHatchery = false;
     }
 
     // Determine overall status
