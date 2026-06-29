@@ -1679,40 +1679,103 @@ async function generateCorrectiveActionsPdf(
         doc.moveDown(0.5);
 
         correctiveActions.forEach((act, idx) => {
-          // Check if we need a page break (each item is roughly 120-140pt high)
-          if (doc.y + 140 > 750) {
+          // If we are getting close to the page bottom, start on a new page
+          if (doc.y > 600) {
             doc.addPage();
             // Re-draw small header on subsequent pages
             doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List", 50, 50);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
             doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
             doc.y = 80;
           }
 
-          const itemY = doc.y;
+          let itemStartY = doc.y;
           const severityColor = act.level === "ALARM" ? DANGER : (act.level === "WARNING" ? WARNING : INFO);
 
-          // Draw item container
-          doc.rect(50, itemY, 495, 125).strokeColor(BORDER_LIGHT).stroke();
+          // We'll write the text contents first, updating doc.y dynamically
+          doc.y = itemStartY + 12; // Initial padding inside the card
 
-          // Severity indicator block
-          doc.rect(51, itemY + 1, 6, 123).fill(severityColor);
+          // 1. Fault header
+          doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${act.fault}`, 70);
+          doc.moveDown(0.3);
 
-          // Header
-          doc.fontSize(10).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`${idx + 1}. [${act.level}] ${act.fault}`, 70, itemY + 12);
-          doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED).text(`Target: ${act.object}`, 70, itemY + 28);
+          // 2. Metadata / metrics in dynamic layout
+          doc.fontSize(9).font("Helvetica").fillColor(TEXT_MUTED).text("Target Class:", 70);
+          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.object, 170, doc.y - 11);
 
-          // Key metrics inside item
-          doc.fontSize(8).font("Helvetica").fillColor(TEXT_MUTED).text("Source:", 70, itemY + 45).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source, 120, itemY + 45);
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Occurrence:", 70, itemY + 58).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.details, 120, itemY + 58);
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Remedy Action:", 70, itemY + 71).font("Helvetica-Bold").fillColor(BRAND_GREEN).text(act.suggestedAction, 120, itemY + 71);
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Status:", 70, itemY + 84).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.status, 120, itemY + 84);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Source Component:", 70);
+          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source, 170, doc.y - 11);
 
-          // Notes Line
-          doc.moveTo(70, itemY + 108).lineTo(525, itemY + 108).strokeColor(BORDER_LIGHT).stroke();
-          doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Technician Notes: ____________________________________________________________________", 70, itemY + 112);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Remedy Action:", 70);
+          doc.font("Helvetica-Bold").fillColor(BRAND_GREEN).text(act.suggestedAction, 170, doc.y - 11);
 
-          doc.y = itemY + 135;
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Current Status:", 70);
+          doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.status, 170, doc.y - 11);
+
+          doc.moveDown(0.5);
+
+          // 3. Delineated list of affected segments
+          const affList = act.affected || [];
+          if (affList.length > 0) {
+            doc.fontSize(9).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("Affected Energy Segments / Strings:", 70);
+            doc.moveDown(0.3);
+
+            affList.forEach((aff: any) => {
+              // Check if we need to add a page break inside the card list!
+              if (doc.y > 740) {
+                // Close current card border & bar on the current page
+                const itemHeightBeforeBreak = doc.y - itemStartY + 10;
+                doc.rect(50, itemStartY, 495, itemHeightBeforeBreak).strokeColor(BORDER_LIGHT).stroke();
+                doc.rect(51, itemStartY + 1, 6, itemHeightBeforeBreak - 2).fill(severityColor);
+
+                doc.addPage();
+                // Re-draw small header on subsequent pages
+                doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+                doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
+                doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
+                doc.y = 80;
+
+                itemStartY = doc.y;
+                doc.y = itemStartY + 12;
+              }
+
+              const affText = `• ${aff.label || "Unknown Segment"}${aff.ip ? ` (IP: ${aff.ip})` : ""}`;
+              doc.fontSize(8.5).font("Helvetica").fillColor(TEXT_MAIN).text(affText, 90);
+            });
+            doc.moveDown(0.4);
+          }
+
+          // 4. Notes line
+          // Ensure we don't draw notes lines past page boundaries
+          if (doc.y > 730) {
+            const itemHeightBeforeBreak = doc.y - itemStartY + 10;
+            doc.rect(50, itemStartY, 495, itemHeightBeforeBreak).strokeColor(BORDER_LIGHT).stroke();
+            doc.rect(51, itemStartY + 1, 6, itemHeightBeforeBreak - 2).fill(severityColor);
+
+            doc.addPage();
+            doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Field Remediation Punch List (Cont.)", 50, 50);
+            doc.moveTo(50, 62).lineTo(545, 62).strokeColor(BORDER_LIGHT).stroke();
+            doc.y = 80;
+
+            itemStartY = doc.y;
+            doc.y = itemStartY + 12;
+          }
+
+          doc.moveTo(70, doc.y).lineTo(525, doc.y).strokeColor(BORDER_LIGHT).stroke();
+          doc.moveDown(0.4);
+          doc.fontSize(8).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Technician Notes: ____________________________________________________________________", 70);
+          
+          doc.moveDown(1.5);
+          const itemEndY = doc.y;
+          const itemHeight = itemEndY - itemStartY;
+
+          // Draw item border and severity color bar
+          doc.rect(50, itemStartY, 495, itemHeight).strokeColor(BORDER_LIGHT).stroke();
+          doc.rect(51, itemStartY + 1, 6, itemHeight - 2).fill(severityColor);
+
+          // Add margin for the next item
+          doc.y = itemEndY + 15;
         });
       }
 
@@ -1796,7 +1859,8 @@ app.post("/api/local/reports/generate", async (req, res) => {
         count: act.affected.length,
         suggestedAction: act.suggestedAction,
         status: "Open - Field Check Required",
-        notes: "Diagnostic state auto-locked via Prizm active loop analysis"
+        notes: "Diagnostic state auto-locked via Prizm active loop analysis",
+        affected: act.affected
       };
     });
 

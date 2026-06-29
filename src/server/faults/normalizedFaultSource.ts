@@ -419,7 +419,7 @@ export function getCorrectiveActionsFromNormalizedFaults(ignoredPatterns: string
     if (/fss|fire/i.test(faultName)) return "Inspect fire safety signal chain";
     if (/hvac|mio/i.test(faultName)) return "Inspect HVAC controller and MIO status";
     if (/high cell temp|thermal/i.test(faultName)) return "Inspect affected string/enclosure thermal conditions";
-    if (/cell voltage|imbalance/i.test(faultName)) return "Inspect BPC/cell imbalance and balancing status";
+    if (/cell voltage|imbalance|balance/i.test(faultName)) return "Inspect BPC balancing circuit status, and cell group telemetry";
     return "Open String List details and inspect BPC status";
   };
 
