@@ -45,6 +45,7 @@ import {
   formatAvailability,
   formatEntityKey
 } from "./topologyUtils";
+import SiteOverheadSensorMap from "./SiteOverheadSensorMap";
 
 export default function TopologySensorHealthPanel() {
   const [data, setData] = useState<TopologySensorSummary | null>(null);
@@ -65,6 +66,7 @@ export default function TopologySensorHealthPanel() {
 
   // Pagination for point browser (Section 5)
   const [pointLimit, setPointLimit] = useState<number>(250);
+  const [browserViewMode, setBrowserViewMode] = useState<"profile" | "raw" | "unexpected">("profile");
 
   // Drilldown States (Section 6)
   const [selectedRow, setSelectedRow] = useState<BlockSensorMatrixRow | null>(null);
@@ -219,6 +221,14 @@ export default function TopologySensorHealthPanel() {
   const filteredPoints = useMemo(() => {
     if (!data?.points) return [];
     return data.points.filter((point) => {
+      // Browser view mode filters
+      if (browserViewMode === "profile") {
+        if (!point.monitoredByProfile || !point.contributesToHealth) return false;
+      } else if (browserViewMode === "unexpected") {
+        const isTripped = point.activeState === true || ["alarm", "fault", "open"].includes(point.displayState || "");
+        if (point.monitoredByProfile || !isTripped) return false;
+      }
+
       if (!matchesArrayFilter(point, selectedArray)) return false;
       if (!matchesSegmentFilter(point, selectedSegment)) return false;
       if (selectedFamily !== "all") {
@@ -228,7 +238,7 @@ export default function TopologySensorHealthPanel() {
       if (!matchesSearch(point, searchQuery)) return false;
       return true;
     });
-  }, [data, selectedArray, selectedSegment, selectedFamily, selectedHealth, searchQuery]);
+  }, [data, selectedArray, selectedSegment, selectedFamily, selectedHealth, searchQuery, browserViewMode]);
 
   // Categorized counts for chips (Section 5 dynamic labels)
   const pointCountsByFamily = useMemo(() => {
@@ -247,8 +257,19 @@ export default function TopologySensorHealthPanel() {
       Uncategorized: 0
     };
     if (!data?.points) return counts;
-    counts.all = data.points.length;
-    data.points.forEach((p) => {
+
+    const preFiltered = data.points.filter((point) => {
+      if (browserViewMode === "profile") {
+        return !!point.monitoredByProfile && !!point.contributesToHealth;
+      } else if (browserViewMode === "unexpected") {
+        const isTripped = point.activeState === true || ["alarm", "fault", "open"].includes(point.displayState || "");
+        return !point.monitoredByProfile && isTripped;
+      }
+      return true;
+    });
+
+    counts.all = preFiltered.length;
+    preFiltered.forEach((p) => {
       const f = getPointFamily(p);
       if (counts[f] !== undefined) {
         counts[f]++;
@@ -257,7 +278,7 @@ export default function TopologySensorHealthPanel() {
       }
     });
     return counts;
-  }, [data]);
+  }, [data, browserViewMode]);
 
   // Points associated with selected row (Section 6 Selected Detail drilldown)
   const pointsInSelectedRowGrouped = useMemo(() => {
@@ -288,8 +309,11 @@ export default function TopologySensorHealthPanel() {
   // Overall Severity color card styles
   const globalSeverity = useMemo(() => {
     if (!data) return "OK";
-    if (data.activePointCount > 0) return "Critical";
-    if (data.unavailablePointCount > 0 || (data.debug?.numericIdParseFailedCount && data.debug.numericIdParseFailedCount > 0)) {
+    const activeCount = data.profileActivePointCount ?? data.activePointCount ?? 0;
+    const unavailableCount = data.profileUnavailablePointCount ?? data.unavailablePointCount ?? 0;
+
+    if (activeCount > 0) return "Critical";
+    if (unavailableCount > 0 || (data.debug?.numericIdParseFailedCount && data.debug.numericIdParseFailedCount > 0)) {
       return "Warning";
     }
     return "OK";
@@ -493,7 +517,7 @@ export default function TopologySensorHealthPanel() {
               </div>
             </div>
 
-            <div className="text-[10px] uppercase font-mono bg-white border border-slate-200 rounded-md p-2 flex items-center justify-between sm:justify-start gap-4 text-slate-650 shadow-2xs w-full sm:w-auto">
+            <div className="text-[10px] uppercase font-mono bg-white border border-slate-200 rounded-md p-2 flex flex-wrap items-center justify-between sm:justify-start gap-4 text-slate-650 shadow-2xs w-full sm:w-auto">
               <div>
                 Points: <strong className="text-slate-905">{data?.points?.length || 0}</strong>
               </div>
@@ -503,9 +527,13 @@ export default function TopologySensorHealthPanel() {
               </div>
               <div className="h-3 w-px bg-slate-200" />
               <div>
-                Faults: <strong className={`${data?.activePointCount && data.activePointCount > 0 ? "text-red-700 font-bold" : "text-emerald-700"}`}>
-                  {data?.activePointCount || 0}
+                Profile Faults: <strong className={`${(data?.profileActivePointCount ?? data?.activePointCount ?? 0) > 0 ? "text-red-700 font-bold" : "text-emerald-700"}`}>
+                  {data?.profileActivePointCount ?? data?.activePointCount ?? 0}
                 </strong>
+              </div>
+              <div className="h-3 w-px bg-slate-200" />
+              <div>
+                Raw Faults: <strong className="text-slate-905">{data?.rawActivePointCount ?? data?.activePointCount ?? 0}</strong>
               </div>
             </div>
 
@@ -790,6 +818,15 @@ export default function TopologySensorHealthPanel() {
         </div>
       )}
 
+      {/* Operator-facing Site Overhead Sensor Map */}
+      {data && (
+        <SiteOverheadSensorMap
+          rows={physicalRows}
+          selectedRow={selectedRow}
+          onSelectRow={(row) => setSelectedRow(row)}
+        />
+      )}
+
       {/* SECTION 4 — Physical Enclosure Matrix Summary (The Core Table) */}
       {data && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs flex flex-col">
@@ -908,6 +945,7 @@ export default function TopologySensorHealthPanel() {
                           )}
 
                           <tr
+                            id={`row-${row.id}`}
                             onClick={() => {
                               setSelectedRow(isRowSelected ? null : row);
                             }}
@@ -1261,6 +1299,31 @@ export default function TopologySensorHealthPanel() {
               <div className="text-[10px] uppercase font-mono text-slate-600 bg-white border border-slate-200/80 p-2.5 rounded shadow-2xs">
                 Matched Count: <strong className="text-slate-900">{filteredPoints.length}</strong> points matching rules
               </div>
+            </div>
+
+            {/* View Mode selection tabs per Section 5/7 requirements */}
+            <div className="flex flex-wrap items-center gap-2 mb-4 bg-slate-100 p-1.5 rounded-lg w-fit">
+              <span className="text-[10px] uppercase font-bold text-slate-500 px-2 font-mono">View Mode:</span>
+              {[
+                { type: "profile", label: "Profile View" },
+                { type: "raw", label: "Raw EMS View" },
+                { type: "unexpected", label: "Unexpected Signals" }
+              ].map((btn) => (
+                <button
+                  key={btn.type}
+                  onClick={() => {
+                    setBrowserViewMode(btn.type as any);
+                    setPointLimit(250); // reset page
+                  }}
+                  className={`px-3 py-1 text-[10px] sm:text-xs font-bold font-sans rounded-md transition-all cursor-pointer ${
+                    browserViewMode === btn.type
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
             </div>
 
             {/* Active family category selection chips (Section 5 dynamic labels) */}

@@ -113,31 +113,56 @@ export function extractFinalNumericToken(value: unknown): number | null {
 }
 
 // Parse active state from explicit state/value fields
-export function parseActiveState(entity: any): { 
+export function parseActiveState(entity: any, pointRole?: string): { 
   activeState: boolean | null; 
   activeStateSource: string | null; 
   rawValue: any; 
   valueFieldUsed: string | null;
 } {
-  const fields = [
-    "value",
-    "statusValue",
-    "currentValue",
-    "presentValue",
-    "stateValue",
-    "booleanValue",
-    "active",
+  const role = (pointRole || entity.pointRole || "").toLowerCase();
+  const entityType = String(entity.entityType || "").toLowerCase();
+  const entitySubType = String(entity.entitySubType || "").toLowerCase();
+
+  const isEnvSensor = role.includes("environment") || 
+                      entityType.includes("humidity") || 
+                      entityType.includes("environment") || 
+                      entitySubType.includes("hts");
+
+  // Determine status message and check if it means Normal
+  const statusMessage = String(entity.statusMessage || entity.status || "").toLowerCase().trim();
+  
+  // If statusMessage contains Normal, Clear, Untripped, Not Tripped, Closed, OK, Ready, Device online,
+  // then activeState must be false.
+  const isNormalStatus = statusMessage.includes("normal") ||
+                         statusMessage.includes("clear") ||
+                         statusMessage.includes("untripped") ||
+                         statusMessage.includes("not tripped") ||
+                         statusMessage.includes("closed") ||
+                         statusMessage.includes("ok") ||
+                         statusMessage.includes("ready") ||
+                         statusMessage.includes("device online");
+
+  if (isNormalStatus) {
+    return {
+      activeState: false,
+      activeStateSource: "statusMessageOverride",
+      rawValue: entity.statusMessage,
+      valueFieldUsed: "statusMessage"
+    };
+  }
+
+  // Fields like tripped, isTripped, isAlarmed, alarm, fault, isFaulted, activeAlarm should map true = active/tripped.
+  const explicitTripFields = [
     "tripped",
-    "isActive",
     "isTripped",
     "isAlarmed",
     "alarm",
     "fault",
-    "status",
-    "state"
+    "isFaulted",
+    "activeAlarm"
   ];
 
-  for (const field of fields) {
+  for (const field of explicitTripFields) {
     if (entity[field] !== undefined && entity[field] !== null) {
       const val = entity[field];
       if (typeof val === "boolean") {
@@ -167,13 +192,126 @@ export function parseActiveState(entity: any): {
           };
         }
       }
-      if (typeof val === "number") {
-        return { 
-          activeState: val !== 0, 
-          activeStateSource: field, 
-          rawValue: val, 
-          valueFieldUsed: field 
+    }
+  }
+
+  // Generic fields:
+  const genericValueFields = [
+    "value",
+    "currentValue",
+    "presentValue",
+    "statusValue",
+    "stateValue",
+    "booleanValue",
+    "active",
+    "isActive",
+    "status",
+    "state"
+  ];
+
+  for (const field of genericValueFields) {
+    if (entity[field] !== undefined && entity[field] !== null) {
+      const val = entity[field];
+
+      // For Humidity Temperature Sensor / HTS / environment sensors, do not use boolean active state as Critical
+      // unless there is an explicit alarm/fault/trip status.
+      if (isEnvSensor) {
+        // Only return true if status message explicitly contains Alarm, Fault, Trouble, Tripped
+        const isExplicitAlarm = statusMessage.includes("alarm") ||
+                                statusMessage.includes("fault") ||
+                                statusMessage.includes("trouble") ||
+                                statusMessage.includes("tripped");
+        if (isExplicitAlarm) {
+          return {
+            activeState: true,
+            activeStateSource: "envStatusMessage",
+            rawValue: val,
+            valueFieldUsed: field
+          };
+        }
+        return {
+          activeState: false,
+          activeStateSource: "envDefault",
+          rawValue: val,
+          valueFieldUsed: field
         };
+      }
+
+      if (typeof val === "boolean") {
+        const isAbnormalRole = !["datacommunications", "communicating", "enabled", "ready"].includes(role);
+        
+        if (val === true) {
+          // If role is normal (e.g. dataCommunications or enabled/ready), a boolean true is NOT abnormal/tripped!
+          if (!isAbnormalRole) {
+            return {
+              activeState: false,
+              activeStateSource: field,
+              rawValue: val,
+              valueFieldUsed: field
+            };
+          }
+          return { 
+            activeState: true, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
+        } else {
+          return {
+            activeState: false,
+            activeStateSource: field,
+            rawValue: val,
+            valueFieldUsed: field
+          };
+        }
+      }
+
+      if (typeof val === "string") {
+        const lowerVal = val.toLowerCase().trim();
+        if (["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(lowerVal)) {
+          const isAbnormalRole = !["datacommunications", "communicating", "enabled", "ready"].includes(role);
+          if (!isAbnormalRole && ["true", "active"].includes(lowerVal)) {
+            return {
+              activeState: false,
+              activeStateSource: field,
+              rawValue: val,
+              valueFieldUsed: field
+            };
+          }
+          return { 
+            activeState: true, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
+        }
+        if (["false", "normal", "inactive", "untripped", "clear", "ok", "ready", "closed"].includes(lowerVal)) {
+          return { 
+            activeState: false, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
+        }
+      }
+
+      if (typeof val === "number") {
+        const isAbnormalRole = !["datacommunications", "communicating", "enabled", "ready"].includes(role);
+        if (val !== 0 && isAbnormalRole) {
+          return { 
+            activeState: true, 
+            activeStateSource: field, 
+            rawValue: val, 
+            valueFieldUsed: field 
+          };
+        } else {
+          return {
+            activeState: false,
+            activeStateSource: field,
+            rawValue: val,
+            valueFieldUsed: field
+          };
+        }
       }
     }
   }
@@ -572,7 +710,7 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
     }
 
     // Active state from fields list
-    const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity);
+    const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity, pointRole);
 
     if (!pointAvailable) {
       unavailablePointCount++;
@@ -818,10 +956,14 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
         segmentCommunicating: true,
         displayName: isCS ? `Array ${arrayIndex} - CS` : `Array ${arrayIndex} - ES${segmentNumber}`
       } as any,
-      actionHealthy: rowHealthy,
-      rowHealthy,
-      severity: rowSeverity,
-      findings,
+      actionHealthy: true,
+      rowHealthy: true,
+      severity: "OK",
+      findings: [],
+      rawActionHealthy: rowHealthy,
+      rawRowHealthy: rowHealthy,
+      rawSeverity: rowSeverity,
+      rawFindings: findings,
       topology: {
         enclosureType: isCS ? "CollectionSegment" : "EnergySegment",
         enclosureIndex,

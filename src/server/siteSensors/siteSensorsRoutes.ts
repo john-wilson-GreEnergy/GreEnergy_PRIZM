@@ -15,7 +15,7 @@ import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
 import { parseEmsTopology, parseActiveState } from "../emsTopologySensorParser";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
-import { resolveMatrixRows } from "./sensorCapabilityResolver";
+import { resolveMatrixRows, resolveTopologyPoints, calculateProfileAndRawCounts } from "./sensorCapabilityResolver";
 
 
 const router = Router();
@@ -1259,6 +1259,11 @@ export interface BlockSensorMatrixRow {
   severity: "OK" | "Warning" | "Critical";
   findings: string[];
 
+  rawActionHealthy?: boolean;
+  rawRowHealthy?: boolean;
+  rawSeverity?: "OK" | "Warning" | "Critical";
+  rawFindings?: string[];
+
   topology: {
     enclosureType: "CollectionSegment" | "EnergySegment" | "UNKNOWN";
     enclosureIndex: number | null;
@@ -1349,6 +1354,13 @@ export interface SiteSensorsBlockviewerResponse {
     warnings: string[];
   };
   error?: string;
+  profileActivePointCount?: number;
+  profileUnavailablePointCount?: number;
+  profileWarningCount?: number;
+  profileCriticalCount?: number;
+  profileHealthyCount?: number;
+  rawActivePointCount?: number;
+  rawUnavailablePointCount?: number;
   debug?: {
     totalElements?: number;
     totalSensors?: number;
@@ -1801,7 +1813,7 @@ function parseTopologyEntityToCell(entity: any, roleName: string): NormalizedSen
   else if (!enabled) statusMessage = "Disabled";
   else if (!ready) statusMessage = "Not Ready";
 
-  const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity);
+  const { activeState, activeStateSource, rawValue, valueFieldUsed } = parseActiveState(entity, roleName);
   const isTripped = activeState === true;
   if (isTripped) {
     healthy = false;
@@ -2711,10 +2723,14 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       });
     }
 
-    row.rowHealthy = rowHealthy;
-    row.actionHealthy = rowHealthy;
-    row.severity = severity;
-    row.findings = findings;
+    row.actionHealthy = true;
+    row.rowHealthy = true;
+    row.severity = "OK";
+    row.findings = [];
+    row.rawActionHealthy = rowHealthy;
+    row.rawRowHealthy = rowHealthy;
+    row.rawSeverity = severity;
+    row.rawFindings = findings;
 
     addToSidebar("moisture", row.emergencySensors.moisture);
     addToSidebar("io", row.comStatus.io);
@@ -2845,6 +2861,8 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     warnings
   };
 
+  const counts = calculateProfileAndRawCounts(resolvedRows);
+
   return {
     success: true,
     timestamp: new Date().toISOString(),
@@ -2853,6 +2871,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
     blockIndex: blockData?.blockIndex || 1,
     cumulativeHealthy: resolvedRows.filter(r => r.rowHealthy).length,
     cumulativeTotal: resolvedRows.length,
+    ...counts,
     sourceHealth,
     sidebarCounts,
     rows: resolvedRows,
@@ -2881,7 +2900,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
   };
 
   function addToSidebar(role: string, cell: NormalizedSensorCell) {
-    if (!cell || !cell.applicable) return;
+    if (!cell || cell.contributesToHealth !== true) return;
     let categoryKey: keyof SensorSidebarCounts | null = null;
     if (role === "fire") categoryKey = "fire";
     else if (role === "fireTrouble") categoryKey = "fireTrouble";
@@ -2970,6 +2989,13 @@ router.get("/topology", async (req, res) => {
       summary.rows = resolveMatrixRows(summary.rows, activeProfile);
       summary.cumulativeHealthy = summary.rows.filter((r: any) => r.rowHealthy).length;
       summary.cumulativeTotal = summary.rows.length;
+      
+      if (summary.points) {
+        summary.points = resolveTopologyPoints(summary.points, activeProfile);
+      }
+      
+      const counts = calculateProfileAndRawCounts(summary.rows);
+      Object.assign(summary, counts);
     }
     
     const sensorSafetyHealthDebug = {

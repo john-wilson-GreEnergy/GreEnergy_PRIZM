@@ -73,6 +73,10 @@ export interface BlockSensorMatrixRow {
   actionHealthy?: boolean;
   severity: "OK" | "Warning" | "Critical";
   findings: string[];
+  rawActionHealthy?: boolean;
+  rawRowHealthy?: boolean;
+  rawSeverity?: "OK" | "Warning" | "Critical";
+  rawFindings?: string[];
   topology: any;
   emergencySensors: {
     moisture: NormalizedSensorCell;

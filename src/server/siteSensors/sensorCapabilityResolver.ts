@@ -197,3 +197,118 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
     };
   });
 }
+
+export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile | null): any[] {
+  return points.map(point => {
+    const isCS = point.segmentKind === "CS";
+    const enclosureType = isCS ? "CS" : "ES";
+    const canonicalKey = mapToCanonicalProfileKey(point.pointRole);
+    const profile = activeProfile?.sensorMonitoringProfile;
+
+    let monitoredByProfile = false;
+    if (enclosureType === "CS") {
+      const csProfile = profile?.collectionSegment || {
+        dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
+        manualVentilation: true, smoke: true, fireTrouble: true, fire: true,
+        io: true, heat: true, upsAlarm: true, moisture: false, leakDetector: false,
+        hydrogen: false, hydrogenFault: false, envControllerVent: false
+      };
+      monitoredByProfile = !!csProfile[canonicalKey];
+    } else {
+      const esProfile = profile?.energySegment || {
+        dataUnavailable: true, batteryDoors: true, topCapDoors: true,
+        envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
+        io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+        acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
+      };
+      monitoredByProfile = !!esProfile[canonicalKey];
+    }
+
+    const contributesToHealth = monitoredByProfile;
+
+    return {
+      ...point,
+      monitoredByProfile,
+      contributesToHealth
+    };
+  });
+}
+
+export function calculateProfileAndRawCounts(resolvedRows: any[]): {
+  profileActivePointCount: number;
+  profileUnavailablePointCount: number;
+  profileWarningCount: number;
+  profileCriticalCount: number;
+  profileHealthyCount: number;
+  rawActivePointCount: number;
+  rawUnavailablePointCount: number;
+} {
+  let profileActivePointCount = 0;
+  let profileUnavailablePointCount = 0;
+  let profileCriticalCount = 0;
+  let profileWarningCount = 0;
+  let profileHealthyCount = 0;
+  let rawActivePointCount = 0;
+  let rawUnavailablePointCount = 0;
+
+  resolvedRows.forEach((row) => {
+    // Row level counts
+    if (row.severity === "Critical") {
+      profileCriticalCount++;
+    } else if (row.severity === "Warning") {
+      profileWarningCount++;
+    } else {
+      profileHealthyCount++;
+    }
+
+    const processCell = (cell: any) => {
+      if (!cell) return;
+
+      // Raw counts (from raw state)
+      if (cell.rawTripped === true || cell.rawState === "TRIPPED") {
+        rawActivePointCount++;
+      }
+      if (cell.rawState === "UNAVAILABLE") {
+        rawUnavailablePointCount++;
+      }
+
+      // Profile counts
+      if (cell.contributesToHealth === true) {
+        if (cell.tripped === true || ["alarm", "fault", "open"].includes(cell.displayState)) {
+          profileActivePointCount++;
+        }
+        if (cell.displayState === "unavailable") {
+          profileUnavailablePointCount++;
+        }
+      }
+    };
+
+    const emergencySensors = row.emergencySensors || {};
+    Object.keys(emergencySensors).forEach(k => processCell(emergencySensors[k]));
+
+    const comStatus = row.comStatus || {};
+    Object.keys(comStatus).forEach(k => processCell(comStatus[k]));
+
+    const doorSensors = row.doorSensors || {};
+    Object.keys(doorSensors).forEach(k => processCell(doorSensors[k]));
+
+    const otherSensors = row.otherSensors || {};
+    Object.keys(otherSensors).forEach(k => {
+      if (Array.isArray(otherSensors[k])) {
+        otherSensors[k].forEach((item: any) => processCell(item));
+      } else {
+        processCell(otherSensors[k]);
+      }
+    });
+  });
+
+  return {
+    profileActivePointCount,
+    profileUnavailablePointCount,
+    profileWarningCount,
+    profileCriticalCount,
+    profileHealthyCount,
+    rawActivePointCount,
+    rawUnavailablePointCount
+  };
+}
