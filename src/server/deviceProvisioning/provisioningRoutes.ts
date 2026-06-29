@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { validateBundle } from './provisioningBundleValidator';
 import { validateManifest } from './provisioningManifestValidator';
 import { saveSelectedBundle, getSelectedBundle, clearSelectedBundle, saveValidationToHistory } from './provisioningBundleStorage';
+import { buildProvisioningPlanPreview } from './featherProvisioningPlanner';
 
 const router = Router();
 
@@ -57,6 +58,27 @@ router.post('/bundles/select', (req, res) => {
 router.delete('/bundles/selected', (req, res) => {
   clearSelectedBundle();
   res.json({ success: true });
+});
+
+router.post('/plans/preview', (req, res) => {
+  const { targetFeatherIp, featherIndex, ioLogikIp, targetLabel, bundleValidation, bundleSource } = req.body;
+  if (!targetFeatherIp || featherIndex === undefined || !ioLogikIp || !bundleValidation || !bundleSource) {
+    return res.status(400).json({ success: false, error: "Missing required fields" });
+  }
+
+  try {
+    const plan = buildProvisioningPlanPreview(
+      targetFeatherIp,
+      Number(featherIndex),
+      ioLogikIp,
+      targetLabel,
+      bundleValidation,
+      bundleSource
+    );
+    res.json({ success: true, plan });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 export default router;
