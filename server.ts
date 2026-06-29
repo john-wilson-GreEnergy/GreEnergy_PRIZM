@@ -63,6 +63,8 @@ import provisioningRoutes from "./src/server/deviceProvisioning/provisioningRout
 import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
 import debugSourceScanRouter from "./src/server/debugSourceScan";
+import { troubleshootingRouter } from "./src/server/troubleshooting/troubleshootingRoutes";
+import { formatAffectedTargetForDisplay, shouldShowTargetIp } from "./src/server/troubleshooting/troubleshootingResolver";
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
 import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
@@ -106,6 +108,8 @@ app.use("/api/local/provisioning", provisioningRoutes);
 app.use("/api/local/balancer-test", balancerTestRouter);
 
 app.use("/api/local/fan-control", fanControlRouter);
+
+app.use("/api/local/troubleshooting", troubleshootingRouter);
 
 app.use("/api/local", debugSourceScanRouter);
 
@@ -1768,11 +1772,12 @@ async function generateCorrectiveActionsPdf(
           doc.font("Helvetica").fillColor(TEXT_MUTED).text("Source Component:", 70);
           doc.font("Helvetica-Bold").fillColor(TEXT_MAIN).text(act.source || "Unknown", 170, doc.y - 11);
 
-          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Matrix Match:", 70);
-          const matchLabel = resolved?.matched 
-            ? `Corrective Matrix Match: ${resolved.confidence}` 
-            : "Manual review recommended (No exact matrix match)";
-          doc.font("Helvetica-Bold").fillColor(resolved?.matched ? BRAND_GREEN : WARNING).text(matchLabel, 170, doc.y - 11);
+          doc.font("Helvetica").fillColor(TEXT_MUTED).text("Resolution Source:", 70);
+          const issueName = resolved?.resolvedTroubleshooting?.issueName || act.fault;
+          const resolutionSource = resolved?.matched 
+            ? `PRIZM Troubleshooting Library - ${issueName}` 
+            : "PRIZM Troubleshooting Library - Default Advisory Fallback";
+          doc.font("Helvetica-Bold").fillColor(resolved?.matched ? BRAND_GREEN : WARNING).text(resolutionSource, 170, doc.y - 11);
 
           doc.moveDown(0.5);
 
@@ -1829,36 +1834,7 @@ async function generateCorrectiveActionsPdf(
             const displayLimit = 8;
             const toRender = affList.slice(0, displayLimit);
             toRender.forEach((aff: any) => {
-              const bIdx = aff.blockIndex ?? 1;
-              const aIdx = aff.arrayIndex ?? 1;
-              const sNum = aff.stringIndex ?? null;
-              let esLabel = "";
-              let stringDetail = "";
-              if (sNum && sNum > 0) {
-                const esNum = Math.ceil(sNum / 2);
-                esLabel = `ES${esNum}`;
-                const side = aff.side || (sNum % 2 === 1 ? "A-Side" : "B-Side");
-                stringDetail = ` / String ${sNum} / ${side}`;
-              } else {
-                esLabel = aff.energySegmentIndex ? `ES${aff.energySegmentIndex}` : "ES1";
-              }
-
-              const bpcVal = aff.batteryPackIndex ?? aff.bpcIndex ?? null;
-              const cgVal = aff.cellGroupIndex ?? aff.cgIndex ?? null;
-              let bpcCgDetail = "";
-              if (bpcVal !== null && bpcVal !== undefined && bpcVal !== "") {
-                bpcCgDetail += ` / BPC ${bpcVal}`;
-                if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
-                  bpcCgDetail += ` / CG ${cgVal}`;
-                }
-              } else if (cgVal !== null && cgVal !== undefined && cgVal !== "") {
-                bpcCgDetail += ` / CG ${cgVal}`;
-              }
-
-              const ipVal = aff.ip ?? aff.deviceIp ?? "";
-              const ipDetail = ipVal ? ` (IP: ${ipVal})` : "";
-
-              const affText = `• Block ${bIdx} / Array ${aIdx} / ${esLabel}${stringDetail}${bpcCgDetail}${ipDetail}`;
+              const affText = `• ${formatAffectedTargetForDisplay(aff, resolved?.system, resolved?.resolvedTroubleshooting?.detailView)}`;
               doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(affText, 90);
             });
 

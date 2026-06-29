@@ -9,6 +9,7 @@ import {
   RefreshCw, 
   Clock, 
   CheckCircle,
+  BookOpen,
   Network,
   Terminal,
   Sliders,
@@ -36,6 +37,7 @@ import ProvisioningDashboard from "./components/ProvisioningDashboard";
 import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import StringFanCommandHold from "./components/StringFanCommandHold";
 import BalancerTestDashboard from "./components/BalancerTestDashboard";
+import TroubleshootingLibrary from "./components/TroubleshootingLibrary";
 
 const Reporting = React.lazy(() => import("./components/Reporting"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
@@ -47,7 +49,7 @@ import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteData } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
-type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced";
+type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -64,7 +66,8 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "feather-hvac": { label: "Feather / HVAC", icon: Network },
   "lightbar-control": { label: "Lineup Lightbar", icon: Sliders },
   "reports": { label: "Reports / Exports", icon: FileText },
-  "advanced": { label: "Safety / Advanced", icon: ShieldAlert }
+  "advanced": { label: "Safety / Advanced", icon: ShieldAlert },
+  "troubleshooting-library": { label: "Troubleshooting KB", icon: BookOpen }
 };
 
 const DEFAULT_TABS_ORDER: string[] = [
@@ -77,7 +80,8 @@ const DEFAULT_TABS_ORDER: string[] = [
   "feather-hvac",
   "lightbar-control",
   "reports",
-  "advanced"
+  "advanced",
+  "troubleshooting-library"
 ];
 
 export default function App() {
@@ -854,6 +858,12 @@ export default function App() {
               {visitedTabs.has("advanced") && (
                 <div className={activeTab === "advanced" ? "block animate-fade-in" : "hidden"}>
                   <SafetyAdvancedDashboard />
+                </div>
+              )}
+
+              {visitedTabs.has("troubleshooting-library") && (
+                <div className={activeTab === "troubleshooting-library" ? "block animate-fade-in" : "hidden"}>
+                  <TroubleshootingLibrary />
                 </div>
               )}
             </Suspense>

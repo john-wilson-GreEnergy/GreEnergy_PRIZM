@@ -35,6 +35,100 @@ import { getSystemSocAndSource } from "../lib/socUtils";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
+function formatAffectedTargetForDisplay(target: any, system?: string, detailView?: string): string {
+  const block = target.blockIndex ?? 1;
+  const array = target.arrayIndex ?? 1;
+  
+  const sys = (system || target.system || "").toLowerCase();
+  const dView = (detailView || target.detailView || "").toLowerCase();
+  const epType = (target.endpointType || "").toLowerCase();
+
+  let showIp = false;
+  if (
+    sys === "string" ||
+    sys === "bpc" ||
+    sys === "cell-group" ||
+    sys === "balancing" ||
+    sys === "contactor" ||
+    epType === "string" ||
+    epType === "bpc" ||
+    epType === "cell_group" ||
+    dView === "string"
+  ) {
+    showIp = false;
+  } else if (
+    dView === "feather" ||
+    dView === "pcs" ||
+    dView === "site" ||
+    dView === "network" ||
+    sys === "hvac" ||
+    sys === "feather" ||
+    sys === "team-box" ||
+    sys === "ups" ||
+    sys === "network" ||
+    sys === "pcs" ||
+    sys === "meter" ||
+    sys === "fire" ||
+    sys === "sensor"
+  ) {
+    showIp = true;
+  }
+
+  const isStringRelated = !showIp;
+  
+  if (isStringRelated) {
+    const stringNum = target.stringIndex;
+    let esStr = "";
+    let sideStr = "";
+    if (stringNum !== undefined && stringNum !== null) {
+      const es = Math.ceil(Number(stringNum) / 2);
+      esStr = ` / ES${es} / String ${stringNum}`;
+      sideStr = Number(stringNum) % 2 === 1 ? " / A-Side" : " / B-Side";
+    } else if (target.energySegmentIndex !== undefined && target.energySegmentIndex !== null) {
+      esStr = ` / ES${target.energySegmentIndex}`;
+    }
+    
+    let bpcStr = "";
+    if (target.batteryPackIndex !== undefined && target.batteryPackIndex !== null) {
+      bpcStr = ` / BPC ${target.batteryPackIndex}`;
+    }
+    let cgStr = "";
+    if (target.cellGroupIndex !== undefined && target.cellGroupIndex !== null) {
+      cgStr = ` / CG ${target.cellGroupIndex}`;
+    }
+    
+    return `Block ${block} / Array ${array}${esStr}${sideStr}${bpcStr}${cgStr}`;
+  } else {
+    const parts = [`Block ${block}`, `Array ${array}`];
+    
+    const isHvac = sys === "hvac" || String(target.callout || "").toLowerCase().includes("hvac");
+    const isFeather = sys === "feather" || String(target.callout || "").toLowerCase().includes("feather");
+    
+    if (isFeather) {
+      parts.push("Feather");
+    } else if (isHvac) {
+      parts.push("Feather");
+      if (String(target.callout || "").toLowerCase().includes("hvac 1")) {
+        parts.push("HVAC 1");
+      } else if (String(target.callout || "").toLowerCase().includes("hvac 2")) {
+        parts.push("HVAC 2");
+      } else {
+        parts.push("HVAC Device");
+      }
+    } else {
+      const compLabel = target.component || target.endpointType || "Controller";
+      parts.push(compLabel);
+    }
+    
+    const ipVal = target.deviceIp || target.ip;
+    if (ipVal) {
+      parts.push(`IP ${ipVal}`);
+    }
+    
+    return parts.join(" / ");
+  }
+}
+
 function CollapsibleSection({
   title,
   icon: Icon,
@@ -1156,10 +1250,13 @@ export default function SiteOperationsDashboard({
             <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
               <thead className="bg-prizm-surface-strong text-[10px] text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
                 <tr>
-                  <th className="py-2 px-3 font-bold w-1/12">Level</th>
-                  <th className="py-2 px-3 font-bold w-2/12">Fault / ID</th>
-                  <th className="py-2 px-3 font-bold w-2/12">Affected Summary</th>
-                  <th className="py-2 px-3 font-bold w-7/12">Suggested Action</th>
+                  <th className="py-2 px-3 font-bold">Level</th>
+                  <th className="py-2 px-3 font-bold">Code</th>
+                  <th className="py-2 px-3 font-bold">Issue Name</th>
+                  <th className="py-2 px-3 font-bold text-center">Count</th>
+                  <th className="py-2 px-3 font-bold">Affected Summary</th>
+                  <th className="py-2 px-3 font-bold">Manager Summary</th>
+                  <th className="py-2 px-3 font-bold">Suggested Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-prizm-border">
@@ -1179,6 +1276,8 @@ export default function SiteOperationsDashboard({
                     (Array.isArray(issue.affected) &&
                       issue.affected.length > 0);
                   const isExpanded = !!expandedCorrectiveActions[i];
+                  const kb = issue.resolved?.resolvedTroubleshooting;
+
                   return (
                     <React.Fragment key={i}>
                       <tr
@@ -1187,7 +1286,7 @@ export default function SiteOperationsDashboard({
                           hasOccurrences && toggleCorrectiveAction(i)
                         }
                       >
-                        <td className="py-2 px-3">
+                        <td className="py-2.5 px-3">
                           <span
                             className={`px-2 py-[2px] rounded font-bold uppercase text-[9px] ${
                               String(issue.level || issue.severity || "").toUpperCase() === "FAULT" || String(issue.level || issue.severity || "").toUpperCase() === "ALARM"
@@ -1198,7 +1297,10 @@ export default function SiteOperationsDashboard({
                             {issue.level || issue.severity}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-prizm-primary font-bold">
+                        <td className="py-2.5 px-3 text-prizm-primary font-bold">
+                          {issue.code || "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-white font-bold">
                           <div className="flex items-center gap-1.5">
                             {hasOccurrences && (
                               <span className="inline-flex items-center">
@@ -1215,18 +1317,24 @@ export default function SiteOperationsDashboard({
                                 )}
                               </span>
                             )}
-                            <span>{issue.fault || issue.faultName || issue.faultId}</span>
+                            <span>{kb?.issueName || issue.fault || issue.faultName || issue.faultId}</span>
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-prizm-text font-bold">
+                        <td className="py-2.5 px-3 text-center text-prizm-primary font-extrabold">
+                          {issue.affected?.length || issue.occurrences?.length || 0}
+                        </td>
+                        <td className="py-2.5 px-3 text-prizm-text font-semibold max-w-[150px] truncate" title={issue.affectedSummary || issue.object}>
                           {issue.affectedSummary || issue.object}
                         </td>
-                        <td className="py-2 px-3 text-prizm-text flex items-center justify-between gap-4">
-                          <span>{issue.suggestedAction}</span>
-                          {issue.suggestedAction
+                        <td className="py-2.5 px-3 text-prizm-text-muted max-w-[220px] whitespace-normal leading-tight text-[9px]">
+                          {kb?.managerSummary || "Local diagnostic review is recommended for this alarm pattern."}
+                        </td>
+                        <td className="py-2.5 px-3 text-prizm-text flex items-center justify-between gap-4">
+                          <span className="font-semibold text-emerald-400">{kb?.summaryAction || issue.suggestedAction}</span>
+                          {(kb?.summaryAction || issue.suggestedAction)
                             ?.toLowerCase()
                             .includes("balance") ||
-                          issue.suggestedAction
+                          (kb?.summaryAction || issue.suggestedAction)
                             ?.toLowerCase()
                             .includes("balancing") ? (
                             <button
@@ -1234,7 +1342,7 @@ export default function SiteOperationsDashboard({
                                 e.stopPropagation();
                                 handleActionClick(issue);
                               }}
-                              className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors"
+                              className="px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded uppercase tracking-widest text-[9px] hover:bg-blue-500/20 transition-colors cursor-pointer"
                             >
                               Inspect Strings
                             </button>
@@ -1242,154 +1350,117 @@ export default function SiteOperationsDashboard({
                         </td>
                       </tr>
                       {hasOccurrences && isExpanded && (
-                        <tr className="bg-black/25">
+                        <tr className="bg-black/40">
                           <td
-                            colSpan={4}
-                            className="py-3 px-4 border-l-2 border-prizm-danger"
+                            colSpan={7}
+                            className="py-4 px-4 border-l-2 border-prizm-primary"
                           >
-                            <div className="text-[10px] uppercase tracking-wider text-prizm-text-muted mb-2 font-bold font-sans flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-prizm-danger animate-pulse"></span>
-                              All Affected targets ({issue.affected ? issue.affected.length : issue.occurrences.length}):
-                              <span className="text-[9px] lowercase font-normal italic text-prizm-text-muted">(click row/target to drill down directly)</span>
-                            </div>
-                            {issue.affected &&
-                            issue.affected.length > 0 ? (
-                              <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[220px] overflow-y-auto no-scrollbar">
-                                <table className="w-full text-[9px] font-mono text-left whitespace-nowrap bg-prizm-surface-strong/30">
-                                  <thead className="bg-prizm-surface-strong/80 text-prizm-text-muted uppercase tracking-wider border-b border-prizm-border/30 sticky top-0">
-                                    <tr>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        Block
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        Array
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        ES / String / Side
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        BPC
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        CG
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        Device IP / Callout
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        Source
-                                      </th>
-                                      <th className="py-1.5 px-3 font-bold">
-                                        Raw Fault / Code
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-prizm-border/20">
-                                    {issue.affected.map(
-                                      (aff: any, affIdx: number) => (
-                                        <tr
-                                          key={affIdx}
-                                          className="hover:bg-prizm-primary/10 cursor-pointer transition-colors"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleActionClick(aff);
-                                          }}
-                                        >
-                                          <td className="py-1.5 px-3 text-prizm-text-muted">
-                                            B{aff.blockIndex ?? 1}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-text">
-                                            A{aff.arrayIndex ?? aff.arrayNumber ?? "N/A"}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-text">
-                                            {(() => {
-                                              const sNum = aff.stringIndex ?? aff.stringNumber;
-                                              if (sNum && sNum > 0) {
-                                                const es = aff.energySegmentNumber ?? Math.ceil(sNum / 2);
-                                                const side = aff.stringSide ?? (sNum % 2 === 1 ? "A-Side" : "B-Side");
-                                                return `ES${es} – String ${sNum} – ${side}`;
-                                              }
-                                              return aff.stringIndex != null ? `ES${aff.stringIndex}` : "N/A";
-                                            })()}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-text">
-                                            {aff.bpcIndex ?? aff.batteryPackIndex ?? "—"}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-text">
-                                            {aff.cellGroupIndex ?? aff.cgIndex ?? "—"}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-primary font-semibold">
-                                            {aff.deviceIp && aff.deviceIp !== "Unavailable" ? aff.deviceIp : (aff.callout || "Unavailable")}
-                                          </td>
-                                          <td className="py-1.5 px-3 text-prizm-text">
-                                            <span
-                                              className={`px-1 rounded text-[8px] font-bold ${
-                                                aff.source === "array-notifications" ? "bg-indigo-500/10 text-indigo-400" :
-                                                aff.source === "strings" ? "bg-amber-500/10 text-amber-400" :
-                                                aff.source === "feather" ? "bg-teal-500/10 text-teal-400" :
-                                                aff.source === "pcs" ? "bg-rose-500/10 text-rose-400" :
-                                                "bg-gray-500/10 text-gray-400"
-                                              }`}
-                                            >
-                                              {aff.source || "unknown"}
-                                            </span>
-                                          </td>
-                                          <td
-                                            className="py-1.5 px-3 text-prizm-danger truncate max-w-[200px]"
-                                            title={aff.rawFault || aff.rawCode || aff.code}
-                                          >
-                                            {(() => {
-                                              const code = aff.rawCode || aff.code;
-                                              const msg = aff.triggerMessage || aff.message;
-                                              const name = aff.rawFault || aff.faultName;
-                                              if (code) {
-                                                return msg ? `${code} / ${msg}` : String(code);
-                                              }
-                                              return name || "Unavailable";
-                                            })()}
-                                          </td>
-                                        </tr>
-                                      ),
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 py-1 max-h-[160px] overflow-y-auto no-scrollbar">
-                                {(issue.occurrences || []).map(
-                                  (occ: any, oIdx: number) => {
-                                    const label =
-                                      occ.enclosureLabel ||
-                                      occ.deviceIp ||
-                                      occ.endpoint ||
-                                      "Unknown Unit";
-                                    return (
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-[10px]">
+                              {/* Left Panel: Affected Targets */}
+                              <div className="lg:col-span-5 flex flex-col gap-2">
+                                <div className="text-[10px] uppercase tracking-wider text-prizm-primary font-bold flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-prizm-primary animate-pulse"></span>
+                                  Affected Targets ({issue.affected ? issue.affected.length : issue.occurrences.length}):
+                                </div>
+                                {issue.affected && issue.affected.length > 0 ? (
+                                  <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[180px] overflow-y-auto no-scrollbar bg-black/20 divide-y divide-prizm-border/10">
+                                    {issue.affected.map((aff: any, affIdx: number) => (
                                       <div
-                                        key={oIdx}
+                                        key={affIdx}
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleActionClick({
-                                            ...occ,
-                                            ip: occ.deviceIp || occ.endpoint,
-                                            source: issue.source || (occ.deviceIp ? "hvac" : "ems")
-                                          });
+                                          handleActionClick(aff);
                                         }}
-                                        className="flex items-center gap-1.5 px-2 py-1 bg-prizm-surface rounded border border-prizm-border/30 text-[9px] text-prizm-text font-mono hover:bg-prizm-primary/15 hover:border-prizm-primary/60 cursor-pointer transition-all"
-                                        title={`${label} - Click to Inspect`}
+                                        className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center"
                                       >
-                                        <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse flex-shrink-0"></span>
-                                        <span
-                                          className="truncate font-semibold"
-                                          title={label}
-                                        >
-                                          {label}
+                                        <span className="text-prizm-text font-bold truncate">
+                                          {formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
+                                        </span>
+                                        <span className="text-[8px] bg-black/30 px-1 rounded text-prizm-text-muted">
+                                          {aff.source || "EMS"}
                                         </span>
                                       </div>
-                                    );
-                                  },
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-1.5 max-h-[140px] overflow-y-auto no-scrollbar">
+                                    {(issue.occurrences || []).map((occ: any, oIdx: number) => {
+                                      const label = occ.enclosureLabel || occ.deviceIp || occ.endpoint || "Unknown Unit";
+                                      return (
+                                        <div
+                                          key={oIdx}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleActionClick({
+                                              ...occ,
+                                              ip: occ.deviceIp || occ.endpoint,
+                                              source: issue.source || (occ.deviceIp ? "hvac" : "ems")
+                                            });
+                                          }}
+                                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-prizm-surface-strong/40 rounded border border-prizm-border/30 hover:bg-prizm-primary/15 hover:border-prizm-primary/60 cursor-pointer transition-all truncate"
+                                        >
+                                          <span className="w-1 h-1 rounded-full bg-prizm-warning animate-pulse"></span>
+                                          <span className="truncate text-prizm-text" title={label}>{label}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
-                            )}
+
+                              {/* Right Panel: Remediation and Matrix Troubleshooting Data */}
+                              <div className="lg:col-span-7 flex flex-col gap-3 border-t lg:border-t-0 lg:border-l border-prizm-border/30 lg:pl-5">
+                                {/* Actions & Checks Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {/* Recommended Actions */}
+                                  <div>
+                                    <div className="text-[9.5px] uppercase font-bold text-emerald-400 tracking-wider mb-1.5">
+                                      • Recommended Actions
+                                    </div>
+                                    <ul className="list-none space-y-1 pl-1">
+                                      {(kb?.recommendedActions || issue.resolved?.recommendedActions || ["Perform local site audit."]).map((act: string, aIdx: number) => (
+                                        <li key={aIdx} className="text-prizm-text text-[9.5px] leading-tight flex items-start gap-1">
+                                          <span className="text-emerald-400 font-bold shrink-0">›</span>
+                                          <span>{act}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+
+                                  {/* Validation Checks */}
+                                  <div>
+                                    <div className="text-[9.5px] uppercase font-bold text-prizm-text-muted tracking-wider mb-1.5">
+                                      • Validation Checks
+                                    </div>
+                                    <ul className="list-none space-y-1 pl-1">
+                                      {(kb?.validationChecks || issue.resolved?.validationChecks || ["Review telemetry charts."]).map((chk: string, cIdx: number) => (
+                                        <li key={cIdx} className="text-prizm-text-muted text-[9.5px] leading-tight flex items-start gap-1">
+                                          <span className="text-prizm-text-muted shrink-0">›</span>
+                                          <span>{chk}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </div>
+
+                                {/* Clearing Criteria & Metadata footer */}
+                                <div className="border-t border-prizm-border/20 pt-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[9px]">
+                                  {/* Clearing */}
+                                  <div className="flex-1">
+                                    <span className="font-bold text-blue-400 block mb-0.5 uppercase tracking-wide">• Clearing Criteria</span>
+                                    <span className="text-prizm-text-muted italic leading-tight block">
+                                      {(kb?.clearingCriteria || issue.resolved?.clearingCriteria || ["Alert clear register evaluates to OK."]).join(" • ")}
+                                    </span>
+                                  </div>
+
+                                  {/* Source documentation page */}
+                                  <div className="shrink-0 bg-black/20 px-2 py-1 rounded border border-prizm-border/40 text-prizm-text-muted font-sans text-right uppercase">
+                                    <span className="font-bold text-prizm-primary block text-[8px]">Resolution Source</span>
+                                    {kb ? `${kb.sourceDocument} - Page ${kb.sourcePage}` : (issue.resolved?.sourceLabel || "Stack750 Troubleshooting Guide")}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       )}
