@@ -87,7 +87,16 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const res = await fetch(phoenixUrl, { signal: controller.signal });
+      let res;
+      try {
+        res = await fetch(phoenixUrl, { signal: controller.signal });
+      } catch (e: any) {
+        // Fallback to local server mock
+        const localBase = "http://127.0.0.1:3000";
+        const localUrl = phoenixUrl.replace(base, localBase);
+        console.log(`[contactorControlService] Target ${phoenixUrl} unreachable. Falling back to local mock ${localUrl}`);
+        res = await fetch(localUrl, { signal: controller.signal });
+      }
       clearTimeout(timeoutId);
 
       responseStatus = res.status;

@@ -2881,6 +2881,42 @@ app.post("/api/upload-modbus-map", (req, res) => {
 });
 
 const mockFanSpeeds = new Map<string, number>();
+const mockContactorStates = new Map<string, { pos: boolean; neg: boolean; closeExpected: boolean }>();
+
+app.get([
+  "/turtle/tools/controls/bms/array/:arrayId/contactors/:act",
+  "/tools/controls/bms/array/:arrayId/contactors/:act"
+], (req, res) => {
+  const arrayId = Number(req.params.arrayId);
+  const act = String(req.params.act).toLowerCase();
+  const closed = act === "close";
+
+  for (let s = 1; s <= 40; s++) {
+    mockContactorStates.set(`A${arrayId}-S${s}`, {
+      pos: closed,
+      neg: closed,
+      closeExpected: closed
+    });
+  }
+  res.send("S");
+});
+
+app.get([
+  "/turtle/tools/controls/bms/array/:arrayId/string/:stringId/contactors/:act",
+  "/tools/controls/bms/array/:arrayId/string/:stringId/contactors/:act"
+], (req, res) => {
+  const arrayId = Number(req.params.arrayId);
+  const stringId = Number(req.params.stringId);
+  const act = String(req.params.act).toLowerCase();
+  const closed = act === "close";
+
+  mockContactorStates.set(`A${arrayId}-S${stringId}`, {
+    pos: closed,
+    neg: closed,
+    closeExpected: closed
+  });
+  res.send("S");
+});
 
 app.get([
   "/turtle/tools/controls/ems/array/:arrayId/string/:stringId/fanCtlAll/:fanSpeed",
@@ -2897,7 +2933,7 @@ app.get([
 
 app.get("/turtle/tools/report/ems/strings.csv", (req, res) => {
   res.setHeader("Content-Type", "text/csv");
-  let csv = "Array,String,Status,SoC,Ah,MeasuredStringVoltage,CalculatedStringVoltage,DcBusVoltage,StringCurrent,KW,MinCellGroupVoltage,MaxCellGroupVoltage,AvgCellGroupVoltage,MinCellGroupTemp,MaxCellGroupTemp,AvgCellGroupTemp,BalancingCount,BalancingMode,FanCommand,FanSetting,FanActual,LastFanCommandTime,FanHealthy,PositiveContactorClosed,NegativeContactorClosed,OutRotation,TimestampUtc,Location\r\n";
+  let csv = "Array,String,Status,SoC,Ah,MeasuredStringVoltage,CalculatedStringVoltage,DcBusVoltage,StringCurrent,KW,MinCellGroupVoltage,MaxCellGroupVoltage,AvgCellGroupVoltage,MinCellGroupTemp,MaxCellGroupTemp,AvgCellGroupTemp,BalancingCount,BalancingMode,FanCommand,FanSetting,FanActual,LastFanCommandTime,FanHealthy,PositiveContactorClosed,NegativeContactorClosed,OutRotation,TimestampUtc,Location,ContactorsCloseExpected\r\n";
   for (let a = 1; a <= 8; a++) {
     for (let s = 1; s <= 40; s++) {
       const isFaulted = (a === 3 && s === 1);
@@ -2929,13 +2965,17 @@ app.get("/turtle/tools/report/ems/strings.csv", (req, res) => {
       
       const lastFanCmdTime = new Date().toISOString();
       const fanHealthy = "true";
-      const posContClosed = "true";
-      const negContClosed = "true";
+
+      const state = mockContactorStates.get(`A${a}-S${s}`) || { pos: true, neg: true, closeExpected: true };
+      const posContClosed = state.pos ? "true" : "false";
+      const negContClosed = state.neg ? "true" : "false";
+      const closeExp = state.closeExpected ? "true" : "false";
+
       const outRotation = "false";
       const timestampUtc = new Date().toISOString();
       const location = `A${a}-S${s}`;
       
-      csv += `${a},${s},${status},${soc},${ah},${measV},${calcV},${busV},${current},${kw},${minCellV},${maxCellV},${avgCellV},${minCellT},${maxCellT},${avgCellT},${balCount},${balMode},${fanCommand},${fanSetting},${fanActual},${lastFanCmdTime},${fanHealthy},${posContClosed},${negContClosed},${outRotation},${timestampUtc},${location}\r\n`;
+      csv += `${a},${s},${status},${soc},${ah},${measV},${calcV},${busV},${current},${kw},${minCellV},${maxCellV},${avgCellV},${minCellT},${maxCellT},${avgCellT},${balCount},${balMode},${fanCommand},${fanSetting},${fanActual},${lastFanCmdTime},${fanHealthy},${posContClosed},${negContClosed},${outRotation},${timestampUtc},${location},${closeExp}\r\n`;
     }
   }
   res.send(csv);

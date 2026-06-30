@@ -1063,7 +1063,15 @@ export default function TopologySensorHealthPanel() {
                       Schematic Drilldown Enclosure details
                     </h3>
                     <p className="text-xs font-bold font-sans text-indigo-400 mt-1">
-                      {formatRowLocationName(selectedRow)} ({selectedRow.location.enclosureType})
+                      {(() => {
+                        const normalized = normalizeSensorEnclosureIdentity({
+                          enclosureIndex: selectedRow.location?.enclosureIndex,
+                          displayName: selectedRow.location?.displayName,
+                          enclosureType: selectedRow.location?.enclosureType,
+                          segmentPosition: selectedRow.location?.segmentPosition
+                        });
+                        return normalized.displayName;
+                      })()} ({selectedRow.location.enclosureType})
                     </p>
                   </div>
                   <button

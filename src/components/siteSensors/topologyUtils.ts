@@ -410,16 +410,29 @@ export function formatEntityKey(key: string): string {
 
 export function isPhysicalSensorEnclosureRow(row: any): boolean {
   if (!row) return false;
-  const displayName = String(row.location?.displayName || row.topology?.displayName || row.displayName || "").toLowerCase();
 
-  if (
-    displayName.includes("enclosure string modules") ||
-    displayName.includes("string modules") ||
-    displayName.includes("header") ||
-    displayName.includes("group") ||
-    displayName.includes("section") ||
-    displayName.includes("summary")
-  ) {
+  const fieldsToCheck = [
+    row.location?.displayName,
+    row.topology?.displayName,
+    row.displayName,
+    row.topology?.segmentLabel,
+    row.topology?.label,
+    row.label,
+    row.location?.enclosureType,
+    row.topology?.enclosureType,
+    row.enclosureType
+  ].map(v => String(v || "").toLowerCase());
+
+  const hasNonPhysicalTerm = fieldsToCheck.some(field => 
+    field.includes("enclosure string modules") ||
+    field.includes("string modules") ||
+    field.includes("header") ||
+    field.includes("group") ||
+    field.includes("section") ||
+    field.includes("summary")
+  );
+
+  if (hasNonPhysicalTerm) {
     return false;
   }
 

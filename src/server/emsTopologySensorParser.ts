@@ -113,6 +113,31 @@ export function extractFinalNumericToken(value: unknown): number | null {
   return Number.isFinite(numericId) ? numericId : null;
 }
 
+export function sanitizeStatusForTripCheck(status: string): string {
+  if (!status) return "";
+  let s = status.toLowerCase();
+  const metadataTerms = [
+    "allowfaultreset",
+    "allowfaultoverridereset",
+    "canreset",
+    "resetavailable",
+    "ready",
+    "enabled",
+    "communicating",
+    "valid",
+    "healthy",
+    "ishealthy",
+    "applicable",
+    "present",
+    "monitoredbyprofile",
+    "contributestohealth"
+  ];
+  for (const term of metadataTerms) {
+    s = s.split(term).join(" ");
+  }
+  return s;
+}
+
 // Parse active state from explicit state/value fields
 export function parseActiveState(entity: any, pointRole?: string): { 
   activeState: boolean | null; 
@@ -130,7 +155,8 @@ export function parseActiveState(entity: any, pointRole?: string): {
                       entitySubType.includes("hts");
 
   // Determine status message and check if it means Normal
-  const statusMessage = String(entity.statusMessage || entity.status || "").toLowerCase().trim();
+  const rawStatusMsg = String(entity.statusMessage || entity.status || "").toLowerCase().trim();
+  const statusMessage = sanitizeStatusForTripCheck(rawStatusMsg);
   
   // If statusMessage contains Normal, Clear, Untripped, Not Tripped, Closed, OK, Ready, Device online,
   // then activeState must be false.
@@ -141,7 +167,9 @@ export function parseActiveState(entity: any, pointRole?: string): {
                          statusMessage.includes("closed") ||
                          statusMessage.includes("ok") ||
                          statusMessage.includes("ready") ||
-                         statusMessage.includes("device online");
+                         statusMessage.includes("device online") ||
+                         rawStatusMsg.includes("allowfaultreset") ||
+                         rawStatusMsg.includes("allowfaultoverridereset");
 
   if (isNormalStatus) {
     return {

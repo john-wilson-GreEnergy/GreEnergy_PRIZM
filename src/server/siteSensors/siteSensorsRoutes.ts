@@ -13,7 +13,7 @@ import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
-import { parseEmsTopology, parseActiveState } from "../emsTopologySensorParser";
+import { parseEmsTopology, parseActiveState, sanitizeStatusForTripCheck } from "../emsTopologySensorParser";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
 import { resolveMatrixRows, resolveTopologyPoints, calculateProfileAndRawCounts } from "./sensorCapabilityResolver";
 
@@ -1407,11 +1407,12 @@ function parseSensorCell(rawSensor: any, parentEnclosureIndex: number): Normaliz
   const sensorRole = rawSensor.sensorRole ?? rawSensor.openClosedDetectorType ?? null;
   const friendlyName = rawSensor.friendlyName ?? null;
   const openClosedDetectorType = rawSensor.openClosedDetectorType ?? null;
+  const sanitizedStatus = sanitizeStatusForTripCheck(rawSensor.status || "");
   const isTripped = rawSensor.isTripped === true || 
-    String(rawSensor.status || "").toLowerCase().includes("tripped") || 
-    String(rawSensor.status || "").toLowerCase().includes("alarm") || 
-    String(rawSensor.status || "").toLowerCase().includes("fault") || 
-    String(rawSensor.status || "").toLowerCase().includes("active");
+    sanitizedStatus.includes("tripped") || 
+    sanitizedStatus.includes("alarm") || 
+    sanitizedStatus.includes("fault") || 
+    sanitizedStatus.includes("active");
   const isLatched = rawSensor.isLatched === true;
   
   let healthy = true;

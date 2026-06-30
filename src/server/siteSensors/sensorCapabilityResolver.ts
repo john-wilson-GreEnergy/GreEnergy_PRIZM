@@ -2,6 +2,7 @@ import { EmsProfile } from "../profiles/profileTypes";
 import { NormalizedSensorCell } from "./siteSensorsRoutes";
 import { getFeatherCache } from "../feather/featherClient";
 import { normalizeSensorEnclosureIdentity } from "../../lib/enclosureIdentity";
+import { sanitizeStatusForTripCheck } from "../emsTopologySensorParser";
 
 export function mapToCanonicalProfileKey(sensorKey: string): string {
   const k = sensorKey.trim();
@@ -47,20 +48,23 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
       // Determine isMissing and isTripped
       const displayVal = cell.displayValue || "";
       const lowerDisplay = displayVal.toLowerCase().trim();
-      const lowerStatus = (cell.status || "").toLowerCase().trim();
-      const statusMsg = (cell.statusMessage || "").toLowerCase().trim();
+      const rawLowerStatus = (cell.status || "").toLowerCase().trim();
+      const rawStatusMsg = (cell.statusMessage || "").toLowerCase().trim();
+      
+      const lowerStatus = sanitizeStatusForTripCheck(rawLowerStatus);
+      const statusMsg = sanitizeStatusForTripCheck(rawStatusMsg);
 
       // Fix 2: Explicit unavailable indicators
       const isExplicitUnavailable = 
         ["offline", "disabled", "not ready", "unavailable"].includes(lowerDisplay) ||
-        lowerStatus === "offline" ||
-        lowerStatus === "disabled" ||
+        rawLowerStatus === "offline" ||
+        rawLowerStatus === "disabled" ||
         cell.communicating === false ||
         cell.enabled === false ||
         cell.ready === false ||
-        statusMsg.includes("lost") ||
-        statusMsg.includes("unavailable") ||
-        statusMsg.includes("offline");
+        rawStatusMsg.includes("lost") ||
+        rawStatusMsg.includes("unavailable") ||
+        rawStatusMsg.includes("offline");
 
       const isMissing = isExplicitUnavailable;
 

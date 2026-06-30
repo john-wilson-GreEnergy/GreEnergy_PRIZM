@@ -344,7 +344,7 @@ export default function SiteOverheadSensorMap({
                         onMouseLeave={() => setHoveredSegment(null)}
                         className={`flex flex-col items-center justify-center transition-all cursor-pointer font-mono font-bold text-center uppercase h-10 shadow-3xs ${tileClass} ${designClass}`}
                       >
-                        <span className="leading-tight">{summary.label}</span>
+                        <span className="leading-tight">{summary.segmentType === "CS" ? "CS" : `ES${summary.segmentNumber}`}</span>
                         {summary.monitoredSensorCount > 0 ? (
                           <span className="text-[7.5px] font-extrabold opacity-75 leading-none mt-0.5">
                             {summary.faultedSensorCount > 0 ? `${summary.faultedSensorCount} F` : `${summary.monitoredSensorCount} M`}
@@ -375,7 +375,7 @@ export default function SiteOverheadSensorMap({
         >
           <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 font-mono">
             <span className="font-extrabold text-xs text-indigo-400">
-              Array {hoveredSegment.arrayIndex} - {hoveredSegment.label}
+              Array {hoveredSegment.arrayIndex} - {hoveredSegment.segmentType === "CS" ? "CS" : "ES" + hoveredSegment.segmentNumber}
             </span>
             <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest ${
               hoveredSegment.operationalState === "healthy" 
