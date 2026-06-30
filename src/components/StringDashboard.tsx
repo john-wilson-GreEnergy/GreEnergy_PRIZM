@@ -10,40 +10,13 @@ import BalancingModal from './BalancingModal';
 import { useSiteData } from '../context/SiteDataContext';
 
 function getContactorVisualState(row: any) {
-  const stateHasContactorProps = typeof row.positiveContactorClosed === "boolean" && typeof row.negativeContactorClosed === "boolean";
-  
-  const actualClosed =
-    row.contactorClosed === true ||
-    row.contactorsClosed === true ||
-    row.actualContactorState === "CLOSED" ||
-    row.contactorFeedback === "CLOSED" ||
-    (stateHasContactorProps && row.positiveContactorClosed === true && row.negativeContactorClosed === true);
-
-  const actualOpen =
-    row.contactorClosed === false ||
-    row.contactorsClosed === false ||
-    row.actualContactorState === "OPEN" ||
-    row.contactorFeedback === "OPEN" ||
-    (stateHasContactorProps && row.positiveContactorClosed === false && row.negativeContactorClosed === false);
-
-  const commandedClosed =
-    row.commandedContactorState === "CLOSED" ||
-    row.contactorCommand === "CLOSE" ||
-    row.closeCommanded === true ||
-    row.contactorsCloseExpected === true;
-
-  const commandedOpen =
-    row.commandedContactorState === "OPEN" ||
-    row.contactorCommand === "OPEN" ||
-    row.openCommanded === true ||
-    row.contactorsCloseExpected === false;
+  const actualClosed = row.bothContactorsClosed === true;
+  const actualOpen = row.bothContactorsClosed === false;
+  const commandedClosed = row.contactorsCloseExpected === true;
+  const commandedOpen = row.contactorsCloseExpected === false;
 
   const commandKnown = commandedClosed || commandedOpen;
-
-  const matchesCommand =
-    commandKnown
-      ? ((commandedClosed && actualClosed) || (commandedOpen && actualOpen))
-      : null;
+  const matchesCommand = row.commandMatchesContactors;
 
   const actualDotColor = actualClosed ? "blue" : actualOpen ? "gray" : "red";
 
@@ -53,15 +26,8 @@ function getContactorVisualState(row: any) {
     return "red";
   }
 
-  const positiveDotColor =
-    typeof row.positiveContactorClosed === "boolean"
-      ? getIndividualContactorDotColor(row.positiveContactorClosed)
-      : actualDotColor;
-
-  const negativeDotColor =
-    typeof row.negativeContactorClosed === "boolean"
-      ? getIndividualContactorDotColor(row.negativeContactorClosed)
-      : actualDotColor;
+  const positiveDotColor = getIndividualContactorDotColor(row.positiveContactorClosed);
+  const negativeDotColor = getIndividualContactorDotColor(row.negativeContactorClosed);
 
   return {
     actualDotColor,
@@ -71,7 +37,7 @@ function getContactorVisualState(row: any) {
       matchesCommand === true ? "green" :
       matchesCommand === false ? "red" :
       "amber",
-    actualLabel: actualClosed ? "Closed" : actualOpen ? "Open" : "Unknown / Fault",
+    actualLabel: actualClosed ? "Closed" : actualOpen ? "Open" : "Unknown",
     matchLabel:
       matchesCommand === true ? "Command matched" :
       matchesCommand === false ? "Command mismatch" :

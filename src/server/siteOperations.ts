@@ -193,14 +193,14 @@ export type NormalizedStringRow = {
   stringNumber: number | null;
   stringKey: string;
   contactorStatus: string;
-  contactorClosed: boolean;
-  contactorsCloseExpected: boolean;
-  positiveContactorClosed: boolean;
-  negativeContactorClosed: boolean;
+  contactorClosed: boolean | null;
+  contactorsCloseExpected: boolean | null;
+  positiveContactorClosed: boolean | null;
+  negativeContactorClosed: boolean | null;
   recloseCount: number | null;
   rotationStatus: string;
-  outRotation: boolean;
-  rotationEnabled: boolean;
+  outRotation: boolean | null;
+  rotationEnabled: boolean | null;
   measuredVoltage: number | null;
   calculatedVoltage: number | null;
   busVoltage: number | null;
@@ -235,10 +235,10 @@ export type NormalizedStringRow = {
   alarmCount: number;
   warnings: string[];
   alarms: string[];
-  bucket: "online" | "nearline" | "offline" | "notCommunicating";
-  communicating: boolean;
-  inRotation: boolean;
-  contactorsClosed: boolean;
+  bucket: "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
+  communicating: boolean | null;
+  inRotation: boolean | null;
+  contactorsClosed: boolean | null;
   sourceCoverage: any;
   sourcePath: string;
   raw: any;
@@ -257,6 +257,26 @@ export type NormalizedStringRow = {
   minTempC?: number | null;
   tempDeltaC?: number | null;
   wattHourCapacity?: number | null;
+
+  // Canonical fields for snap
+  badReport?: boolean | null;
+  bothContactorsClosed?: boolean | null;
+  operationalBucket?: "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
+  bucketReason?: string;
+  bucketSource?: string;
+  rawBucket?: any;
+  measuredVoltageVdc?: number | null;
+  calculatedVoltageVdc?: number | null;
+  busVoltageVdc?: number | null;
+  stackVoltageVdc?: number | null;
+  ampHours?: number | null;
+  storedKWh?: number | null;
+  cellVoltageDeltaMv?: number | null;
+  minCellTempC?: number | null;
+  avgCellTempC?: number | null;
+  maxCellTempC?: number | null;
+  cellTempDeltaC?: number | null;
+  commandMatchesContactors?: boolean | null;
 };
 
 export function buildStringBucketSummary(stringsData: any[]) {
@@ -313,25 +333,62 @@ export function buildStringBucketSummary(stringsData: any[]) {
     const tableRows: NormalizedStringRow[] = stringsData.map(row => {
         totalStringsVal++;
 
-        const norm = normalizeStringRow(row, { compatMissingContactorAsNearline: true });
-        const arrayNumber = norm.arrayNumber;
-        const stringNumber = norm.stringNumber;
-        const bucket = norm.bucket;
-        const outRotation = norm.outRotation ?? false;
-        const inRotation = norm.inRotation ?? true;
-        const contactorsClosed = norm.bothContactorsClosed ?? false;
-        const communicating = norm.communicating ?? true;
+        const norm = normalizeStringRow(row, {
+            compatMissingContactorAsNearline: false,
+            sourcePath: "/tools/report/ems/strings.csv",
+            sourcePriority: 10
+        });
 
         const id = norm.id;
+        const arrayNumber = norm.arrayNumber;
+        const stringNumber = norm.stringNumber;
         const stringKey = norm.stringKey;
+        const bucket = norm.bucket;
+        const outRotation = norm.outRotation;
+        const inRotation = norm.inRotation;
+        const contactorClosed = norm.bothContactorsClosed;
+        const contactorsClosed = norm.bothContactorsClosed;
+        const communicating = norm.communicating;
+        const positiveContactorClosed = norm.positiveContactorClosed;
+        const negativeContactorClosed = norm.negativeContactorClosed;
+        const contactorsCloseExpected = norm.contactorsCloseExpected;
+        const commandMatchesContactors = norm.commandMatchesContactors;
+        const recloseCount = norm.recloseCount;
 
-        // Contactor status and closed flags
-        const positiveContactorClosed = norm.positiveContactorClosed ?? false;
-        const negativeContactorClosed = norm.negativeContactorClosed ?? false;
-        const contactorClosed = norm.bothContactorsClosed ?? false;
-        const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
-        const contactorsCloseExpected = norm.contactorsCloseExpected ?? false;
+        const contactorStatus = contactorClosed === true ? "CLOSED" : (contactorClosed === false ? "OPEN" : "UNKNOWN");
+        const rotationEnabled = outRotation !== null ? !outRotation : null;
+        const rotationStatus = outRotation === true ? "OUT" : (outRotation === false ? "IN" : "UNKNOWN");
 
+        // Voltage and power measurements
+        const measuredVoltage = norm.measuredVoltageVdc;
+        const calculatedVoltage = norm.calculatedVoltageVdc;
+        const busVoltage = norm.busVoltageVdc;
+        const voltageDelta = (measuredVoltage !== null && calculatedVoltage !== null) ? Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2)) : null;
+
+        const amps = norm.currentA;
+        const kw = norm.powerKw;
+        const socPct = norm.socPct;
+        const ah = norm.ampHours;
+        const kwh = norm.storedKWh;
+
+        // Cell voltages
+        const minCellVoltageMv = norm.minCellVoltageMv;
+        const avgCellVoltageMv = norm.avgCellVoltageMv;
+        const maxCellVoltageMv = norm.maxCellVoltageMv;
+        const cellVoltageDeltaMv = norm.cellVoltageDeltaMv;
+
+        const minCellVoltage = minCellVoltageMv !== null ? minCellVoltageMv / 1000 : null;
+        const maxCellVoltage = maxCellVoltageMv !== null ? maxCellVoltageMv / 1000 : null;
+        const avgCellVoltage = avgCellVoltageMv !== null ? avgCellVoltageMv / 1000 : null;
+        const cellVoltageDelta = (maxCellVoltage !== null && minCellVoltage !== null) ? Number((maxCellVoltage - minCellVoltage).toFixed(3)) : null;
+
+        // Cell temperatures (Celsius)
+        const minCellTemperature = norm.minCellTempC;
+        const avgCellTemperature = norm.avgCellTempC;
+        const maxCellTemperature = norm.maxCellTempC;
+        const cellTemperatureDelta = norm.cellTempDeltaC;
+
+        // Connection Permitted
         const connectionPermitKeys = [
             "connectionPermitted",
             "contactorsCloseExpected",
@@ -346,7 +403,6 @@ export function buildStringBucketSummary(stringsData: any[]) {
         let matchedKey = null;
 
         for (const key of connectionPermitKeys) {
-            // Check direct key on row (case-insensitive search)
             const lowerKey = key.toLowerCase();
             for (const k of Object.keys(row)) {
                 if (k.toLowerCase() === lowerKey && row[k] !== undefined && row[k] !== null && row[k] !== "") {
@@ -360,39 +416,6 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
         const connectionPermitted = rawConnectionPermitted !== null ? bool(rawConnectionPermitted) : null;
         const connectionPermittedSource = matchedKey || "unavailable";
-
-        const recloseCount = num(row.RecloseCount ?? row.recloseCount ?? null);
-
-        // Rotation
-        const rotationEnabled = !outRotation;
-        const rotationStatus = outRotation ? "OUT" : "IN";
-
-        // Voltage and power measurements
-        const measuredVoltage = num(row.MeasuredStringVoltage ?? row.measuredStringVoltage);
-        const calculatedVoltage = num(row.CalculatedStringVoltage ?? row.calculatedStringVoltage);
-        const busVoltage = num(row.DcBusVoltage ?? row.dcBusVoltage ?? row.DcBusVolt ?? row.dcBusVolt);
-        const voltageDelta = (measuredVoltage !== null && calculatedVoltage !== null) ? Number(Math.abs(measuredVoltage - calculatedVoltage).toFixed(2)) : num(row.VoltageDelta ?? row.voltageDelta);
-
-        const amps = num(row.StringCurrent ?? row.stringCurrent ?? row.CtCurrent1 ?? row.ctCurrent1 ?? row.CtCurrent2 ?? row.ctCurrent2);
-        const kw = num(row.KW ?? row.kw ?? row.PowerKW ?? row.powerKw ?? row.power_kw ?? row.measuredKw ?? row.measuredKW);
-        const socPct = num(row.Soc ?? row.soc);
-        const ah = num(row.Ah ?? row.ah ?? row.CapacityAh ?? row.capacityAh);
-        const kwh = num(row.KWh ?? row.kwh);
-
-        // Cell voltages
-        const minCellVoltage = num(row.MinCellGroupVoltage ?? row.minCellGroupVoltage);
-        const maxCellVoltage = num(row.MaxCellGroupVoltage ?? row.maxCellGroupVoltage);
-        const avgCellVoltage = num(row.AvgCellGroupVoltage ?? row.avgCellGroupVoltage);
-        const cellVoltageDelta = (maxCellVoltage !== null && minCellVoltage !== null) ? Number((maxCellVoltage - minCellVoltage).toFixed(3)) : num(row.CellVoltageDelta ?? row.cellVoltageDelta);
-
-        // Cell temperatures (divide by 10 when raw is greater than 90)
-        let rawMinT = num(row.MinCellGroupTemp ?? row.minCellGroupTemp);
-        let minCellTemperature = rawMinT !== null ? (rawMinT > 90 ? rawMinT / 10 : rawMinT) : null;
-        let rawMaxT = num(row.MaxCellGroupTemp ?? row.maxCellGroupTemp);
-        let maxCellTemperature = rawMaxT !== null ? (rawMaxT > 90 ? rawMaxT / 10 : rawMaxT) : null;
-        let rawAvgT = num(row.AvgCellGroupTemp ?? row.avgCellGroupTemp);
-        let avgCellTemperature = rawAvgT !== null ? (rawAvgT > 90 ? rawAvgT / 10 : rawAvgT) : null;
-        let cellTemperatureDelta = (maxCellTemperature !== null && minCellTemperature !== null) ? Number((maxCellTemperature - minCellTemperature).toFixed(1)) : null;
 
         // Balance fields
         const balanceCount = num(row.BalanceCount ?? row.balanceCount ?? row.BalancingCount ?? row.balancingCount);
@@ -430,7 +453,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
              if (lcA && Array.isArray(lcA.strings)) {
                  lcStrBase = lcA.strings.find((s: any) => num(s.index ?? s.stringIndex) === stringNumber);
              }
-        }
+         }
 
         let blockStrBase: any = null;
         if (blockWrapper && blockWrapper.data?.strings) {
@@ -516,8 +539,10 @@ export function buildStringBucketSummary(stringsData: any[]) {
             if (alarmCount > 0) operationalState = "ALARM";
             else if (warningCount > 0) operationalState = "WARNING";
             else operationalState = "NEARLINE";
-        } else {
+        } else if (bucket === "offline" || bucket === "notCommunicating") {
             operationalState = "OFFLINE";
+        } else {
+            operationalState = "UNKNOWN";
         }
 
         const sourceCoverage = {
@@ -538,18 +563,18 @@ export function buildStringBucketSummary(stringsData: any[]) {
         totalBpcsCount += bpcs.length;
         if (bpcCount !== null) knownBpcCountVal += bpcCount;
 
-        if (minCellVoltage !== null) {
-            if (gMinV === null || minCellVoltage < gMinV) gMinV = minCellVoltage;
+        if (minCellVoltageMv !== null) {
+            if (gMinV === null || minCellVoltageMv < gMinV) gMinV = minCellVoltageMv;
         }
-        if (maxCellVoltage !== null) {
-            if (gMaxV === null || maxCellVoltage > gMaxV) gMaxV = maxCellVoltage;
+        if (maxCellVoltageMv !== null) {
+            if (gMaxV === null || maxCellVoltageMv > gMaxV) gMaxV = maxCellVoltageMv;
         }
-        if (avgCellVoltage !== null) {
-            gSumV += avgCellVoltage;
+        if (avgCellVoltageMv !== null) {
+            gSumV += avgCellVoltageMv;
             gCountV++;
         }
-        if (cellVoltageDelta !== null) {
-            if (gMaxVDelta === null || cellVoltageDelta > gMaxVDelta) gMaxVDelta = cellVoltageDelta;
+        if (cellVoltageDeltaMv !== null) {
+            if (gMaxVDelta === null || cellVoltageDeltaMv > gMaxVDelta) gMaxVDelta = cellVoltageDeltaMv;
         }
         if (minCellTemperature !== null) {
             if (gMinT === null || minCellTemperature < gMinT) gMinT = minCellTemperature;
@@ -575,6 +600,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
             stringKey,
             contactorStatus,
             contactorClosed,
+            contactorsClosed,
             contactorsCloseExpected,
             positiveContactorClosed,
             negativeContactorClosed,
@@ -623,17 +649,38 @@ export function buildStringBucketSummary(stringsData: any[]) {
             bucket,
             communicating,
             inRotation,
-            contactorsClosed: contactorClosed,
             sourceCoverage,
-            sourcePath: "/tools/report/ems/strings.csv",
+            sourcePath: norm.sourcePath,
+            sourcePriority: norm.sourcePriority,
+            sourceTimestampUtc: norm.sourceTimestampUtc,
+
+            // PART 4 requirements
+            badReport: norm.badReport,
+            bothContactorsClosed: norm.bothContactorsClosed,
+            operationalBucket: bucket,
+            bucketReason: norm.bucketReason,
+            bucketSource: norm.bucketSource,
+            rawBucket: norm.rawBucket,
+            measuredVoltageVdc: norm.measuredVoltageVdc,
+            calculatedVoltageVdc: norm.calculatedVoltageVdc,
+            busVoltageVdc: norm.busVoltageVdc,
+            stackVoltageVdc: norm.stackVoltageVdc,
+            currentA: norm.currentA,
+            powerKw: norm.powerKw,
+            ampHours: norm.ampHours,
+            minCellVoltageMv: norm.minCellVoltageMv,
+            avgCellVoltageMv: norm.avgCellVoltageMv,
+            maxCellVoltageMv: norm.maxCellVoltageMv,
+            cellVoltageDeltaMv: norm.cellVoltageDeltaMv,
+            minCellTempC: norm.minCellTempC,
+            avgCellTempC: norm.avgCellTempC,
+            maxCellTempC: norm.maxCellTempC,
+            cellTempDeltaC: norm.cellTempDeltaC,
+            raw: norm.raw,
+            commandMatchesContactors,
 
             // Preserve old properties to prevent breakage
-            currentA: amps,
-            powerKw: kw,
-            maxCellVoltageMv: maxCellVoltage,
-            avgCellVoltageMv: avgCellVoltage,
-            minCellVoltageMv: minCellVoltage,
-            voltageDeltaMv: cellVoltageDelta,
+            maxCellVoltageMv_compat: maxCellVoltage,
             maxTempC: maxCellTemperature,
             minTempC: minCellTemperature,
             avgTempC: avgCellTemperature,
@@ -646,14 +693,16 @@ export function buildStringBucketSummary(stringsData: any[]) {
         online: tableRows.filter(r => r.bucket === 'online'),
         nearline: tableRows.filter(r => r.bucket === 'nearline'),
         offline: tableRows.filter(r => r.bucket === 'offline'),
-        notCommunicating: tableRows.filter(r => r.bucket === 'notCommunicating')
+        notCommunicating: tableRows.filter(r => r.bucket === 'notCommunicating'),
+        unknown: tableRows.filter(r => r.bucket === 'unknown')
     };
 
     const buckets: Record<string, number> = {
         online: bucketsRaw.online.length,
         nearline: bucketsRaw.nearline.length,
         offline: bucketsRaw.offline.length,
-        notCommunicating: bucketsRaw.notCommunicating.length
+        notCommunicating: bucketsRaw.notCommunicating.length,
+        unknown: bucketsRaw.unknown.length
     };
 
     const rollups: any = { 
@@ -694,8 +743,8 @@ export function buildStringBucketSummary(stringsData: any[]) {
 
         const maxVoltageMv = maxNum('maxCellVoltageMv');
         const minVoltageMv = minNum('minCellVoltageMv');
-        const maxTemp = maxNum('maxTempC');
-        const minTemp = minNum('minTempC');
+        const maxTemp = maxNum('maxCellTempC');
+        const minTemp = minNum('minCellTempC');
 
         return {
             count,
@@ -709,7 +758,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
             minCellVoltageMv: minVoltageMv,
             maxCellVoltageDeltaMv: maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null,
             highCellTempC: maxTemp,
-            avgCellTempC: avgNum('avgTempC'),
+            avgCellTempC: avgNum('avgCellTempC'),
             lowCellTempC: minTemp,
             maxCellTempDeltaC: maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null,
             warningCount: sumNum('warningCount') || 0,
@@ -721,6 +770,7 @@ export function buildStringBucketSummary(stringsData: any[]) {
     rollups.nearline = calculateRollup(bucketsRaw.nearline);
     rollups.offline = calculateRollup(bucketsRaw.offline);
     rollups.notCommunicating = calculateRollup(bucketsRaw.notCommunicating);
+    rollups.unknown = calculateRollup(bucketsRaw.unknown);
 
     return { 
         buckets, 

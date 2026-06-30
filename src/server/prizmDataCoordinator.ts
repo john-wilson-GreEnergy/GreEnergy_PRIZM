@@ -249,14 +249,17 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
     let nearlineStringCount = 0;
     let offlineStringCount = 0;
     let notCommunicationStringCount = 0;
-
+    let unknownStringCount = 0;
+    
     const onlineSOCs: number[] = [];
     const nearlineSOCs: number[] = [];
     const offlineSOCs: number[] = [];
+    const unknownSOCs: number[] = [];
 
     const onlineAvailableKWhs: number[] = [];
     const nearlineAvailableKWhs: number[] = [];
     const offlineAvailableKWhs: number[] = [];
+    const unknownAvailableKWhs: number[] = [];
 
     const powerkWs: number[] = [];
     const currentAmps: number[] = [];
@@ -269,7 +272,7 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
     for (const str of arrStrings) {
       const resolvedBucket = resolveStringBucket(str);
 
-      const kw = getNum(str.kw) ?? getNum(str.powerKw) ?? getNum(str.powerkW);
+      const kw = getNum(str.powerKw) ?? getNum(str.kw) ?? getNum(str.powerkW);
       if (kw !== null) powerkWs.push(kw);
 
       const amps = getNum(str.amps) ?? getNum(str.currentA) ?? getNum(str.currentAmp);
@@ -290,21 +293,25 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
         offlineStringCount++;
         if (soc !== null) offlineSOCs.push(soc);
         if (kwh !== null) offlineAvailableKWhs.push(kwh);
-      } else {
+      } else if (resolvedBucket === "notCommunicating") {
         notCommunicationStringCount++;
+      } else {
+        unknownStringCount++;
+        if (soc !== null) unknownSOCs.push(soc);
+        if (kwh !== null) unknownAvailableKWhs.push(kwh);
       }
 
-      const minCellV = getNum(str.minCellVoltage) ?? getNum(str.cellVoltageMin);
-      if (minCellV !== null) minCellVoltages.push(minCellV);
+      const minCellVMv = getNum(str.minCellVoltageMv);
+      if (minCellVMv !== null) minCellVoltages.push(minCellVMv / 1000);
 
-      const maxCellV = getNum(str.maxCellVoltage) ?? getNum(str.cellVoltageMax);
-      if (maxCellV !== null) maxCellVoltages.push(maxCellV);
+      const maxCellVMv = getNum(str.maxCellVoltageMv);
+      if (maxCellVMv !== null) maxCellVoltages.push(maxCellVMv / 1000);
 
-      const minCellT = getNum(str.minCellTemperature) ?? getNum(str.cellTempMin);
-      if (minCellT !== null) minCellTemps.push(minCellT);
+      const minCellTC = getNum(str.minCellTempC);
+      if (minCellTC !== null) minCellTemps.push(minCellTC);
 
-      const maxCellT = getNum(str.maxCellTemperature) ?? getNum(str.cellTempMax);
-      if (maxCellT !== null) maxCellTemps.push(maxCellT);
+      const maxCellTC = getNum(str.maxCellTempC);
+      if (maxCellTC !== null) maxCellTemps.push(maxCellTC);
     }
     
     const avgOrNull = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
@@ -341,12 +348,15 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
       nearlineStringCount,
       offlineStringCount,
       notCommunicationStringCount,
+      unknownStringCount,
       onlineSOC: avgOrNull(onlineSOCs),
       nearlineSOC: avgOrNull(nearlineSOCs),
       offlineSOC: avgOrNull(offlineSOCs),
+      unknownSOC: avgOrNull(unknownSOCs),
       onlineAvailableKWh: sumOrNull(onlineAvailableKWhs),
       nearlineAvailableKWh: sumOrNull(nearlineAvailableKWhs),
       offlineAvailableKWh: sumOrNull(offlineAvailableKWhs),
+      unknownAvailableKWh: sumOrNull(unknownAvailableKWhs),
       powerkW: sumOrNull(powerkWs),
       currentAmp: sumOrNull(currentAmps),
       measuredkW: sumOrNull(powerkWs),
@@ -364,6 +374,7 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
         onlineSOCs,
         nearlineSOCs,
         offlineSOCs,
+        unknownSOCs,
         powerkWs,
         currentAmps
       }
@@ -456,13 +467,17 @@ export function readStoredKWh(row: any): number | null {
 }
 
 export function resolveStringBucket(row: any): string {
-  if (!row) return "online";
+  if (!row) return "unknown";
   
-  if (row.bucketSource === "canonical-string-classifier" && row.bucket && ["online", "nearline", "offline", "notCommunicating"].includes(row.bucket)) {
+  if (
+    row.bucketSource === "canonical-string-classifier" &&
+    row.bucket &&
+    ["online", "nearline", "offline", "notCommunicating", "unknown"].includes(row.bucket)
+  ) {
     return row.bucket;
   }
   
-  const norm = normalizeStringRow(row);
+  const norm = normalizeStringRow(row, { compatMissingContactorAsNearline: false });
   return norm.bucket;
 }
 
@@ -500,6 +515,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   const totalStrings = strings.length;
   let unknownContactorFeedbackCount = 0;
   let unknownRotationCount = 0;
+  let unknownCommunicationCount = 0;
   let rawBucketMismatchCount = 0;
   const canonicalBucketCounts = {
     online: 0,
@@ -516,6 +532,9 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     }
     if (norm.inRotation === null || norm.inRotation === undefined) {
       unknownRotationCount++;
+    }
+    if (norm.communicating === null || norm.communicating === undefined) {
+      unknownCommunicationCount++;
     }
     const bucket = norm.bucket;
     const rawBucket = sRow.bucket ?? sRow.raw?.bucket;
@@ -543,7 +562,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     online: [] as any[],
     nearline: [] as any[],
     offline: [] as any[],
-    notCommunicating: [] as any[]
+    notCommunicating: [] as any[],
+    unknown: [] as any[]
   };
 
   const perArray = new Map<number, any>();
@@ -558,6 +578,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     else if (bucket === "nearline") bucketsRaw.nearline.push(row);
     else if (bucket === "offline") bucketsRaw.offline.push(row);
     else if (bucket === "notCommunicating") bucketsRaw.notCommunicating.push(row);
+    else bucketsRaw.unknown.push(row);
 
     if (arrNum !== null) {
       if (!perArray.has(arrNum)) {
@@ -567,12 +588,15 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
           nearlineStringCount: 0,
           offlineStringCount: 0,
           notCommunicationStringCount: 0,
+          unknownStringCount: 0,
           onlineSocs: [],
           nearlineSocs: [],
           offlineSocs: [],
+          unknownSocs: [],
           onlineKwhs: [],
           nearlineKwhs: [],
           offlineKwhs: [],
+          unknownKwhs: [],
           powerkW: 0,
           currentAmp: 0
         });
@@ -583,17 +607,20 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       else if (bucket === "nearline") agg.nearlineStringCount++;
       else if (bucket === "offline") agg.offlineStringCount++;
       else if (bucket === "notCommunicating") agg.notCommunicationStringCount++;
+      else agg.unknownStringCount++;
       
       if (soc !== null) {
         if (bucket === "online") agg.onlineSocs.push(soc);
         else if (bucket === "nearline") agg.nearlineSocs.push(soc);
         else if (bucket === "offline") agg.offlineSocs.push(soc);
+        else agg.unknownSocs.push(soc);
       }
       
       if (kwh !== null) {
         if (bucket === "online") agg.onlineKwhs.push(kwh);
         else if (bucket === "nearline") agg.nearlineKwhs.push(kwh);
         else if (bucket === "offline") agg.offlineKwhs.push(kwh);
+        else agg.unknownKwhs.push(kwh);
       }
       
       const kw = finiteNumber(row.kw) ?? finiteNumber(row.powerKw) ?? finiteNumber(row.powerkW);
@@ -608,28 +635,33 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   const nearlineStrings = bucketsRaw.nearline.length;
   const offlineStrings = bucketsRaw.offline.length;
   const notCommunicatingStrings = bucketsRaw.notCommunicating.length;
+  const unknownStrings = bucketsRaw.unknown.length;
 
   const fleetSocValues = strings.map(r => readSocPct(r)).filter(v => v !== null) as number[];
   const onlineSocValues = bucketsRaw.online.map(r => readSocPct(r)).filter(v => v !== null) as number[];
   const nearlineSocValues = bucketsRaw.nearline.map(r => readSocPct(r)).filter(v => v !== null) as number[];
   const offlineSocValues = bucketsRaw.offline.map(r => readSocPct(r)).filter(v => v !== null) as number[];
   const notCommunicatingSocValues = bucketsRaw.notCommunicating.map(r => readSocPct(r)).filter(v => v !== null) as number[];
+  const unknownSocValues = bucketsRaw.unknown.map(r => readSocPct(r)).filter(v => v !== null) as number[];
 
   const fleetSocPct = average(fleetSocValues);
   const onlineSocPct = average(onlineSocValues);
   const nearlineSocPct = average(nearlineSocValues);
   const offlineSocPct = average(offlineSocValues);
   const notCommunicatingSocPct = average(notCommunicatingSocValues);
+  const unknownSocPct = average(unknownSocValues);
 
   const onlineStoredKWhs = bucketsRaw.online.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
   const nearlineStoredKWhs = bucketsRaw.nearline.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
   const offlineStoredKWhs = bucketsRaw.offline.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
   const notCommunicatingStoredKWhs = bucketsRaw.notCommunicating.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
+  const unknownStoredKWhs = bucketsRaw.unknown.map(r => readStoredKWh(r)).filter(v => v !== null) as number[];
 
   const onlineStoredKWh = onlineStrings === 0 ? 0 : (sum(onlineStoredKWhs) ?? 0);
   const nearlineStoredKWh = nearlineStrings === 0 ? 0 : (sum(nearlineStoredKWhs) ?? 0);
   const offlineStoredKWh = offlineStrings === 0 ? 0 : (sum(offlineStoredKWhs) ?? 0);
   const notCommunicatingStoredKWh = notCommunicatingStrings === 0 ? 0 : (sum(notCommunicatingStoredKWhs) ?? 0);
+  const unknownStoredKWh = unknownStrings === 0 ? 0 : (sum(unknownStoredKWhs) ?? 0);
 
   let availableStoredKWh: number | null = null;
   if (onlineStoredKWh !== null || nearlineStoredKWh !== null) {
@@ -652,12 +684,14 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   }
   if (nearlineSocPct !== null) snapshot.rollups.stringSummary.rollups.nearlineSocPctAvg = nearlineSocPct;
   if (offlineSocPct !== null) snapshot.rollups.stringSummary.rollups.offlineSocPctAvg = offlineSocPct;
+  if (unknownSocPct !== null) snapshot.rollups.stringSummary.rollups.unknownSocPctAvg = unknownSocPct;
 
   // PART 4 - Fleet kWh / capacity write targets
   snapshot.rollups.fleetCapacity.onlineStoredKWh = onlineStoredKWh;
   snapshot.rollups.fleetCapacity.nearlineStoredKWh = nearlineStoredKWh;
   snapshot.rollups.fleetCapacity.offlineStoredKWh = offlineStoredKWh;
   snapshot.rollups.fleetCapacity.notCommunicatingStoredKWh = notCommunicatingStoredKWh;
+  snapshot.rollups.fleetCapacity.unknownStoredKWh = unknownStoredKWh;
   snapshot.rollups.fleetCapacity.availableStoredKWh = availableStoredKWh;
   
   // Calculate installed capacity based on profile
@@ -692,6 +726,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     nearlineStoredKWh,
     offlineStoredKWh,
     notCommunicatingStoredKWh,
+    unknownStoredKWh,
     availableStoredKWh,
     installedCapacityKWh: snapshot.rollups.fleetCapacity.installedCapacityKWh
   };
@@ -736,15 +771,15 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       return vals.length > 0 ? Math.min(...vals) : null;
     };
 
-    const maxVoltageMv = maxNum(["maxCellVoltage", "maxCellVoltageMv", "maxCellGroupVoltage", "MaxCellGroupVoltage"]);
-    const minVoltageMv = minNum(["minCellVoltage", "minCellVoltageMv", "minCellGroupVoltage", "MinCellGroupVoltage"]);
-    const avgVoltageMv = avgNum(["avgCellVoltage", "avgCellVoltageMv", "avgCellGroupVoltage", "AvgCellGroupVoltage"]);
-    const maxVoltageDeltaMv = maxNum(["cellVoltageDelta", "maxCellVoltageDeltaMv", "voltageDeltaMv"]);
+    const maxVoltageMv = maxNum(["maxCellVoltageMv"]);
+    const minVoltageMv = minNum(["minCellVoltageMv"]);
+    const avgVoltageMv = avgNum(["avgCellVoltageMv"]);
+    const maxVoltageDeltaMv = maxNum(["cellVoltageDeltaMv"]);
 
-    const maxTemp = maxNum(["maxCellTemperature", "maxTempC", "maxTemp", "highCellTempC", "MaxCellGroupTemp", "maxCellGroupTemp"]);
-    const minTemp = minNum(["minCellTemperature", "minTempC", "minTemp", "lowCellTempC", "MinCellGroupTemp", "minCellGroupTemp"]);
-    const avgTemp = avgNum(["avgCellTemperature", "avgTempC", "avgTemp", "avgCellTempC", "AvgCellGroupTemp", "avgCellGroupTemp"]);
-    const maxTempDelta = maxNum(["cellTemperatureDelta", "maxCellTempDeltaC", "tempDeltaC"]);
+    const maxTemp = maxNum(["maxCellTempC"]);
+    const minTemp = minNum(["minCellTempC"]);
+    const avgTemp = avgNum(["avgCellTempC"]);
+    const maxTempDelta = maxNum(["cellTempDeltaC"]);
 
     const maxCellVoltageDeltaMv = maxVoltageDeltaMv ?? (maxVoltageMv !== null && minVoltageMv !== null ? maxVoltageMv - minVoltageMv : null);
     const maxCellTempDeltaC = maxTempDelta ?? (maxTemp !== null && minTemp !== null ? maxTemp - minTemp : null);
@@ -755,7 +790,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     const socPctAvg = bName === "online" ? onlineSocPct
                      : bName === "nearline" ? nearlineSocPct
                      : bName === "offline" ? offlineSocPct
-                     : notCommunicatingSocPct;
+                     : bName === "notCommunicating" ? notCommunicatingSocPct
+                     : unknownSocPct;
 
     const storedKWhTotal = sum(avgKwhs) ?? 0;
     const storedKWhAvg = average(avgKwhs) ?? 0;
@@ -833,12 +869,14 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.stringSummary.rollups.nearline = calculateBucketRollup(bucketsRaw.nearline, "nearline", nearlineStoredKWhs);
   snapshot.rollups.stringSummary.rollups.offline = calculateBucketRollup(bucketsRaw.offline, "offline", offlineStoredKWhs);
   snapshot.rollups.stringSummary.rollups.notCommunicating = calculateBucketRollup(bucketsRaw.notCommunicating, "notCommunicating", notCommunicatingStoredKWhs);
+  snapshot.rollups.stringSummary.rollups.unknown = calculateBucketRollup(bucketsRaw.unknown, "unknown", unknownStoredKWhs);
   
   snapshot.rollups.stringSummary.buckets = {
     online: onlineStrings,
     nearline: nearlineStrings,
     offline: offlineStrings,
-    notCommunicating: notCommunicatingStrings
+    notCommunicating: notCommunicatingStrings,
+    unknown: unknownStrings
   };
 
   snapshot.rollups.stringSummary.rollups.normal = onlineStrings;
@@ -846,6 +884,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.stringSummary.rollups.nearlineCount = nearlineStrings;
   snapshot.rollups.stringSummary.rollups.offlineCount = offlineStrings;
   snapshot.rollups.stringSummary.rollups.notCommunicatingCount = notCommunicatingStrings;
+  snapshot.rollups.stringSummary.rollups.unknownCount = unknownStrings;
 
   // PART 6 - Canonical BESS fleet summary
   snapshot.rollups.bessFleetSummary.totalStrings = totalStrings;
@@ -853,6 +892,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.bessFleetSummary.nearlineStrings = nearlineStrings;
   snapshot.rollups.bessFleetSummary.offlineStrings = offlineStrings;
   snapshot.rollups.bessFleetSummary.notCommunicatingStrings = notCommunicatingStrings;
+  snapshot.rollups.bessFleetSummary.unknownStrings = unknownStrings;
   if (fleetSocPct !== null) snapshot.rollups.bessFleetSummary.systemSocPct = fleetSocPct;
 
   // PART 7 - Per-array consistency
@@ -865,6 +905,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       arr.nearlineStringCount = agg.nearlineStringCount;
       arr.offlineStringCount = agg.offlineStringCount;
       arr.notCommunicationStringCount = agg.notCommunicationStringCount;
+      arr.unknownStringCount = agg.unknownStringCount;
       
       const onSoc = average(agg.onlineSocs);
       if (onSoc !== null) arr.onlineSOC = onSoc;
@@ -872,6 +913,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       if (nearSoc !== null) arr.nearlineSOC = nearSoc;
       const offSoc = average(agg.offlineSocs);
       if (offSoc !== null) arr.offlineSOC = offSoc;
+      const unknownSoc = average(agg.unknownSocs);
+      if (unknownSoc !== null) arr.unknownSOC = unknownSoc;
       
       const onKwh = sum(agg.onlineKwhs);
       if (onKwh !== null) arr.onlineAvailableKWh = onKwh;
@@ -879,6 +922,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       if (nearKwh !== null) arr.nearlineAvailableKWh = nearKwh;
       const offKwh = sum(agg.offlineKwhs);
       if (offKwh !== null) arr.offlineAvailableKWh = offKwh;
+      const unknownKwh = sum(agg.unknownKwhs);
+      if (unknownKwh !== null) arr.unknownAvailableKWh = unknownKwh;
       
       if (!finiteNumber(arr.powerkW)) arr.powerkW = agg.powerkW;
       if (!finiteNumber(arr.currentAmp)) arr.currentAmp = agg.currentAmp;
@@ -897,8 +942,8 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   const perArrayKwhCounts: Record<string, number> = {};
   
   perArray.forEach((agg, arrNum) => {
-    perArraySocCounts[arrNum.toString()] = agg.onlineSocs.length + agg.nearlineSocs.length + agg.offlineSocs.length;
-    perArrayKwhCounts[arrNum.toString()] = agg.onlineKwhs.length + agg.nearlineKwhs.length + agg.offlineKwhs.length;
+    perArraySocCounts[arrNum.toString()] = agg.onlineSocs.length + agg.nearlineSocs.length + agg.offlineSocs.length + agg.unknownSocs.length;
+    perArrayKwhCounts[arrNum.toString()] = agg.onlineKwhs.length + agg.nearlineKwhs.length + agg.offlineKwhs.length + agg.unknownKwhs.length;
   });
 
   if (fleetSocValues.length === 0 && onlineStoredKWhs.length === 0 && nearlineStoredKWhs.length === 0 && offlineStoredKWhs.length === 0) {
@@ -910,6 +955,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       validKwhCount: 0,
       unknownContactorFeedbackCount,
       unknownRotationCount,
+      unknownCommunicationCount,
       rawBucketMismatchCount,
       canonicalBucketCounts
     };
@@ -919,10 +965,11 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       source: "normalized.strings + repaired arraySummary",
       inputStringCount: totalStrings,
       validSocCount: fleetSocValues.length,
-      validKwhCount: onlineStoredKWhs.length + nearlineStoredKWhs.length + offlineStoredKWhs.length + notCommunicatingStoredKWhs.length,
+      validKwhCount: onlineStoredKWhs.length + nearlineStoredKWhs.length + offlineStoredKWhs.length + notCommunicatingStoredKWhs.length + unknownStoredKWhs.length,
       fleetSocPct,
       unknownContactorFeedbackCount,
       unknownRotationCount,
+      unknownCommunicationCount,
       rawBucketMismatchCount,
       canonicalBucketCounts,
       counts: {
@@ -930,13 +977,15 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
         onlineStrings,
         nearlineStrings,
         offlineStrings,
-        notCommunicatingStrings
+        notCommunicatingStrings,
+        unknownStrings
       },
       storedKWh: {
         onlineStoredKWh,
         nearlineStoredKWh,
         offlineStoredKWh,
         notCommunicatingStoredKWh,
+        unknownStoredKWh,
         availableStoredKWh
       },
       perArraySocCounts,
