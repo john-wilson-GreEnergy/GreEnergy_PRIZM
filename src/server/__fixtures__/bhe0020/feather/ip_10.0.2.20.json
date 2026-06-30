@@ -1,0 +1,32 @@
+{
+  "deviceType": "StringController",
+  "operationalState": "NORMAL",
+  "firmwareVersion": "73.18.0",
+  "thermalData": {
+    "spaceTemperature": 24.2,
+    "avgCellTemperature": 22.5,
+    "supplyAirTemp": 18.5,
+    "coolingSetpoint": 28.0,
+    "heatingSetpoint": 18.0,
+    "hydrogen1PPM": 2.4,
+    "thermostatStage": "Idle"
+  },
+  "fssSignals": {
+    "valid": true,
+    "leakAlarm": false,
+    "hydrogenAlarm": false,
+    "hydrogenFault": false,
+    "smokeAlarm": false,
+    "fireAlarm": false,
+    "fireTrouble": false,
+    "heatSensor": false
+  },
+  "doors": {
+    "valid": true,
+    "batteryDoorsClosed": true,
+    "lowerTopcapClosed": true,
+    "dcDoorsClosed": true,
+    "acDoorsClosed": true
+  },
+  "deviceWithLostComms": []
+}

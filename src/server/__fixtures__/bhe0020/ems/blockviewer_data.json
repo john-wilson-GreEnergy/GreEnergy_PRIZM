@@ -1,0 +1,54 @@
+{
+  "stationCode": "BHE0020",
+  "blockIndex": 1,
+  "topology": [
+    {
+      "entityKey": "openclosed-01",
+      "entityType": "OpenClosedDetector",
+      "entitySubType": "BlockReadiness",
+      "displayKey": "openclosed-01",
+      "statusMessage": "NORMAL",
+      "communicating": true,
+      "enabled": true,
+      "ready": true,
+      "value": false,
+      "tripped": false
+    },
+    {
+      "entityKey": "sensor-2507",
+      "entityType": "OpenClosedDetector",
+      "entitySubType": "OpenClosed",
+      "displayKey": "sensor-2507",
+      "statusMessage": "H2_ALERT",
+      "communicating": true,
+      "enabled": true,
+      "ready": true,
+      "value": "TRIPPED",
+      "tripped": true
+    },
+    {
+      "entityKey": "sensor-9611",
+      "entityType": "OpenClosedDetector",
+      "entitySubType": "OpenClosed",
+      "displayKey": "sensor-9611",
+      "statusMessage": "MOISTURE_ALARM",
+      "communicating": true,
+      "enabled": true,
+      "ready": true,
+      "value": "TRIPPED",
+      "tripped": true
+    },
+    {
+      "entityKey": "sensor-14408",
+      "entityType": "OpenClosedDetector",
+      "entitySubType": "OpenClosed",
+      "displayKey": "sensor-14408",
+      "statusMessage": "COMM_LOST",
+      "communicating": false,
+      "enabled": true,
+      "ready": true,
+      "value": "TRIPPED",
+      "tripped": true
+    }
+  ]
+}
