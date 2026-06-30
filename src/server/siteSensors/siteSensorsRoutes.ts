@@ -13,7 +13,8 @@ import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
-import { parseEmsTopology, parseActiveState, sanitizeStatusForTripCheck } from "../emsTopologySensorParser";
+import { parseEmsTopology } from "../emsTopologySensorParser";
+import { parseActiveState, sanitizeStatusForTripCheck } from "./canonicalSensorParser";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
 import { resolveMatrixRows, resolveTopologyPoints, calculateProfileAndRawCounts } from "./sensorCapabilityResolver";
 

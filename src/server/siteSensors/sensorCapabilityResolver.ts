@@ -2,7 +2,7 @@ import { EmsProfile } from "../profiles/profileTypes";
 import { NormalizedSensorCell } from "./siteSensorsRoutes";
 import { getFeatherCache } from "../feather/featherClient";
 import { normalizeSensorEnclosureIdentity } from "../../lib/enclosureIdentity";
-import { sanitizeStatusForTripCheck } from "../emsTopologySensorParser";
+import { sanitizeStatusForTripCheck } from "./canonicalSensorParser";
 
 export function mapToCanonicalProfileKey(sensorKey: string): string {
   const k = sensorKey.trim();
@@ -64,18 +64,20 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         cell.ready === false ||
         rawStatusMsg.includes("lost") ||
         rawStatusMsg.includes("unavailable") ||
-        rawStatusMsg.includes("offline");
+        rawStatusMsg.includes("offline") ||
+        statusMsg.includes("lost") ||
+        statusMsg.includes("unavailable");
 
       const isMissing = isExplicitUnavailable;
 
       // Fix 2: Determine isTripped
       let isTripped = cell.tripped === true || 
-                       (typeof cell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open"].includes(cell.value.toLowerCase().trim())) ||
+                       (typeof cell.value === "string" && ["true", "active", "tripped", "alarm", "alarmed", "fault", "faulted", "open", "trouble"].includes(cell.value.toLowerCase().trim())) ||
                        lowerDisplay === "tripped";
 
       if (cell.tripped === null || cell.tripped === undefined) {
-        // treat as normal unless statusMessage explicitly says fault/alarm/trouble/open/lost/unavailable
-        const hasFaultStatusMsg = ["fault", "alarm", "trouble", "open", "lost", "unavailable"].some(word => statusMsg.includes(word));
+        // treat as normal unless statusMessage explicitly says fault/alarm/trouble/open
+        const hasFaultStatusMsg = ["fault", "alarm", "trouble", "open"].some(word => statusMsg.includes(word));
         isTripped = hasFaultStatusMsg;
       }
 
@@ -94,18 +96,31 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         let hasDirectField = false;
 
         if (canonicalKey === "hydrogen") {
-          if (fss.hydrogenAlarm !== undefined) {
+          const ppm = directDevice.hydrogen1PPM ?? directDevice.rawResponse?.thermalData?.hydrogen1PPM;
+          if (ppm !== undefined && ppm !== null) {
+            directTripped = ppm > 50;
+            hasDirectField = true;
+          } else if (fss.hydrogenAlarm !== undefined) {
             directTripped = fss.hydrogenAlarm === true;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         } else if (canonicalKey === "hydrogenFault") {
           if (fss.hydrogenFault !== undefined) {
             directTripped = fss.hydrogenFault === true;
             hasDirectField = true;
+          } else {
+            directTripped = false;
+            hasDirectField = true;
           }
         } else if (canonicalKey === "smoke") {
           if (fss.smokeAlarm !== undefined) {
             directTripped = fss.smokeAlarm === true;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         } else if (canonicalKey === "fireTrouble" || canonicalKey === "fireSuppressionTrouble") {
@@ -115,40 +130,64 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
           } else if (fss.smokeAlarmTrouble !== undefined) {
             directTripped = fss.smokeAlarmTrouble === true;
             hasDirectField = true;
+          } else {
+            directTripped = false;
+            hasDirectField = true;
           }
         } else if (canonicalKey === "fire") {
           if (fss.fireAlarm !== undefined) {
             directTripped = fss.fireAlarm === true;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         } else if (canonicalKey === "heat") {
           if (fss.heatSensor !== undefined) {
             directTripped = fss.heatSensor === true;
             hasDirectField = true;
+          } else {
+            directTripped = false;
+            hasDirectField = true;
           }
         } else if (canonicalKey === "moisture" || canonicalKey === "leakDetector") {
           if (fss.leakAlarm !== undefined) {
             directTripped = fss.leakAlarm === true;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         } else if (canonicalKey === "dcDoors") {
           if (doors.dcDoorsClosed !== undefined) {
             directTripped = doors.dcDoorsClosed === false;
             hasDirectField = true;
+          } else {
+            directTripped = false;
+            hasDirectField = true;
           }
         } else if (canonicalKey === "acDoors") {
           if (doors.acDoorsClosed !== undefined) {
             directTripped = doors.acDoorsClosed === false;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         } else if (canonicalKey === "batteryDoors") {
           if (doors.batteryDoorsClosed !== undefined) {
             directTripped = doors.batteryDoorsClosed === false;
             hasDirectField = true;
+          } else {
+            directTripped = false;
+            hasDirectField = true;
           }
         } else if (canonicalKey === "topCapDoors") {
           if (doors.lowerTopcapClosed !== undefined) {
             directTripped = doors.lowerTopcapClosed === false;
+            hasDirectField = true;
+          } else {
+            directTripped = false;
             hasDirectField = true;
           }
         }
@@ -392,18 +431,31 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
       let hasDirectField = false;
 
       if (canonicalKey === "hydrogen") {
-        if (fss.hydrogenAlarm !== undefined) {
+        const ppm = directDevice.hydrogen1PPM ?? directDevice.rawResponse?.thermalData?.hydrogen1PPM;
+        if (ppm !== undefined && ppm !== null) {
+          directTripped = ppm > 50;
+          hasDirectField = true;
+        } else if (fss.hydrogenAlarm !== undefined) {
           directTripped = fss.hydrogenAlarm === true;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       } else if (canonicalKey === "hydrogenFault") {
         if (fss.hydrogenFault !== undefined) {
           directTripped = fss.hydrogenFault === true;
           hasDirectField = true;
+        } else {
+          directTripped = false;
+          hasDirectField = true;
         }
       } else if (canonicalKey === "smoke") {
         if (fss.smokeAlarm !== undefined) {
           directTripped = fss.smokeAlarm === true;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       } else if (canonicalKey === "fireTrouble" || canonicalKey === "fireSuppressionTrouble") {
@@ -413,40 +465,64 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
         } else if (fss.smokeAlarmTrouble !== undefined) {
           directTripped = fss.smokeAlarmTrouble === true;
           hasDirectField = true;
+        } else {
+          directTripped = false;
+          hasDirectField = true;
         }
       } else if (canonicalKey === "fire") {
         if (fss.fireAlarm !== undefined) {
           directTripped = fss.fireAlarm === true;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       } else if (canonicalKey === "heat") {
         if (fss.heatSensor !== undefined) {
           directTripped = fss.heatSensor === true;
           hasDirectField = true;
+        } else {
+          directTripped = false;
+          hasDirectField = true;
         }
       } else if (canonicalKey === "moisture" || canonicalKey === "leakDetector") {
         if (fss.leakAlarm !== undefined) {
           directTripped = fss.leakAlarm === true;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       } else if (canonicalKey === "dcDoors") {
         if (doors.dcDoorsClosed !== undefined) {
           directTripped = doors.dcDoorsClosed === false;
           hasDirectField = true;
+        } else {
+          directTripped = false;
+          hasDirectField = true;
         }
       } else if (canonicalKey === "acDoors") {
         if (doors.acDoorsClosed !== undefined) {
           directTripped = doors.acDoorsClosed === false;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       } else if (canonicalKey === "batteryDoors") {
         if (doors.batteryDoorsClosed !== undefined) {
           directTripped = doors.batteryDoorsClosed === false;
           hasDirectField = true;
+        } else {
+          directTripped = false;
+          hasDirectField = true;
         }
       } else if (canonicalKey === "topCapDoors") {
         if (doors.lowerTopcapClosed !== undefined) {
           directTripped = doors.lowerTopcapClosed === false;
+          hasDirectField = true;
+        } else {
+          directTripped = false;
           hasDirectField = true;
         }
       }
