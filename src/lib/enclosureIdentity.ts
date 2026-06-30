@@ -10,19 +10,53 @@ export function parseGlobalSegmentIdentity(input: string | number): {
   let globalSegmentNumber: number | null = null;
   const str = String(input).trim();
   
-  // Look for CS# or ES# prefix specifically, e.g. "CS1:1" -> CS1 -> 1
-  const prefixMatch = str.match(/(?:CS|ES)\s*(\d+)/i);
-  if (prefixMatch) {
-    globalSegmentNumber = parseInt(prefixMatch[1], 10);
-  } else {
-    // Look for first set of digits
-    const digitsMatch = str.match(/\d+/);
-    if (digitsMatch) {
-      globalSegmentNumber = parseInt(digitsMatch[0], 10);
+  // Try robust format parsing first
+  const arrayMatch = str.match(/Array\s*(\d+)/i);
+  if (arrayMatch) {
+    const arrayIndex = parseInt(arrayMatch[1], 10);
+    const isCS = /Collection\s*Segment|CS/i.test(str);
+    const esMatch = str.match(/(?:Energy\s*Segment|ES)\s*(\d+)/i);
+    
+    if (isCS) {
+      const globalSegNum = (arrayIndex - 1) * 21 + 1;
+      return {
+        globalSegmentNumber: globalSegNum,
+        arrayIndex,
+        positionInArray: 1,
+        segmentType: "CS",
+        localEsNumber: null,
+        displayName: `Array ${arrayIndex} Collection Segment`,
+        shortLabel: `Array ${arrayIndex} - CS`
+      };
+    } else if (esMatch) {
+      const localEsVal = parseInt(esMatch[1], 10);
+      const positionInArray = localEsVal + 1;
+      const globalSegNum = (arrayIndex - 1) * 21 + positionInArray;
+      return {
+        globalSegmentNumber: globalSegNum,
+        arrayIndex,
+        positionInArray,
+        segmentType: "ES",
+        localEsNumber: localEsVal,
+        displayName: `Array ${arrayIndex} Energy Segment ${localEsVal}`,
+        shortLabel: `Array ${arrayIndex} - ES${localEsVal}`
+      };
     }
   }
 
-  if (globalSegmentNumber === null || isNaN(globalSegmentNumber)) {
+  // Fallback to legacy digit matching
+  let rawSegNum: number | null = null;
+  const prefixMatch = str.match(/(?:CS|ES)\s*(\d+)/i);
+  if (prefixMatch) {
+    rawSegNum = parseInt(prefixMatch[1], 10);
+  } else {
+    const digitsMatch = str.match(/\d+/);
+    if (digitsMatch) {
+      rawSegNum = parseInt(digitsMatch[0], 10);
+    }
+  }
+
+  if (rawSegNum === null || isNaN(rawSegNum)) {
     return {
       globalSegmentNumber: null,
       arrayIndex: null,
@@ -34,8 +68,8 @@ export function parseGlobalSegmentIdentity(input: string | number): {
     };
   }
 
-  const arrayIndex = Math.floor((globalSegmentNumber - 1) / 21) + 1;
-  const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
+  const arrayIndex = Math.floor((rawSegNum - 1) / 21) + 1;
+  const positionInArray = ((rawSegNum - 1) % 21) + 1;
 
   let segmentType: "CS" | "ES" | "UNKNOWN" = "UNKNOWN";
   let localEsNumber: number | null = null;
@@ -55,7 +89,7 @@ export function parseGlobalSegmentIdentity(input: string | number): {
   }
 
   return {
-    globalSegmentNumber,
+    globalSegmentNumber: rawSegNum,
     arrayIndex,
     positionInArray,
     segmentType,
@@ -94,27 +128,37 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
   let localEsNumber: number | null = null;
   let globalSegmentNumber: number | null = null;
 
-  // 1. Try to resolve from direct numeric fields if they exist and are valid (1-indexed global segment numbers)
-  const numIndex = raw.enclosureIndex !== undefined && raw.enclosureIndex !== null ? Number(raw.enclosureIndex) :
-                    (raw.globalEnclosureIndex !== undefined && raw.globalEnclosureIndex !== null ? Number(raw.globalEnclosureIndex) :
-                    (raw.globalSegmentNumber !== undefined && raw.globalSegmentNumber !== null ? Number(raw.globalSegmentNumber) : null));
+  // Try robust label parsing first because it is highly specific!
+  const parsedFromLabel = parseGlobalSegmentIdentity(label);
+  if (parsedFromLabel.globalSegmentNumber !== null) {
+    globalSegmentNumber = parsedFromLabel.globalSegmentNumber;
+    arrayIndex = parsedFromLabel.arrayIndex;
+    segmentType = parsedFromLabel.segmentType;
+    localEsNumber = parsedFromLabel.localEsNumber;
+  }
 
-  if (numIndex !== null && !isNaN(numIndex) && numIndex >= 1) {
-    globalSegmentNumber = numIndex;
-    arrayIndex = Math.floor((globalSegmentNumber - 1) / 21) + 1;
-    const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
-    if (positionInArray === 1) {
-      segmentType = "CS";
-      localEsNumber = null;
-    } else {
-      segmentType = "ES";
-      localEsNumber = positionInArray - 1;
+  // If label parsing didn't resolve array index, try direct numeric index
+  if (arrayIndex === null) {
+    const numIndex = raw.enclosureIndex !== undefined && raw.enclosureIndex !== null ? Number(raw.enclosureIndex) :
+                      (raw.globalEnclosureIndex !== undefined && raw.globalEnclosureIndex !== null ? Number(raw.globalEnclosureIndex) :
+                      (raw.globalSegmentNumber !== undefined && raw.globalSegmentNumber !== null ? Number(raw.globalSegmentNumber) : null));
+
+    if (numIndex !== null && !isNaN(numIndex) && numIndex >= 1) {
+      globalSegmentNumber = numIndex;
+      arrayIndex = Math.floor((globalSegmentNumber - 1) / 21) + 1;
+      const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
+      if (positionInArray === 1) {
+        segmentType = "CS";
+        localEsNumber = null;
+      } else {
+        segmentType = "ES";
+        localEsNumber = positionInArray - 1;
+      }
     }
   }
 
-  // 2. Try to resolve from Feather IP if not resolved yet
-  let ipResolved = arrayIndex !== null;
-  if (!ipResolved && ip) {
+  // Try IP resolution if still unresolved
+  if (arrayIndex === null && ip) {
     const ipParts = ip.split(".");
     if (ipParts.length === 4 && ipParts[0] === "10" && ipParts[1] === "0") {
       const arrIdx = parseInt(ipParts[2], 10);
@@ -124,27 +168,13 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
         if (lastOctet === 3) {
           segmentType = "CS";
           localEsNumber = null;
-          ipResolved = true;
           globalSegmentNumber = (arrayIndex - 1) * 21 + 1;
         } else if (lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
           segmentType = "ES";
           localEsNumber = Math.floor((lastOctet - 10) / 5) + 1;
-          ipResolved = true;
           globalSegmentNumber = (arrayIndex - 1) * 21 + 1 + localEsNumber;
         }
       }
-    }
-  }
-
-  // 3. Extract from global segment label if not resolved yet
-  let parsedFromLabel: any = null;
-  if (arrayIndex === null) {
-    parsedFromLabel = parseGlobalSegmentIdentity(label);
-    if (parsedFromLabel.globalSegmentNumber !== null) {
-      globalSegmentNumber = parsedFromLabel.globalSegmentNumber;
-      arrayIndex = parsedFromLabel.arrayIndex;
-      segmentType = parsedFromLabel.segmentType;
-      localEsNumber = parsedFromLabel.localEsNumber;
     }
   }
 
@@ -163,8 +193,8 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
       shortLabel = `Array ${arrayIndex} - UNKNOWN`;
     }
   } else {
-    displayName = parsedFromLabel ? parsedFromLabel.displayName : (label || "Unknown Enclosure");
-    shortLabel = parsedFromLabel ? parsedFromLabel.shortLabel : (label || "Unknown");
+    displayName = label || "Unknown Enclosure";
+    shortLabel = label || "Unknown";
   }
 
   return {

@@ -116,25 +116,43 @@ export function extractFinalNumericToken(value: unknown): number | null {
 export function sanitizeStatusForTripCheck(status: string): string {
   if (!status) return "";
   let s = status.toLowerCase();
-  const metadataTerms = [
-    "allowfaultreset",
+  
+  // Replace spacing, underscores, hyphens from common metadata terms to match them robustly
+  const termsToStrip = [
+    "allow\\s*fault\\s*override\\s*reset",
+    "allow\\s*fault\\s*reset",
+    "can\\s*reset",
+    "reset\\s*available",
+    "monitored\\s*by\\s*profile",
+    "contributes\\s*to\\s*health",
+    "child\\s*entity\\s*keys\\s*list",
+    "child\\s*entity\\s*keys",
+    "is\\s*healthy",
+    "entity\\s*key",
+    "display\\s*key",
+    "entity\\s*type",
+    "entity\\s*subtype",
     "allowfaultoverridereset",
+    "allowfaultreset",
     "canreset",
     "resetavailable",
-    "ready",
-    "enabled",
+    "monitoredbyprofile",
+    "contributestohealth",
+    "ishealthy",
     "communicating",
+    "enabled",
+    "ready",
     "valid",
     "healthy",
-    "ishealthy",
     "applicable",
-    "present",
-    "monitoredbyprofile",
-    "contributestohealth"
+    "present"
   ];
-  for (const term of metadataTerms) {
-    s = s.split(term).join(" ");
+
+  for (const term of termsToStrip) {
+    const regex = new RegExp(term, "gi");
+    s = s.replace(regex, " ");
   }
+
   return s;
 }
 

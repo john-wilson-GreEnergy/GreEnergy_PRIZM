@@ -101,7 +101,7 @@ export interface NormalizedSensorRow {
 }
 
 // Generates a fully populated, highly realistic block topology data structure for BESS sub-cabinets
-export function generateSimulatedTopology() {
+export function generateSimulatedTopology(demo: boolean = false) {
   const topology: any[] = [];
   
   // 1. Add global block readiness point (numericId = 1)
@@ -168,11 +168,11 @@ export function generateSimulatedTopology() {
           let communicating = true;
 
           // Introduce some interesting tripped sensors for realism
-          if (arrayIndex === 4 && posInArray === 1 && code === 6) {
+          if (demo && arrayIndex === 4 && posInArray === 1 && code === 6) {
             val = "TRIPPED"; // Smoke detector tripped
             statusMessage = "SMOKE_DETECTED";
           }
-          if (arrayIndex === 6 && posInArray === 1 && code === 3) {
+          if (demo && arrayIndex === 6 && posInArray === 1 && code === 3) {
             val = "TRIPPED"; // DC Door open
             statusMessage = "DOOR_OPEN";
           }
@@ -204,15 +204,15 @@ export function generateSimulatedTopology() {
           let communicating = true;
 
           // Introduce some interesting tripped sensors for realism
-          if (arrayIndex === 2 && posInArray === 4 && code === 7) {
+          if (demo && arrayIndex === 2 && posInArray === 4 && code === 7) {
             val = "TRIPPED"; // Hydrogen Sensor active
             statusMessage = "H2_ALERT";
           }
-          if (arrayIndex === 5 && posInArray === 12 && code === 11) {
+          if (demo && arrayIndex === 5 && posInArray === 12 && code === 11) {
             val = "TRIPPED"; // Moisture detected
             statusMessage = "MOISTURE_ALARM";
           }
-          if (arrayIndex === 7 && posInArray === 18 && code === 8) {
+          if (demo && arrayIndex === 7 && posInArray === 18 && code === 8) {
             communicating = false; // Offline IO Communications
             statusMessage = "COMM_LOST";
           }
@@ -3000,7 +3000,7 @@ router.get("/topology", async (req, res) => {
     let isFallbackUsed = false;
 
     if (!hasLiveData) {
-      blockData = generateSimulatedTopology();
+      blockData = generateSimulatedTopology(demo);
       isFallbackUsed = true;
     }
     

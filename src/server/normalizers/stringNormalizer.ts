@@ -194,27 +194,36 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   }
 
   let bothContactorsClosed: boolean | null = null;
-  if (rawRow.BothContactorsClosed !== undefined && rawRow.BothContactorsClosed !== null && rawRow.BothContactorsClosed !== "") {
-    bothContactorsClosed = parseNullableBool(rawRow.BothContactorsClosed);
-  } else if (rawRow.bothContactorsClosed !== undefined && rawRow.bothContactorsClosed !== null && rawRow.bothContactorsClosed !== "") {
-    bothContactorsClosed = parseNullableBool(rawRow.bothContactorsClosed);
-  } else if (positiveContactorClosed !== null && negativeContactorClosed !== null) {
-    bothContactorsClosed = positiveContactorClosed && negativeContactorClosed;
-  } else if (rawRow.ContactorsClosed !== undefined && rawRow.ContactorsClosed !== null && rawRow.ContactorsClosed !== "") {
-    bothContactorsClosed = parseNullableBool(rawRow.ContactorsClosed);
-  } else if (rawRow.contactorsClosed !== undefined && rawRow.contactorsClosed !== null && rawRow.contactorsClosed !== "") {
-    bothContactorsClosed = parseNullableBool(rawRow.contactorsClosed);
-  } else if (rawRow.contactorClosed !== undefined && rawRow.contactorClosed !== null && rawRow.contactorClosed !== "") {
-    bothContactorsClosed = parseNullableBool(rawRow.contactorClosed);
-  } else if (typeof rawRow.contactorStatus === 'string') {
-    const status = rawRow.contactorStatus.toUpperCase();
-    if (status === 'CLOSED') {
-      bothContactorsClosed = true;
-    } else if (status === 'OPEN') {
-      bothContactorsClosed = false;
+  let partialContactorMismatch = false;
+
+  if (positiveContactorClosed === true && negativeContactorClosed === true) {
+    bothContactorsClosed = true;
+  } else if (positiveContactorClosed === false && negativeContactorClosed === false) {
+    bothContactorsClosed = false;
+  } else if (positiveContactorClosed === false || negativeContactorClosed === false) {
+    bothContactorsClosed = false;
+    partialContactorMismatch = true;
+  } else {
+    if (rawRow.BothContactorsClosed !== undefined && rawRow.BothContactorsClosed !== null && rawRow.BothContactorsClosed !== "") {
+      bothContactorsClosed = parseNullableBool(rawRow.BothContactorsClosed);
+    } else if (rawRow.bothContactorsClosed !== undefined && rawRow.bothContactorsClosed !== null && rawRow.bothContactorsClosed !== "") {
+      bothContactorsClosed = parseNullableBool(rawRow.bothContactorsClosed);
+    } else if (rawRow.ContactorsClosed !== undefined && rawRow.ContactorsClosed !== null && rawRow.ContactorsClosed !== "") {
+      bothContactorsClosed = parseNullableBool(rawRow.ContactorsClosed);
+    } else if (rawRow.contactorsClosed !== undefined && rawRow.contactorsClosed !== null && rawRow.contactorsClosed !== "") {
+      bothContactorsClosed = parseNullableBool(rawRow.contactorsClosed);
+    } else if (rawRow.contactorClosed !== undefined && rawRow.contactorClosed !== null && rawRow.contactorClosed !== "") {
+      bothContactorsClosed = parseNullableBool(rawRow.contactorClosed);
+    } else if (typeof rawRow.contactorStatus === 'string') {
+      const status = rawRow.contactorStatus.toUpperCase();
+      if (status === 'CLOSED') {
+        bothContactorsClosed = true;
+      } else if (status === 'OPEN') {
+        bothContactorsClosed = false;
+      }
+    } else if (typeof rawRow.contactor_closed === 'boolean') {
+      bothContactorsClosed = rawRow.contactor_closed;
     }
-  } else if (typeof rawRow.contactor_closed === 'boolean') {
-    bothContactorsClosed = rawRow.contactor_closed;
   }
 
   let contactorsCloseExpected: boolean | null = null;
@@ -229,8 +238,14 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   }
 
   let commandMatchesContactors: boolean | null = null;
-  if (contactorsCloseExpected !== null && bothContactorsClosed !== null) {
-    commandMatchesContactors = contactorsCloseExpected === bothContactorsClosed;
+  if (contactorsCloseExpected === true && bothContactorsClosed === true) {
+    commandMatchesContactors = true;
+  } else if (contactorsCloseExpected === false && bothContactorsClosed === false) {
+    commandMatchesContactors = true;
+  } else if (typeof contactorsCloseExpected === "boolean" && typeof bothContactorsClosed === "boolean") {
+    commandMatchesContactors = false;
+  } else {
+    commandMatchesContactors = null;
   }
 
   const badReport = rawRow.badReport !== undefined ? parseNullableBool(rawRow.badReport) : false;

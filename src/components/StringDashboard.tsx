@@ -24,7 +24,7 @@ function getContactorVisualState(row: any) {
   function getIndividualContactorDotColor(value: any) {
     if (value === true) return "blue";
     if (value === false) return "gray";
-    return "red";
+    return "amber";
   }
 
   const positiveDotColor = getIndividualContactorDotColor(row.positiveContactorClosed);
@@ -691,22 +691,22 @@ const handleManualRefresh = async () => {
               >
                   Set Balancing
               </button>
+              <button
+                  onClick={() => openContactorModal("open")}
+                  className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
+                  title="Open selected string contactors through Phoenix BMS"
+              >
+                  Open Contactors
+              </button>
+              <button
+                  onClick={() => openContactorModal("close")}
+                  className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
+                  title="Close selected string contactors through Phoenix BMS"
+              >
+                  Close Contactors
+              </button>
               {isAdvancedMode && (
                  <>
-                    <button
-                        onClick={() => openContactorModal("open")}
-                        className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
-                        title="Open selected string contactors through Phoenix BMS"
-                    >
-                        Open Contactors
-                    </button>
-                    <button
-                        onClick={() => openContactorModal("close")}
-                        className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
-                        title="Close selected string contactors through Phoenix BMS"
-                    >
-                        Close Contactors
-                    </button>
                  </>
               )}
            </div>

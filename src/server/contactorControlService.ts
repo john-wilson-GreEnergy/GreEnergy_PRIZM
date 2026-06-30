@@ -1,5 +1,5 @@
 import { pollEmsTurtle } from "./emsTurtleClient";
-import { getLatestSnapshot } from "./prizmDataCoordinator";
+import { getLatestSnapshot, triggerImmediatePoll } from "./prizmDataCoordinator";
 import { appendEvent } from "./history/prizmHistory";
 
 export interface ContactorTarget {
@@ -25,6 +25,7 @@ export interface ContactorTargetResult {
   accepted: boolean;
   responseStatus: number;
   responseText: string;
+  responseWarning?: string | null;
   readbackConfirmed: boolean | null;
   readbackStatus: string;
   error: string | null;
@@ -36,7 +37,14 @@ function getPhoenixBase(array: number): string {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function executeContactorControl(req: ContactorControlRequest): Promise<{ success: boolean; results: ContactorTargetResult[] }> {
+export async function executeContactorControl(req: ContactorControlRequest): Promise<{
+  success: boolean;
+  acceptedCount: number;
+  verifiedCount: number;
+  mismatchCount: number;
+  unknownCount: number;
+  results: ContactorTargetResult[];
+}> {
   // 1. Validation
   if (!req.action || (req.action !== "open" && req.action !== "close")) {
     throw new Error("Action must be 'open' or 'close'");
@@ -81,6 +89,7 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
     let accepted = false;
     let responseStatus = 0;
     let responseText = "";
+    let responseWarning: string | null = null;
     let error: string | null = null;
 
     try {
@@ -101,7 +110,17 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
 
       responseStatus = res.status;
       responseText = await res.text();
-      accepted = res.ok;
+      const lowerBody = responseText.toLowerCase();
+
+      accepted = res.ok ||
+                 res.status === 200 ||
+                 lowerBody.includes("setting contactor state without flags") ||
+                 lowerBody.includes("does not support voltage alarm flags") ||
+                 lowerBody.includes("ok");
+
+      if (lowerBody.includes("does not support voltage alarm flags")) {
+        responseWarning = responseText;
+      }
     } catch (err: any) {
       error = err.message || "Timeout or network failure";
       responseText = error;
@@ -114,70 +133,109 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
       accepted,
       responseStatus,
       responseText,
+      responseWarning,
       readbackConfirmed: null,
       readbackStatus: "Pending readback",
       error
     });
   }
 
-  // 3. Readback (Wait, immediate poll, verify)
+  // 3. Readback (Wait/retry over 3 attempts)
   const acceptedAny = results.some(r => r.accepted);
   if (acceptedAny) {
-    // Wait 1500 ms for Phoenix BMS command to process
-    await sleep(1500);
+    const totalAttempts = 3;
+    for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+      console.log(`[Contactor Control] Verification attempt ${attempt}/${totalAttempts}`);
+      
+      // Wait for Phoenix BMS command to process
+      await sleep(1500);
 
-    // Trigger immediate PRIZM poll/refresh
-    await pollEmsTurtle().catch(() => {});
+      // Trigger immediate poll/refresh (same path as refresh=true)
+      await triggerImmediatePoll().catch((err) => {
+        console.error("[Contactor Control] Poll failed during readback", err);
+      });
 
-    // Compare with latest snapshot
-    const latestSnap = getLatestSnapshot();
-    const latestStrings = latestSnap?.normalized?.strings || [];
+      const latestSnap = getLatestSnapshot();
+      const latestStrings = latestSnap?.normalized?.strings || [];
 
-    for (const res of results) {
-      if (!res.accepted) {
-        res.readbackConfirmed = false;
-        res.readbackStatus = "Command not accepted; skipping readback";
-        continue;
-      }
+      let allVerifiedThisAttempt = true;
 
-      const t = res.target;
-      const isAll = t.allStrings === true;
-
-      if (isAll) {
-        const arrayStrings = latestStrings.filter((s: any) => s.arrayNumber === t.array);
-        if (arrayStrings.length === 0) {
-          res.readbackConfirmed = null;
-          res.readbackStatus = "Command accepted; readback unavailable (no strings found in latest poll)";
-        } else {
-          const allMatch = arrayStrings.every((s: any) => {
-            const val = s.bothContactorsClosed;
-            if (val === null || val === undefined) return false;
-            return req.action === "close" ? val === true : val === false;
-          });
-
-          res.readbackConfirmed = allMatch;
-          res.readbackStatus = allMatch
-            ? "Command verified: All array string contactors in requested state"
-            : "Command verification failed: Some array string contactors not in requested state";
+      for (const res of results) {
+        if (!res.accepted) {
+          res.readbackConfirmed = false;
+          res.readbackStatus = "Command not accepted; skipping readback";
+          continue;
         }
-      } else {
-        const strRow = latestStrings.find((s: any) => s.arrayNumber === t.array && s.stringNumber === t.string);
-        if (!strRow) {
-          res.readbackConfirmed = null;
-          res.readbackStatus = "Command accepted; readback unavailable (string not found in latest poll)";
-        } else {
-          const val = strRow.bothContactorsClosed;
-          if (val === null || val === undefined) {
+
+        const t = res.target;
+        const isAll = t.allStrings === true;
+
+        if (isAll) {
+          const arrayStrings = latestStrings.filter((s: any) => s.arrayNumber === t.array);
+          if (arrayStrings.length === 0) {
             res.readbackConfirmed = null;
-            res.readbackStatus = "Command accepted; readback status is unknown/null in latest poll";
+            res.readbackStatus = "Command accepted; readback unavailable (no strings found in latest poll)";
+            allVerifiedThisAttempt = false;
           } else {
-            const matches = req.action === "close" ? val === true : val === false;
-            res.readbackConfirmed = matches;
-            res.readbackStatus = matches
-              ? "Command verified: String contactor in requested state"
-              : "Command verification failed: String contactor not in requested state";
+            let hasMismatch = false;
+            let hasUnknown = false;
+            let matchCount = 0;
+
+            for (const s of arrayStrings) {
+              const val = s.bothContactorsClosed;
+              if (val === null || val === undefined) {
+                hasUnknown = true;
+              } else {
+                const matches = req.action === "close" ? val === true : val === false;
+                if (matches) {
+                  matchCount++;
+                } else {
+                  hasMismatch = true;
+                }
+              }
+            }
+
+            if (hasMismatch) {
+              res.readbackConfirmed = false;
+              res.readbackStatus = "Command verification failed: Some array string contactors not in requested state";
+              allVerifiedThisAttempt = false;
+            } else if (hasUnknown) {
+              res.readbackConfirmed = null;
+              res.readbackStatus = `Command partially verified: ${matchCount}/${arrayStrings.length} strings in requested state, remaining are unknown`;
+              allVerifiedThisAttempt = false;
+            } else {
+              res.readbackConfirmed = true;
+              res.readbackStatus = "Command verified: All array string contactors in requested state";
+            }
+          }
+        } else {
+          const strRow = latestStrings.find((s: any) => s.arrayNumber === t.array && s.stringNumber === t.string);
+          if (!strRow) {
+            res.readbackConfirmed = null;
+            res.readbackStatus = "Command accepted; readback unavailable (string not found in latest poll)";
+            allVerifiedThisAttempt = false;
+          } else {
+            const val = strRow.bothContactorsClosed;
+            if (val === null || val === undefined) {
+              res.readbackConfirmed = null;
+              res.readbackStatus = "Command accepted; readback status is unknown/null in latest poll";
+              allVerifiedThisAttempt = false;
+            } else {
+              const matches = req.action === "close" ? val === true : val === false;
+              res.readbackConfirmed = matches;
+              if (matches) {
+                res.readbackStatus = "Command verified: String contactor in requested state";
+              } else {
+                res.readbackStatus = "Command verification failed: String contactor not in requested state";
+                allVerifiedThisAttempt = false;
+              }
+            }
           }
         }
+      }
+
+      if (allVerifiedThisAttempt) {
+        break;
       }
     }
   } else {
@@ -189,6 +247,8 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
 
   const acceptedCount = results.filter(r => r.accepted).length;
   const confirmedCount = results.filter(r => r.readbackConfirmed === true).length;
+  const mismatchCount = results.filter(r => r.readbackConfirmed === false).length;
+  const unknownCount = results.filter(r => r.readbackConfirmed === null).length;
 
   // 4. Log to PRIZM history
   appendEvent({
@@ -206,5 +266,12 @@ export async function executeContactorControl(req: ContactorControlRequest): Pro
   });
 
   const success = acceptedCount > 0;
-  return { success, results };
+  return {
+    success,
+    acceptedCount,
+    verifiedCount: confirmedCount,
+    mismatchCount,
+    unknownCount,
+    results
+  };
 }
