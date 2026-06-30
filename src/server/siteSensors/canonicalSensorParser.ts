@@ -390,7 +390,13 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
       let isDirectUnavailable = false;
 
       if (directDevice && directDevice.reachable) {
-        const fss = directDevice.fssSignals || directDevice.rawResponse?.fssSignals || null;
+        const fss =
+          directDevice.fssSignals ||
+          directDevice.rawResponse?.thermalData?.fssSignals ||
+          directDevice.rawResponse?.fssSignals ||
+          directDevice.raw?.directFeather?.rawResponse?.thermalData?.fssSignals ||
+          directDevice.raw?.directFeather?.rawResponse?.fssSignals ||
+          null;
         const doors = directDevice.doors || directDevice.rawResponse?.doors || null;
         const fssValid = fss ? (fss.valid !== false) : false;
         const doorsValid = doors ? (doors.valid !== false) : false;
@@ -809,7 +815,13 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
     let isDirectUnavailable = false;
 
     if (directDevice && directDevice.reachable) {
-      const fss = directDevice.fssSignals || directDevice.rawResponse?.fssSignals || null;
+      const fss =
+        directDevice.fssSignals ||
+        directDevice.rawResponse?.thermalData?.fssSignals ||
+        directDevice.rawResponse?.fssSignals ||
+        directDevice.raw?.directFeather?.rawResponse?.thermalData?.fssSignals ||
+        directDevice.raw?.directFeather?.rawResponse?.fssSignals ||
+        null;
       const doors = directDevice.doors || directDevice.rawResponse?.doors || null;
       const fssValid = fss ? (fss.valid !== false) : false;
       const doorsValid = doors ? (doors.valid !== false) : false;
