@@ -67,7 +67,7 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
       const defaultES = {
         dataUnavailable: true, batteryDoors: true, topCapDoors: true,
         envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
-        io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+        io: true, heat: false, fireTrouble: true, moisture: true, fire: false,
         acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
       };
 
@@ -128,8 +128,14 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         reason = `Monitored sensor (${canonicalKey}) is normal`;
       }
 
+      let finalDisplayValue = cell.displayValue;
+      if (displayState === "normal" && (!finalDisplayValue || ["n/a", "", "state unknown", "unknown"].includes(finalDisplayValue.trim().toLowerCase()))) {
+        finalDisplayValue = "CLEAR";
+      }
+
       return {
         ...cell,
+        displayValue: finalDisplayValue,
         applicable: monitoredByProfile, // Hide from standard view if not in profile
         healthy: !contributesToHealth ? true : (!isTripped && !isMissing),
         tripped: contributesToHealth ? isTripped : false,
@@ -245,7 +251,7 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
     const defaultES = {
       dataUnavailable: true, batteryDoors: true, topCapDoors: true,
       envControllerVent: true, smoke: true, hydrogenFault: true, hydrogen: true,
-      io: true, heat: true, fireTrouble: true, moisture: true, fire: false,
+      io: true, heat: false, fireTrouble: true, moisture: true, fire: false,
       acDoors: false, dcDoors: false, manualVentilation: false, upsAlarm: false
     };
 

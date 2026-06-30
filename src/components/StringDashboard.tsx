@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers } from "lucide-react";
+import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
 import { formatTemperatureF } from "../utils/temperatureScale";
 
@@ -7,6 +7,7 @@ import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import { normalizeVoltage, normalizeDeltaVoltage } from '../lib/voltageNormalizer';
 import RotationModal, { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
+import ContactorControlModal, { ContactorTarget } from './ContactorControlModal';
 import { useSiteData } from '../context/SiteDataContext';
 
 function getContactorVisualState(row: any) {
@@ -157,6 +158,15 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   
   const [balancingModalOpen, setBalancingModalOpen] = useState(false);
 
+  const [isAdvancedMode, setIsAdvancedMode] = useState(() => localStorage.getItem("prizm_advanced_mode") === "true");
+  const [contactorModalOpen, setContactorModalOpen] = useState(false);
+  const [contactorModalAction, setContactorModalAction] = useState<"open" | "close">("open");
+  const [contactorModalTargets, setContactorModalTargets] = useState<any[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
+  }, [isAdvancedMode]);
+
   useEffect(() => {
     if (!active || refreshInterval === 0) return;
     const iv = setInterval(() => {
@@ -220,6 +230,32 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       setSelectedIds(new Set());
       handleManualRefresh();
   };
+
+  function openContactorModal(action: "open" | "close") {
+    const targets = getSelectedTargets();
+    if (!targets.length) return;
+    setContactorModalAction(action);
+    setContactorModalTargets(targets);
+    setContactorModalOpen(true);
+  }
+
+  async function handleContactorConfirm(req: any) {
+    const res = await fetch("/api/local/strings/contactors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to execute contactor control");
+    }
+
+    const result = await res.json();
+    setSelectedIds(new Set());
+    await handleManualRefresh();
+    return result;
+  }
 
   const getSelectedTargets = () => {
     // Array optimization
@@ -597,6 +633,18 @@ const handleManualRefresh = async () => {
           <button onClick={downloadJson} title="Export API JSON" className="bg-white/5 hover:bg-white/10 text-prizm-info border border-prizm-border px-1.5 py-0.5 rounded transition-colors cursor-pointer shrink-0">
             <Layers size={14} />
           </button>
+          <button
+            onClick={() => setIsAdvancedMode(!isAdvancedMode)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors cursor-pointer shrink-0 ${
+              isAdvancedMode
+                ? "bg-amber-500/15 border-amber-500/50 text-amber-500 hover:bg-amber-500/25"
+                : "bg-white/5 border-prizm-border text-prizm-text hover:bg-white/10"
+            }`}
+            title={isAdvancedMode ? "Advanced Controls Unlocked" : "Unlock Advanced Controls"}
+          >
+            {isAdvancedMode ? <Unlock size={12} className="text-amber-500 animate-pulse" /> : <Lock size={12} className="text-prizm-text-muted" />}
+            {isAdvancedMode ? "Advanced" : "Unlock"}
+          </button>
         
 
 </div>
@@ -643,6 +691,24 @@ const handleManualRefresh = async () => {
               >
                   Set Balancing
               </button>
+              {isAdvancedMode && (
+                 <>
+                    <button
+                        onClick={() => openContactorModal("open")}
+                        className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
+                        title="Open selected string contactors through Phoenix BMS"
+                    >
+                        Open Contactors
+                    </button>
+                    <button
+                        onClick={() => openContactorModal("close")}
+                        className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
+                        title="Close selected string contactors through Phoenix BMS"
+                    >
+                        Close Contactors
+                    </button>
+                 </>
+              )}
            </div>
         </div>
       )}
@@ -955,6 +1021,14 @@ const handleManualRefresh = async () => {
         onConfirm={handleBalancingConfirm}
         targets={getSelectedTargets()}
         targetType="string"
+      />
+
+      <ContactorControlModal
+        isOpen={contactorModalOpen}
+        onClose={() => setContactorModalOpen(false)}
+        onConfirm={handleContactorConfirm}
+        targets={contactorModalTargets}
+        action={contactorModalAction}
       />
     </div>
   );

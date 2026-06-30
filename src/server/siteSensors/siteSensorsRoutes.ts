@@ -1484,12 +1484,33 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
   let displayName = "Unknown Enclosure";
   let sortKey = "ZZZ";
 
-  if (element.enclosureType === "CollectionSegment") {
+  const globalSegmentNumber = element.enclosureIndex !== undefined && element.enclosureIndex !== null ? Number(element.enclosureIndex) : null;
+  if (globalSegmentNumber !== null) {
+    const arrIdx = Math.floor((globalSegmentNumber - 1) / 21) + 1;
+    const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
+    arrayIndex = arrIdx;
+    if (positionInArray === 1) {
+      segmentKind = "CS";
+      segmentNumber = null;
+      segmentLabel = "CS";
+      displayName = `Array ${arrayIndex} Collection Segment`;
+      const arrPad = String(arrayIndex).padStart(2, "0");
+      sortKey = `A${arrPad}-CS`;
+    } else {
+      segmentKind = "ES";
+      segmentNumber = positionInArray - 1;
+      segmentLabel = `ES${segmentNumber}`;
+      displayName = `Array ${arrayIndex} Energy Segment ${segmentNumber}`;
+      const arrPad = String(arrayIndex).padStart(2, "0");
+      const posPad = String(segmentNumber).padStart(2, "0");
+      sortKey = `A${arrPad}-ES${posPad}`;
+    }
+  } else if (element.enclosureType === "CollectionSegment") {
     segmentKind = "CS";
     segmentNumber = null;
     segmentLabel = "CS";
     const arrayPart = arrayIndex !== null ? `Array ${arrayIndex}` : "Unknown Array";
-    displayName = `${arrayPart} - CS`;
+    displayName = `${arrayPart} Collection Segment`;
     const arrPad = arrayIndex !== null ? String(arrayIndex).padStart(2, "0") : "99";
     sortKey = `A${arrPad}-CS`;
   } else if (element.enclosureType === "EnergySegment") {
@@ -1505,7 +1526,7 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
     segmentNumber = pos;
     segmentLabel = pos !== null ? `ES${pos}` : "ES?";
     const arrayPart = arrayIndex !== null ? `Array ${arrayIndex}` : "Unknown Array";
-    displayName = `${arrayPart} - ${segmentLabel}`;
+    displayName = `${arrayPart} Energy Segment ${pos !== null ? pos : ""}`;
     
     const arrPad = arrayIndex !== null ? String(arrayIndex).padStart(2, "0") : "99";
     const posPad = pos !== null ? String(pos).padStart(2, "0") : "99";

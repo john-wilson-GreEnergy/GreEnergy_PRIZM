@@ -1,4 +1,5 @@
 import { NormalizedSensorCell, BlockSensorMatrixRow } from "./siteSensors/siteSensorsRoutes";
+import { normalizeSensorEnclosureIdentity, parseGlobalSegmentIdentity } from "../lib/enclosureIdentity";
 
 export interface NormalizedTopologySensorPoint {
   stationCode: string | null;
@@ -563,47 +564,61 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
       humidityTemperatureSensorCount++;
     }
 
-    // Parse Key & Numeric ID
-    const key = entity.entityKey || "";
-    const numericId =
-      extractFinalNumericToken(entity.entityKey) ??
-      extractFinalNumericToken(entity.displayKey) ??
-      extractFinalNumericToken(entity.statusMessage);
-
-    let enclosureIndex: number | null = null;
-    let sensorCode: number | null = null;
-    let arrayIndex: number | null = null;
-    let segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN" = "UNKNOWN";
-    let segmentNumber: number | null = null;
-    let displayName = "Unknown Enclosure";
-
-    if (numericId !== null) {
-      if (numericId < 100) {
-        enclosureIndex = null;
-        sensorCode = numericId;
-        arrayIndex = null;
-        segmentKind = "GLOBAL";
-        segmentNumber = null;
-        displayName = `Block ${stationCode}:${blockIndex}`;
-      } else {
-        enclosureIndex = Math.floor(numericId / 100);
-        sensorCode = numericId % 100;
-
-        // enclosuresPerArray = 21
-        arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
-        const positionInArray = ((enclosureIndex - 1) % 21) + 1;
-
-        if (positionInArray === 1) {
-          segmentKind = "CS";
-          segmentNumber = null;
-          displayName = `Array ${arrayIndex} - CS`;
-        } else {
-          segmentKind = "ES";
-          segmentNumber = positionInArray - 1;
-          displayName = `Array ${arrayIndex} - ES${segmentNumber}`;
-        }
-      }
-    } else {
+     // Parse Key & Numeric ID
+     const key = entity.entityKey || "";
+     let numericId: number | null = null;
+ 
+     // Check for "CS1:4" or "ES2:9" cloud sensor pattern in entityKey, displayKey, statusMessage
+     const cloudPattern = /(?:CS|ES)(\d+)(?:[:_-]|\s+)(\d+)/i;
+     const cloudMatch = key.match(cloudPattern) || 
+                      (entity.displayKey || "").match(cloudPattern) || 
+                      (entity.statusMessage || "").match(cloudPattern);
+ 
+     if (cloudMatch) {
+       const globalSegment = parseInt(cloudMatch[1], 10);
+       const sCode = parseInt(cloudMatch[2], 10);
+       numericId = globalSegment * 100 + sCode;
+     } else {
+       numericId =
+         extractFinalNumericToken(entity.entityKey) ??
+         extractFinalNumericToken(entity.displayKey) ??
+         extractFinalNumericToken(entity.statusMessage);
+     }
+ 
+     let enclosureIndex: number | null = null;
+     let sensorCode: number | null = null;
+     let arrayIndex: number | null = null;
+     let segmentKind: "CS" | "ES" | "GLOBAL" | "UNKNOWN" = "UNKNOWN";
+     let segmentNumber: number | null = null;
+     let displayName = "Unknown Enclosure";
+ 
+     if (numericId !== null) {
+       if (numericId < 100) {
+         enclosureIndex = null;
+         sensorCode = numericId;
+         arrayIndex = null;
+         segmentKind = "GLOBAL";
+         segmentNumber = null;
+         displayName = `Block ${stationCode}:${blockIndex}`;
+       } else {
+         enclosureIndex = Math.floor(numericId / 100);
+         sensorCode = numericId % 100;
+ 
+         // enclosuresPerArray = 21
+         arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
+         const positionInArray = ((enclosureIndex - 1) % 21) + 1;
+ 
+         if (positionInArray === 1) {
+           segmentKind = "CS";
+           segmentNumber = null;
+           displayName = `Array ${arrayIndex} Collection Segment`;
+         } else {
+           segmentKind = "ES";
+           segmentNumber = positionInArray - 1;
+           displayName = `Array ${arrayIndex} Energy Segment ${segmentNumber}`;
+         }
+       }
+     } else {
       debugWarnings.push(`Could not parse numeric id from entityKey: "${key}" at index ${index}`);
     }
 
@@ -954,7 +969,7 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
         lineupIndex: null,
         siteConnected: true,
         segmentCommunicating: true,
-        displayName: isCS ? `Array ${arrayIndex} - CS` : `Array ${arrayIndex} - ES${segmentNumber}`
+        displayName: isCS ? `Array ${arrayIndex} Collection Segment` : `Array ${arrayIndex} Energy Segment ${segmentNumber}`
       } as any,
       actionHealthy: true,
       rowHealthy: true,

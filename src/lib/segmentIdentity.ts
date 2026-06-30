@@ -1,4 +1,5 @@
 import { stringNumberToEnergySegment } from "./stringToEsMapper";
+import { normalizeSensorEnclosureIdentity } from "./enclosureIdentity";
 
 export interface SegmentIdentity {
   arrayNumber: number | null;
@@ -23,23 +24,37 @@ export function normalizeSegmentIdentity(input: any): SegmentIdentity {
     };
   }
 
-  const arrayNumber = (typeof input.arrayNumber === "number" && !isNaN(input.arrayNumber)) ? input.arrayNumber : 
+  const ip = input.ip || input.stringControllerIp || input.deviceIp || input.ipAddress || null;
+  const rawLabel = input.displayLabel || input.label || input.displayName || "";
+  const parsed = normalizeSensorEnclosureIdentity({ ip, label: rawLabel });
+
+  let arrayNumber = (typeof input.arrayNumber === "number" && !isNaN(input.arrayNumber)) ? input.arrayNumber : 
                      ((typeof input.arrayIndex === "number" && !isNaN(input.arrayIndex)) ? input.arrayIndex : 
                      ((typeof input.array === "number" && !isNaN(input.array)) ? input.array : 
                      (input.arrayNumber ? Number(input.arrayNumber) : null)));
   
-  const stringNumber = (typeof input.stringNumber === "number" && !isNaN(input.stringNumber)) ? input.stringNumber : 
+  let enclosureType = input.enclosureType || "ES";
+
+  let stringNumber = (typeof input.stringNumber === "number" && !isNaN(input.stringNumber)) ? input.stringNumber : 
                       ((typeof input.stringIndex === "number" && !isNaN(input.stringIndex)) ? input.stringIndex : 
                       ((typeof input.string === "number" && !isNaN(input.string)) ? input.string : 
                       (input.stringNumber ? Number(input.stringNumber) : null)));
 
-  const localEsNumber = (typeof input.localEsNumber === "number" && !isNaN(input.localEsNumber)) ? input.localEsNumber : 
+  let localEsNumber = (typeof input.localEsNumber === "number" && !isNaN(input.localEsNumber)) ? input.localEsNumber : 
                        ((typeof input.energySegmentNumber === "number" && !isNaN(input.energySegmentNumber)) ? input.energySegmentNumber : 
                        ((typeof input.esNumber === "number" && !isNaN(input.esNumber)) ? input.esNumber : 
                        (stringNumber !== null ? stringNumberToEnergySegment(stringNumber) : null)));
 
-  const enclosureType = input.enclosureType || "ES";
-  
+  if (parsed.arrayIndex !== null) {
+    arrayNumber = parsed.arrayIndex;
+    if (parsed.segmentType !== "UNKNOWN") {
+      enclosureType = parsed.segmentType;
+    }
+    if (parsed.localEsNumber !== null) {
+      localEsNumber = parsed.localEsNumber;
+    }
+  }
+
   let side: "A-Side" | "B-Side" | null = null;
   if (input.side === "A-Side" || input.side === "A" || input.side === "Left" || input.stringSide === "A-Side") {
     side = "A-Side";
@@ -49,23 +64,28 @@ export function normalizeSegmentIdentity(input: any): SegmentIdentity {
     side = stringNumber % 2 === 1 ? "A-Side" : "B-Side";
   }
 
-  const ip = input.ip || input.stringControllerIp || input.deviceIp || input.ipAddress || null;
-
   // Generate displayLabel cleanly
-  const parts: string[] = [];
-  if (arrayNumber !== null) {
-    parts.push(`A${arrayNumber}`);
+  let displayLabel = "";
+  if (parsed.arrayIndex !== null) {
+    displayLabel = parsed.shortLabel;
+  } else if (rawLabel && !/^\d+$/.test(String(rawLabel).trim())) {
+    displayLabel = rawLabel;
+  } else {
+    const parts: string[] = [];
+    if (arrayNumber !== null) {
+      parts.push(`A${arrayNumber}`);
+    }
+    if (localEsNumber !== null) {
+      parts.push(`ES${localEsNumber}`);
+    }
+    if (stringNumber !== null) {
+      parts.push(`S${stringNumber}`);
+    }
+    if (side !== null) {
+      parts.push(side);
+    }
+    displayLabel = parts.join(" / ") || "Unknown Target";
   }
-  if (localEsNumber !== null) {
-    parts.push(`ES${localEsNumber}`);
-  }
-  if (stringNumber !== null) {
-    parts.push(`S${stringNumber}`);
-  }
-  if (side !== null) {
-    parts.push(side);
-  }
-  const displayLabel = input.displayLabel || input.label || parts.join(" / ") || "Unknown Target";
 
   return {
     arrayNumber,

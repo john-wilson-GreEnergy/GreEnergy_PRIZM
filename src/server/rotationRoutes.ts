@@ -16,6 +16,12 @@ rotationRouter.get('/capabilities', (req, res) => {
             "array": true,
             "method": "GET",
             "executor": "turtle-controls-ems"
+        },
+        "contactors": {
+            "strings": true,
+            "array": true,
+            "phoenixDirect": true,
+            "alarmOverrideFlags": true
         }
     });
 });
@@ -33,6 +39,12 @@ rotationRouter.get('/rotation/capabilities', (req, res) => {
             "array": true,
             "method": "GET",
             "executor": "turtle-controls-ems"
+        },
+        "contactors": {
+            "strings": true,
+            "array": true,
+            "phoenixDirect": true,
+            "alarmOverrideFlags": true
         }
     });
 });
