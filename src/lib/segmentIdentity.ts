@@ -26,7 +26,13 @@ export function normalizeSegmentIdentity(input: any): SegmentIdentity {
 
   const ip = input.ip || input.stringControllerIp || input.deviceIp || input.ipAddress || null;
   const rawLabel = input.displayLabel || input.label || input.displayName || "";
-  const parsed = normalizeSensorEnclosureIdentity({ ip, label: rawLabel });
+  const parsed = normalizeSensorEnclosureIdentity({
+    ip,
+    label: rawLabel,
+    enclosureIndex: input.enclosureIndex !== undefined ? input.enclosureIndex : input.globalEnclosureIndex,
+    enclosureType: input.enclosureType,
+    segmentPosition: input.segmentPosition !== undefined ? input.segmentPosition : input.localEsNumber
+  });
 
   let arrayNumber = (typeof input.arrayNumber === "number" && !isNaN(input.arrayNumber)) ? input.arrayNumber : 
                      ((typeof input.arrayIndex === "number" && !isNaN(input.arrayIndex)) ? input.arrayIndex : 

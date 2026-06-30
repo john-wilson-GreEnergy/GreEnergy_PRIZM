@@ -1,5 +1,7 @@
 import { EmsProfile } from "../profiles/profileTypes";
 import { NormalizedSensorCell } from "./siteSensorsRoutes";
+import { getFeatherCache } from "../feather/featherClient";
+import { normalizeSensorEnclosureIdentity } from "../../lib/enclosureIdentity";
 
 export function mapToCanonicalProfileKey(sensorKey: string): string {
   const k = sensorKey.trim();
@@ -16,9 +18,28 @@ export function mapToCanonicalProfileKey(sensorKey: string): string {
  * Resolves all sensor cells in a list of BlockSensorMatrixRows under the active site profile.
  */
 export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null): any[] {
+  const fCache = getFeatherCache();
+  const fDevices = fCache?.devices || [];
+
   return rows.map((row) => {
     const isCS = row.location?.enclosureType === "CollectionSegment" || row.topology?.enclosureType === "CollectionSegment";
     const enclosureType = isCS ? "CS" : "ES";
+
+    const parsedIdent = normalizeSensorEnclosureIdentity({
+      enclosureIndex: row.location?.enclosureIndex,
+      displayName: row.location?.displayName,
+      enclosureType: row.location?.enclosureType,
+      segmentPosition: row.location?.segmentPosition
+    });
+
+    let directDevice: any = null;
+    if (parsedIdent.arrayIndex !== null) {
+      const targetIp = parsedIdent.segmentType === "CS"
+        ? `10.0.${parsedIdent.arrayIndex}.3`
+        : `10.0.${parsedIdent.arrayIndex}.${10 + (parsedIdent.localEsNumber! - 1) * 5}`;
+      
+      directDevice = fDevices.find((d: any) => d.deviceIp === targetIp);
+    }
 
     const resolveCell = (cell: any, key: string) => {
       if (!cell) return cell;
@@ -54,7 +75,90 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         isTripped = hasFaultStatusMsg;
       }
 
+      let sourceConflict = false;
+      let rawBlockviewerState = isTripped ? "TRIPPED" : "NORMAL";
+      let directFeatherState = isTripped ? "TRIPPED" : "NORMAL";
+      let activeStateSource = "blockviewer";
+
       const canonicalKey = mapToCanonicalProfileKey(key);
+
+      if (directDevice && directDevice.reachable) {
+        const fss = directDevice.fssSignals || directDevice.rawResponse?.fssSignals || {};
+        const doors = directDevice.doors || directDevice.rawResponse?.doors || {};
+
+        let directTripped = false;
+        let hasDirectField = false;
+
+        if (canonicalKey === "hydrogen") {
+          if (fss.hydrogenAlarm !== undefined) {
+            directTripped = fss.hydrogenAlarm === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "hydrogenFault") {
+          if (fss.hydrogenFault !== undefined) {
+            directTripped = fss.hydrogenFault === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "smoke") {
+          if (fss.smokeAlarm !== undefined) {
+            directTripped = fss.smokeAlarm === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "fireTrouble" || canonicalKey === "fireSuppressionTrouble") {
+          if (fss.fireTrouble !== undefined) {
+            directTripped = fss.fireTrouble === true;
+            hasDirectField = true;
+          } else if (fss.smokeAlarmTrouble !== undefined) {
+            directTripped = fss.smokeAlarmTrouble === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "fire") {
+          if (fss.fireAlarm !== undefined) {
+            directTripped = fss.fireAlarm === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "heat") {
+          if (fss.heatSensor !== undefined) {
+            directTripped = fss.heatSensor === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "moisture" || canonicalKey === "leakDetector") {
+          if (fss.leakAlarm !== undefined) {
+            directTripped = fss.leakAlarm === true;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "dcDoors") {
+          if (doors.dcDoorsClosed !== undefined) {
+            directTripped = doors.dcDoorsClosed === false;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "acDoors") {
+          if (doors.acDoorsClosed !== undefined) {
+            directTripped = doors.acDoorsClosed === false;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "batteryDoors") {
+          if (doors.batteryDoorsClosed !== undefined) {
+            directTripped = doors.batteryDoorsClosed === false;
+            hasDirectField = true;
+          }
+        } else if (canonicalKey === "topCapDoors") {
+          if (doors.lowerTopcapClosed !== undefined) {
+            directTripped = doors.lowerTopcapClosed === false;
+            hasDirectField = true;
+          }
+        }
+
+        if (hasDirectField) {
+          activeStateSource = "direct-feather";
+          directFeatherState = directTripped ? "TRIPPED" : "NORMAL";
+          if (isTripped !== directTripped) {
+            sourceConflict = true;
+            isTripped = directTripped;
+          }
+        }
+      }
+
       const profile = activeProfile?.sensorMonitoringProfile;
 
       const defaultCS = {
@@ -129,7 +233,9 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
       }
 
       let finalDisplayValue = cell.displayValue;
-      if (displayState === "normal" && (!finalDisplayValue || ["n/a", "", "state unknown", "unknown"].includes(finalDisplayValue.trim().toLowerCase()))) {
+      if (sourceConflict) {
+        finalDisplayValue = isTripped ? "TRIPPED" : "NORMAL";
+      } else if (displayState === "normal" && (!finalDisplayValue || ["n/a", "", "state unknown", "unknown"].includes(finalDisplayValue.trim().toLowerCase()))) {
         finalDisplayValue = "CLEAR";
       }
 
@@ -151,7 +257,15 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
         displayState,
         healthState: displayState,
         reason,
-        capability: monitoredByProfile ? "expected" : "unsupported"
+        capability: monitoredByProfile ? "expected" : "unsupported",
+        sourceDebug: {
+          sourceConflict,
+          rawBlockviewerState,
+          directFeatherState,
+          activeStateSource,
+          directFeatherIp: directDevice?.deviceIp || null,
+          directFeatherReachable: !!directDevice?.reachable
+        }
       };
     };
 
@@ -235,11 +349,113 @@ export function resolveMatrixRows(rows: any[], activeProfile: EmsProfile | null)
 }
 
 export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile | null): any[] {
+  const fCache = getFeatherCache();
+  const fDevices = fCache?.devices || [];
+
   return points.map(point => {
     const isCS = point.segmentKind === "CS";
     const enclosureType = isCS ? "CS" : "ES";
     const canonicalKey = mapToCanonicalProfileKey(point.pointRole);
     const profile = activeProfile?.sensorMonitoringProfile;
+
+    const parsedIdent = normalizeSensorEnclosureIdentity({
+      enclosureIndex: point.enclosureIndex,
+      displayName: point.displayName,
+      enclosureType: point.segmentKind === "CS" ? "CollectionSegment" : point.segmentKind === "ES" ? "EnergySegment" : undefined,
+      segmentPosition: point.segmentNumber
+    });
+
+    let directDevice: any = null;
+    if (parsedIdent.arrayIndex !== null) {
+      const targetIp = parsedIdent.segmentType === "CS"
+        ? `10.0.${parsedIdent.arrayIndex}.3`
+        : `10.0.${parsedIdent.arrayIndex}.${10 + (parsedIdent.localEsNumber! - 1) * 5}`;
+      
+      directDevice = fDevices.find((d: any) => d.deviceIp === targetIp);
+    }
+
+    let activeState = point.activeState;
+    let sourceConflict = false;
+    let rawBlockviewerState = activeState ? "TRIPPED" : "NORMAL";
+    let directFeatherState = activeState ? "TRIPPED" : "NORMAL";
+    let activeStateSource = "blockviewer";
+
+    if (directDevice && directDevice.reachable) {
+      const fss = directDevice.fssSignals || directDevice.rawResponse?.fssSignals || {};
+      const doors = directDevice.doors || directDevice.rawResponse?.doors || {};
+
+      let directTripped = false;
+      let hasDirectField = false;
+
+      if (canonicalKey === "hydrogen") {
+        if (fss.hydrogenAlarm !== undefined) {
+          directTripped = fss.hydrogenAlarm === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "hydrogenFault") {
+        if (fss.hydrogenFault !== undefined) {
+          directTripped = fss.hydrogenFault === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "smoke") {
+        if (fss.smokeAlarm !== undefined) {
+          directTripped = fss.smokeAlarm === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "fireTrouble" || canonicalKey === "fireSuppressionTrouble") {
+        if (fss.fireTrouble !== undefined) {
+          directTripped = fss.fireTrouble === true;
+          hasDirectField = true;
+        } else if (fss.smokeAlarmTrouble !== undefined) {
+          directTripped = fss.smokeAlarmTrouble === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "fire") {
+        if (fss.fireAlarm !== undefined) {
+          directTripped = fss.fireAlarm === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "heat") {
+        if (fss.heatSensor !== undefined) {
+          directTripped = fss.heatSensor === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "moisture" || canonicalKey === "leakDetector") {
+        if (fss.leakAlarm !== undefined) {
+          directTripped = fss.leakAlarm === true;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "dcDoors") {
+        if (doors.dcDoorsClosed !== undefined) {
+          directTripped = doors.dcDoorsClosed === false;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "acDoors") {
+        if (doors.acDoorsClosed !== undefined) {
+          directTripped = doors.acDoorsClosed === false;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "batteryDoors") {
+        if (doors.batteryDoorsClosed !== undefined) {
+          directTripped = doors.batteryDoorsClosed === false;
+          hasDirectField = true;
+        }
+      } else if (canonicalKey === "topCapDoors") {
+        if (doors.lowerTopcapClosed !== undefined) {
+          directTripped = doors.lowerTopcapClosed === false;
+          hasDirectField = true;
+        }
+      }
+
+      if (hasDirectField) {
+        activeStateSource = "direct-feather";
+        directFeatherState = directTripped ? "TRIPPED" : "NORMAL";
+        if (activeState !== directTripped) {
+          sourceConflict = true;
+          activeState = directTripped;
+        }
+      }
+    }
 
     const defaultCS = {
       dataUnavailable: true, acDoors: true, dcDoors: true, topCapDoors: true,
@@ -272,10 +488,37 @@ export function resolveTopologyPoints(points: any[], activeProfile: EmsProfile |
 
     const contributesToHealth = monitoredByProfile;
 
+    const pointAvailable = point.pointAvailable;
+    const pointHealthy = !contributesToHealth ? true : (pointAvailable && activeState !== true);
+    
+    let severity = point.severity;
+    if (contributesToHealth) {
+      if (activeState === true) {
+        severity = "Critical";
+      } else if (!pointAvailable) {
+        severity = "Warning";
+      } else {
+        severity = "OK";
+      }
+    } else {
+      severity = "OK";
+    }
+
     return {
       ...point,
+      activeState,
+      pointHealthy,
+      severity,
       monitoredByProfile,
-      contributesToHealth
+      contributesToHealth,
+      sourceDebug: {
+        sourceConflict,
+        rawBlockviewerState,
+        directFeatherState,
+        activeStateSource,
+        directFeatherIp: directDevice?.deviceIp || null,
+        directFeatherReachable: !!directDevice?.reachable
+      }
     };
   });
 }

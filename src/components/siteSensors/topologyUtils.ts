@@ -410,14 +410,33 @@ export function formatEntityKey(key: string): string {
 
 export function isPhysicalSensorEnclosureRow(row: any): boolean {
   if (!row) return false;
-  const displayName = String(row.location?.displayName || row.topology?.displayName || "").toLowerCase();
-  const enclosureType = row.location?.enclosureType || row.topology?.enclosureType;
+  const displayName = String(row.location?.displayName || row.topology?.displayName || row.displayName || "").toLowerCase();
 
-  if (displayName.includes("enclosure string modules")) return false;
-  if (displayName.includes("string modules")) return false;
-  if (displayName.includes("header")) return false;
-  if (displayName.includes("group")) return false;
+  if (
+    displayName.includes("enclosure string modules") ||
+    displayName.includes("string modules") ||
+    displayName.includes("header") ||
+    displayName.includes("group") ||
+    displayName.includes("section") ||
+    displayName.includes("summary")
+  ) {
+    return false;
+  }
 
-  return enclosureType === "CollectionSegment" || enclosureType === "EnergySegment";
+  const enclosureType = row.location?.enclosureType || row.topology?.enclosureType || row.enclosureType;
+  if (enclosureType !== "CollectionSegment" && enclosureType !== "EnergySegment" && enclosureType !== "CS" && enclosureType !== "ES") {
+    return false;
+  }
+
+  // Ensure we can resolve a valid array index
+  const name = row.location?.displayName || row.topology?.displayName || row.displayName || "";
+  const match = name.match(/Array\s+(\d+)/i);
+  const rawIdx = row.location?.enclosureIndex ?? row.topology?.enclosureIndex ?? row.location?.segmentPosition;
+
+  if (!match && (rawIdx === undefined || rawIdx === null)) {
+    return false;
+  }
+
+  return true;
 }
 

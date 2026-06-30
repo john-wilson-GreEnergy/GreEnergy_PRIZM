@@ -86,7 +86,9 @@ export default function SiteOverheadSensorMap({
       stringNumber: row.topology?.segmentIndex,
       localEsNumber: row.topology?.energySegmentIndex,
       enclosureType: row.location?.enclosureType,
-      displayLabel: row.topology?.segmentLabel ?? row.location?.displayName ?? row.topology?.displayName
+      displayLabel: row.topology?.segmentLabel ?? row.location?.displayName ?? row.topology?.displayName,
+      enclosureIndex: row.location?.enclosureIndex,
+      segmentPosition: row.location?.segmentPosition
     });
 
     const isCS = ident.enclosureType === "CS" || ident.enclosureType === "CollectionSegment" || ident.displayLabel.includes("CS");

@@ -47,6 +47,7 @@ import {
   isPhysicalSensorEnclosureRow
 } from "./topologyUtils";
 import SiteOverheadSensorMap from "./SiteOverheadSensorMap";
+import { normalizeSensorEnclosureIdentity } from "../../lib/enclosureIdentity";
 
 export default function TopologySensorHealthPanel() {
   const [data, setData] = useState<TopologySensorSummary | null>(null);
@@ -137,17 +138,13 @@ export default function TopologySensorHealthPanel() {
 
   // Helper to format Row Location Name beautifully (Section 4 requirements)
   const formatRowLocationName = (row: BlockSensorMatrixRow): string => {
-    const name = row.location?.displayName || "";
-    const arrayMatch = name.match(/Array\s+(\d+)/i);
-    const arrNum = arrayMatch ? arrayMatch[1] : "1";
-    const isCS = row.location?.enclosureType === "CollectionSegment" || name.includes(" CS") || name.endsWith("- CS");
-    
-    if (isCS) {
-      return `Array ${arrNum} - CS`;
-    } else {
-      const esIndex = row.location?.enclosureIndex || row.location?.segmentPosition || 1;
-      return `Array ${arrNum} - ES${esIndex}`;
-    }
+    const normalized = normalizeSensorEnclosureIdentity({
+      enclosureIndex: row.location?.enclosureIndex,
+      displayName: row.location?.displayName,
+      enclosureType: row.location?.enclosureType,
+      segmentPosition: row.location?.segmentPosition
+    });
+    return normalized.shortLabel;
   };
 
   // Filter local physical rows (Section 3 & 4)

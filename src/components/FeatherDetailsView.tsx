@@ -1000,6 +1000,38 @@ export default function FeatherDetailsView({
                   </div>
                 );
               })}
+
+              {/* FSS / Telemetry Source Disagreement Details */}
+              {(() => {
+                const conflicts = dynamicSensorRows.filter((s: any) => s.cell?.sourceDebug?.sourceConflict);
+                if (conflicts.length === 0) return null;
+                return conflicts.map((c: any, cIdx: number) => (
+                  <div key={cIdx} className="mt-3 p-2.5 bg-prizm-warning/10 border border-prizm-warning/25 rounded text-[9px] text-prizm-warning space-y-1.5 animate-pulse">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-prizm-warning shrink-0" />
+                      <span>Telemetry Source Disagreement</span>
+                    </div>
+                    <div className="text-[8px] text-zinc-300">
+                      Disagreement detected for <strong className="text-prizm-warning font-bold">{c.label}</strong>. Direct Feather/Phoenix telemetry is overriding Blockviewer data.
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[8px] font-mono text-zinc-300 border-t border-prizm-warning/20 pt-1.5">
+                      <div>Raw Blockviewer State:</div>
+                      <div className="font-bold text-prizm-danger">{c.cell?.sourceDebug?.rawBlockviewerState}</div>
+                      <div>Direct Feather Status:</div>
+                      <div className="font-bold text-emerald-400">{c.cell?.sourceDebug?.directFeatherState}</div>
+                      <div>Active Overridden State:</div>
+                      <div className="font-bold text-emerald-400">{c.cell?.sourceDebug?.directFeatherState}</div>
+                      <div>Direct Device IP:</div>
+                      <div>{c.cell?.sourceDebug?.directFeatherIp || "N/A"}</div>
+                      <div>Direct IP Reachable:</div>
+                      <div className="text-emerald-400 font-bold">{c.cell?.sourceDebug?.directFeatherReachable ? "YES" : "NO"}</div>
+                    </div>
+                    <div className="text-[8px] italic text-zinc-400 pt-0.5">
+                      * Showing direct Feather status of TRIPPED/NORMAL to eliminate false alarm.
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           )}
         </div>
