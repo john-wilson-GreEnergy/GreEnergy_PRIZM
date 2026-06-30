@@ -11,6 +11,8 @@ import { getSegmentName } from "./siteData/segmentTranslator";
 import { buildNormalizedStringsData } from "./stringsDashboard";
 import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
+import { normalizeStringRow } from "./normalizers/stringNormalizer";
+import { normalizePcsRow } from "./normalizers/pcsNormalizer";
 import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionResolver";
 
 
@@ -456,12 +458,12 @@ export function readStoredKWh(row: any): number | null {
 export function resolveStringBucket(row: any): string {
   if (!row) return "online";
   
-  if (row.bucket && ["online", "nearline", "offline", "notCommunicating"].includes(row.bucket)) {
+  if (row.bucketSource === "canonical-string-classifier" && row.bucket && ["online", "nearline", "offline", "notCommunicating"].includes(row.bucket)) {
     return row.bucket;
   }
   
-  const classification = classifyStringOperationalState(row);
-  return classification.state;
+  const norm = normalizeStringRow(row);
+  return norm.bucket;
 }
 
 function average(vals: number[]): number | null {
@@ -496,6 +498,37 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   if (!snapshot.rollups.fleetCapacity) snapshot.rollups.fleetCapacity = {};
 
   const totalStrings = strings.length;
+  let unknownContactorFeedbackCount = 0;
+  let unknownRotationCount = 0;
+  let rawBucketMismatchCount = 0;
+  const canonicalBucketCounts = {
+    online: 0,
+    nearline: 0,
+    offline: 0,
+    notCommunicating: 0,
+    unknown: 0
+  };
+
+  for (const sRow of strings) {
+    const norm = normalizeStringRow(sRow);
+    if (norm.bothContactorsClosed === null || norm.bothContactorsClosed === undefined) {
+      unknownContactorFeedbackCount++;
+    }
+    if (norm.inRotation === null || norm.inRotation === undefined) {
+      unknownRotationCount++;
+    }
+    const bucket = norm.bucket;
+    const rawBucket = sRow.bucket ?? sRow.raw?.bucket;
+    if (rawBucket && rawBucket !== bucket) {
+      rawBucketMismatchCount++;
+    }
+    if (bucket === "online") canonicalBucketCounts.online++;
+    else if (bucket === "nearline") canonicalBucketCounts.nearline++;
+    else if (bucket === "offline") canonicalBucketCounts.offline++;
+    else if (bucket === "notCommunicating") canonicalBucketCounts.notCommunicating++;
+    else canonicalBucketCounts.unknown++;
+  }
+
   const getVal = (row: any, keys: string[]): number | null => {
     for (const k of keys) {
       const val = row[k];
@@ -874,7 +907,11 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       reason: "no valid SOC or kWh fields in normalized strings",
       inputStringCount: totalStrings,
       validSocCount: 0,
-      validKwhCount: 0
+      validKwhCount: 0,
+      unknownContactorFeedbackCount,
+      unknownRotationCount,
+      rawBucketMismatchCount,
+      canonicalBucketCounts
     };
   } else {
     snapshot.debug.fleetRollupRepair = {
@@ -884,6 +921,10 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       validSocCount: fleetSocValues.length,
       validKwhCount: onlineStoredKWhs.length + nearlineStoredKWhs.length + offlineStoredKWhs.length + notCommunicatingStoredKWhs.length,
       fleetSocPct,
+      unknownContactorFeedbackCount,
+      unknownRotationCount,
+      rawBucketMismatchCount,
+      canonicalBucketCounts,
       counts: {
         totalStrings,
         onlineStrings,
@@ -1128,49 +1169,39 @@ async function doBackgroundPoll() {
           const response = item.data;
           const arrayPcsData = response?.arrayPcsData;
 
-          const parseBoolean = (value: any): boolean | null => {
-            if (value === true || value === "true" || value === 1 || value === "1") return true;
-            if (value === false || value === "false" || value === 0 || value === "0") return false;
-            return null;
-          };
-
-          const outRotation = parseBoolean(arrayPcsData?.outRotation);
-          const inRotation = outRotation === null ? null : !outRotation;
-          const rotationStatus = outRotation === null ? "UNKNOWN" : outRotation ? "OUT" : "IN";
-
-          const phaseData = Array.isArray(arrayPcsData?.arrayPcsPhaseData) 
-            ? arrayPcsData.arrayPcsPhaseData.map((ph: any) => ({
-                phase: ph.arrayPcsPhase || "UNKNOWN",
-                acCurrentAmp: ph.acCurrentAmp !== undefined ? Number(ph.acCurrentAmp) : null,
-                acVoltageVolt: ph.acVoltageVolt !== undefined ? Number(ph.acVoltageVolt) : null,
-                voltageMeasurementType: ph.arrayPcsPhaseVoltageMeasuremeantType || ph.voltageMeasurementType || null
-              }))
-            : [];
+          const normPcs = normalizePcsRow({
+            ...arrayPcsData,
+            arrayNumber: arrNum,
+            pcsIndex: pcsNum,
+            sourceOk: item.ok,
+            sourcePath: item.endpoint,
+            raw: response
+          });
 
           normalizedPcs.push({
-            id: `A${arrNum}-PCS${pcsNum}`,
-            arrayNumber: arrNum,
-            pcsNumber: pcsNum,
+            id: normPcs.pcsId,
+            arrayNumber: normPcs.arrayNumber,
+            pcsNumber: normPcs.pcsIndex,
             state: arrayPcsData?.state !== undefined ? String(arrayPcsData.state) : null,
-            isReady: arrayPcsData?.isReady !== undefined ? parseBoolean(arrayPcsData.isReady) : null,
-            dcVoltageVolt: arrayPcsData?.dcVoltageVolt !== undefined ? Number(arrayPcsData.dcVoltageVolt) : null,
-            dcCurrentAmp: arrayPcsData?.dcCurrentAmp !== undefined ? Number(arrayPcsData.dcCurrentAmp) : null,
+            isReady: normPcs.communicating,
+            dcVoltageVolt: normPcs.dcVoltage,
+            dcCurrentAmp: normPcs.dcCurrent,
             acCmdRealPowerKW: arrayPcsData?.acCmdRealPowerKW !== undefined ? Number(arrayPcsData.acCmdRealPowerKW) : null,
             acCmdReactivePowerKVAR: arrayPcsData?.acCmdReactivePowerKVAR !== undefined ? Number(arrayPcsData.acCmdReactivePowerKVAR) : null,
             acRealPowerSettingKW: arrayPcsData?.acRealPowerSettingKW !== undefined ? Number(arrayPcsData.acRealPowerSettingKW) : null,
             acReactivePowerSettingKVAR: arrayPcsData?.acReactivePowerSettingKVAR !== undefined ? Number(arrayPcsData.acReactivePowerSettingKVAR) : null,
-            acRealPowerKW: arrayPcsData?.acRealPowerKW !== undefined ? Number(arrayPcsData.acRealPowerKW) : null,
-            acReactivePowerKVAR: arrayPcsData?.acReactivePowerKVAR !== undefined ? Number(arrayPcsData.acReactivePowerKVAR) : null,
+            acRealPowerKW: normPcs.acRealPowerKw,
+            acReactivePowerKVAR: normPcs.acReactivePowerKvar,
             acApparentPowerKVA: arrayPcsData?.acApparentPowerKVA !== undefined ? Number(arrayPcsData.acApparentPowerKVA) : null,
-            acFrequencyHz: arrayPcsData?.acFrequencyHz !== undefined ? Number(arrayPcsData.acFrequencyHz) : null,
-            phaseData,
+            acFrequencyHz: normPcs.frequencyHz,
+            phaseData: normPcs.raw?.phaseData || normPcs.raw?.arrayPcsPhaseData || [],
             eventVendor1: arrayPcsData?.eventVendor1 !== undefined ? Number(arrayPcsData.eventVendor1) : null,
             eventVendor2: arrayPcsData?.eventVendor2 !== undefined ? Number(arrayPcsData.eventVendor2) : null,
             eventVendor3: arrayPcsData?.eventVendor3 !== undefined ? Number(arrayPcsData.eventVendor3) : null,
             eventVendor4: arrayPcsData?.eventVendor4 !== undefined ? Number(arrayPcsData.eventVendor4) : null,
-            outRotation,
-            inRotation,
-            rotationStatus,
+            outRotation: normPcs.outRotation,
+            inRotation: normPcs.inRotation,
+            rotationStatus: normPcs.rotationStatus === "IN_ROTATION" ? "IN" : normPcs.rotationStatus === "OUT_OF_ROTATION" ? "OUT" : "UNKNOWN",
             timestamp: response?.timeStamp || null,
             sourceOk: item.ok,
             sourceEndpoint: item.endpoint,

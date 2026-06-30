@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { BlockSensorMatrixRow, NormalizedSensorCell, isPhysicalSensorEnclosureRow } from "./topologyUtils";
 import { getArrayLocalEnergySegmentNumber } from "../../lib/segmentNumbering";
+import { normalizeSegmentIdentity } from "../../lib/segmentIdentity";
 
 function formatResolvedSensorState(cell: any) {
   if (!cell) return "UNKNOWN";
@@ -79,25 +80,19 @@ export default function SiteOverheadSensorMap({
   const getSegmentSummary = (row: BlockSensorMatrixRow): SegmentSummary => {
     const name = row.location?.displayName || "";
     const arrayIndex = getArrayNumber(name);
-    
-    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
-      arrayIndex,
-      enclosureIndex: row.location?.enclosureIndex,
-      segmentIndex: row.topology?.segmentIndex,
-      segmentPosition: row.location?.segmentPosition ?? row.topology?.segmentPosition,
-      energySegmentIndex: row.topology?.energySegmentIndex,
-      segmentLabel: row.topology?.segmentLabel,
-      displayName: row.location?.displayName || row.topology?.displayName,
+
+    const ident = normalizeSegmentIdentity({
+      arrayNumber: arrayIndex,
+      stringNumber: row.topology?.segmentIndex,
+      localEsNumber: row.topology?.energySegmentIndex,
       enclosureType: row.location?.enclosureType,
+      displayLabel: row.topology?.segmentLabel ?? row.location?.displayName ?? row.topology?.displayName
     });
-    
-    const displayName = row.location?.displayName || row.topology?.displayName || "";
-    const enclosureType = row.location?.enclosureType || row.topology?.enclosureType;
-    const isCS = enclosureType === "CollectionSegment" || displayName.includes(" CS") || displayName.endsWith("- CS") || resolvedNumOrCS === "CS";
-    
+
+    const isCS = ident.enclosureType === "CS" || ident.enclosureType === "CollectionSegment" || ident.displayLabel.includes("CS");
     const segmentType = isCS ? "CS" : "ES";
-    const segmentNumber = isCS ? 0 : (typeof resolvedNumOrCS === "number" ? resolvedNumOrCS : 0);
-    const label = isCS ? "CS" : `ES${segmentNumber}`;
+    const segmentNumber = ident.localEsNumber ?? 0;
+    const label = ident.displayLabel;
 
     const monitoredSensors: any[] = [];
     let unmonitoredActiveCount = 0;

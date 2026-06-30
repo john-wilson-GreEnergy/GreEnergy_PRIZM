@@ -13,6 +13,7 @@ import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { getTopologyUiCapabilities } from "../lib/topologyUiCapabilities";
 import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
+import { normalizeSegmentIdentity } from "../lib/segmentIdentity";
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -294,40 +295,22 @@ export default function FeatherDetailsView({
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
-    const arrayIndex = device.arrayIndex !== undefined && device.arrayIndex !== null ? Number(device.arrayIndex) : undefined;
-    
-    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
-      arrayIndex,
-      enclosureIndex: device.topology?.enclosureIndex ?? device.enclosureIndex,
-      segmentIndex: device.topology?.segmentIndex ?? device.segmentIndex,
-      segmentPosition: device.topology?.segmentPosition ?? device.segmentPosition,
-      energySegmentIndex: device.energySegmentIndex,
-      segmentLabel: device.segmentLabel ?? device.topology?.segmentLabel,
-      displayName: device.displayName ?? device.topology?.displayName,
-      ip: device.ip,
+    const ident = normalizeSegmentIdentity({
+      arrayNumber: device.arrayIndex,
+      stringNumber: device.stringIndex ?? device.stringNumber,
+      localEsNumber: device.energySegmentIndex ?? device.esNumber,
+      side: device.side ?? device.stringSide,
       enclosureType: device.enclosureType ?? device.topology?.enclosureType,
+      ip: device.ip || device.deviceIp,
+      displayLabel: device.segmentLabel ?? device.topology?.segmentLabel ?? device.displayName ?? device.topology?.displayName
     });
 
-    if (resolvedNumOrCS === "CS") {
-      return {
-        segmentIndex: 1,
-        segmentType: "CS" as const,
-        displayLabel: "CS"
-      };
-    }
-
-    if (typeof resolvedNumOrCS === "number") {
-      return {
-        segmentIndex: resolvedNumOrCS,
-        segmentType: "ES" as const,
-        displayLabel: `ES ${resolvedNumOrCS}`
-      };
-    }
+    const isCS = ident.enclosureType === "CS" || ident.enclosureType === "CollectionSegment" || ident.displayLabel.includes("CS");
 
     return {
-      segmentIndex: 1,
-      segmentType: "UNKNOWN" as const,
-      displayLabel: "ES 1"
+      segmentIndex: ident.localEsNumber ?? 1,
+      segmentType: (isCS ? "CS" : "ES") as "CS" | "ES",
+      displayLabel: ident.displayLabel
     };
   };
 

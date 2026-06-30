@@ -16,6 +16,7 @@ import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
+import { normalizeStringRow } from "./normalizers/stringNormalizer";
 import { formatStringEsLabel } from "../lib/stringToEsMapper";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
@@ -312,32 +313,24 @@ export function buildStringBucketSummary(stringsData: any[]) {
     const tableRows: NormalizedStringRow[] = stringsData.map(row => {
         totalStringsVal++;
 
-        let arrayNumber = num(row.ArrayIndex ?? row.arrayIndex ?? row.arrayNumber ?? row.ArrayNumber);
-        if (arrayNumber === null || arrayNumber === 0) {
-            const derived = deriveArrayNumberFromRow({ raw: row });
-            if (derived !== null) {
-                arrayNumber = derived;
-            }
-        }
-        const stringNumber = num(row.StringIndex ?? row.stringIndex ?? row.stringNumber ?? row.StringNumber);
-        
-        // Use the unified shared classifier!
-        const classification = classifyStringOperationalState(row);
-        const bucket = classification.state;
-        const outRotation = !classification.inRotation;
-        const inRotation = classification.inRotation;
-        const contactorsClosed = classification.contactorsClosed;
-        const communicating = classification.communicating;
+        const norm = normalizeStringRow(row, { compatMissingContactorAsNearline: true });
+        const arrayNumber = norm.arrayNumber;
+        const stringNumber = norm.stringNumber;
+        const bucket = norm.bucket;
+        const outRotation = norm.outRotation ?? false;
+        const inRotation = norm.inRotation ?? true;
+        const contactorsClosed = norm.bothContactorsClosed ?? false;
+        const communicating = norm.communicating ?? true;
 
-        const id = `A${arrayNumber}-S${stringNumber}`;
-        const stringKey = `A${arrayNumber}-S${stringNumber}`;
+        const id = norm.id;
+        const stringKey = norm.stringKey;
 
         // Contactor status and closed flags
-        const positiveContactorClosed = bool(row.PositiveContactorClosed ?? row.positiveContactorClosed ?? row.positive_contactor_closed ?? false);
-        const negativeContactorClosed = bool(row.NegativeContactorClosed ?? row.negativeContactorClosed ?? row.negative_contactor_closed ?? false);
-        const contactorClosed = positiveContactorClosed && negativeContactorClosed;
+        const positiveContactorClosed = norm.positiveContactorClosed ?? false;
+        const negativeContactorClosed = norm.negativeContactorClosed ?? false;
+        const contactorClosed = norm.bothContactorsClosed ?? false;
         const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
-        const contactorsCloseExpected = bool(row.ContactorsCloseExpected ?? row.contactorsCloseExpected ?? row.CloseExpected ?? row.closeExpected ?? false);
+        const contactorsCloseExpected = norm.contactorsCloseExpected ?? false;
 
         const connectionPermitKeys = [
             "connectionPermitted",
