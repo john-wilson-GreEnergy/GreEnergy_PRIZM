@@ -36,6 +36,19 @@ const stringDetailCache = new Map<string, StringDetailCacheEntry>();
 const getStringDetailCacheKey = (arrayNumber: number, stringNumber: number) =>
   `A${arrayNumber}-S${stringNumber}`;
 
+export function normalizeCellVoltageMv(v: unknown): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  // Values like 3.272 are volts-per-cell and should become 3272 mV.
+  if (n > 0 && n < 10) return Math.round(n * 1000);
+  // Values like 3272 are already mV.
+  if (n >= 1000 && n <= 5000) return Math.round(n);
+  // Values like 3272000 are accidentally over-scaled display artifacts.
+  // Convert back to mV when clearly over-scaled.
+  if (n >= 1000000 && n <= 5000000) return Math.round(n / 1000);
+  return Math.round(n);
+}
+
 export const getCachedStringDetail = (arrayNumber: number, stringNumber: number) => {
     return stringDetailCache.get(getStringDetailCacheKey(arrayNumber, stringNumber)) ?? null;
 };
@@ -1159,9 +1172,36 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
 
             const computedBpcCount = finiteVal(bpcCount) ?? (Array.isArray(bpcs) ? bpcs.length : null);
 
+            const measuredVoltageVdc = measuredVoltage !== null ? Number(measuredVoltage) : null;
+            const calculatedVoltageVdc = calculatedVoltage !== null ? Number(calculatedVoltage) : null;
+            const busVoltageVdc = busVoltage !== null ? Number(busVoltage) : null;
+            const stackVoltageVdc = measuredVoltageVdc !== null
+                ? measuredVoltageVdc
+                : (calculatedVoltageVdc !== null
+                    ? calculatedVoltageVdc
+                    : (busVoltageVdc !== null ? busVoltageVdc : null));
+
+            const minCellVoltageMv = normalizeCellVoltageMv(minCellVoltage);
+            const avgCellVoltageMv = normalizeCellVoltageMv(avgCellVoltage);
+            const maxCellVoltageMv = normalizeCellVoltageMv(maxCellVoltage);
+            const deltaCellVoltageMv = (maxCellVoltageMv !== null && minCellVoltageMv !== null)
+                ? (maxCellVoltageMv - minCellVoltageMv)
+                : null;
+
+            const minCellTempC = minCellTemperature;
+            const avgCellTempC = avgCellTemperature;
+            const maxCellTempC = maxCellTemperature;
+            const deltaCellTempC = (maxCellTempC !== null && minCellTempC !== null)
+                ? Number((maxCellTempC - minCellTempC).toFixed(1))
+                : null;
+
+            const sourceTimestampUtc = timestampUtc;
+
             strings.push({
                 id, arrayNumber: a, stringNumber: s,
                 stringKey: `A${a}-S${s}`,
+                arrayIndex: a,
+                stringIndex: s,
                 stringConnectionState: rawStringConnectionState,
                 connectionState: rawStringConnectionState,
                 stringContactorState: rawStringContactorState,
@@ -1188,6 +1228,24 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 cellVoltageMin, cellVoltageMax, cellVoltageAvg,
                 minCellTemperature, maxCellTemperature, avgCellTemperature, cellTemperatureDelta,
                 cellTempMin, cellTempMax, cellTempAvg, cellTempDelta,
+                measuredVoltageVdc,
+                calculatedVoltageVdc,
+                busVoltageVdc,
+                stackVoltageVdc,
+                minCellVoltageMv,
+                avgCellVoltageMv,
+                maxCellVoltageMv,
+                deltaCellVoltageMv,
+                minCellTempC,
+                avgCellTempC,
+                maxCellTempC,
+                deltaCellTempC,
+                ampHours: ah,
+                currentA: amps,
+                powerKw: kw,
+                inRotation: !outRotation,
+                metricSource: "site-distribution",
+                sourceTimestampUtc,
                 balanceTelemetryAvailable,
                 balanceCount,
                 balanceMode,
