@@ -967,7 +967,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
       return statusText;
     }),
     fetchAndRecord('/tools/report/ems/status.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.status = { ...emsCache.status, ...d }; return d; }),
-    fetchAndRecord('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.block = d; return d; }),
+    fetchAndRecord('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS, 'json').then(d => { setEmsCachedBlock(d); return d; }),
     fetchAndRecord('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.lastCall = d; return d; }),
     fetchAndRecord('/tools/report/ems/strings.csv', EMS_FAST_TIMEOUT_MS, 'text').then(text => { emsCache.strings = parseCsv(text); return text; })
   ]);
@@ -1190,6 +1190,21 @@ export function getEmsCachedBlock() {
   return wrapEmsResponse("block", () => emsCache.block);
 }
 
+export function setEmsCachedBlock(d: any) {
+  if (!d) return;
+  const oldBlock = emsCache.block;
+  if (oldBlock) {
+    const oldApps = oldBlock.dragonApps || oldBlock.apps || oldBlock.emsApps;
+    const newApps = d.dragonApps || d.apps || d.emsApps;
+    if (oldApps && !newApps) {
+      if (oldBlock.dragonApps) d.dragonApps = oldBlock.dragonApps;
+      else if (oldBlock.apps) d.apps = oldBlock.apps;
+      else if (oldBlock.emsApps) d.emsApps = oldBlock.emsApps;
+    }
+  }
+  emsCache.block = d;
+}
+
 export function getEmsCachedStatusCodes() {
   return wrapEmsResponse("bessStatusCodes", () => emsCache.bessStatusCodes);
 }
@@ -1246,7 +1261,7 @@ export async function bootstrapEmsAndSeedCache() {
      if (rawStatus && !emsCache.status) emsCache.status = rawStatus;
      
      const rawBlock = prizmCache.get('raw__tools_monitor_ems_blockviewer_data')?.data; // blockviewer/data
-     if (rawBlock && !emsCache.block) emsCache.block = rawBlock;
+     if (rawBlock && !emsCache.block) setEmsCachedBlock(rawBlock);
      
      const rawLastCall = prizmCache.get('raw__tools_report_ems_lastCall_json')?.data;
      if (rawLastCall && !emsCache.lastCall) emsCache.lastCall = rawLastCall;

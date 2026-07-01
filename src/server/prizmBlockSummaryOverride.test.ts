@@ -2,8 +2,10 @@ import {
   repairFinalFleetRollupsFromStringsAndArrays, 
   findNativeEmsBlockSummary, 
   findNativeArraySummaryTotals,
+  findNativeEmsArrayStringCounts,
   lastKnownGoodEmsApps
 } from "./prizmDataCoordinator";
+import { setEmsCachedBlock, emsCache } from "./emsTurtleClient";
 
 async function runTests() {
   let passed = 0;
@@ -109,7 +111,7 @@ async function runTests() {
   };
 
   repairFinalFleetRollupsFromStringsAndArrays(snapshotWithArrayTotals);
-  assertEqual(snapshotWithArrayTotals.rollups.stringSummary.source, "native-array-summary-totals", "Test 2.1: stringSummary.source falls back to native-array-summary-totals");
+  assertEqual(snapshotWithArrayTotals.rollups.stringSummary.source, "native-ems-array-string-counts", "Test 2.1: stringSummary.source falls back to native-ems-array-string-counts");
   assertEqual(snapshotWithArrayTotals.rollups.stringSummary.buckets.online, 75, "Test 2.2: Sum of online array string counts is 75");
   assertEqual(snapshotWithArrayTotals.rollups.stringSummary.buckets.nearline, 5, "Test 2.3: Sum of nearline array string counts is 5");
 
@@ -185,6 +187,127 @@ async function runTests() {
   assertEqual(featherSummary.onlineDevices, 1, "Test 6.2: Feather onlineDevices matches");
   assertEqual(featherSummary.offlineDevices, 1, "Test 6.3: Feather offlineDevices matches");
   assertEqual(featherSummary.devices.length, 2, "Test 6.4: devices array inside featherSummary matches enrichedFeatherRows count");
+
+  // 7. findNativeEmsArrayStringCounts priority 1 (Full native EMS block array counts)
+  const rawP1 = {
+    block: {
+      arrays: [
+        { arrayIndex: 1, onlineStringCount: 10, nearlineStringCount: 2, offlineStringCount: 1, notCommunicationStringCount: 0 },
+        { arrayIndex: 2, onlineStringCount: 20, nearlineStringCount: 1, offlineStringCount: 0, notCommunicationStringCount: 1 }
+      ]
+    }
+  };
+  const countsP1 = findNativeEmsArrayStringCounts(rawP1);
+  assert(countsP1 !== null, "Test 7.1: findNativeEmsArrayStringCounts P1 extracts data successfully");
+  assertEqual(countsP1?.source, "native-ems-array-string-counts", "Test 7.2: source name is native-ems-array-string-counts");
+  assertEqual(countsP1?.online, 30, "Test 7.3: online sum is 30");
+  assertEqual(countsP1?.nearline, 3, "Test 7.4: nearline sum is 3");
+  assertEqual(countsP1?.offline, 1, "Test 7.5: offline sum is 1");
+  assertEqual(countsP1?.notCommunicating, 1, "Test 7.6: notCommunicating sum is 1");
+
+  // 8. findNativeEmsArrayStringCounts priority 2 (Native EMS last-call dcBatteryReport socData)
+  const rawP2 = {
+    lastCall: {
+      blockReport: {
+        dcBatteryReport: {
+          "1": {
+            dcBatteryData: {
+              socData: { onlineStackCount: 15, nearlineStackCount: 2, offlineStackCount: 1 }
+            }
+          },
+          "2": {
+            dcBatteryData: {
+              socData: { onlineStackCount: 25, nearlineStackCount: 1, offlineStackCount: 0 }
+            }
+          }
+        }
+      }
+    }
+  };
+  const countsP2 = findNativeEmsArrayStringCounts(rawP2);
+  assert(countsP2 !== null, "Test 8.1: findNativeEmsArrayStringCounts P2 extracts data successfully");
+  assertEqual(countsP2?.source, "native-ems-dc-battery-soc-stack-counts", "Test 8.2: source name is native-ems-dc-battery-soc-stack-counts");
+  assertEqual(countsP2?.online, 40, "Test 8.3: online sum is 40");
+  assertEqual(countsP2?.nearline, 3, "Test 8.4: nearline sum is 3");
+  assertEqual(countsP2?.offline, 1, "Test 8.5: offline sum is 1");
+
+  // 9. findNativeEmsArrayStringCounts priority 3 (Native EMS arrayReport communication counts)
+  const rawP3 = {
+    status: {
+      blockReport: {
+        arrayReport: {
+          "1": {
+            arrayData: { communicatingStackCount: 35, notCommunicatingStackCount: 5 }
+          }
+        }
+      }
+    }
+  };
+  const countsP3 = findNativeEmsArrayStringCounts(rawP3);
+  assert(countsP3 !== null, "Test 9.1: findNativeEmsArrayStringCounts P3 extracts data successfully");
+  assertEqual(countsP3?.source, "native-ems-array-communication-counts", "Test 9.2: source name is native-ems-array-communication-counts");
+  assertEqual(countsP3?.online, 35, "Test 9.3: online sum is 35");
+  assertEqual(countsP3?.notCommunicating, 5, "Test 9.4: notCommunicating sum is 5");
+
+  // 10. findNativeEmsArrayStringCounts priority 4 (Existing direct-field parser)
+  const rawP4 = {
+    block: {
+      onlineStringCount: 100,
+      nearlineStringCount: 5,
+      offlineStringCount: 2,
+      notCommunicationStringCount: 1
+    }
+  };
+  const countsP4 = findNativeEmsArrayStringCounts(rawP4);
+  assert(countsP4 !== null, "Test 10.1: findNativeEmsArrayStringCounts P4 extracts data successfully");
+  assertEqual(countsP4?.source, "native-ems-block-summary", "Test 10.2: source name is native-ems-block-summary");
+  assertEqual(countsP4?.online, 100, "Test 10.3: online count is 100");
+  assertEqual(countsP4?.nearline, 5, "Test 10.4: nearline count is 5");
+
+  // 11. Array Summary matching check: Native array counts beating repaired counts
+  const snapshotArrayMatch: any = {
+    rawSources: rawP1,
+    normalized: {
+      strings: strings.slice(0, 80), // 80 strings
+      arrays: [
+        { arrayNumber: 1, stringCount: 0, onlineStringCount: 0, nearlineStringCount: 0 },
+        { arrayNumber: 2, stringCount: 0, onlineStringCount: 0, nearlineStringCount: 0 }
+      ]
+    },
+    rollups: {
+      stringSummary: {
+        rollups: {}
+      },
+      arraySummary: [
+        { arrayIndex: 1, stringCount: 0, onlineStringCount: 0, nearlineStringCount: 0 },
+        { arrayIndex: 2, stringCount: 0, onlineStringCount: 0, nearlineStringCount: 0 }
+      ],
+      bessFleetSummary: {},
+      fleetCapacity: {}
+    }
+  };
+
+  repairFinalFleetRollupsFromStringsAndArrays(snapshotArrayMatch);
+  assertEqual(snapshotArrayMatch.rollups.arraySummary[0].onlineStringCount, 10, "Test 11.1: Array 1 onlineStringCount matches native 10");
+  assertEqual(snapshotArrayMatch.rollups.arraySummary[0].nearlineStringCount, 2, "Test 11.2: Array 1 nearlineStringCount matches native 2");
+  assertEqual(snapshotArrayMatch.rollups.arraySummary[1].onlineStringCount, 20, "Test 11.3: Array 2 onlineStringCount matches native 20");
+  assertEqual(snapshotArrayMatch.rollups.arraySummary[1].notCommunicationStringCount, 1, "Test 11.4: Array 2 notCommunicationStringCount matches native 1");
+
+  // 12. Real EMS app preservation via setEmsCachedBlock
+  emsCache.block = null;
+  const blockWithApps = {
+    dragonApps: [{ appCode: "PCS_APP", active: true }],
+    onlineStringCount: 15
+  };
+  setEmsCachedBlock(blockWithApps);
+  assertEqual(emsCache.block?.dragonApps?.length, 1, "Test 12.1: dragonApps cached successfully");
+
+  const blockWithoutApps = {
+    onlineStringCount: 18
+  };
+  setEmsCachedBlock(blockWithoutApps);
+  assertEqual(emsCache.block?.dragonApps?.length, 1, "Test 12.2: dragonApps preserved when new fetch is missing them");
+  assertEqual(emsCache.block?.onlineStringCount, 18, "Test 12.3: Rest of block data updated correctly");
 
   console.log(`\nTests finished: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {

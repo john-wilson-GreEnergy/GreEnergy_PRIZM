@@ -7,7 +7,8 @@ import {
   getNormalizedBaseUrl,
   emsCache,
   isDemoActive,
-  fetchAndRecord
+  fetchAndRecord,
+  setEmsCachedBlock
 } from "../emsTurtleClient";
 import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
@@ -1936,7 +1937,7 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       const data = await fetchAndRecord(endpoint, 4000, "json");
       if (data) {
         blockData = data;
-        emsCache.block = data;
+        setEmsCachedBlock(data);
         emsCache.lastUpdated = new Date().toISOString();
         sourceHealth.push({
           endpoint,
@@ -2983,7 +2984,7 @@ router.get("/topology", async (req, res) => {
         const data = await fetchAndRecord(endpoint, 4000, "json");
         if (data) {
           blockData = data;
-          emsCache.block = data;
+          setEmsCachedBlock(data);
           emsCache.lastUpdated = new Date().toISOString();
         } else {
           fetchError = "fetchAndRecord returned null or empty data";

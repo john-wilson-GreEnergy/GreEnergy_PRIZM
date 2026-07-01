@@ -96,6 +96,9 @@ export type PrizmSiteSnapshot = {
     arrayPcsReports?: any;
     arrayReports?: any;
     arrayNotifications?: any;
+    nativeBlockSummary?: any;
+    blockviewerRaw?: any;
+    nativeEmsBlock?: any;
   };
   normalized: {
     strings: NormalizedStringRow[];
@@ -528,6 +531,322 @@ export function resolveStringBucket(row: any): string {
   
   const norm = normalizeStringRow(row, { compatMissingContactorAsNearline: false });
   return norm.bucket;
+}
+
+export function findNativeEmsArrayStringCounts(rawSources: any): {
+  source: string;
+  online: number;
+  nearline: number;
+  offline: number;
+  notCommunicating: number;
+  totalStrings: number;
+  perArray?: any[];
+  detectedFields: string[];
+} | null {
+  if (!rawSources) return null;
+
+  const candidates = [
+    rawSources.nativeBlockSummary,
+    rawSources.blockviewerRaw,
+    rawSources.nativeEmsBlock,
+    rawSources.block,
+    rawSources.status,
+    rawSources.lastCall
+  ].filter(c => c !== undefined && c !== null);
+
+  for (const src of candidates) {
+    // ------------------------------------------------------------
+    // PRIORITY 1: Full native EMS block array counts
+    // ------------------------------------------------------------
+    const arraysCandidates = [
+      src.arrays,
+      src.blockReport?.arrays,
+      src.statusReport?.arrays,
+      src.blockReport?.blockReport?.arrays
+    ].filter(arr => Array.isArray(arr) && arr.length > 0);
+
+    for (const arrays of arraysCandidates) {
+      const hasOnlineStringCount = arrays.some(arr => arr && (arr.onlineStringCount !== undefined || arr.onlineCount !== undefined));
+      if (hasOnlineStringCount) {
+        let sumOnline = 0;
+        let sumNearline = 0;
+        let sumOffline = 0;
+        let sumNotComm = 0;
+        let sumTotal = 0;
+        const perArray: any[] = [];
+        
+        arrays.forEach((arr, index) => {
+          if (!arr) return;
+          const online = Number(arr.onlineStringCount ?? arr.onlineCount ?? arr.online ?? 0);
+          const nearline = Number(arr.nearlineStringCount ?? arr.nearlineCount ?? arr.nearline ?? 0);
+          const offline = Number(arr.offlineStringCount ?? arr.offlineCount ?? arr.offline ?? 0);
+          
+          let notComm = 0;
+          if (arr.notCommunicationStringCount !== undefined) {
+            notComm = Number(arr.notCommunicationStringCount);
+          } else if (arr.notCommunicatingCount !== undefined) {
+            notComm = Number(arr.notCommunicatingCount);
+          } else if (arr.notCommunicating !== undefined) {
+            notComm = Number(arr.notCommunicating);
+          } else if (arr.notCommCount !== undefined) {
+            notComm = Number(arr.notCommCount);
+          } else if (arr.stringCount !== undefined) {
+            notComm = Math.max(0, Number(arr.stringCount) - online - nearline - offline);
+          }
+
+          const stringCount = Number(arr.stringCount ?? (online + nearline + offline + notComm));
+          
+          sumOnline += online;
+          sumNearline += nearline;
+          sumOffline += offline;
+          sumNotComm += notComm;
+          sumTotal += stringCount;
+
+          perArray.push({
+            arrayIndex: Number(arr.arrayIndex ?? arr.id ?? index + 1),
+            stringCount,
+            online,
+            nearline,
+            offline,
+            notCommunicating: notComm,
+            sourcePath: `arrays[${index}]`
+          });
+        });
+
+        if (sumTotal > 0 && sumTotal <= 500) {
+          return {
+            source: "native-ems-array-string-counts",
+            online: sumOnline,
+            nearline: sumNearline,
+            offline: sumOffline,
+            notCommunicating: sumNotComm,
+            totalStrings: sumTotal,
+            perArray,
+            detectedFields: [
+              "arrays[].onlineStringCount",
+              "arrays[].nearlineStringCount",
+              "arrays[].offlineStringCount",
+              "arrays[].notCommunicationStringCount"
+            ]
+          };
+        }
+      }
+    }
+
+    // ------------------------------------------------------------
+    // PRIORITY 2: Native EMS last-call dcBatteryReport socData
+    // ------------------------------------------------------------
+    const blockReport = src.blockReport || src;
+    const dcBatteryReport = blockReport.dcBatteryReport;
+    if (dcBatteryReport && typeof dcBatteryReport === "object") {
+      const arrayKeys = Object.keys(dcBatteryReport).filter(k => !isNaN(Number(k)));
+      if (arrayKeys.length > 0) {
+        let sumOnline = 0;
+        let sumNearline = 0;
+        let sumOffline = 0;
+        let sumNotComm = 0;
+        let sumTotal = 0;
+        const perArray: any[] = [];
+        
+        arrayKeys.forEach(k => {
+          const arrNum = Number(k);
+          const socData = dcBatteryReport[k]?.dcBatteryData?.socData;
+          if (socData && (socData.onlineStackCount !== undefined || socData.nearlineStackCount !== undefined)) {
+            const online = Number(socData.onlineStackCount ?? 0);
+            const nearline = Number(socData.nearlineStackCount ?? 0);
+            const offline = Number(socData.offlineStackCount ?? 0);
+            
+            let notComm = 0;
+            const arrayData = blockReport.arrayReport?.[k]?.arrayData;
+            if (arrayData && arrayData.notCommunicatingStackCount !== undefined) {
+              notComm = Number(arrayData.notCommunicatingStackCount);
+            } else if (arrayData && arrayData.communicatingStackCount !== undefined) {
+              const total = Number(arrayData.communicatingStackCount) + Number(arrayData.notCommunicatingStackCount ?? 0);
+              notComm = Math.max(0, total - online - nearline - offline);
+            } else {
+              notComm = Math.max(0, 40 - online - nearline - offline);
+            }
+            
+            const stringCount = online + nearline + offline + notComm;
+            sumOnline += online;
+            sumNearline += nearline;
+            sumOffline += offline;
+            sumNotComm += notComm;
+            sumTotal += stringCount;
+            
+            perArray.push({
+              arrayIndex: arrNum,
+              stringCount,
+              online,
+              nearline,
+              offline,
+              notCommunicating: notComm,
+              sourcePath: `blockReport.dcBatteryReport.${k}`
+            });
+          }
+        });
+        
+        if (sumTotal > 0 && sumTotal <= 500) {
+          return {
+            source: "native-ems-dc-battery-soc-stack-counts",
+            online: sumOnline,
+            nearline: sumNearline,
+            offline: sumOffline,
+            notCommunicating: sumNotComm,
+            totalStrings: sumTotal,
+            perArray,
+            detectedFields: [
+              "blockReport.dcBatteryReport.*.dcBatteryData.socData.onlineStackCount",
+              "blockReport.dcBatteryReport.*.dcBatteryData.socData.nearlineStackCount",
+              "blockReport.dcBatteryReport.*.dcBatteryData.socData.offlineStackCount"
+            ]
+          };
+        }
+      }
+    }
+
+    // ------------------------------------------------------------
+    // PRIORITY 3: Native EMS arrayReport communication counts
+    // ------------------------------------------------------------
+    const arrayReport = blockReport.arrayReport;
+    if (arrayReport && typeof arrayReport === "object") {
+      const arrayKeys = Object.keys(arrayReport).filter(k => !isNaN(Number(k)));
+      if (arrayKeys.length > 0) {
+        let sumOnline = 0;
+        let sumNearline = 0;
+        let sumOffline = 0;
+        let sumNotComm = 0;
+        let sumTotal = 0;
+        const perArray: any[] = [];
+        
+        arrayKeys.forEach(k => {
+          const arrNum = Number(k);
+          const arrayData = arrayReport[k]?.arrayData;
+          if (arrayData && (arrayData.communicatingStackCount !== undefined || arrayData.notCommunicatingStackCount !== undefined)) {
+            const communicating = Number(arrayData.communicatingStackCount ?? 0);
+            const notComm = Number(arrayData.notCommunicatingStackCount ?? 0);
+            
+            const online = communicating;
+            const nearline = 0;
+            const offline = 0;
+            
+            const stringCount = online + nearline + offline + notComm;
+            sumOnline += online;
+            sumNearline += nearline;
+            sumOffline += offline;
+            sumNotComm += notComm;
+            sumTotal += stringCount;
+            
+            perArray.push({
+              arrayIndex: arrNum,
+              stringCount,
+              online,
+              nearline,
+              offline,
+              notCommunicating: notComm,
+              sourcePath: `blockReport.arrayReport.${k}`
+            });
+          }
+        });
+        
+        if (sumTotal > 0 && sumTotal <= 500) {
+          return {
+            source: "native-ems-array-communication-counts",
+            online: sumOnline,
+            nearline: sumNearline,
+            offline: sumOffline,
+            notCommunicating: sumNotComm,
+            totalStrings: sumTotal,
+            perArray,
+            detectedFields: [
+              "blockReport.arrayReport.*.arrayData.communicatingStackCount",
+              "blockReport.arrayReport.*.arrayData.notCommunicatingStackCount"
+            ]
+          };
+        }
+      }
+    }
+
+    // ------------------------------------------------------------
+    // PRIORITY 4: Existing direct-field parser
+    // ------------------------------------------------------------
+    const targets = [
+      src, 
+      src.blockReport, 
+      src.statusReport, 
+      src.stringSummary, 
+      src.stackSummary, 
+      src.stringSummaryTable, 
+      src.blockviewer,
+      src.rollups?.stringSummary,
+      src.stringSummary?.buckets,
+      src.stackSummary?.buckets
+    ];
+    
+    for (const t of targets) {
+      if (!t || typeof t !== 'object') continue;
+      
+      if (t.onlineStringCount !== undefined && t.onlineStringCount !== null && !isNaN(Number(t.onlineStringCount))) {
+        const online = Number(t.onlineStringCount);
+        const nearline = Number(t.nearlineStringCount ?? t.nearlineCount ?? 0);
+        const offline = Number(t.offlineStringCount ?? t.offlineCount ?? 0);
+        const notCommunicating = Number(t.notCommunicationStringCount ?? t.notCommunicatingCount ?? t.notCommunicating ?? t.notCommCount ?? 0);
+        const total = online + nearline + offline + notCommunicating;
+        if (total > 0 && total <= 500) {
+          return { 
+            source: "native-ems-block-summary",
+            online, 
+            nearline, 
+            offline, 
+            notCommunicating, 
+            totalStrings: total,
+            detectedFields: Object.keys(t).filter(k => k.toLowerCase().includes('string') || k.toLowerCase().includes('count') || k.toLowerCase().includes('online') || k.toLowerCase().includes('nearline')) 
+          };
+        }
+      }
+      
+      if (t.onlineCount !== undefined && t.onlineCount !== null && !isNaN(Number(t.onlineCount))) {
+        const online = Number(t.onlineCount);
+        const nearline = Number(t.nearlineCount ?? t.nearline ?? 0);
+        const offline = Number(t.offlineCount ?? t.offline ?? 0);
+        const notCommunicating = Number(t.notCommunicatingCount ?? t.notCommunicating ?? t.notCommCount ?? t.notComm ?? 0);
+        const total = online + nearline + offline + notCommunicating;
+        if (total > 0 && total <= 500) {
+          return { 
+            source: "native-ems-block-summary",
+            online, 
+            nearline, 
+            offline, 
+            notCommunicating, 
+            totalStrings: total,
+            detectedFields: Object.keys(t).filter(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('online') || k.toLowerCase().includes('nearline')) 
+          };
+        }
+      }
+
+      if (t.online !== undefined && t.online !== null && !isNaN(Number(t.online)) &&
+          t.nearline !== undefined && t.nearline !== null && !isNaN(Number(t.nearline))) {
+        const online = Number(t.online);
+        const nearline = Number(t.nearline);
+        const offline = Number(t.offline ?? 0);
+        const notCommunicating = Number(t.notCommunicating ?? t.notComm ?? t.notCommunicatingCount ?? t.notCommCount ?? t.notCommunicationStringCount ?? 0);
+        const total = online + nearline + offline + notCommunicating;
+        if (total > 0 && total <= 500) {
+          return { 
+            source: "native-ems-block-summary",
+            online, 
+            nearline, 
+            offline, 
+            notCommunicating, 
+            totalStrings: total,
+            detectedFields: Object.keys(t).filter(k => ['online', 'nearline', 'offline', 'notcommunicating', 'notcomm'].includes(k.toLowerCase())) 
+          };
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 export function findNativeEmsBlockSummary(rawSources: any): { online: number; nearline: number; offline: number; notCommunicating: number; detectedFields: string[] } | null {
@@ -1073,50 +1392,97 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   let finalUnknown = unknownStrings;
   let detectedFields: string[] = [];
   let originalRawValues: any = null;
+  let perArrayNativeCounts: any[] | undefined = undefined;
 
-  // 1. Try native EMS/Kobold block-level String Summary
-  const nativeBlockSummary = findNativeEmsBlockSummary(snapshot.rawSources);
-  if (nativeBlockSummary) {
-    stringSummarySource = 'native-ems-block-summary';
-    finalOnline = nativeBlockSummary.online;
-    finalNearline = nativeBlockSummary.nearline;
-    finalOffline = nativeBlockSummary.offline;
-    finalNotCommunicating = nativeBlockSummary.notCommunicating;
+  // Try the comprehensive native array string counts extractor first
+  const comprehensiveNativeCounts = findNativeEmsArrayStringCounts(snapshot.rawSources);
+  if (comprehensiveNativeCounts) {
+    stringSummarySource = comprehensiveNativeCounts.source;
+    finalOnline = comprehensiveNativeCounts.online;
+    finalNearline = comprehensiveNativeCounts.nearline;
+    finalOffline = comprehensiveNativeCounts.offline;
+    finalNotCommunicating = comprehensiveNativeCounts.notCommunicating;
     finalUnknown = 0;
-    detectedFields = nativeBlockSummary.detectedFields;
+    detectedFields = comprehensiveNativeCounts.detectedFields;
+    perArrayNativeCounts = comprehensiveNativeCounts.perArray;
     originalRawValues = {
-      online: nativeBlockSummary.online,
-      nearline: nativeBlockSummary.nearline,
-      offline: nativeBlockSummary.offline,
-      notCommunicating: nativeBlockSummary.notCommunicating
+      online: comprehensiveNativeCounts.online,
+      nearline: comprehensiveNativeCounts.nearline,
+      offline: comprehensiveNativeCounts.offline,
+      notCommunicating: comprehensiveNativeCounts.notCommunicating
     };
   } else {
-    // 2. Try native array-level summary totals
-    const nativeArrayTotals = findNativeArraySummaryTotals(snapshot.rawSources);
-    if (nativeArrayTotals) {
-      stringSummarySource = 'native-array-summary-totals';
-      finalOnline = nativeArrayTotals.online;
-      finalNearline = nativeArrayTotals.nearline;
-      finalOffline = nativeArrayTotals.offline;
-      finalNotCommunicating = nativeArrayTotals.notCommunicating;
+    // 1. Try native EMS/Kobold block-level String Summary
+    const nativeBlockSummary = findNativeEmsBlockSummary(snapshot.rawSources);
+    if (nativeBlockSummary) {
+      stringSummarySource = 'native-ems-block-summary';
+      finalOnline = nativeBlockSummary.online;
+      finalNearline = nativeBlockSummary.nearline;
+      finalOffline = nativeBlockSummary.offline;
+      finalNotCommunicating = nativeBlockSummary.notCommunicating;
       finalUnknown = 0;
-      detectedFields = nativeArrayTotals.detectedFields;
+      detectedFields = nativeBlockSummary.detectedFields;
       originalRawValues = {
-        online: nativeArrayTotals.online,
-        nearline: nativeArrayTotals.nearline,
-        offline: nativeArrayTotals.offline,
-        notCommunicating: nativeArrayTotals.notCommunicating
+        online: nativeBlockSummary.online,
+        nearline: nativeBlockSummary.nearline,
+        offline: nativeBlockSummary.offline,
+        notCommunicating: nativeBlockSummary.notCommunicating
       };
+    } else {
+      // 2. Try native array-level summary totals
+      const nativeArrayTotals = findNativeArraySummaryTotals(snapshot.rawSources);
+      if (nativeArrayTotals) {
+        stringSummarySource = 'native-array-summary-totals';
+        finalOnline = nativeArrayTotals.online;
+        finalNearline = nativeArrayTotals.nearline;
+        finalOffline = nativeArrayTotals.offline;
+        finalNotCommunicating = nativeArrayTotals.notCommunicating;
+        finalUnknown = 0;
+        detectedFields = nativeArrayTotals.detectedFields;
+        originalRawValues = {
+          online: nativeArrayTotals.online,
+          nearline: nativeArrayTotals.nearline,
+          offline: nativeArrayTotals.offline,
+          notCommunicating: nativeArrayTotals.notCommunicating
+        };
+      }
     }
   }
 
   const displayTotalStrings = finalOnline + finalNearline + finalOffline + finalNotCommunicating;
 
+  const nativeBuckets = (stringSummarySource !== 'canonical-string-rows-repaired') ? {
+    online: finalOnline,
+    nearline: finalNearline,
+    offline: finalOffline,
+    notCommunicating: finalNotCommunicating
+  } : null;
+
+  const canonicalBuckets = {
+    online: onlineStrings,
+    nearline: nearlineStrings,
+    offline: offlineStrings,
+    notCommunicating: notCommunicatingStrings,
+    unknown: unknownStrings
+  };
+
+  const bucketMismatch = nativeBuckets ? (
+    nativeBuckets.online !== canonicalBuckets.online ||
+    nativeBuckets.nearline !== canonicalBuckets.nearline ||
+    nativeBuckets.offline !== canonicalBuckets.offline ||
+    nativeBuckets.notCommunicating !== canonicalBuckets.notCommunicating
+  ) : false;
+
   snapshot.rollups.stringSummary.source = stringSummarySource;
   snapshot.rollups.stringSummary.debug = {
     source: stringSummarySource,
+    nativeSummaryAvailable: !!nativeBuckets,
+    nativeBuckets,
+    canonicalBuckets,
+    bucketMismatch,
     detectedFields,
-    originalRawValues
+    perArrayNativeCounts,
+    blockSummaryDisplaySource: stringSummarySource
   };
 
   snapshot.rollups.stringSummary.rollups.online = calculateBucketRollup(bucketsRaw.online, "online", onlineStoredKWhs);
@@ -1156,9 +1522,25 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   if (fleetSocPct !== null) snapshot.rollups.bessFleetSummary.systemSocPct = fleetSocPct;
 
   // PART 7 - Per-array consistency
+  const nativePerArrayMap = new Map<number, any>();
+  if (perArrayNativeCounts && Array.isArray(perArrayNativeCounts)) {
+    perArrayNativeCounts.forEach((arr: any) => {
+      nativePerArrayMap.set(arr.arrayIndex, arr);
+    });
+  }
+
   const applyToArray = (arr: any) => {
     const num = arr.arrayNumber ?? arr.arrayIndex;
-    if (num && perArray.has(num)) {
+    const nativeArr = num ? nativePerArrayMap.get(num) : null;
+    
+    if (nativeArr) {
+      arr.stringCount = nativeArr.stringCount;
+      arr.onlineStringCount = nativeArr.online;
+      arr.nearlineStringCount = nativeArr.nearline;
+      arr.offlineStringCount = nativeArr.offline;
+      arr.notCommunicationStringCount = nativeArr.notCommunicating;
+      arr.unknownStringCount = 0;
+    } else if (num && perArray.has(num)) {
       const agg = perArray.get(num);
       arr.stringCount = agg.stringCount;
       arr.onlineStringCount = agg.onlineStringCount;
@@ -1166,7 +1548,11 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       arr.offlineStringCount = agg.offlineStringCount;
       arr.notCommunicationStringCount = agg.notCommunicationStringCount;
       arr.unknownStringCount = agg.unknownStringCount;
-      
+    }
+    
+    // SOC, KWh, Power, Amps
+    if (num && perArray.has(num)) {
+      const agg = perArray.get(num);
       const onSoc = average(agg.onlineSocs);
       if (onSoc !== null) arr.onlineSOC = onSoc;
       const nearSoc = average(agg.nearlineSocs);
@@ -1898,7 +2284,10 @@ async function doBackgroundPoll() {
               emsApps: emsAppsToUse,
               arrayPcsReports: rawPcsReports,
               arrayReports: rawArrayReports,
-              arrayNotifications: getEmsCachedArrayNotifications()
+              arrayNotifications: getEmsCachedArrayNotifications(),
+              nativeBlockSummary: getEmsCachedBlock().data,
+              blockviewerRaw: getEmsCachedBlock().data,
+              nativeEmsBlock: getEmsCachedBlock().data
           },
           normalized: {
               strings: flatMergedStrings.length > 0 ? flatMergedStrings : (() => {
