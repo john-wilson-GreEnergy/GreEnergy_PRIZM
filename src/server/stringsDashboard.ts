@@ -37,6 +37,7 @@ const getStringDetailCacheKey = (arrayNumber: number, stringNumber: number) =>
   `A${arrayNumber}-S${stringNumber}`;
 
 export function normalizeCellVoltageMv(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   // Values like 3.272 are volts-per-cell and should become 3272 mV.
@@ -73,6 +74,297 @@ function parseBoolean(val: any): boolean {
     if (val === true) return true;
     if (val === "true" || val === "TRUE" || val === "1" || val === 1) return true;
     return false;
+}
+
+function parseNullableBool(val: any): boolean | null {
+    if (val === undefined || val === null || val === "") return null;
+    if (val === true) return true;
+    if (val === false) return false;
+    const s = String(val).toUpperCase().trim();
+    if (s === "TRUE" || s === "1" || s === "YES" || s === "CLOSED" || s === "ONLINE" || s === "ON" || s === "IN") return true;
+    if (s === "FALSE" || s === "0" || s === "NO" || s === "OPEN" || s === "OFFLINE" || s === "OFF" || s === "OUT") return false;
+    if (s === "UNKNOWN" || s === "PENDING" || s === "--" || s === "NULL") return null;
+    return null;
+}
+
+export function buildCanonicalStringState(s: any): any {
+    const arrayIndex = pN(s.arrayNumber || s.arrayIndex) || 1;
+    const stringNumber = pN(s.stringNumber || s.stringIndex) || 1;
+    
+    const localEsNumber = Math.ceil(stringNumber / 2);
+    const pairedStringNumber = stringNumber % 2 === 0 ? stringNumber - 1 : stringNumber + 1;
+    const featherLastOctet = 10 + ((localEsNumber - 1) * 5);
+    const featherIp = `10.0.${arrayIndex}.${featherLastOctet}`;
+    const canonicalKey = `array:${arrayIndex}:string:${stringNumber}`;
+    const displayName = `A${arrayIndex}-S${stringNumber}`;
+    const sourcePath = s.sourcePath || s.identity?.sourcePath || "unknown";
+
+    const communicating = parseNullableBool(s.communicating);
+    const inRotation = parseNullableBool(s.inRotation);
+    const outOfRotation = parseNullableBool(s.outRotation ?? s.outOfRotation);
+
+    const pos = parseNullableBool(s.positiveContactorClosed);
+    const neg = parseNullableBool(s.negativeContactorClosed);
+    const exp = parseNullableBool(s.contactorsCloseExpected);
+    const recloseCount = pN(s.recloseCount);
+
+    let bothContactorsClosed: boolean | null = null;
+    let contactorFeedbackKnown = false;
+    let contactorMismatch = false;
+    let contactorDisplayState = "UNKNOWN";
+
+    if (pos === true && neg === true) {
+        bothContactorsClosed = true;
+        contactorFeedbackKnown = true;
+        contactorMismatch = false;
+        contactorDisplayState = "CLOSED";
+    } else if (pos === false && neg === false) {
+        bothContactorsClosed = false;
+        contactorFeedbackKnown = true;
+        contactorMismatch = false;
+        contactorDisplayState = "OPEN";
+    } else if (pos === false || neg === false) {
+        bothContactorsClosed = false;
+        contactorFeedbackKnown = (pos !== null && neg !== null);
+        contactorMismatch = (pos === true || neg === true || pos === null || neg === null);
+        contactorDisplayState = "OPEN / PARTIAL";
+    } else {
+        bothContactorsClosed = null;
+        contactorFeedbackKnown = false;
+        contactorMismatch = false;
+        contactorDisplayState = "UNKNOWN";
+    }
+
+    let commandMatchesContactors: boolean | null = null;
+    if (exp === true && bothContactorsClosed === true) {
+        commandMatchesContactors = true;
+    } else if (exp === false && bothContactorsClosed === false) {
+        commandMatchesContactors = true;
+    } else if (typeof exp === "boolean" && typeof bothContactorsClosed === "boolean") {
+        commandMatchesContactors = false;
+    } else {
+        commandMatchesContactors = null;
+    }
+
+    let finalOutRotation = outOfRotation;
+    if (finalOutRotation === null) {
+        if (inRotation === true) finalOutRotation = false;
+        else if (inRotation === false) finalOutRotation = true;
+    }
+    const finalInRotation = finalOutRotation === false ? true : (finalOutRotation === true ? false : null);
+
+    const rotationDisplayState = finalInRotation === true ? "IN" : (finalOutRotation === true ? "OUT" : "UNKNOWN");
+    const commDisplayState = communicating === true ? "ONLINE" : (communicating === false ? "OFFLINE" : "UNKNOWN");
+
+    let opBucket: "online" | "nearline" | "offline" | "notCommunicating" | "unknown" = "unknown";
+    let classifierReason = "unknown";
+
+    if (communicating === false) {
+        opBucket = "notCommunicating";
+        classifierReason = "not_communicating";
+    } else if (communicating !== true) {
+        opBucket = "unknown";
+        classifierReason = "missing_communication_feedback";
+    } else if (finalOutRotation === true) {
+        opBucket = "offline";
+        classifierReason = "out_of_rotation";
+    } else if (finalInRotation !== true) {
+        opBucket = "unknown";
+        classifierReason = "missing_rotation_feedback";
+    } else if (bothContactorsClosed === true) {
+        opBucket = "online";
+        classifierReason = "communicating_in_rotation_contactors_closed";
+    } else if (bothContactorsClosed === false) {
+        opBucket = "nearline";
+        classifierReason = "communicating_in_rotation_contactors_open";
+    } else {
+        opBucket = "unknown";
+        classifierReason = "missing_contactor_feedback";
+    }
+
+    const alarmCount = pN(s.alarmCount) || 0;
+    const warningCount = pN(s.warningCount) || 0;
+    let operationalState = "UNKNOWN";
+
+    if (opBucket === "online") {
+        if (alarmCount > 0) operationalState = "ALARM";
+        else if (warningCount > 0) operationalState = "WARNING";
+        else operationalState = "NORMAL";
+    } else if (opBucket === "nearline") {
+        if (alarmCount > 0) operationalState = "ALARM";
+        else if (warningCount > 0) operationalState = "WARNING";
+        else operationalState = "NEARLINE";
+    } else if (opBucket === "offline") {
+        operationalState = "OFFLINE";
+    } else if (opBucket === "notCommunicating") {
+        operationalState = "NOT_COMMUNICATING";
+    } else {
+        operationalState = "UNKNOWN";
+    }
+
+    let knownCount = 0;
+    if (s.bpcs && Array.isArray(s.bpcs) && s.bpcs.length > 0) {
+        knownCount = s.bpcs.length;
+    } else if (s.bpcCount !== null && s.bpcCount !== undefined && s.bpcCount > 0) {
+        knownCount = s.bpcCount;
+    } else {
+        knownCount = 0;
+    }
+
+    const measuredVoltage = s.measuredVoltage !== undefined ? s.measuredVoltage : null;
+    const calculatedVoltage = s.calculatedVoltage !== undefined ? s.calculatedVoltage : null;
+    const busVoltage = s.busVoltage !== undefined ? s.busVoltage : null;
+    const currentA = s.amps !== undefined ? s.amps : null;
+    const powerKw = s.kw !== undefined ? s.kw : null;
+    const socPct = s.socPct !== undefined ? s.socPct : null;
+    const energyKwh = s.kwh !== undefined ? s.kwh : (s.kWh !== undefined ? s.kWh : null);
+
+    const minCellVoltageMv = normalizeCellVoltageMv(s.minCellVoltage);
+    const maxCellVoltageMv = normalizeCellVoltageMv(s.maxCellVoltage);
+    const avgCellVoltageMv = normalizeCellVoltageMv(s.avgCellVoltage);
+    const deltaCellVoltageMv = (maxCellVoltageMv !== null && minCellVoltageMv !== null) ? (maxCellVoltageMv - minCellVoltageMv) : null;
+
+    const minCellTempF = s.minCellTemperature !== undefined ? s.minCellTemperature : null;
+    const maxCellTempF = s.maxCellTemperature !== undefined ? s.maxCellTemperature : null;
+    const avgCellTempF = s.avgCellTemperature !== undefined ? s.avgCellTemperature : null;
+    const deltaCellTempF = (maxCellTempF !== null && minCellTempF !== null) ? Number((maxCellTempF - minCellTempF).toFixed(1)) : null;
+
+    const activeWarnings = s.warnings || [];
+    const activeFaults = s.alarms || [];
+    const healthy = alarmCount === 0 && warningCount === 0;
+    const severity = alarmCount > 0 ? "CRITICAL" : (warningCount > 0 ? "WARNING" : "OK");
+
+    const canonicalState: any = {
+        identity: {
+            arrayIndex,
+            stringNumber,
+            canonicalKey,
+            displayName,
+            localEsNumber,
+            pairedStringNumber,
+            featherIp,
+            sourcePath
+        },
+        communication: {
+            communicating: communicating,
+            displayState: commDisplayState,
+            rawValue: s.stringConnectionState || null,
+            source: s.metricSource || "direct",
+            sourcePath
+        },
+        rotation: {
+            inRotation: finalInRotation,
+            outOfRotation: finalOutRotation,
+            displayState: rotationDisplayState,
+            rawValue: s.outRotation !== undefined ? s.outRotation : null,
+            source: "direct",
+            sourcePath
+        },
+        contactors: {
+            positiveContactorClosed: pos,
+            negativeContactorClosed: neg,
+            bothContactorsClosed,
+            contactorFeedbackKnown,
+            contactorMismatch,
+            contactorsCloseExpected: exp,
+            commandMatchesContactors,
+            recloseCount,
+            displayState: contactorDisplayState,
+            source: "direct",
+            sourcePath
+        },
+        electrical: {
+            measuredVoltage,
+            calculatedVoltage,
+            busVoltage,
+            currentA,
+            powerKw,
+            socPct,
+            energyKwh,
+            minCellVoltageMv,
+            maxCellVoltageMv,
+            avgCellVoltageMv,
+            deltaCellVoltageMv,
+            minCellTempF,
+            maxCellTempF,
+            avgCellTempF,
+            deltaCellTempF
+        },
+        balancing: {
+            balancingCount: s.balanceCount !== undefined ? s.balanceCount : null,
+            balancingMode: s.balanceMode || "--",
+            balancingCellGroups: s.balanceDetails || []
+        },
+        bpcs: {
+            knownCount,
+            expectedCount: 14,
+            source: s.bpcs && s.bpcs.length > 0 ? "stringviewer-monitor" : "default"
+        },
+        health: {
+            operationalBucket: opBucket.charAt(0).toUpperCase() + opBucket.slice(1),
+            healthy,
+            severity,
+            activeWarnings,
+            activeFaults,
+            findings: s.findings || []
+        },
+        sourceDebug: {
+            canonicalKey,
+            primarySource: "ems-turtle",
+            listSourcePath: "/tools/report/ems/strings.csv",
+            detailSourcePath: `/tools/monitor/ems/stringviewer/array/${arrayIndex}/${stringNumber}/data`,
+            rawStringReportPath: `/tools/report/ems/array/${arrayIndex}/string/${stringNumber}/report.json`,
+            rawArrayReportPath: `/tools/report/ems/array/${arrayIndex}/report.json`,
+            communicationRaw: s.stringConnectionState || null,
+            rotationRaw: s.outRotation !== undefined ? s.outRotation : null,
+            contactorRaw: { positive: pos, negative: neg, expected: exp },
+            electricalRaw: { measuredVoltage, calculatedVoltage, amps: currentA, kw: powerKw },
+            bpcRaw: s.bpcs || [],
+            normalizedCommunication: communicating,
+            normalizedRotation: finalInRotation,
+            normalizedContactors: { bothClosed: bothContactorsClosed, mismatch: contactorMismatch },
+            operationalBucket: opBucket,
+            classifierInputs: { communicating, outRotation: finalOutRotation, positiveContactorClosed: pos, negativeContactorClosed: neg },
+            classifierReason,
+            sourceTimestamp: s.timestampUtc || null,
+            enrichmentApplied: s.enrichmentApplied || false,
+            reclassifiedAfterEnrichment: s.reclassifiedAfterEnrichment || false,
+            stale: false,
+            conflicts: []
+        }
+    };
+
+    const merged = {
+        ...s,
+        ...canonicalState,
+        arrayIndex,
+        stringNumber,
+        stringKey: displayName,
+        communicating,
+        outRotation: finalOutRotation,
+        inRotation: finalInRotation,
+        positiveContactorClosed: pos,
+        negativeContactorClosed: neg,
+        contactorClosed: bothContactorsClosed,
+        bothContactorsClosed,
+        contactorStatus: contactorDisplayState === "CLOSED" ? "CLOSED" : (contactorDisplayState === "UNKNOWN" ? "UNKNOWN" : "OPEN"),
+        contactorsCloseExpected: exp,
+        commandMatchesContactors,
+        rotationStatus: rotationDisplayState,
+        rotationEnabled: finalInRotation === true,
+        bucket: opBucket,
+        operationalState,
+        classification: {
+            state: opBucket,
+            bucket: opBucket,
+            reason: classifierReason,
+            communicating,
+            inRotation: finalInRotation,
+            contactorsClosed: bothContactorsClosed
+        }
+    };
+
+    return merged;
 }
 
 function tryGetField(row: any, normalizedObject: Record<string, any>, possibleNames: string[]): any {
@@ -599,8 +891,8 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 rawStringContactorStateCause = getMetricValue(["stringcontactorstatecause", "contactorstatecause"]);
             }
 
-            let communicating = true;
-            const connectionStateUpper = String(rawStringConnectionState || "").toUpperCase();
+            let communicating: boolean | null = null;
+            const connectionStateUpper = String(rawStringConnectionState || "").toUpperCase().trim();
             if (
                 connectionStateUpper.includes("LOSS") || 
                 connectionStateUpper.includes("NOT_COMMUNICATING") || 
@@ -611,7 +903,8 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             } else if (
                 connectionStateUpper === "ONLINE" || 
                 connectionStateUpper === "NEARLINE" || 
-                connectionStateUpper === "OFFLINE"
+                connectionStateUpper === "OFFLINE" ||
+                connectionStateUpper === "NORMAL"
             ) {
                 communicating = true;
             } else {
@@ -621,23 +914,28 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                     const sStr = String(v).toUpperCase();
                     return sStr === "ONLINE" || sStr === "NORMAL" || sStr === "TRUE" || sStr === "1";
                 });
-                if (isOnlineFallback === null) {
-                    isOnlineFallback = false;
+                communicating = parseNullableBool(isOnlineFallback);
+                if (communicating === null) {
+                    if (detailStringData || blockStrBase || lcStrBase || stringsCsvRow) {
+                        communicating = true;
+                    } else {
+                        communicating = null;
+                    }
                 }
-                communicating = isOnlineFallback;
             }
-            const isOnline = communicating;
+            const isOnline = communicating === true;
 
-            let outRotation = parseBoolean(getMetricValue(["outrotation", "out_rotation", "rotation"]));
+            let outRotation = parseNullableBool(getMetricValue(["outrotation", "out_rotation", "rotation"]));
             if (connectionStateUpper === "OFFLINE") {
                 outRotation = true;
             }
-            const rotationStatus = outRotation ? "OUT" : "IN";
-            const rotationEnabled = !outRotation;
+            const inRotation = outRotation === false ? true : (outRotation === true ? false : null);
+            const rotationStatus = inRotation === true ? "IN" : (outRotation === true ? "OUT" : "UNKNOWN");
+            const rotationEnabled = inRotation === true;
 
-            let positiveContactorClosed = false;
-            let negativeContactorClosed = false;
-            const contactorStateUpper = String(rawStringContactorState || "").toUpperCase();
+            let positiveContactorClosed: boolean | null = null;
+            let negativeContactorClosed: boolean | null = null;
+            const contactorStateUpper = String(rawStringContactorState || "").toUpperCase().trim();
             if (contactorStateUpper === "CLOSED") {
                 positiveContactorClosed = true;
                 negativeContactorClosed = true;
@@ -646,13 +944,13 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 negativeContactorClosed = false;
             } else {
                 // fallback
-                positiveContactorClosed = parseBoolean(getMetricValue(["positivecontactorclosed", "positive_contactor_closed"]));
-                negativeContactorClosed = parseBoolean(getMetricValue(["negativecontactorclosed", "negative_contactor_closed"]));
+                positiveContactorClosed = parseNullableBool(getMetricValue(["positivecontactorclosed", "positive_contactor_closed"]));
+                negativeContactorClosed = parseNullableBool(getMetricValue(["negativecontactorclosed", "negative_contactor_closed"]));
             }
-            const contactorClosed = positiveContactorClosed && negativeContactorClosed;
+            const contactorClosed = positiveContactorClosed === true && negativeContactorClosed === true;
             const contactorStatus = contactorClosed ? "CLOSED" : "OPEN";
             const recloseCount = pN(getMetricValue(["reclosecount"]));
-            const contactorsCloseExpected = parseBoolean(getMetricValue(["contactorscloseexpected", "closeexpected"]));
+            const contactorsCloseExpected = parseNullableBool(getMetricValue(["contactorscloseexpected", "closeexpected"]));
 
             const connectionPermitKeys = [
                 "connectionPermitted",
@@ -1343,6 +1641,95 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         }));
     }
 
+    // Recompute all summary counters from final canonical strings!
+    let finalNormalStrings = 0;
+    let finalWarningStrings = 0;
+    let finalAlarmStrings = 0;
+    let finalOfflineStrings = 0;
+    let finalNearlineStrings = 0;
+    let finalUnknownStrings = 0;
+    let finalNotCommunicatingStrings = 0;
+
+    let finalTotalBpcs = 0;
+    let finalKnownBpcCount = 0;
+    let finalWarningBpcs = 0;
+    let finalAlarmBpcs = 0;
+
+    let finalGMinV: number | null = null;
+    let finalGMaxV: number | null = null;
+    let finalGSumV = 0;
+    let finalGCountV = 0;
+    let finalGMaxVDelta: number | null = null;
+
+    let finalGMinT: number | null = null;
+    let finalGMaxT: number | null = null;
+    let finalGSumT = 0;
+    let finalGCountT = 0;
+    let finalGMaxTDelta: number | null = null;
+
+    let finalGWarnCount = 0;
+    let finalGAlarmCount = 0;
+
+    strings.forEach((s) => {
+        const canonical = buildCanonicalStringState(s);
+        Object.assign(s, canonical);
+
+        const opState = s.operationalState || "UNKNOWN";
+
+        if (opState === "NORMAL") finalNormalStrings++;
+        else if (opState === "WARNING") finalWarningStrings++;
+        else if (opState === "ALARM") finalAlarmStrings++;
+        else if (opState === "OFFLINE") finalOfflineStrings++;
+        else if (opState === "NEARLINE") finalNearlineStrings++;
+        else if (opState === "NOT_COMMUNICATING") finalNotCommunicatingStrings++;
+        else finalUnknownStrings++;
+
+        finalGWarnCount += (s.warningCount || 0);
+        finalGAlarmCount += (s.alarmCount || 0);
+
+        const bpcCount = s.bpcs?.knownCount || s.bpcCount || 0;
+        finalKnownBpcCount += bpcCount;
+        finalTotalBpcs += bpcCount;
+
+        if (s.bpcs && Array.isArray(s.bpcs)) {
+            s.bpcs.forEach((b: any) => {
+                if (b.alarmCount > 0) finalAlarmBpcs++;
+                else if (b.warningCount > 0) finalWarningBpcs++;
+            });
+        }
+
+        // Voltages and Temps stats
+        if (s.minCellVoltage !== null) {
+            if (finalGMinV === null || s.minCellVoltage < finalGMinV) finalGMinV = s.minCellVoltage;
+        }
+        if (s.maxCellVoltage !== null) {
+            if (finalGMaxV === null || s.maxCellVoltage > finalGMaxV) finalGMaxV = s.maxCellVoltage;
+        }
+        if (s.avgCellVoltage !== null) {
+            finalGSumV += s.avgCellVoltage;
+            finalGCountV++;
+        }
+        if (s.cellVoltageDelta !== null) {
+            if (finalGMaxVDelta === null || s.cellVoltageDelta > finalGMaxVDelta) finalGMaxVDelta = s.cellVoltageDelta;
+        }
+
+        if (s.minCellTemperature !== null) {
+            if (finalGMinT === null || s.minCellTemperature < finalGMinT) finalGMinT = s.minCellTemperature;
+        }
+        if (s.maxCellTemperature !== null) {
+            if (finalGMaxT === null || s.maxCellTemperature > finalGMaxT) finalGMaxT = s.maxCellTemperature;
+        }
+        if (s.avgCellTemperature !== null) {
+            finalGSumT += s.avgCellTemperature;
+            finalGCountT++;
+        }
+        if (s.cellTemperatureDelta !== null) {
+            if (finalGMaxTDelta === null || s.cellTemperatureDelta > finalGMaxTDelta) finalGMaxTDelta = s.cellTemperatureDelta;
+        }
+    });
+
+    const finalTotalStrings = strings.length;
+
     startStringDetailWarmup(strings);
 
     return {
@@ -1360,51 +1747,61 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         enrichedRowCount: enrich ? strings.length : 0,
         cards: {
             totalStrings: strings.length > 0 ? strings.length : 320,
-            normal: normalStrings,
-            offline: offlineStrings,
-            nearline: nearlineStrings,
-            warnings: gWarnCount,
-            alarms: gAlarmCount,
-            totalBpcs: totalBpcs || knownBpcCount,
-            knownBpcCount,
+            normal: finalNormalStrings,
+            offline: finalOfflineStrings,
+            nearline: finalNearlineStrings,
+            warnings: finalGWarnCount,
+            alarms: finalGAlarmCount,
+            totalBpcs: finalTotalBpcs || finalKnownBpcCount,
+            knownBpcCount: finalKnownBpcCount,
             expectedBpcCount: (strings.length > 0 ? strings.length : 320) * 14,
-            fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
-            fleetMaxCellVoltageDelta: gMaxVDelta,
-            fleetAvgCellTemp: gCountT > 0 ? Number((gSumT/gCountT).toFixed(1)) : null,
-            fleetMaxCellTemp: gMaxT
+            fleetAvgCellVoltage: finalGCountV > 0 ? Number((finalGSumV/finalGCountV).toFixed(3)) : null,
+            fleetMaxCellVoltageDelta: finalGMaxVDelta,
+            fleetAvgCellTemp: finalGCountT > 0 ? Number((finalGSumT/finalGCountT).toFixed(1)) : null,
+            fleetMaxCellTemp: finalGMaxT
         },
         rollups: {
             totalStrings: strings.length > 0 ? strings.length : 320,
-            normal: normalStrings,
-            offline: offlineStrings,
-            nearline: nearlineStrings,
-            warnings: gWarnCount,
-            alarms: gAlarmCount,
-            totalBpcs: totalBpcs || knownBpcCount,
-            knownBpcCount,
+            normal: finalNormalStrings,
+            offline: finalOfflineStrings,
+            nearline: finalNearlineStrings,
+            warnings: finalGWarnCount,
+            alarms: finalGAlarmCount,
+            totalBpcs: finalTotalBpcs || finalKnownBpcCount,
+            knownBpcCount: finalKnownBpcCount,
             expectedBpcCount: (strings.length > 0 ? strings.length : 320) * 14,
-            fleetAvgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
-            fleetMaxCellVoltageDelta: gMaxVDelta,
-            fleetAvgCellTemp: gCountT > 0 ? Number((gSumT/gCountT).toFixed(1)) : null,
-            fleetMaxCellTemp: gMaxT
+            fleetAvgCellVoltage: finalGCountV > 0 ? Number((finalGSumV/finalGCountV).toFixed(3)) : null,
+            fleetMaxCellVoltageDelta: finalGMaxVDelta,
+            fleetAvgCellTemp: finalGCountT > 0 ? Number((finalGSumT/finalGCountT).toFixed(1)) : null,
+            fleetMaxCellTemp: finalGMaxT
         },
         totalStrings: strings.length,
         arrayCount: new Set(strings.map(s => s.arrayNumber)).size,
-        normal: normalStrings,
-        offline: offlineStrings,
-        nearline: nearlineStrings,
-        warnings: gWarnCount,
-        alarms: gAlarmCount,
-        totalBpcs: totalBpcs || knownBpcCount,
+        normal: finalNormalStrings,
+        offline: finalOfflineStrings,
+        nearline: finalNearlineStrings,
+        warnings: finalGWarnCount,
+        alarms: finalGAlarmCount,
+        totalBpcs: finalTotalBpcs || finalKnownBpcCount,
         summary: {
             totalArrays: new Set(strings.map(s => s.arrayNumber)).size,
-            totalStrings,
-            normalStrings, warningStrings, alarmStrings, offlineStrings, nearlineStrings,
-            totalBpcs, warningBpcs, alarmBpcs,
-            minCellVoltage: gMinV, maxCellVoltage: gMaxV, avgCellVoltage: gCountV > 0 ? Number((gSumV/gCountV).toFixed(3)) : null,
-            maxCellVoltageDelta: gMaxVDelta,
-            minCellTemperature: gMinT, maxCellTemperature: gMaxT, avgCellTemperature: gCountT > 0 ? Number((gSumT/gCountT).toFixed(1)) : null,
-            maxCellTemperatureDelta: gMaxTDelta,
+            totalStrings: finalTotalStrings,
+            normalStrings: finalNormalStrings,
+            warningStrings: finalWarningStrings,
+            alarmStrings: finalAlarmStrings,
+            offlineStrings: finalOfflineStrings,
+            nearlineStrings: finalNearlineStrings,
+            totalBpcs: finalTotalBpcs,
+            warningBpcs: finalWarningBpcs,
+            alarmBpcs: finalAlarmBpcs,
+            minCellVoltage: finalGMinV,
+            maxCellVoltage: finalGMaxV,
+            avgCellVoltage: finalGCountV > 0 ? Number((finalGSumV/finalGCountV).toFixed(3)) : null,
+            maxCellVoltageDelta: finalGMaxVDelta,
+            minCellTemperature: finalGMinT,
+            maxCellTemperature: finalGMaxT,
+            avgCellTemperature: finalGCountT > 0 ? Number((finalGSumT/finalGCountT).toFixed(1)) : null,
+            maxCellTemperatureDelta: finalGMaxTDelta,
             latestTimestampUtc: new Date().toISOString()
         },
         arrays: [],
