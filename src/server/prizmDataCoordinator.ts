@@ -530,6 +530,156 @@ export function resolveStringBucket(row: any): string {
   return norm.bucket;
 }
 
+export function findNativeEmsBlockSummary(rawSources: any): { online: number; nearline: number; offline: number; notCommunicating: number; detectedFields: string[] } | null {
+  if (!rawSources) return null;
+  const sources = [rawSources.block, rawSources.status, rawSources.lastCall];
+  
+  for (const src of sources) {
+    if (!src) continue;
+    
+    const targets = [
+      src, 
+      src.blockReport, 
+      src.statusReport, 
+      src.stringSummary, 
+      src.stackSummary, 
+      src.stringSummaryTable, 
+      src.blockviewer,
+      src.rollups?.stringSummary,
+      src.stringSummary?.buckets,
+      src.stackSummary?.buckets
+    ];
+    
+    for (const t of targets) {
+      if (!t || typeof t !== 'object') continue;
+      
+      if (t.onlineStringCount !== undefined && t.onlineStringCount !== null && !isNaN(Number(t.onlineStringCount))) {
+        const online = Number(t.onlineStringCount);
+        const nearline = Number(t.nearlineStringCount ?? t.nearlineCount ?? 0);
+        const offline = Number(t.offlineStringCount ?? t.offlineCount ?? 0);
+        const notCommunicating = Number(t.notCommunicationStringCount ?? t.notCommunicatingCount ?? t.notCommunicating ?? t.notCommCount ?? 0);
+        return { 
+          online, 
+          nearline, 
+          offline, 
+          notCommunicating, 
+          detectedFields: Object.keys(t).filter(k => k.toLowerCase().includes('string') || k.toLowerCase().includes('count') || k.toLowerCase().includes('online') || k.toLowerCase().includes('nearline')) 
+        };
+      }
+      
+      if (t.onlineCount !== undefined && t.onlineCount !== null && !isNaN(Number(t.onlineCount))) {
+        const online = Number(t.onlineCount);
+        const nearline = Number(t.nearlineCount ?? t.nearline ?? 0);
+        const offline = Number(t.offlineCount ?? t.offline ?? 0);
+        const notCommunicating = Number(t.notCommunicatingCount ?? t.notCommunicating ?? t.notCommCount ?? t.notComm ?? 0);
+        return { 
+          online, 
+          nearline, 
+          offline, 
+          notCommunicating, 
+          detectedFields: Object.keys(t).filter(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('online') || k.toLowerCase().includes('nearline')) 
+        };
+      }
+
+      if (t.online !== undefined && t.online !== null && !isNaN(Number(t.online)) &&
+          t.nearline !== undefined && t.nearline !== null && !isNaN(Number(t.nearline))) {
+        const online = Number(t.online);
+        const nearline = Number(t.nearline);
+        const offline = Number(t.offline ?? 0);
+        const notCommunicating = Number(t.notCommunicating ?? t.notComm ?? t.notCommunicatingCount ?? t.notCommCount ?? t.notCommunicationStringCount ?? 0);
+        const total = online + nearline + offline + notCommunicating;
+        if (total > 0 && total <= 500) {
+          return { 
+            online, 
+            nearline, 
+            offline, 
+            notCommunicating, 
+            detectedFields: Object.keys(t).filter(k => ['online', 'nearline', 'offline', 'notcommunicating', 'notcomm'].includes(k.toLowerCase())) 
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function findNativeArraySummaryTotals(rawSources: any): { online: number; nearline: number; offline: number; notCommunicating: number; detectedFields: string[] } | null {
+  if (!rawSources) return null;
+  const sources = [rawSources.block, rawSources.status, rawSources.lastCall];
+  
+  for (const src of sources) {
+    if (!src) continue;
+    const arrays = src.arrays || (src.blockReport && src.blockReport.arrays) || (src.statusReport && src.statusReport.arrays) || [];
+    if (!Array.isArray(arrays) || arrays.length === 0) continue;
+    
+    const firstArr = arrays[0];
+    if (!firstArr || typeof firstArr !== 'object') continue;
+    
+    const keys = Object.keys(firstArr);
+    const hasExplicitField = keys.some(k => 
+      [
+        'Stack Count Comm.', 
+        'Stack Count Not Comm.', 
+        'onlineSOC', 
+        'nearlineSOC', 
+        'offlineSOC', 
+        'onlineStringCount', 
+        'nearlineStringCount', 
+        'offlineStringCount',
+        'notCommunicationStringCount',
+        'onlineCount',
+        'nearlineCount',
+        'offlineCount',
+        'notCommunicatingCount',
+        'online',
+        'nearline',
+        'offline',
+        'notCommunicating'
+      ].includes(k)
+    );
+    
+    if (hasExplicitField) {
+      let online = 0;
+      let nearline = 0;
+      let offline = 0;
+      let notCommunicating = 0;
+      const detectedFields = new Set<string>();
+      
+      for (const arr of arrays) {
+        if (!arr || typeof arr !== 'object') continue;
+        
+        const aOnline = Number(arr.onlineStringCount ?? arr.onlineCount ?? arr.online ?? arr.onlineStrings ?? 0);
+        const aNearline = Number(arr.nearlineStringCount ?? arr.nearlineCount ?? arr.nearline ?? arr.nearlineStrings ?? 0);
+        const aOffline = Number(arr.offlineStringCount ?? arr.offlineCount ?? arr.offline ?? arr.offlineStrings ?? 0);
+        const aNotComm = Number(arr.notCommunicationStringCount ?? arr.notCommunicatingCount ?? arr.notCommunicating ?? arr.notComm ?? arr.notCommunicatingStrings ?? arr['Stack Count Not Comm.'] ?? arr.notCommCount ?? 0);
+        
+        online += aOnline;
+        nearline += aNearline;
+        offline += aOffline;
+        notCommunicating += aNotComm;
+        
+        Object.keys(arr).forEach(k => {
+          if (arr[k] !== undefined && arr[k] !== null && arr[k] !== "") {
+            detectedFields.add(k);
+          }
+        });
+      }
+      
+      const total = online + nearline + offline + notCommunicating;
+      if (total > 0 && total <= 500) {
+        return {
+          online,
+          nearline,
+          offline,
+          notCommunicating,
+          detectedFields: Array.from(detectedFields)
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function average(vals: number[]): number | null {
   if (!vals.length) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -914,34 +1064,95 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     };
   };
 
+  // DETECT NATIVE SUMMARY FIRST (using rule priority)
+  let stringSummarySource = 'canonical-string-rows-repaired';
+  let finalOnline = onlineStrings;
+  let finalNearline = nearlineStrings;
+  let finalOffline = offlineStrings;
+  let finalNotCommunicating = notCommunicatingStrings;
+  let finalUnknown = unknownStrings;
+  let detectedFields: string[] = [];
+  let originalRawValues: any = null;
+
+  // 1. Try native EMS/Kobold block-level String Summary
+  const nativeBlockSummary = findNativeEmsBlockSummary(snapshot.rawSources);
+  if (nativeBlockSummary) {
+    stringSummarySource = 'native-ems-block-summary';
+    finalOnline = nativeBlockSummary.online;
+    finalNearline = nativeBlockSummary.nearline;
+    finalOffline = nativeBlockSummary.offline;
+    finalNotCommunicating = nativeBlockSummary.notCommunicating;
+    finalUnknown = 0;
+    detectedFields = nativeBlockSummary.detectedFields;
+    originalRawValues = {
+      online: nativeBlockSummary.online,
+      nearline: nativeBlockSummary.nearline,
+      offline: nativeBlockSummary.offline,
+      notCommunicating: nativeBlockSummary.notCommunicating
+    };
+  } else {
+    // 2. Try native array-level summary totals
+    const nativeArrayTotals = findNativeArraySummaryTotals(snapshot.rawSources);
+    if (nativeArrayTotals) {
+      stringSummarySource = 'native-array-summary-totals';
+      finalOnline = nativeArrayTotals.online;
+      finalNearline = nativeArrayTotals.nearline;
+      finalOffline = nativeArrayTotals.offline;
+      finalNotCommunicating = nativeArrayTotals.notCommunicating;
+      finalUnknown = 0;
+      detectedFields = nativeArrayTotals.detectedFields;
+      originalRawValues = {
+        online: nativeArrayTotals.online,
+        nearline: nativeArrayTotals.nearline,
+        offline: nativeArrayTotals.offline,
+        notCommunicating: nativeArrayTotals.notCommunicating
+      };
+    }
+  }
+
+  const displayTotalStrings = finalOnline + finalNearline + finalOffline + finalNotCommunicating;
+
+  snapshot.rollups.stringSummary.source = stringSummarySource;
+  snapshot.rollups.stringSummary.debug = {
+    source: stringSummarySource,
+    detectedFields,
+    originalRawValues
+  };
+
   snapshot.rollups.stringSummary.rollups.online = calculateBucketRollup(bucketsRaw.online, "online", onlineStoredKWhs);
   snapshot.rollups.stringSummary.rollups.nearline = calculateBucketRollup(bucketsRaw.nearline, "nearline", nearlineStoredKWhs);
   snapshot.rollups.stringSummary.rollups.offline = calculateBucketRollup(bucketsRaw.offline, "offline", offlineStoredKWhs);
   snapshot.rollups.stringSummary.rollups.notCommunicating = calculateBucketRollup(bucketsRaw.notCommunicating, "notCommunicating", notCommunicatingStoredKWhs);
   snapshot.rollups.stringSummary.rollups.unknown = calculateBucketRollup(bucketsRaw.unknown, "unknown", unknownStoredKWhs);
   
+  snapshot.rollups.stringSummary.rollups.online.count = finalOnline;
+  snapshot.rollups.stringSummary.rollups.nearline.count = finalNearline;
+  snapshot.rollups.stringSummary.rollups.offline.count = finalOffline;
+  snapshot.rollups.stringSummary.rollups.notCommunicating.count = finalNotCommunicating;
+  snapshot.rollups.stringSummary.rollups.unknown.count = finalUnknown;
+
   snapshot.rollups.stringSummary.buckets = {
-    online: onlineStrings,
-    nearline: nearlineStrings,
-    offline: offlineStrings,
-    notCommunicating: notCommunicatingStrings,
-    unknown: unknownStrings
+    online: finalOnline,
+    nearline: finalNearline,
+    offline: finalOffline,
+    notCommunicating: finalNotCommunicating,
+    unknown: finalUnknown
   };
 
-  snapshot.rollups.stringSummary.rollups.normal = onlineStrings;
-  snapshot.rollups.stringSummary.rollups.onlineCount = onlineStrings;
-  snapshot.rollups.stringSummary.rollups.nearlineCount = nearlineStrings;
-  snapshot.rollups.stringSummary.rollups.offlineCount = offlineStrings;
-  snapshot.rollups.stringSummary.rollups.notCommunicatingCount = notCommunicatingStrings;
-  snapshot.rollups.stringSummary.rollups.unknownCount = unknownStrings;
+  snapshot.rollups.stringSummary.rollups.normal = finalOnline;
+  snapshot.rollups.stringSummary.rollups.onlineCount = finalOnline;
+  snapshot.rollups.stringSummary.rollups.nearlineCount = finalNearline;
+  snapshot.rollups.stringSummary.rollups.offlineCount = finalOffline;
+  snapshot.rollups.stringSummary.rollups.notCommunicatingCount = finalNotCommunicating;
+  snapshot.rollups.stringSummary.rollups.unknownCount = finalUnknown;
 
   // PART 6 - Canonical BESS fleet summary
-  snapshot.rollups.bessFleetSummary.totalStrings = totalStrings;
-  snapshot.rollups.bessFleetSummary.onlineStrings = onlineStrings;
-  snapshot.rollups.bessFleetSummary.nearlineStrings = nearlineStrings;
-  snapshot.rollups.bessFleetSummary.offlineStrings = offlineStrings;
-  snapshot.rollups.bessFleetSummary.notCommunicatingStrings = notCommunicatingStrings;
-  snapshot.rollups.bessFleetSummary.unknownStrings = unknownStrings;
+  snapshot.rollups.bessFleetSummary.totalStrings = displayTotalStrings;
+  snapshot.rollups.bessFleetSummary.onlineStrings = finalOnline;
+  snapshot.rollups.bessFleetSummary.nearlineStrings = finalNearline;
+  snapshot.rollups.bessFleetSummary.offlineStrings = finalOffline;
+  snapshot.rollups.bessFleetSummary.notCommunicatingStrings = finalNotCommunicating;
+  snapshot.rollups.bessFleetSummary.unknownStrings = finalUnknown;
   if (fleetSocPct !== null) snapshot.rollups.bessFleetSummary.systemSocPct = fleetSocPct;
 
   // PART 7 - Per-array consistency
