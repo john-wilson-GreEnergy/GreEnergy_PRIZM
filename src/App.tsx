@@ -394,15 +394,15 @@ export default function App() {
       const isLive = currentConnection?.status === "LIVE" && currentConnection?.reachable;
       const isRecording = currentSession?.active === true && currentSession?.paused !== true;
       
-      let intervalMs = 3000;
+      let intervalMs = 2000;
       if (isHidden) {
           intervalMs = 15000;
       } else if (isRecording) {
           intervalMs = 3000;
       } else if (isLive) {
-          intervalMs = 5000;
+          intervalMs = 2000;
       } else {
-          intervalMs = 3000;
+          intervalMs = 2000;
       }
       
       if (now - lastPollRef.current < intervalMs) return;

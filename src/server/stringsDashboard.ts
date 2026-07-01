@@ -87,6 +87,51 @@ function parseNullableBool(val: any): boolean | null {
     return null;
 }
 
+export interface StringHistoryEntry {
+    canonicalKey: string;
+    consecutiveMisses: number;
+    consecutivePolls: number;
+    lastKnownGood: {
+        communicating: boolean;
+        inRotation: boolean;
+        positiveContactorClosed: boolean;
+        negativeContactorClosed: boolean;
+        contactorsCloseExpected: boolean;
+        measuredVoltage: number | null;
+        socPct: number | null;
+        amps: number | null;
+    } | null;
+    lastSuccessfulPollAt: string | null;
+    lastSeenAt: string;
+}
+
+const stringHistoryTracker = new Map<string, StringHistoryEntry>();
+
+function getOrCreateHistoryEntry(canonicalKey: string): StringHistoryEntry {
+    let entry = stringHistoryTracker.get(canonicalKey);
+    if (!entry) {
+        entry = {
+            canonicalKey,
+            consecutiveMisses: 0,
+            consecutivePolls: 0,
+            lastKnownGood: {
+                communicating: true,
+                inRotation: true,
+                positiveContactorClosed: true,
+                negativeContactorClosed: true,
+                contactorsCloseExpected: true,
+                measuredVoltage: null,
+                socPct: null,
+                amps: null
+            },
+            lastSuccessfulPollAt: new Date().toISOString(),
+            lastSeenAt: new Date().toISOString()
+        };
+        stringHistoryTracker.set(canonicalKey, entry);
+    }
+    return entry;
+}
+
 export function buildCanonicalStringState(s: any): any {
     const arrayIndex = pN(s.arrayNumber || s.arrayIndex) || 1;
     const stringNumber = pN(s.stringNumber || s.stringIndex) || 1;
@@ -99,14 +144,65 @@ export function buildCanonicalStringState(s: any): any {
     const displayName = `A${arrayIndex}-S${stringNumber}`;
     const sourcePath = s.sourcePath || s.identity?.sourcePath || "unknown";
 
-    const communicating = parseNullableBool(s.communicating);
-    const inRotation = parseNullableBool(s.inRotation);
-    const outOfRotation = parseNullableBool(s.outRotation ?? s.outOfRotation);
+    let communicating = parseNullableBool(s.communicating);
+    let inRotation = parseNullableBool(s.inRotation);
+    let outOfRotation = parseNullableBool(s.outRotation ?? s.outOfRotation);
 
-    const pos = parseNullableBool(s.positiveContactorClosed);
-    const neg = parseNullableBool(s.negativeContactorClosed);
-    const exp = parseNullableBool(s.contactorsCloseExpected);
+    let pos = parseNullableBool(s.positiveContactorClosed);
+    let neg = parseNullableBool(s.negativeContactorClosed);
+    let exp = parseNullableBool(s.contactorsCloseExpected);
     const recloseCount = pN(s.recloseCount);
+
+    if (outOfRotation === null && inRotation !== null) {
+        outOfRotation = !inRotation;
+    }
+    const finalInRotationCheck = outOfRotation === false ? true : (outOfRotation === true ? false : null);
+
+    const hasComm = communicating !== null;
+    const hasRotation = (communicating === false) || (inRotation !== null || outOfRotation !== null);
+    const hasContactors = (communicating === false) || (finalInRotationCheck === false) || (pos !== null && neg !== null);
+    const hasFullData = hasComm && hasRotation && hasContactors;
+
+    const entry = getOrCreateHistoryEntry(canonicalKey);
+    entry.lastSeenAt = new Date().toISOString();
+    entry.consecutivePolls++;
+
+    const isWarmup = entry.consecutivePolls <= 2;
+    let sourceStatus: "live" | "retained" | "stale" | "failed" = "live";
+
+    if (hasFullData) {
+        entry.consecutiveMisses = 0;
+        entry.lastKnownGood = {
+            communicating: communicating as boolean,
+            inRotation: finalInRotationCheck as boolean,
+            positiveContactorClosed: (pos !== null ? pos : true),
+            negativeContactorClosed: (neg !== null ? neg : true),
+            contactorsCloseExpected: (exp !== null ? exp : true),
+            measuredVoltage: s.measuredVoltage !== undefined && s.measuredVoltage !== null ? pN(s.measuredVoltage) : null,
+            socPct: s.socPct !== undefined && s.socPct !== null ? pN(s.socPct) : null,
+            amps: s.amps !== undefined && s.amps !== null ? pN(s.amps) : null
+        };
+        entry.lastSuccessfulPollAt = new Date().toISOString();
+        sourceStatus = "live";
+    } else {
+        entry.consecutiveMisses++;
+        if (entry.lastKnownGood && (entry.consecutiveMisses < 3 || isWarmup)) {
+            communicating = entry.lastKnownGood.communicating;
+            inRotation = entry.lastKnownGood.inRotation;
+            outOfRotation = !entry.lastKnownGood.inRotation;
+            pos = entry.lastKnownGood.positiveContactorClosed;
+            neg = entry.lastKnownGood.negativeContactorClosed;
+            exp = entry.lastKnownGood.contactorsCloseExpected;
+
+            if (s.measuredVoltage === undefined || s.measuredVoltage === null) s.measuredVoltage = entry.lastKnownGood.measuredVoltage;
+            if (s.socPct === undefined || s.socPct === null) s.socPct = entry.lastKnownGood.socPct;
+            if (s.amps === undefined || s.amps === null) s.amps = entry.lastKnownGood.amps;
+
+            sourceStatus = isWarmup ? "live" : "retained";
+        } else {
+            sourceStatus = "failed";
+        }
+    }
 
     let bothContactorsClosed: boolean | null = null;
     let contactorFeedbackKnown = false;
@@ -329,7 +425,11 @@ export function buildCanonicalStringState(s: any): any {
             sourceTimestamp: s.timestampUtc || null,
             enrichmentApplied: s.enrichmentApplied || false,
             reclassifiedAfterEnrichment: s.reclassifiedAfterEnrichment || false,
-            stale: false,
+            stale: entry.consecutiveMisses > 0,
+            sourceStatus,
+            missingPollCount: entry.consecutiveMisses,
+            warmingUp: isWarmup,
+            lastSuccessfulPollAt: entry.lastSuccessfulPollAt,
             conflicts: []
         }
     };

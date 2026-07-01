@@ -213,7 +213,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     const intervalId = setInterval(() => {
       fetchSnapshot();
-    }, 5000);
+    }, 2000);
 
     return () => clearInterval(intervalId);
   }, [fetchSnapshot, isPollingEnabled, isTerminated]);

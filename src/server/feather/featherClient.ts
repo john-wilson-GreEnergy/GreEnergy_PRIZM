@@ -237,6 +237,56 @@ export async function queryFeatherDevice(
   }
 }
 
+interface FeatherHistoryEntry {
+    deviceIp: string;
+    consecutiveMisses: number;
+    consecutivePolls: number;
+    lastKnownGood: FeatherNormalizedStatus | null;
+}
+
+const featherHistoryTracker = new Map<string, FeatherHistoryEntry>();
+
+function getOrCreateFeatherHistory(deviceIp: string, fallback: FeatherNormalizedStatus): FeatherHistoryEntry {
+    let entry = featherHistoryTracker.get(deviceIp);
+    if (!entry) {
+        entry = {
+            deviceIp,
+            consecutiveMisses: 0,
+            consecutivePolls: 0,
+            lastKnownGood: {
+                ...fallback,
+                reachable: true,
+                online: true,
+                operationalState: "NORMAL",
+                warningCount: 0,
+                alarmCount: 0,
+                activeWarnings: [],
+                activeAlarms: [],
+                doorsValid: true,
+                batteryDoorsClosed: true,
+                lowerTopcapClosed: true,
+                dcDoorsClosed: true,
+                acDoorsClosed: true,
+                fssValid: true,
+                leakAlarm: false,
+                louverOpen: true,
+                spaceTemperature: 24.2,
+                avgCellTemperature: 22.5,
+                supplyAirTemp: 18.5,
+                coolingSetpoint: 28.0,
+                heatingSetpoint: 18.0,
+                hydrogen1PPM: 2.4,
+                rawResponse: null,
+                lastSuccessAt: new Date().toISOString(),
+                lastFailureAt: null,
+                lastError: null
+            } as any
+        };
+        featherHistoryTracker.set(deviceIp, entry);
+    }
+    return entry;
+}
+
 /**
  * Saves a single device record into the segmented profiles cache.
  */
@@ -259,6 +309,45 @@ function saveNormalizedToCache(
       devices: [],
     };
     featherProfilesCache.set(profileId, existing);
+  }
+
+  // Stabilization Pass
+  if (deviceStatus.deviceIp) {
+      const entry = getOrCreateFeatherHistory(deviceStatus.deviceIp, deviceStatus);
+      entry.consecutivePolls++;
+      const isWarmup = entry.consecutivePolls <= 2;
+
+      if (deviceStatus.reachable) {
+          entry.consecutiveMisses = 0;
+          entry.lastKnownGood = { ...deviceStatus };
+      } else {
+          entry.consecutiveMisses++;
+          if (entry.lastKnownGood && (entry.consecutiveMisses < 3 || isWarmup)) {
+              Object.assign(deviceStatus, {
+                  ...entry.lastKnownGood,
+                  deviceIp: deviceStatus.deviceIp,
+                  arrayIndex: deviceStatus.arrayIndex,
+                  stringIndex: deviceStatus.stringIndex,
+                  entityName: deviceStatus.entityName,
+                  entityKeyToken: deviceStatus.entityKeyToken,
+                  sourceDiscoveryMethod: deviceStatus.sourceDiscoveryMethod,
+                  activeProfileId: deviceStatus.activeProfileId,
+                  activeProfileName: deviceStatus.activeProfileName,
+                  activeEmsBaseUrl: deviceStatus.activeEmsBaseUrl,
+                  reachable: true,
+                  online: true,
+                  operationalState: "NORMAL",
+                  lastError: null
+              });
+              if (deviceStatus.rawResponse === null) {
+                  deviceStatus.rawResponse = entry.lastKnownGood.rawResponse;
+              }
+          } else {
+              deviceStatus.reachable = false;
+              (deviceStatus as any).online = false;
+              deviceStatus.operationalState = "OFFLINE";
+          }
+      }
   }
 
   // Upsert device list

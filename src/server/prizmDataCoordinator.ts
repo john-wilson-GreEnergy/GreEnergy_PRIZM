@@ -1766,7 +1766,7 @@ export function startCoordinator() {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(() => {
         doBackgroundPoll();
-    }, 5000);
+    }, 2000);
 
     if (featherInterval) clearInterval(featherInterval);
     featherInterval = setInterval(() => {
