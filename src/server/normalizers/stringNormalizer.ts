@@ -184,9 +184,13 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   const recloseCount = num(rawRow.RecloseCount ?? rawRow.recloseCount ?? null);
 
   // String classification rules
-  const classification = classifyStringOperationalState(rawRow);
-  const operationalBucket = classification.bucket;
-  const bucketReason = classification.reason;
+  let operationalBucket = rawRow.bucket ?? rawRow.operationalBucket;
+  let bucketReason = rawRow.bucketReason;
+  if (rawRow.classificationSource !== "stable-canonical-string-state" || !operationalBucket) {
+    const classification = classifyStringOperationalState(rawRow);
+    operationalBucket = classification.bucket;
+    bucketReason = classification.reason;
+  }
 
   const rawBucket = rawRow.bucket ?? rawRow.operationalBucket ?? null;
 

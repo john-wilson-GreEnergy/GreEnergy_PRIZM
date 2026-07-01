@@ -8,8 +8,27 @@ export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], sta
     const blockData = blockCache?.data;
 
     let dragonApps: any[] = [];
-    if (blockData && Array.isArray(blockData.dragonApps)) {
-        dragonApps = blockData.dragonApps;
+    if (blockData) {
+        if (Array.isArray(blockData.dragonApps)) {
+            dragonApps = blockData.dragonApps;
+        } else if (Array.isArray(blockData.apps)) {
+            dragonApps = blockData.apps;
+        } else if (Array.isArray(blockData.emsApps)) {
+            dragonApps = blockData.emsApps;
+        } else if (blockData.data) {
+            const nested = blockData.data;
+            if (Array.isArray(nested.dragonApps)) {
+                dragonApps = nested.dragonApps;
+            } else if (Array.isArray(nested.apps)) {
+                dragonApps = nested.apps;
+            } else if (Array.isArray(nested.emsApps)) {
+                dragonApps = nested.emsApps;
+            } else if (Array.isArray(nested)) {
+                dragonApps = nested;
+            }
+        } else if (Array.isArray(blockData)) {
+            dragonApps = blockData;
+        }
     }
 
     const apps = dragonApps.map((app: any) => {

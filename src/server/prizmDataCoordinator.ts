@@ -17,6 +17,49 @@ import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionRes
 
 
 
+export interface StableStringEntry {
+    pollCycleId: number;
+    canonicalKey: string;
+    lastKnownGoodCanonicalRow: any | null;
+    consecutiveMisses: number;
+    lastSuccessfulPollAt: string | null;
+    lastSeenAt: string;
+}
+
+export const stableStringStore = new Map<string, StableStringEntry>();
+export let stringPollCycleId = 0;
+export let lastKnownGoodEmsApps: any[] = [];
+
+export function isExplicitValidState(canonical: any): boolean {
+    if (!canonical) return false;
+    const comm = canonical.communicating;
+    const rot = canonical.inRotation;
+    const pos = canonical.positiveContactorClosed;
+    const neg = canonical.negativeContactorClosed;
+
+    // Ultimate online state
+    if (comm === true && rot === true && pos === true && neg === true) {
+        return true;
+    }
+    
+    // Explicit nearline state
+    if (comm === true && rot === true && pos === false && neg === false) {
+        return true;
+    }
+
+    // Explicit out of rotation
+    if (comm === true && rot === false) {
+        return true;
+    }
+
+    // Explicit lost communication
+    if (comm === false) {
+        return true;
+    }
+
+    return false;
+}
+
 export type NormalizedArraySummary = any;
 export type NormalizedPcsSummary = any;
 export type NormalizedFeatherDevice = any;
@@ -470,11 +513,17 @@ export function resolveStringBucket(row: any): string {
   if (!row) return "unknown";
   
   if (
-    row.bucketSource === "canonical-string-classifier" &&
     row.bucket &&
     ["online", "nearline", "offline", "notCommunicating", "unknown"].includes(row.bucket)
   ) {
-    return row.bucket;
+    if (
+      row.bucketSource === "canonical-string-classifier" ||
+      row.classificationSource === "stable-canonical-string-state" ||
+      row.sourcePath === "synthesized" ||
+      (row.communicating === undefined && row.inRotation === undefined && row.contactorsClosed === undefined && row.positiveContactorClosed === undefined)
+    ) {
+      return row.bucket;
+    }
   }
   
   const norm = normalizeStringRow(row, { compatMissingContactorAsNearline: false });
@@ -1502,10 +1551,111 @@ async function doBackgroundPoll() {
           }
       }
 
+      // Increment the pollCycleId at the start of each poll cycle
+      stringPollCycleId++;
+
       flatMergedStrings.forEach((s: any) => {
           const canonical = buildCanonicalStringState(s);
-          Object.assign(s, canonical);
+          const canonicalKey = canonical.sourceDebug?.canonicalKey || `array:${canonical.arrayIndex || 1}:string:${canonical.stringNumber || 1}`;
+
+          let entry = stableStringStore.get(canonicalKey);
+          if (!entry) {
+              entry = {
+                  pollCycleId: stringPollCycleId,
+                  canonicalKey,
+                  lastKnownGoodCanonicalRow: null,
+                  consecutiveMisses: 0,
+                  lastSuccessfulPollAt: null,
+                  lastSeenAt: new Date().toISOString()
+              };
+              stableStringStore.set(canonicalKey, entry);
+          }
+
+          const isExplicit = isExplicitValidState(canonical);
+          let finalRow = { ...canonical };
+          let lastKnownGoodUsed = false;
+
+          if (isExplicit) {
+              entry.consecutiveMisses = 0;
+              entry.lastKnownGoodCanonicalRow = JSON.parse(JSON.stringify(canonical));
+              entry.lastSuccessfulPollAt = new Date().toISOString();
+              entry.lastSeenAt = new Date().toISOString();
+          } else {
+              entry.consecutiveMisses++;
+              const isWarmup = stringPollCycleId <= 2;
+              if (entry.lastKnownGoodCanonicalRow && (entry.consecutiveMisses < 3 || isWarmup)) {
+                  lastKnownGoodUsed = true;
+                  const lkg = entry.lastKnownGoodCanonicalRow;
+
+                  // Retain: bucket, operationalState, contactor state, rotation state, and summary counters.
+                  finalRow.bucket = lkg.bucket;
+                  finalRow.operationalState = lkg.operationalState;
+                  if (finalRow.health) {
+                      finalRow.health.operationalBucket = lkg.health?.operationalBucket || lkg.bucket;
+                      finalRow.health.healthy = lkg.health?.healthy ?? true;
+                      finalRow.health.severity = lkg.health?.severity || "NORMAL";
+                  }
+
+                  // contactor state
+                  if (lkg.contactors) {
+                      finalRow.contactors = JSON.parse(JSON.stringify(lkg.contactors));
+                  }
+                  finalRow.positiveContactorClosed = lkg.positiveContactorClosed;
+                  finalRow.negativeContactorClosed = lkg.negativeContactorClosed;
+                  finalRow.contactorClosed = lkg.contactorClosed;
+                  finalRow.bothContactorsClosed = lkg.bothContactorsClosed;
+                  finalRow.contactorStatus = lkg.contactorStatus;
+
+                  // rotation state
+                  if (lkg.rotation) {
+                      finalRow.rotation = JSON.parse(JSON.stringify(lkg.rotation));
+                  }
+                  finalRow.outRotation = lkg.outRotation;
+                  finalRow.inRotation = lkg.inRotation;
+                  finalRow.rotationStatus = lkg.rotationStatus;
+                  finalRow.rotationEnabled = lkg.rotationEnabled;
+
+                  // communication state
+                  finalRow.communicating = lkg.communicating;
+                  if (lkg.communication) {
+                      finalRow.communication = JSON.parse(JSON.stringify(lkg.communication));
+                  }
+
+                  // electrical and other values
+                  if (lkg.electrical) {
+                      finalRow.electrical = JSON.parse(JSON.stringify(lkg.electrical));
+                  }
+              }
+          }
+
+          // F. Set these fields on every final stabilized string row:
+          finalRow.bucketSource = "canonical-string-classifier";
+          finalRow.operationalBucket = finalRow.bucket;
+          finalRow.classificationSource = "stable-canonical-string-state";
+
+          if (!finalRow.sourceDebug) {
+              finalRow.sourceDebug = {};
+          }
+          finalRow.sourceDebug.pollCycleId = stringPollCycleId;
+          finalRow.sourceDebug.lastKnownGoodUsed = lastKnownGoodUsed;
+          finalRow.sourceDebug.consecutiveMisses = entry.consecutiveMisses;
+          finalRow.sourceDebug.stale = entry.consecutiveMisses > 0;
+          finalRow.sourceDebug.sourceStatus = lastKnownGoodUsed ? "retained" : (entry.consecutiveMisses > 0 ? "failed" : "live");
+          finalRow.sourceDebug.lastSuccessfulPollAt = entry.lastSuccessfulPollAt;
+
+          // Merge everything back into s
+          Object.assign(s, finalRow);
       });
+
+      let emsAppsToUse = parsed.emsApps || [];
+      if ((!emsAppsToUse || emsAppsToUse.length === 0) && lastKnownGoodEmsApps.length > 0) {
+          emsAppsToUse = lastKnownGoodEmsApps.map((app: any) => ({
+              ...app,
+              stalePreserved: true
+          }));
+      } else if (emsAppsToUse && emsAppsToUse.length > 0) {
+          lastKnownGoodEmsApps = JSON.parse(JSON.stringify(emsAppsToUse));
+      }
 
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
@@ -1534,7 +1684,7 @@ async function doBackgroundPoll() {
               strings: getEmsCachedRawStrings().data || [],
               statusCodes: getEmsCachedStatusCodes().data,
               featherDevices: getFeatherCache().devices || [],
-              emsApps: parsed.emsApps || [],
+              emsApps: emsAppsToUse,
               arrayPcsReports: rawPcsReports,
               arrayReports: rawArrayReports,
               arrayNotifications: getEmsCachedArrayNotifications()
@@ -1552,7 +1702,7 @@ async function doBackgroundPoll() {
               pcs: pcsListToUse,
               feather: enrichedFeatherRows,
               correctiveActions: parsed.correctiveActions || [],
-              emsApps: parsed.emsApps || [],
+              emsApps: emsAppsToUse,
               sensors: sensorsData.rows,
               arrayDetailsByArray
           },
@@ -1578,14 +1728,15 @@ async function doBackgroundPoll() {
                       tableRows,
                       rollups: {
                           ...(legacyStringSummary.rollups || {}),
-                          ...(stringsResult?.rollups || {}),
+                          ...(flatMergedStrings.length === 0 ? (stringsResult?.rollups || {}) : {}),
                           totalStrings: totalStrCount
                       },
                       buckets: {
                           online: tableRows.filter((r: any) => r.bucket === 'online').length,
                           nearline: tableRows.filter((r: any) => r.bucket === 'nearline').length,
                           offline: tableRows.filter((r: any) => r.bucket === 'offline').length,
-                          notCommunicating: tableRows.filter((r: any) => r.bucket === 'notCommunicating').length
+                          notCommunicating: tableRows.filter((r: any) => r.bucket === 'notCommunicating').length,
+                          unknown: tableRows.filter((r: any) => r.bucket === 'unknown').length
                       },
                       summary: {
                           ...(legacyStringSummary.summary || {}),
@@ -1601,10 +1752,53 @@ async function doBackgroundPoll() {
               arraySummary: parsed.arraySummary || [],
               pcsSummary: pcsSummaryObj,
               bessFleetSummary: parsed.bessFleetSummary || {},
-              featherSummary: {
-                 ...parsed.featherSummary,
-                 devices: enrichedFeatherRows
-              },
+              featherSummary: (() => {
+                  const baseFeather = parsed.featherSummary || {};
+                  const devices = enrichedFeatherRows || [];
+                  const total = devices.length;
+                  
+                  const online = devices.filter((d: any) => d.communicating === true).length;
+                  const offline = devices.filter((d: any) => d.communicating === false).length;
+                  const lostComms = devices.filter((d: any) => d.communicating === false).length;
+                  
+                  const fssInvalid = devices.filter((d: any) => d.telemetrySummary?.fssInvalid === true || d.fssInvalid === true).length;
+                  const doorsInvalid = devices.filter((d: any) => d.telemetrySummary?.doorsInvalid === true || d.doorsInvalid === true).length;
+                  const hvacInvalid = devices.filter((d: any) => d.telemetrySummary?.hvacDataInvalid === true || d.hvacDataInvalid === true).length;
+                  
+                  const activeWarning = devices.filter((d: any) => (d.activeWarningCount || 0) > 0 || d.hasWarning === true).length;
+                  const activeFault = devices.filter((d: any) => (d.activeFaultCount || 0) > 0 || d.hasFault === true).length;
+                  
+                  const hydrogenVals = devices.map((d: any) => d.maxHydrogenPpm ?? d.hydrogenPpm ?? d.telemetrySummary?.hydrogenPpm).filter((v: any) => typeof v === 'number' && !isNaN(v));
+                  const maxH = hydrogenVals.length > 0 ? Math.max(...hydrogenVals) : null;
+                  
+                  const spaceTempVals = devices.map((d: any) => d.maxSpaceTempC ?? d.spaceTempC ?? d.telemetrySummary?.spaceTempC).filter((v: any) => typeof v === 'number' && !isNaN(v));
+                  const maxST = spaceTempVals.length > 0 ? Math.max(...spaceTempVals) : null;
+                  
+                  const cellTempVals = devices.map((d: any) => d.maxCellTempC ?? d.cellTempC ?? d.telemetrySummary?.cellTempC).filter((v: any) => typeof v === 'number' && !isNaN(v));
+                  const maxCT = cellTempVals.length > 0 ? Math.max(...cellTempVals) : null;
+
+                  const devicesWithIssues = devices.filter((d: any) => {
+                      return d.communicating === false || d.hasActiveIssue === true || (d.activeWarningCount || 0) > 0 || (d.activeFaultCount || 0) > 0;
+                  });
+
+                  return {
+                      ...baseFeather,
+                      totalDevices: total > 0 ? total : null,
+                      onlineDevices: total > 0 ? online : null,
+                      offlineDevices: total > 0 ? offline : null,
+                      lostCommsCount: total > 0 ? lostComms : null,
+                      fssInvalidCount: total > 0 ? fssInvalid : null,
+                      doorsInvalidCount: total > 0 ? doorsInvalid : null,
+                      hvacDataInvalidCount: total > 0 ? hvacInvalid : null,
+                      activeWarningCount: total > 0 ? activeWarning : null,
+                      activeFaultCount: total > 0 ? activeFault : null,
+                      maxHydrogenPpm: maxH,
+                      maxSpaceTempC: maxST,
+                      maxCellTempC: maxCT,
+                      devicesWithIssues,
+                      devices
+                  };
+              })(),
               sourceHealth: parsed.sourceHealth || [],
               sensorsSummary: {
                  totalRows: sensorsData.rows.length,
