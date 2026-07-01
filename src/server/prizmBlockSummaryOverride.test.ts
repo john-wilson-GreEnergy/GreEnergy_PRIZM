@@ -400,6 +400,93 @@ async function runTests() {
   assertEqual(norm14.bucket, "online", "Test 14.2: bucket is online");
   assertEqual(norm14.bucketReason, "communicating_in_rotation_contactors_closed", "Test 14.3: bucketReason matches");
 
+  // 15. Prioritized Contactor Readback & Fallbacks (Detailed source priority)
+  // Test 15.1: Higher-priority string-detail wins over block summary fallback
+  const test15_1Input = {
+    arrayNumber: 1,
+    stringNumber: 1,
+    source: "string-detail",
+    sourcePath: "/string-detail-data",
+    positiveContactorClosed: true,
+    negativeContactorClosed: true
+  };
+  const norm15_1 = normalizeStringRow(test15_1Input);
+  assertEqual(norm15_1.bothContactorsClosed, true, "Test 15.1a: higher priority string-detail CLOSED wins over blockviewer");
+  assertEqual(norm15_1.sourceDebug.contactorResolution.finalSource, "string-detail", "Test 15.1b: finalSource is string-detail");
+
+  // Test 15.2: Low-priority block summary source fallback
+  const test15_2Input = {
+    arrayNumber: 2,
+    stringNumber: 2,
+    source: "block-summary-per-string-fallback",
+    sourcePath: "/tools/monitor/ems/blockviewer/data",
+    positiveContactorClosed: false,
+    negativeContactorClosed: false
+  };
+  const norm15_2 = normalizeStringRow(test15_2Input);
+  assertEqual(norm15_2.bothContactorsClosed, false, "Test 15.2a: falls back to block-summary-per-string-fallback");
+  assertEqual(norm15_2.sourceDebug.contactorResolution.finalSource, "block-summary-per-string-fallback", "Test 15.2b: finalSource is block-summary-per-string-fallback");
+
+  // Test 15.3: Last-known-good closed retained (up to 3 polls)
+  // First, we set A3-S3 to CLOSED using string-detail (high priority)
+  const poll0 = {
+    arrayNumber: 3,
+    stringNumber: 3,
+    source: "string-detail",
+    positiveContactorClosed: true,
+    negativeContactorClosed: true
+  };
+  normalizeStringRow(poll0); // Sets lkgState to CLOSED with pollAge = 0
+  
+  // Poll 1: Only low priority block-summary-per-string-fallback is available, claiming OPEN (false, false).
+  // It should be rejected in favor of the last-known-good CLOSED state.
+  const poll1 = {
+    arrayNumber: 3,
+    stringNumber: 3,
+    source: "block-summary-per-string-fallback",
+    positiveContactorClosed: false,
+    negativeContactorClosed: false
+  };
+  const normPoll1 = normalizeStringRow(poll1);
+  assertEqual(normPoll1.bothContactorsClosed, true, "Test 15.3a: Poll 1 retains last-known-good CLOSED despite blockviewer OPEN");
+  assertEqual(normPoll1.sourceDebug.contactorResolution.finalSource, "last-known-good", "Test 15.3b: finalSource is last-known-good");
+
+  // Poll 2: Still block-summary-per-string-fallback OPEN.
+  const normPoll2 = normalizeStringRow(poll1);
+  assertEqual(normPoll2.bothContactorsClosed, true, "Test 15.3c: Poll 2 retains last-known-good CLOSED");
+
+  // Poll 3: Still block-summary-per-string-fallback OPEN.
+  const normPoll3 = normalizeStringRow(poll1);
+  assertEqual(normPoll3.bothContactorsClosed, true, "Test 15.3d: Poll 3 retains last-known-good CLOSED");
+
+  // Poll 4: pollAge has now reached 3. Last-known-good should expire, falling back to blockviewer OPEN.
+  const normPoll4 = normalizeStringRow(poll1);
+  assertEqual(normPoll4.bothContactorsClosed, false, "Test 15.3e: Poll 4 lets last-known-good expire and falls back to blockviewer");
+  assertEqual(normPoll4.sourceDebug.contactorResolution.finalSource, "block-summary-per-string-fallback", "Test 15.3f: finalSource is now block-summary-per-string-fallback");
+
+  // Test 15.4: Higher-priority explicit open wins
+  // Set A4-S4 to CLOSED first.
+  const poll0_a4 = {
+    arrayNumber: 4,
+    stringNumber: 4,
+    source: "string-detail",
+    positiveContactorClosed: true,
+    negativeContactorClosed: true
+  };
+  normalizeStringRow(poll0_a4); // Sets lkg to CLOSED
+
+  // Next poll: higher priority string-detail explicitly confirms OPEN.
+  const poll1_a4 = {
+    arrayNumber: 4,
+    stringNumber: 4,
+    source: "string-detail",
+    positiveContactorClosed: false,
+    negativeContactorClosed: false
+  };
+  const normPoll1_a4 = normalizeStringRow(poll1_a4);
+  assertEqual(normPoll1_a4.bothContactorsClosed, false, "Test 15.4a: higher-priority explicit OPEN overwrites last-known-good CLOSED immediately");
+  assertEqual(normPoll1_a4.sourceDebug.contactorResolution.finalSource, "string-detail", "Test 15.4b: finalSource is string-detail");
+
   console.log(`\nTests finished: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {
     process.exit(1);

@@ -5,6 +5,7 @@ import {
   getNullableBothContactorsClosed,
   classifyStringOperationalState
 } from "../../lib/stringClassifier";
+import { resolvePrioritizedContactors } from "./stringContactorResolver";
 
 export interface CanonicalStringRow {
   id: string;
@@ -76,6 +77,12 @@ export interface CanonicalStringRow {
   contactorClosed: boolean | null;
   contactorsClosed: boolean | null;
 
+  // Custom resolved output fields
+  operationalState?: string;
+  stringConnectionState?: string | null;
+  stringContactorState?: string | null;
+  contactorStatus?: string | null;
+
   // Nested structures
   identity: any;
   communication: any;
@@ -127,49 +134,39 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   const id = rawRow.id || `A${arrayNumber}-S${stringNumber}`;
   const stringKey = rawRow.stringKey || `A${arrayNumber}-S${stringNumber}`;
 
-  // Communicating
+  // Communicating baseline
   const communicating = getNullableCommunicating(rawRow);
 
-  // Rotation
+  // Rotation baseline
   const inRotation = getNullableInRotation(rawRow);
   const outRotation = inRotation === null ? null : !inRotation;
 
   // Contactors
-  let positiveContactorClosed: boolean | null = null;
-  let rawPos = rawRow.positiveContactorClosed ?? rawRow.posContactorClosed ?? rawRow.positiveClosed ?? rawRow.contactorPositiveFeedback;
-  if (rawPos !== undefined && rawPos !== null && rawPos !== "") {
-    if (typeof rawPos === "boolean") positiveContactorClosed = rawPos;
-    else {
-      const s = String(rawPos).toUpperCase().trim();
-      positiveContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
-    }
-  }
-
-  let negativeContactorClosed: boolean | null = null;
-  let rawNeg = rawRow.negativeContactorClosed ?? rawRow.negContactorClosed ?? rawRow.negativeClosed ?? rawRow.contactorNegativeFeedback;
-  if (rawNeg !== undefined && rawNeg !== null && rawNeg !== "") {
-    if (typeof rawNeg === "boolean") negativeContactorClosed = rawNeg;
-    else {
-      const s = String(rawNeg).toUpperCase().trim();
-      negativeContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
-    }
-  }
-
-  const bothContactorsClosed = getNullableBothContactorsClosed(rawRow);
+  const contactorRes = resolvePrioritizedContactors(arrayNumber, stringNumber, rawRow);
+  const positiveContactorClosed = contactorRes.positiveContactorClosed;
+  const negativeContactorClosed = contactorRes.negativeContactorClosed;
+  const bothContactorsClosed = contactorRes.bothContactorsClosed;
   const contactorFeedbackKnown = (positiveContactorClosed !== null || negativeContactorClosed !== null || bothContactorsClosed !== null);
+  const contactorsCloseExpected = contactorRes.contactorsCloseExpected;
 
-  let contactorsCloseExpected: boolean | null = null;
-  if (rawRow.ContactorsCloseExpected !== undefined && rawRow.ContactorsCloseExpected !== null && rawRow.ContactorsCloseExpected !== "") {
-    contactorsCloseExpected = typeof rawRow.ContactorsCloseExpected === "boolean" ? rawRow.ContactorsCloseExpected : String(rawRow.ContactorsCloseExpected).toUpperCase() === "TRUE";
-  } else if (rawRow.contactorsCloseExpected !== undefined && rawRow.contactorsCloseExpected !== null && rawRow.contactorsCloseExpected !== "") {
-    contactorsCloseExpected = typeof rawRow.contactorsCloseExpected === "boolean" ? rawRow.contactorsCloseExpected : String(rawRow.contactorsCloseExpected).toUpperCase() === "TRUE";
-  } else if (rawRow.CloseExpected !== undefined && rawRow.CloseExpected !== null && rawRow.CloseExpected !== "") {
-    contactorsCloseExpected = typeof rawRow.CloseExpected === "boolean" ? rawRow.CloseExpected : String(rawRow.CloseExpected).toUpperCase() === "TRUE";
-  } else if (rawRow.closeExpected !== undefined && rawRow.closeExpected !== null && rawRow.closeExpected !== "") {
-    contactorsCloseExpected = typeof rawRow.closeExpected === "boolean" ? rawRow.closeExpected : String(rawRow.closeExpected).toUpperCase() === "TRUE";
-  } else if (rawRow.expectedClosed !== undefined && rawRow.expectedClosed !== null && rawRow.expectedClosed !== "") {
-    contactorsCloseExpected = typeof rawRow.expectedClosed === "boolean" ? rawRow.expectedClosed : String(rawRow.expectedClosed).toUpperCase() === "TRUE";
+  // Connection State Overrides based on prioritized contactorRes
+  let finalComm = communicating;
+  if (contactorRes.stringConnectionState) {
+    const s = contactorRes.stringConnectionState.toUpperCase().trim();
+    if (s === "ONLINE" || s === "CONNECTED" || s === "TRUE") {
+      finalComm = true;
+    } else if (s === "OFFLINE" || s === "DISCONNECTED" || s === "FALSE") {
+      finalComm = false;
+    }
   }
+
+  // Rotation Overrides based on prioritized contactorRes
+  // If contactors are closed, we must be in rotation!
+  let finalInRotation = inRotation;
+  if (bothContactorsClosed === true) {
+    finalInRotation = true;
+  }
+  const finalOutRotation = finalInRotation === null ? null : !finalInRotation;
 
   let commandMatchesContactors: boolean | null = null;
   if (contactorsCloseExpected === true && bothContactorsClosed === true) {
@@ -183,11 +180,25 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   const badReport = rawRow.badReport !== undefined ? parseNullableBool(rawRow.badReport) : false;
   const recloseCount = num(rawRow.RecloseCount ?? rawRow.recloseCount ?? null);
 
+  // Build corrected Row with prioritized fields for stable classification
+  const correctedRow = {
+    ...rawRow,
+    communicating: finalComm,
+    inRotation: finalInRotation,
+    outRotation: finalOutRotation,
+    positiveContactorClosed,
+    negativeContactorClosed,
+    bothContactorsClosed,
+    contactorsClosed: bothContactorsClosed,
+    contactorClosed: bothContactorsClosed,
+    contactorsCloseExpected
+  };
+
   // String classification rules
   let operationalBucket = rawRow.bucket ?? rawRow.operationalBucket;
   let bucketReason = rawRow.bucketReason;
   if (rawRow.classificationSource !== "stable-canonical-string-state" || !operationalBucket) {
-    const classification = classifyStringOperationalState(rawRow);
+    const classification = classifyStringOperationalState(correctedRow);
     operationalBucket = classification.bucket;
     bucketReason = classification.reason;
   }
@@ -273,22 +284,22 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
 
   const communication = {
     rawValue: rawRow.communicating ?? rawRow.StringConnectionState ?? rawRow.stringConnectionState ?? rawRow.connectionState ?? null,
-    normalizedState: communicating === null ? "UNKNOWN" : (communicating ? "COMMUNICATING" : "NOT COMMUNICATING"),
-    communicating: communicating,
+    normalizedState: finalComm === null ? "UNKNOWN" : (finalComm ? "COMMUNICATING" : "NOT COMMUNICATING"),
+    communicating: finalComm,
     source: rawRow.communicating !== undefined ? "direct" : "derived",
     sourcePath,
-    confidence: communicating === null ? "LOW" : "HIGH",
+    confidence: finalComm === null ? "LOW" : "HIGH",
     updatedAt: sourceTimestampUtc
   };
 
   const rotation = {
     rawValue: rawRow.inRotation ?? rawRow.outRotation ?? rawRow.outOfRotation ?? null,
-    normalizedState: inRotation === null ? "UNKNOWN" : (inRotation ? "IN ROTATION" : "OUT OF ROTATION"),
-    inRotation: inRotation,
-    outOfRotation: outRotation,
+    normalizedState: finalInRotation === null ? "UNKNOWN" : (finalInRotation ? "IN ROTATION" : "OUT OF ROTATION"),
+    inRotation: finalInRotation,
+    outOfRotation: finalOutRotation,
     source: rawRow.inRotation !== undefined || rawRow.outRotation !== undefined ? "direct" : "derived",
     sourcePath,
-    confidence: inRotation === null ? "LOW" : "HIGH",
+    confidence: finalInRotation === null ? "LOW" : "HIGH",
     updatedAt: sourceTimestampUtc
   };
 
@@ -348,18 +359,41 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     rawRotationValue: rawRow.inRotation ?? rawRow.outRotation ?? null,
     rawPositiveContactorValue: rawRow.positiveContactorClosed ?? null,
     rawNegativeContactorValue: rawRow.negativeContactorClosed ?? null,
-    normalizedCommunication: communicating,
-    normalizedRotation: inRotation,
+    normalizedCommunication: finalComm,
+    normalizedRotation: finalInRotation,
     normalizedContactors: bothContactorsClosed,
     operationalBucket,
     classifierInputs: {
-      communicating,
-      inRotation,
+      communicating: finalComm,
+      inRotation: finalInRotation,
       contactorsClosed: bothContactorsClosed
     },
     classifierReason: bucketReason,
-    sourceFreshnessMs: null
+    sourceFreshnessMs: null,
+    contactorResolution: contactorRes.sourceDebug.contactorResolution
   };
+
+  // Derive explicit strings fields
+  let operationalState = "UNKNOWN";
+  if (operationalBucket === "online") {
+    if (alarmCount > 0) operationalState = "ALARM";
+    else if (warningCount > 0) operationalState = "WARNING";
+    else operationalState = "NORMAL";
+  } else if (operationalBucket === "nearline") {
+    if (alarmCount > 0) operationalState = "ALARM";
+    else if (warningCount > 0) operationalState = "WARNING";
+    else operationalState = "NEARLINE";
+  } else if (operationalBucket === "offline") {
+    operationalState = "OFFLINE";
+  } else if (operationalBucket === "notCommunicating") {
+    operationalState = "NOT_COMMUNICATING";
+  } else {
+    operationalState = "UNKNOWN";
+  }
+
+  const stringConnectionState = finalComm === true ? "ONLINE" : (finalComm === false ? "OFFLINE" : "UNKNOWN");
+  const stringContactorState = contactorRes.stringContactorState ?? (bothContactorsClosed === true ? "CLOSED" : (bothContactorsClosed === false ? "OPEN" : "UNKNOWN"));
+  const contactorStatus = bothContactorsClosed === true ? "CLOSED" : (bothContactorsClosed === false ? "OPEN" : "UNKNOWN");
 
   return {
     id,
@@ -369,10 +403,10 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     arrayIndex: arrayNumber,
     stringIndex: stringNumber,
 
-    communicating,
+    communicating: finalComm,
     badReport,
-    inRotation,
-    outRotation,
+    inRotation: finalInRotation,
+    outRotation: finalOutRotation,
 
     positiveContactorClosed,
     negativeContactorClosed,
@@ -430,6 +464,12 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     avgCellTemperature: avgCellTempC,
     contactorClosed: bothContactorsClosed,
     contactorsClosed: bothContactorsClosed,
+
+    // Custom resolved fields
+    operationalState,
+    stringConnectionState,
+    stringContactorState,
+    contactorStatus,
 
     // Nested structures
     identity,
