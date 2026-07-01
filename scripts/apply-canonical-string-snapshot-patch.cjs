@@ -10,6 +10,18 @@ function replaceOnce(label, from, to) {
   src = src.replace(from, to);
 }
 
+function insertBefore(label, marker, insertion) {
+  if (src.includes(insertion.trim())) return;
+  if (!src.includes(marker)) throw new Error(`Patch anchor not found: ${label}`);
+  src = src.replace(marker, `${insertion}${marker}`);
+}
+
+function insertAfter(label, marker, insertion) {
+  if (src.includes(insertion.trim())) return;
+  if (!src.includes(marker)) throw new Error(`Patch anchor not found: ${label}`);
+  src = src.replace(marker, `${marker}${insertion}`);
+}
+
 if (!src.includes('applyCanonicalStringSnapshot')) {
   replaceOnce(
     'canonical import',
@@ -26,11 +38,14 @@ if (!src.includes('const canonicalStringSnapshot = applyCanonicalStringSnapshot'
   );
 }
 
+// Preserve debug through buildCanonicalStringState. Some branches already changed the sourceDebug
+// block, so use a broad insertion before the conflicts property instead of replacing the full object.
 if (!src.includes('canonicalStringSnapshot: s.sourceDebug?.canonicalStringSnapshot')) {
-  replaceOnce(
+  const marker = `            conflicts: []`;
+  insertBefore(
     'preserve canonical debug through buildCanonicalStringState',
-    `            conflicts: []\n        }\n    };\n`,
-    `            conflicts: [],\n            canonicalStringSnapshot: s.sourceDebug?.canonicalStringSnapshot ?? null,\n            contactorResolution: s.sourceDebug?.contactorResolution ?? null,\n            sourceTimestamps: s.sourceDebug?.sourceTimestamps ?? null\n        }\n    };\n`
+    marker,
+    `            canonicalStringSnapshot: s.sourceDebug?.canonicalStringSnapshot ?? null,\n            contactorResolution: s.sourceDebug?.contactorResolution ?? null,\n            sourceTimestamps: s.sourceDebug?.sourceTimestamps ?? null,\n`
   );
 }
 
