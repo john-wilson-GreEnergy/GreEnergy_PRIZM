@@ -71,12 +71,30 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     }
   };
 
-  const s = {
+  const rawS = {
     ...stringData,
     ...(data?.summary || {}),
-    ...(data || {}),
-    contactorStatus: data?.positiveContactorClosed !== undefined ? (data.positiveContactorClosed ? "CLOSED" : "OPEN") : stringData?.contactorStatus,
-    rotationStatus: data?.outRotation !== undefined ? (data.outRotation ? "OUT" : "IN") : stringData?.rotationStatus,
+    ...(data || {})
+  };
+
+  const getContactorStatusString = (pos: any, neg: any, fallback: any) => {
+    if (pos === true && neg === true) return "CLOSED";
+    if (pos === false && neg === false) return "OPEN";
+    if (pos === true && neg === false) return "MISMATCH / PARTIAL";
+    if (pos === false && neg === true) return "MISMATCH / PARTIAL";
+    if ((pos === false && neg === null) || (pos === null && neg === false)) return "OPEN (feedback incomplete)";
+    if ((pos === true && neg === null) || (pos === null && neg === true)) return "PARTIAL (feedback incomplete)";
+    if (pos === null && neg === null) {
+      if (fallback !== undefined && fallback !== null) return String(fallback).toUpperCase();
+      return "UNKNOWN";
+    }
+    return "UNKNOWN";
+  };
+
+  const s = {
+    ...rawS,
+    contactorStatus: getContactorStatusString(rawS.positiveContactorClosed, rawS.negativeContactorClosed, rawS.contactorStatus),
+    rotationStatus: rawS.outRotation !== undefined ? (rawS.outRotation ? "OUT" : "IN") : (rawS.outOfRotation !== undefined ? (rawS.outOfRotation ? "OUT" : "IN") : (rawS.inRotation !== undefined ? (rawS.inRotation ? "IN" : "OUT") : (stringData?.rotationStatus || "UNKNOWN"))),
   };
 
   const { voltageMatrix = [], temperatureMatrix = [], notificationMatrix = [], balancingDetails = [], balancingDebugKeys = [], notificationDebugKeys = [], notifications = [], eventLogs = [], bpcs = [], sourceHealth = {}, hasBalancingMap = false } = data || {};

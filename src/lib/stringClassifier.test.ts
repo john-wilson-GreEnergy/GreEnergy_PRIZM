@@ -65,7 +65,7 @@ function runTests() {
   };
   const res5 = classifyStringOperationalState(t5);
   assert.strictEqual(res5.state, "notCommunicating");
-  assert.strictEqual(res5.bucket, "offline");
+  assert.strictEqual(res5.bucket, "notCommunicating");
   assert.strictEqual(res5.reason, "not_communicating");
   console.log("  -> Test 5 passed!");
 

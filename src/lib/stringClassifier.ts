@@ -1,4 +1,4 @@
-export type StringOperationalState = "online" | "nearline" | "offline" | "notCommunicating";
+export type StringOperationalState = "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
 
 export interface StringClassificationInput {
   communicating: boolean | null | undefined;
@@ -16,84 +16,148 @@ function parseBool(v: any): boolean {
   return false;
 }
 
-export function getOutRotation(row: any): boolean {
-  if (!row) return false;
-  if (row.OutRotation !== undefined) return parseBool(row.OutRotation);
-  if (row.outRotation !== undefined) return parseBool(row.outRotation);
-  if (row.outOfRotation !== undefined) return parseBool(row.outOfRotation);
-  if (row.OutOfRotation !== undefined) return parseBool(row.OutOfRotation);
-  if (row.out_rotation !== undefined) return parseBool(row.out_rotation);
-  if (row.outrotation !== undefined) return parseBool(row.outrotation);
-  if (typeof row.rotation === 'string') {
-    const rot = row.rotation.toUpperCase();
-    return rot.includes('OUT');
-  }
-  return false;
-}
-
-export function getContactorsClosed(row: any): boolean {
-  if (!row) return false;
-  if (row.ContactorsClosed !== undefined) return parseBool(row.ContactorsClosed);
-  if (row.contactorsClosed !== undefined) return parseBool(row.contactorsClosed);
+export function getNullableCommunicating(row: any): boolean | null {
+  if (!row) return null;
   
-  const posClosed = parseBool(row.PositiveContactorClosed ?? row.positiveContactorClosed ?? row.positive_contactor_closed ?? row.positivecontactorclosed);
-  const negClosed = parseBool(row.NegativeContactorClosed ?? row.negativeContactorClosed ?? row.negative_contactor_closed ?? row.negativecontactorclosed);
-  if (
-    row.PositiveContactorClosed !== undefined || 
-    row.positiveContactorClosed !== undefined || 
-    row.positive_contactor_closed !== undefined || 
-    row.positivecontactorclosed !== undefined
-  ) {
-    return posClosed && negClosed;
+  let rawComm: any = undefined;
+  if (row.communicating !== undefined) rawComm = row.communicating;
+  else if (row.isCommunicating !== undefined) rawComm = row.isCommunicating;
+  else if (row.communicationStatus !== undefined) rawComm = row.communicationStatus;
+  else if (row.online !== undefined) rawComm = row.online;
+  else if (row.reachable !== undefined) rawComm = row.reachable;
+  else if (row.StringConnectionState !== undefined) rawComm = row.StringConnectionState;
+  else if (row.stringConnectionState !== undefined) rawComm = row.stringConnectionState;
+  else if (row.connectionState !== undefined) rawComm = row.connectionState;
+
+  if (rawComm === undefined || rawComm === null || rawComm === "") return null;
+
+  if (typeof rawComm === "boolean") return rawComm;
+  const s = String(rawComm).toUpperCase().trim();
+  if (s === "TRUE" || s === "1" || s === "COMMUNICATING" || s === "ONLINE" || s === "CONNECTED" || s === "OK") {
+    return true;
   }
-  if (row.contactorClosed !== undefined) return parseBool(row.contactorClosed);
-  if (typeof row.contactorStatus === 'string') {
-    return row.contactorStatus.toUpperCase() === 'CLOSED';
+  if (s === "FALSE" || s === "0" || s === "NOT COMMUNICATING" || s === "NOT_COMMUNICATING" || s === "NOT_COMM" || s === "OFFLINE" || s === "DISCONNECTED" || s === "LOST COMMS" || s === "LOST_COMMS" || s === "LOSTCOMMS" || s === "LOSS_COMMS") {
+    return false;
   }
-  if (typeof row.contactor_closed === 'boolean') {
-    return row.contactor_closed;
-  }
-  return false;
+  return null;
 }
 
-export function getCommunicating(row: any): boolean {
-  if (!row) return true;
-  if (row.communicating !== undefined) {
-    if (row.communicating === false || row.communicating === "false") return false;
-  }
-  if (row.lossComms !== undefined && parseBool(row.lossComms)) return false;
-  if (row.LossComms !== undefined && parseBool(row.LossComms)) return false;
-  if (row.loss_comms !== undefined && parseBool(row.loss_comms)) return false;
+export function getNullableInRotation(row: any): boolean | null {
+  if (!row) return null;
 
-  const connectionState = String(row.StringConnectionState ?? row.stringConnectionState ?? row.connectionState ?? '').toUpperCase();
-  if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM')) {
+  let rawRot: any = undefined;
+  if (row.inRotation !== undefined) rawRot = row.inRotation;
+  else if (row.outRotation !== undefined) rawRot = row.outRotation !== null ? !parseBool(row.outRotation) : null;
+  else if (row.outOfRotation !== undefined) rawRot = row.outOfRotation !== null ? !parseBool(row.outOfRotation) : null;
+  else if (row.OutOfRotation !== undefined) rawRot = row.OutOfRotation !== null ? !parseBool(row.OutOfRotation) : null;
+  else if (row.out_rotation !== undefined) rawRot = row.out_rotation !== null ? !parseBool(row.out_rotation) : null;
+  else if (row.outrotation !== undefined) rawRot = row.outrotation !== null ? !parseBool(row.outrotation) : null;
+  else if (row.rotationStatus !== undefined) rawRot = row.rotationStatus;
+  else if (row.operatingStatus !== undefined) rawRot = row.operatingStatus;
+  else if (row.availableForDispatch !== undefined) rawRot = row.availableForDispatch;
+  else if (row.enabledInRotation !== undefined) rawRot = row.enabledInRotation;
+
+  if (rawRot === undefined || rawRot === null || rawRot === "") {
+    if (typeof row.rotation === 'string') {
+      const rot = row.rotation.toUpperCase().trim();
+      if (rot.includes('OUT')) return false;
+      if (rot.includes('IN')) return true;
+    }
+    return null;
+  }
+
+  if (typeof rawRot === "boolean") return rawRot;
+  const s = String(rawRot).toUpperCase().trim();
+  if (s === "TRUE" || s === "1" || s === "IN ROTATION" || s === "IN_ROTATION" || s === "ENABLED" || s === "IN" || s === "AVAILABLE") {
+    return true;
+  }
+  if (s === "FALSE" || s === "0" || s === "OUT OF ROTATION" || s === "OUT_OF_ROTATION" || s === "ROTATED OUT" || s === "ROTATED_OUT" || s === "DISABLED" || s === "OUT" || s === "UNAVAILABLE") {
+    return false;
+  }
+  return null;
+}
+
+export function getNullableBothContactorsClosed(row: any): boolean | null {
+  if (!row) return null;
+
+  let rawPos: any = undefined;
+  if (row.positiveContactorClosed !== undefined) rawPos = row.positiveContactorClosed;
+  else if (row.posContactorClosed !== undefined) rawPos = row.posContactorClosed;
+  else if (row.positiveClosed !== undefined) rawPos = row.positiveClosed;
+  else if (row.contactorPositiveFeedback !== undefined) rawPos = row.contactorPositiveFeedback;
+
+  let rawNeg: any = undefined;
+  if (row.negativeContactorClosed !== undefined) rawNeg = row.negativeContactorClosed;
+  else if (row.negContactorClosed !== undefined) rawNeg = row.negContactorClosed;
+  else if (row.negativeClosed !== undefined) rawNeg = row.negativeClosed;
+  else if (row.contactorNegativeFeedback !== undefined) rawNeg = row.contactorNegativeFeedback;
+
+  let positiveContactorClosed: boolean | null = null;
+  if (rawPos !== undefined && rawPos !== null && rawPos !== "") {
+    if (typeof rawPos === "boolean") positiveContactorClosed = rawPos;
+    else {
+      const s = String(rawPos).toUpperCase().trim();
+      positiveContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
+    }
+  }
+  let negativeContactorClosed: boolean | null = null;
+  if (rawNeg !== undefined && rawNeg !== null && rawNeg !== "") {
+    if (typeof rawNeg === "boolean") negativeContactorClosed = rawNeg;
+    else {
+      const s = String(rawNeg).toUpperCase().trim();
+      negativeContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
+    }
+  }
+
+  if (positiveContactorClosed !== null && negativeContactorClosed !== null) {
+    if (positiveContactorClosed === true && negativeContactorClosed === true) return true;
     return false;
   }
 
-  if (row.communicating !== undefined) {
-    return parseBool(row.communicating);
+  let rawBoth: any = undefined;
+  if (row.bothContactorsClosed !== undefined) rawBoth = row.bothContactorsClosed;
+  else if (row.contactorClosed !== undefined) rawBoth = row.contactorClosed;
+  else if (row.contactorsClosed !== undefined) rawBoth = row.contactorsClosed;
+  else if (row.contactorStatus !== undefined) rawBoth = row.contactorStatus;
+
+  if (rawBoth !== undefined && rawBoth !== null && rawBoth !== "") {
+    if (typeof rawBoth === "boolean") return rawBoth;
+    const s = String(rawBoth).toUpperCase().trim();
+    if (s === "CLOSED" || s === "TRUE" || s === "1" || s === "ON") return true;
+    if (s === "OPEN" || s === "FALSE" || s === "0" || s === "OFF") return false;
   }
-  return true;
+
+  return null;
+}
+
+export function getOutRotation(row: any): boolean {
+  const nullableRot = getNullableInRotation(row);
+  return nullableRot === null ? false : !nullableRot;
+}
+
+export function getContactorsClosed(row: any): boolean {
+  const nullableCont = getNullableBothContactorsClosed(row);
+  return nullableCont === null ? false : nullableCont;
+}
+
+export function getCommunicating(row: any): boolean {
+  const nullableComm = getNullableCommunicating(row);
+  return nullableComm === null ? true : nullableComm;
 }
 
 export function classifyStringOperationalState(rawString: any): {
-  state: "online" | "nearline" | "offline" | "notCommunicating";
-  bucket: "online" | "nearline" | "offline" | "notCommunicating";
-  reason:
-    | "communicating_in_rotation_contactors_closed"
-    | "communicating_in_rotation_contactors_open"
-    | "not_communicating"
-    | "out_of_rotation"
-    | "unknown_safe_offline";
-  communicating: boolean;
-  inRotation: boolean;
-  contactorsClosed: boolean;
+  state: "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
+  bucket: "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
+  reason: string;
+  communicating: boolean | null;
+  inRotation: boolean | null;
+  contactorsClosed: boolean | null;
 } {
-  const communicating = getCommunicating(rawString);
-  const inRotation = !getOutRotation(rawString);
-  const contactorsClosed = getContactorsClosed(rawString);
+  const communicating = getNullableCommunicating(rawString);
+  const inRotation = getNullableInRotation(rawString);
+  const contactorsClosed = getNullableBothContactorsClosed(rawString);
 
-  if (!communicating) {
+  if (communicating === false) {
     return {
       state: "notCommunicating",
       bucket: "notCommunicating",
@@ -104,34 +168,63 @@ export function classifyStringOperationalState(rawString: any): {
     };
   }
 
-  if (!inRotation) {
+  if (communicating === true) {
+    if (inRotation === false) {
+      return {
+        state: "offline",
+        bucket: "offline",
+        reason: "out_of_rotation",
+        communicating,
+        inRotation,
+        contactorsClosed
+      };
+    }
+    if (inRotation === true) {
+      if (contactorsClosed === true) {
+        return {
+          state: "online",
+          bucket: "online",
+          reason: "communicating_in_rotation_contactors_closed",
+          communicating,
+          inRotation,
+          contactorsClosed
+        };
+      }
+      if (contactorsClosed === false) {
+        return {
+          state: "nearline",
+          bucket: "nearline",
+          reason: "communicating_in_rotation_contactors_open",
+          communicating,
+          inRotation,
+          contactorsClosed
+        };
+      }
+      return {
+        state: "unknown",
+        bucket: "unknown",
+        reason: "missing_contactor_feedback",
+        communicating,
+        inRotation,
+        contactorsClosed
+      };
+    }
     return {
-      state: "offline",
-      bucket: "offline",
-      reason: "out_of_rotation",
+      state: "unknown",
+      bucket: "unknown",
+      reason: "missing_rotation_feedback",
       communicating,
       inRotation,
       contactorsClosed
     };
   }
 
-  if (contactorsClosed) {
-    return {
-      state: "online",
-      bucket: "online",
-      reason: "communicating_in_rotation_contactors_closed",
-      communicating,
-      inRotation,
-      contactorsClosed
-    };
-  } else {
-    return {
-      state: "nearline",
-      bucket: "nearline",
-      reason: "communicating_in_rotation_contactors_open",
-      communicating,
-      inRotation,
-      contactorsClosed
-    };
-  }
+  return {
+    state: "unknown",
+    bucket: "unknown",
+    reason: "missing_communication_feedback",
+    communicating,
+    inRotation,
+    contactorsClosed
+  };
 }

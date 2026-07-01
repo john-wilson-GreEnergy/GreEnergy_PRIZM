@@ -1,10 +1,18 @@
 import { parseNullableBool } from "../../lib/nullableBool";
+import {
+  getNullableCommunicating,
+  getNullableInRotation,
+  getNullableBothContactorsClosed,
+  classifyStringOperationalState
+} from "../../lib/stringClassifier";
 
 export interface CanonicalStringRow {
   id: string;
   arrayNumber: number;
   stringNumber: number;
   stringKey: string;
+  arrayIndex: number;
+  stringIndex: number;
 
   communicating: boolean | null;
   badReport: boolean | null;
@@ -67,6 +75,15 @@ export interface CanonicalStringRow {
   avgCellTemperature: number | null;
   contactorClosed: boolean | null;
   contactorsClosed: boolean | null;
+
+  // Nested structures
+  identity: any;
+  communication: any;
+  rotation: any;
+  contactors: any;
+  electrical: any;
+  health: any;
+  sourceDebug: any;
 }
 
 export function normalizeCellVoltageMv(v: unknown): number | null {
@@ -111,130 +128,47 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   const stringKey = rawRow.stringKey || `A${arrayNumber}-S${stringNumber}`;
 
   // Communicating
-  let communicating: boolean | null = null;
-  if (rawRow.communicating !== undefined && rawRow.communicating !== null && rawRow.communicating !== "") {
-    communicating = parseNullableBool(rawRow.communicating);
-  } else if (rawRow.lossComms !== undefined && rawRow.lossComms !== null && rawRow.lossComms !== "") {
-    const lc = parseNullableBool(rawRow.lossComms);
-    if (lc !== null) communicating = !lc;
-  } else if (rawRow.LossComms !== undefined && rawRow.LossComms !== null && rawRow.LossComms !== "") {
-    const lc = parseNullableBool(rawRow.LossComms);
-    if (lc !== null) communicating = !lc;
-  } else if (rawRow.loss_comms !== undefined && rawRow.loss_comms !== null && rawRow.loss_comms !== "") {
-    const lc = parseNullableBool(rawRow.loss_comms);
-    if (lc !== null) communicating = !lc;
-  } else {
-    const connectionState = String(rawRow.StringConnectionState ?? rawRow.stringConnectionState ?? rawRow.connectionState ?? '').toUpperCase();
-    if (connectionState) {
-      if (connectionState.includes('LOSS') || connectionState.includes('NO_COMM') || connectionState.includes('NOT_COMM') || connectionState.includes('OFFLINE') || connectionState.includes('DISCONNECTED')) {
-        communicating = false;
-      } else if (connectionState.includes('ONLINE') || connectionState.includes('CONNECTED') || connectionState.includes('OK')) {
-        communicating = true;
-      }
-    }
-  }
+  const communicating = getNullableCommunicating(rawRow);
 
   // Rotation
-  let outRotation: boolean | null = null;
-  if (rawRow.OutRotation !== undefined && rawRow.OutRotation !== null && rawRow.OutRotation !== "") {
-    outRotation = parseNullableBool(rawRow.OutRotation);
-  } else if (rawRow.outRotation !== undefined && rawRow.outRotation !== null && rawRow.outRotation !== "") {
-    outRotation = parseNullableBool(rawRow.outRotation);
-  } else if (rawRow.outOfRotation !== undefined && rawRow.outOfRotation !== null && rawRow.outOfRotation !== "") {
-    outRotation = parseNullableBool(rawRow.outOfRotation);
-  } else if (rawRow.OutOfRotation !== undefined && rawRow.OutOfRotation !== null && rawRow.OutOfRotation !== "") {
-    outRotation = parseNullableBool(rawRow.OutOfRotation);
-  } else if (rawRow.out_rotation !== undefined && rawRow.out_rotation !== null && rawRow.out_rotation !== "") {
-    outRotation = parseNullableBool(rawRow.out_rotation);
-  } else if (rawRow.outrotation !== undefined && rawRow.outrotation !== null && rawRow.outrotation !== "") {
-    outRotation = parseNullableBool(rawRow.outrotation);
-  } else if (typeof rawRow.rotation === 'string') {
-    const rot = rawRow.rotation.toUpperCase();
-    if (rot.includes('OUT')) {
-      outRotation = true;
-    } else if (rot.includes('IN')) {
-      outRotation = false;
-    }
-  }
-
-  let inRotation: boolean | null = null;
-  if (rawRow.InRotation !== undefined && rawRow.InRotation !== null && rawRow.InRotation !== "") {
-    inRotation = parseNullableBool(rawRow.InRotation);
-  } else if (rawRow.inRotation !== undefined && rawRow.inRotation !== null && rawRow.inRotation !== "") {
-    inRotation = parseNullableBool(rawRow.inRotation);
-  } else if (outRotation !== null) {
-    inRotation = !outRotation;
-  }
-
-  if (outRotation === null && inRotation !== null) {
-    outRotation = !inRotation;
-  }
+  const inRotation = getNullableInRotation(rawRow);
+  const outRotation = inRotation === null ? null : !inRotation;
 
   // Contactors
   let positiveContactorClosed: boolean | null = null;
-  if (rawRow.PositiveContactorClosed !== undefined && rawRow.PositiveContactorClosed !== null && rawRow.PositiveContactorClosed !== "") {
-    positiveContactorClosed = parseNullableBool(rawRow.PositiveContactorClosed);
-  } else if (rawRow.positiveContactorClosed !== undefined && rawRow.positiveContactorClosed !== null && rawRow.positiveContactorClosed !== "") {
-    positiveContactorClosed = parseNullableBool(rawRow.positiveContactorClosed);
-  } else if (rawRow.positive_contactor_closed !== undefined && rawRow.positive_contactor_closed !== null && rawRow.positive_contactor_closed !== "") {
-    positiveContactorClosed = parseNullableBool(rawRow.positive_contactor_closed);
-  } else if (rawRow.positivecontactorclosed !== undefined && rawRow.positivecontactorclosed !== null && rawRow.positivecontactorclosed !== "") {
-    positiveContactorClosed = parseNullableBool(rawRow.positivecontactorclosed);
-  }
-
-  let negativeContactorClosed: boolean | null = null;
-  if (rawRow.NegativeContactorClosed !== undefined && rawRow.NegativeContactorClosed !== null && rawRow.NegativeContactorClosed !== "") {
-    negativeContactorClosed = parseNullableBool(rawRow.NegativeContactorClosed);
-  } else if (rawRow.negativeContactorClosed !== undefined && rawRow.negativeContactorClosed !== null && rawRow.negativeContactorClosed !== "") {
-    negativeContactorClosed = parseNullableBool(rawRow.negativeContactorClosed);
-  } else if (rawRow.negative_contactor_closed !== undefined && rawRow.negative_contactor_closed !== null && rawRow.negative_contactor_closed !== "") {
-    negativeContactorClosed = parseNullableBool(rawRow.negative_contactor_closed);
-  } else if (rawRow.negativecontactorclosed !== undefined && rawRow.negativecontactorclosed !== null && rawRow.negativecontactorclosed !== "") {
-    negativeContactorClosed = parseNullableBool(rawRow.negativecontactorclosed);
-  }
-
-  let bothContactorsClosed: boolean | null = null;
-  let partialContactorMismatch = false;
-
-  if (positiveContactorClosed === true && negativeContactorClosed === true) {
-    bothContactorsClosed = true;
-  } else if (positiveContactorClosed === false && negativeContactorClosed === false) {
-    bothContactorsClosed = false;
-  } else if (positiveContactorClosed === false || negativeContactorClosed === false) {
-    bothContactorsClosed = false;
-    partialContactorMismatch = true;
-  } else {
-    if (rawRow.BothContactorsClosed !== undefined && rawRow.BothContactorsClosed !== null && rawRow.BothContactorsClosed !== "") {
-      bothContactorsClosed = parseNullableBool(rawRow.BothContactorsClosed);
-    } else if (rawRow.bothContactorsClosed !== undefined && rawRow.bothContactorsClosed !== null && rawRow.bothContactorsClosed !== "") {
-      bothContactorsClosed = parseNullableBool(rawRow.bothContactorsClosed);
-    } else if (rawRow.ContactorsClosed !== undefined && rawRow.ContactorsClosed !== null && rawRow.ContactorsClosed !== "") {
-      bothContactorsClosed = parseNullableBool(rawRow.ContactorsClosed);
-    } else if (rawRow.contactorsClosed !== undefined && rawRow.contactorsClosed !== null && rawRow.contactorsClosed !== "") {
-      bothContactorsClosed = parseNullableBool(rawRow.contactorsClosed);
-    } else if (rawRow.contactorClosed !== undefined && rawRow.contactorClosed !== null && rawRow.contactorClosed !== "") {
-      bothContactorsClosed = parseNullableBool(rawRow.contactorClosed);
-    } else if (typeof rawRow.contactorStatus === 'string') {
-      const status = rawRow.contactorStatus.toUpperCase();
-      if (status === 'CLOSED') {
-        bothContactorsClosed = true;
-      } else if (status === 'OPEN') {
-        bothContactorsClosed = false;
-      }
-    } else if (typeof rawRow.contactor_closed === 'boolean') {
-      bothContactorsClosed = rawRow.contactor_closed;
+  let rawPos = rawRow.positiveContactorClosed ?? rawRow.posContactorClosed ?? rawRow.positiveClosed ?? rawRow.contactorPositiveFeedback;
+  if (rawPos !== undefined && rawPos !== null && rawPos !== "") {
+    if (typeof rawPos === "boolean") positiveContactorClosed = rawPos;
+    else {
+      const s = String(rawPos).toUpperCase().trim();
+      positiveContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
     }
   }
 
+  let negativeContactorClosed: boolean | null = null;
+  let rawNeg = rawRow.negativeContactorClosed ?? rawRow.negContactorClosed ?? rawRow.negativeClosed ?? rawRow.contactorNegativeFeedback;
+  if (rawNeg !== undefined && rawNeg !== null && rawNeg !== "") {
+    if (typeof rawNeg === "boolean") negativeContactorClosed = rawNeg;
+    else {
+      const s = String(rawNeg).toUpperCase().trim();
+      negativeContactorClosed = (s === "TRUE" || s === "1" || s === "CLOSED" || s === "ON");
+    }
+  }
+
+  const bothContactorsClosed = getNullableBothContactorsClosed(rawRow);
+  const contactorFeedbackKnown = (positiveContactorClosed !== null || negativeContactorClosed !== null || bothContactorsClosed !== null);
+
   let contactorsCloseExpected: boolean | null = null;
   if (rawRow.ContactorsCloseExpected !== undefined && rawRow.ContactorsCloseExpected !== null && rawRow.ContactorsCloseExpected !== "") {
-    contactorsCloseExpected = parseNullableBool(rawRow.ContactorsCloseExpected);
+    contactorsCloseExpected = typeof rawRow.ContactorsCloseExpected === "boolean" ? rawRow.ContactorsCloseExpected : String(rawRow.ContactorsCloseExpected).toUpperCase() === "TRUE";
   } else if (rawRow.contactorsCloseExpected !== undefined && rawRow.contactorsCloseExpected !== null && rawRow.contactorsCloseExpected !== "") {
-    contactorsCloseExpected = parseNullableBool(rawRow.contactorsCloseExpected);
+    contactorsCloseExpected = typeof rawRow.contactorsCloseExpected === "boolean" ? rawRow.contactorsCloseExpected : String(rawRow.contactorsCloseExpected).toUpperCase() === "TRUE";
   } else if (rawRow.CloseExpected !== undefined && rawRow.CloseExpected !== null && rawRow.CloseExpected !== "") {
-    contactorsCloseExpected = parseNullableBool(rawRow.CloseExpected);
+    contactorsCloseExpected = typeof rawRow.CloseExpected === "boolean" ? rawRow.CloseExpected : String(rawRow.CloseExpected).toUpperCase() === "TRUE";
   } else if (rawRow.closeExpected !== undefined && rawRow.closeExpected !== null && rawRow.closeExpected !== "") {
-    contactorsCloseExpected = parseNullableBool(rawRow.closeExpected);
+    contactorsCloseExpected = typeof rawRow.closeExpected === "boolean" ? rawRow.closeExpected : String(rawRow.closeExpected).toUpperCase() === "TRUE";
+  } else if (rawRow.expectedClosed !== undefined && rawRow.expectedClosed !== null && rawRow.expectedClosed !== "") {
+    contactorsCloseExpected = typeof rawRow.expectedClosed === "boolean" ? rawRow.expectedClosed : String(rawRow.expectedClosed).toUpperCase() === "TRUE";
   }
 
   let commandMatchesContactors: boolean | null = null;
@@ -244,48 +178,15 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     commandMatchesContactors = true;
   } else if (typeof contactorsCloseExpected === "boolean" && typeof bothContactorsClosed === "boolean") {
     commandMatchesContactors = false;
-  } else {
-    commandMatchesContactors = null;
   }
 
   const badReport = rawRow.badReport !== undefined ? parseNullableBool(rawRow.badReport) : false;
   const recloseCount = num(rawRow.RecloseCount ?? rawRow.recloseCount ?? null);
 
   // String classification rules
-  let operationalBucket: "online" | "nearline" | "offline" | "notCommunicating" | "unknown" = "unknown";
-  let bucketReason = "";
-
-  if (communicating === false) {
-    operationalBucket = "notCommunicating";
-    bucketReason = "not_communicating";
-  } else if (communicating === true) {
-    if (inRotation === false) {
-      operationalBucket = "offline";
-      bucketReason = "out_of_rotation";
-    } else if (inRotation === true) {
-      if (bothContactorsClosed === true) {
-        operationalBucket = "online";
-        bucketReason = "communicating_in_rotation_contactors_closed";
-      } else if (bothContactorsClosed === false) {
-        operationalBucket = "nearline";
-        bucketReason = "communicating_in_rotation_contactors_open";
-      } else {
-        if (context?.compatMissingContactorAsNearline) {
-          operationalBucket = "nearline";
-          bucketReason = "communicating_in_rotation_contactors_open_compat";
-        } else {
-          operationalBucket = "unknown";
-          bucketReason = "missing_contactor_feedback";
-        }
-      }
-    } else {
-      operationalBucket = "unknown";
-      bucketReason = "missing_rotation_feedback";
-    }
-  } else {
-    operationalBucket = "unknown";
-    bucketReason = "missing_communication_feedback";
-  }
+  const classification = classifyStringOperationalState(rawRow);
+  const operationalBucket = classification.bucket;
+  const bucketReason = classification.reason;
 
   const rawBucket = rawRow.bucket ?? rawRow.operationalBucket ?? null;
 
@@ -306,9 +207,9 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   const storedKWh = num(rawRow.storedKWh ?? rawRow.kWh ?? rawRow.kwh ?? rawRow.KWh);
 
   // Cell voltages
-  const minCellVoltageMv = normalizeCellVoltageMv(rawRow.minCellVoltageMv ?? rawRow.minCellVoltage ?? rawRow.MinCellGroupVoltage ?? rawRow.minCellGroupVoltage);
-  const maxCellVoltageMv = normalizeCellVoltageMv(rawRow.maxCellVoltageMv ?? rawRow.maxCellVoltage ?? rawRow.MaxCellGroupVoltage ?? rawRow.maxCellGroupVoltage);
-  const avgCellVoltageMv = normalizeCellVoltageMv(rawRow.avgCellVoltageMv ?? rawRow.avgCellVoltage ?? rawRow.AvgCellGroupVoltage ?? rawRow.avgCellGroupVoltage);
+  const minCellVoltageMv = normalizeCellVoltageMv(rawRow.minCellVoltageMv ?? rawRow.minCellVoltage ?? rawRow.MinCellGroupVoltage ?? rawRow.minCellGroupVoltage ?? rawRow.cellVoltageMin);
+  const maxCellVoltageMv = normalizeCellVoltageMv(rawRow.maxCellVoltageMv ?? rawRow.maxCellVoltage ?? rawRow.MaxCellGroupVoltage ?? rawRow.maxCellGroupVoltage ?? rawRow.cellVoltageMax);
+  const avgCellVoltageMv = normalizeCellVoltageMv(rawRow.avgCellVoltageMv ?? rawRow.avgCellVoltage ?? rawRow.AvgCellGroupVoltage ?? rawRow.avgCellGroupVoltage ?? rawRow.cellVoltageAvg);
   const cellVoltageDeltaMv = (maxCellVoltageMv !== null && minCellVoltageMv !== null)
       ? (maxCellVoltageMv - minCellVoltageMv)
       : null;
@@ -319,9 +220,9 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     if (val === null) return null;
     return val > 90 ? val / 10 : val;
   }
-  const minCellTempC = parseTemp(rawRow.minCellTempC ?? rawRow.minCellTemperature ?? rawRow.MinCellGroupTemp ?? rawRow.minCellGroupTemp ?? rawRow.minCellTemp);
-  const maxCellTempC = parseTemp(rawRow.maxCellTempC ?? rawRow.maxCellTemperature ?? rawRow.MaxCellGroupTemp ?? rawRow.maxCellGroupTemp ?? rawRow.maxCellTemp);
-  const avgCellTempC = parseTemp(rawRow.avgCellTempC ?? rawRow.avgCellTemperature ?? rawRow.AvgCellGroupTemp ?? rawRow.avgCellGroupTemp ?? rawRow.avgCellTemp);
+  const minCellTempC = parseTemp(rawRow.minCellTempC ?? rawRow.minCellTemperature ?? rawRow.MinCellGroupTemp ?? rawRow.minCellGroupTemp ?? rawRow.minCellTemp ?? rawRow.cellTempMin);
+  const maxCellTempC = parseTemp(rawRow.maxCellTempC ?? rawRow.maxCellTemperature ?? rawRow.MaxCellGroupTemp ?? rawRow.maxCellGroupTemp ?? rawRow.maxCellTemp ?? rawRow.cellTempMax);
+  const avgCellTempC = parseTemp(rawRow.avgCellTempC ?? rawRow.avgCellTemperature ?? rawRow.AvgCellGroupTemp ?? rawRow.avgCellGroupTemp ?? rawRow.avgCellTemp ?? rawRow.cellTempAvg);
   const cellTempDeltaC = (maxCellTempC !== null && minCellTempC !== null)
       ? Number((maxCellTempC - minCellTempC).toFixed(1))
       : null;
@@ -344,11 +245,125 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   }
   const sourceTimestampUtc = safeParseDate(rawRow.sourceTimestampUtc ?? rawRow.TimestampUtc ?? rawRow.timestampUtc ?? rawRow.Timestamp ?? rawRow.timestamp ?? rawRow.DateTime ?? rawRow.datetime);
 
+  const localEsNumber = Math.ceil(stringNumber / 2);
+  const pairedStringNumber = (stringNumber % 2 === 1) ? (stringNumber + 1) : (stringNumber - 1);
+  const featherLastOctet = 10 + (localEsNumber - 1) * 5;
+  const featherIp = `10.0.${arrayNumber}.${featherLastOctet}`;
+
+  // Nested structured state
+  const identity = {
+    siteId: rawRow.identity?.siteId ?? context?.siteId ?? null,
+    stationCode: rawRow.identity?.stationCode ?? context?.stationCode ?? null,
+    blockIndex: num(rawRow.identity?.blockIndex ?? context?.blockIndex ?? rawRow.blockIndex),
+    arrayIndex: arrayNumber,
+    stringNumber: stringNumber,
+    stringKey: `array:${arrayNumber}:string:${stringNumber}`,
+    label: `Array ${arrayNumber} ES${localEsNumber} String ${stringNumber}`,
+    displayName: `Array ${arrayNumber} String ${stringNumber}`,
+    localEsNumber,
+    pairedStringNumber,
+    featherIp,
+    sourceStringId: rawRow.identity?.sourceStringId ?? rawRow.id ?? null,
+    sourcePath
+  };
+
+  const communication = {
+    rawValue: rawRow.communicating ?? rawRow.StringConnectionState ?? rawRow.stringConnectionState ?? rawRow.connectionState ?? null,
+    normalizedState: communicating === null ? "UNKNOWN" : (communicating ? "COMMUNICATING" : "NOT COMMUNICATING"),
+    communicating: communicating,
+    source: rawRow.communicating !== undefined ? "direct" : "derived",
+    sourcePath,
+    confidence: communicating === null ? "LOW" : "HIGH",
+    updatedAt: sourceTimestampUtc
+  };
+
+  const rotation = {
+    rawValue: rawRow.inRotation ?? rawRow.outRotation ?? rawRow.outOfRotation ?? null,
+    normalizedState: inRotation === null ? "UNKNOWN" : (inRotation ? "IN ROTATION" : "OUT OF ROTATION"),
+    inRotation: inRotation,
+    outOfRotation: outRotation,
+    source: rawRow.inRotation !== undefined || rawRow.outRotation !== undefined ? "direct" : "derived",
+    sourcePath,
+    confidence: inRotation === null ? "LOW" : "HIGH",
+    updatedAt: sourceTimestampUtc
+  };
+
+  const contactors = {
+    positiveContactorClosed,
+    negativeContactorClosed,
+    bothContactorsClosed,
+    contactorFeedbackKnown,
+    expectedClosed: contactorsCloseExpected,
+    commandMatchesContactors,
+    recloseCount,
+    source: positiveContactorClosed !== null ? "direct" : "derived",
+    sourcePath,
+    updatedAt: sourceTimestampUtc
+  };
+
+  const electrical = {
+    voltage: stackVoltageVdc,
+    current: currentA,
+    soc: socPct,
+    soh: null,
+    maxCellVoltage: maxCellVoltageMv,
+    minCellVoltage: minCellVoltageMv,
+    avgCellVoltage: avgCellVoltageMv,
+    maxCellTemp: maxCellTempC,
+    minCellTemp: minCellTempC,
+    avgCellTemp: avgCellTempC,
+    source: stackVoltageVdc !== null ? "direct" : "derived",
+    sourcePath,
+    updatedAt: sourceTimestampUtc
+  };
+
+  const severity = alarmCount > 0 ? "ALARM" : (warningCount > 0 ? "WARNING" : "NORMAL");
+  const healthy = (alarmCount === 0 && operationalBucket !== "notCommunicating" && operationalBucket !== "unknown");
+
+  const health = {
+    operationalBucket,
+    severity,
+    healthy,
+    warningCount,
+    faultCount: alarmCount,
+    activeFaults: alarms,
+    activeWarnings: warnings,
+    findings: []
+  };
+
+  const sourceDebug = {
+    primarySource: sourcePath,
+    sourcePriorityUsed: sourcePriority,
+    sourcePaths: [sourcePath],
+    rawCandidates: [],
+    conflicts: [],
+    staleSources: [],
+    generatedAt: new Date().toISOString(),
+    canonicalKey: `array:${arrayNumber}:string:${stringNumber}`,
+    rawCommunicationValue: rawRow.communicating ?? null,
+    rawRotationValue: rawRow.inRotation ?? rawRow.outRotation ?? null,
+    rawPositiveContactorValue: rawRow.positiveContactorClosed ?? null,
+    rawNegativeContactorValue: rawRow.negativeContactorClosed ?? null,
+    normalizedCommunication: communicating,
+    normalizedRotation: inRotation,
+    normalizedContactors: bothContactorsClosed,
+    operationalBucket,
+    classifierInputs: {
+      communicating,
+      inRotation,
+      contactorsClosed: bothContactorsClosed
+    },
+    classifierReason: bucketReason,
+    sourceFreshnessMs: null
+  };
+
   return {
     id,
     arrayNumber,
     stringNumber,
     stringKey,
+    arrayIndex: arrayNumber,
+    stringIndex: stringNumber,
 
     communicating,
     badReport,
@@ -410,6 +425,15 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
     maxCellTemperature: maxCellTempC,
     avgCellTemperature: avgCellTempC,
     contactorClosed: bothContactorsClosed,
-    contactorsClosed: bothContactorsClosed
+    contactorsClosed: bothContactorsClosed,
+
+    // Nested structures
+    identity,
+    communication,
+    rotation,
+    contactors,
+    electrical,
+    health,
+    sourceDebug
   };
 }

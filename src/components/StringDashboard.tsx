@@ -11,15 +11,38 @@ import ContactorControlModal, { ContactorTarget } from './ContactorControlModal'
 import { useSiteData } from '../context/SiteDataContext';
 
 function getContactorVisualState(row: any) {
-  const actualClosed = row.bothContactorsClosed === true;
-  const actualOpen = row.bothContactorsClosed === false;
+  const pos = row.positiveContactorClosed;
+  const neg = row.negativeContactorClosed;
+  const both = row.bothContactorsClosed;
   const commandedClosed = row.contactorsCloseExpected === true;
   const commandedOpen = row.contactorsCloseExpected === false;
-
-  const commandKnown = commandedClosed || commandedOpen;
   const matchesCommand = row.commandMatchesContactors;
 
-  const actualDotColor = actualClosed ? "blue" : actualOpen ? "gray" : "red";
+  let actualLabel = "Unknown";
+  let actualDotColor = "amber";
+
+  if (pos === true && neg === true) {
+    actualLabel = "Closed";
+    actualDotColor = "blue";
+  } else if (pos === false && neg === false) {
+    actualLabel = "Open";
+    actualDotColor = "gray";
+  } else if (pos === true && neg === false) {
+    actualLabel = "Partial / Mismatch";
+    actualDotColor = "red";
+  } else if (pos === false && neg === true) {
+    actualLabel = "Partial / Mismatch";
+    actualDotColor = "red";
+  } else if ((pos === false && neg === null) || (pos === null && neg === false)) {
+    actualLabel = "Open (incomplete feedback)";
+    actualDotColor = "gray";
+  } else if ((pos === true && neg === null) || (pos === null && neg === true)) {
+    actualLabel = "Partial (incomplete feedback)";
+    actualDotColor = "amber";
+  } else if (pos === null && neg === null) {
+    actualLabel = "Unknown";
+    actualDotColor = "amber";
+  }
 
   function getIndividualContactorDotColor(value: any) {
     if (value === true) return "blue";
@@ -27,22 +50,36 @@ function getContactorVisualState(row: any) {
     return "amber";
   }
 
-  const positiveDotColor = getIndividualContactorDotColor(row.positiveContactorClosed);
-  const negativeDotColor = getIndividualContactorDotColor(row.negativeContactorClosed);
+  const positiveDotColor = getIndividualContactorDotColor(pos);
+  const negativeDotColor = getIndividualContactorDotColor(neg);
+
+  // Command mismatch logic
+  let matchLabel = "Command unknown / pending";
+  let matchDotColor = "amber";
+
+  if (pos === null && neg === null) {
+    matchLabel = "Readback unknown";
+    matchDotColor = "amber";
+  } else {
+    if (matchesCommand === true) {
+      matchLabel = "Command matched";
+      matchDotColor = "green";
+    } else if (matchesCommand === false) {
+      matchLabel = "Command mismatch";
+      matchDotColor = "red";
+    } else {
+      matchLabel = "Command unknown / pending";
+      matchDotColor = "amber";
+    }
+  }
 
   return {
     actualDotColor,
     positiveDotColor,
     negativeDotColor,
-    matchDotColor:
-      matchesCommand === true ? "green" :
-      matchesCommand === false ? "red" :
-      "amber",
-    actualLabel: actualClosed ? "Closed" : actualOpen ? "Open" : "Unknown",
-    matchLabel:
-      matchesCommand === true ? "Command matched" :
-      matchesCommand === false ? "Command mismatch" :
-      "Command unknown / pending"
+    matchDotColor,
+    actualLabel,
+    matchLabel
   };
 }
 
@@ -381,8 +418,8 @@ const handleManualRefresh = async () => {
     return strings.filter((s:any) => {
       if (arrayFilter !== "all" && String(s.arrayNumber) !== arrayFilter) return false;
       if (stateFilter !== "all") {
-        if (stateFilter === "online" && s.operationalState === "OFFLINE") return false;
-        if (stateFilter === "offline" && s.operationalState !== "OFFLINE") return false;
+        const canonicalBucket = s.bucket || s.operationalBucket || s.operationalState || "";
+        if (stateFilter.toLowerCase() !== canonicalBucket.toLowerCase()) return false;
       }
       if (healthFilter !== "all") {
         if (healthFilter === "alarms" && s.alarmCount <= 0) return false;
@@ -613,7 +650,10 @@ const handleManualRefresh = async () => {
           <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">State: All</option>
             <option value="online">Online</option>
+            <option value="nearline">Nearline</option>
             <option value="offline">Offline</option>
+            <option value="notCommunicating">Not Communicating</option>
+            <option value="unknown">Unknown</option>
           </select>
           <select value={healthFilter} onChange={e => setHealthFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Health: All</option>
