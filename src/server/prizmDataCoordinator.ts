@@ -8,7 +8,7 @@ import { ProfileStore } from "./profiles/profileStore";
 import { buildNormalizedResponderSummary } from "./siteSensors/siteSensorsRoutes";
 import { fetchEnrichedDevices } from "./feather/deviceEnrichment";
 import { getSegmentName } from "./siteData/segmentTranslator";
-import { buildNormalizedStringsData } from "./stringsDashboard";
+import { buildNormalizedStringsData, buildCanonicalStringState } from "./stringsDashboard";
 import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { normalizeStringRow } from "./normalizers/stringNormalizer";
@@ -1197,7 +1197,7 @@ async function doBackgroundPoll() {
       });
 
       // Fetch UI-ready normalized string details
-      const stringsResult = await buildNormalizedStringsData(false).catch((err: any) => {
+      const stringsResult = await buildNormalizedStringsData(true).catch((err: any) => {
          console.error("[Data Coordinator] Strings normalization fell back due to error:", err.message);
          return null;
       });
@@ -1501,6 +1501,11 @@ async function doBackgroundPoll() {
               flatMergedStrings.push(...arrD.strings);
           }
       }
+
+      flatMergedStrings.forEach((s: any) => {
+          const canonical = buildCanonicalStringState(s);
+          Object.assign(s, canonical);
+      });
 
       const newSnap: PrizmSiteSnapshot = {
           siteIdentity: {
