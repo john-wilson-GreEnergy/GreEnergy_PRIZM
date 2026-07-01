@@ -6,6 +6,8 @@ import {
   lastKnownGoodEmsApps
 } from "./prizmDataCoordinator";
 import { setEmsCachedBlock, emsCache } from "./emsTurtleClient";
+import { normalizeStringRow } from "./normalizers/stringNormalizer";
+import { getNullableBothContactorsClosed } from "../lib/stringClassifier";
 
 async function runTests() {
   let passed = 0;
@@ -308,6 +310,95 @@ async function runTests() {
   setEmsCachedBlock(blockWithoutApps);
   assertEqual(emsCache.block?.dragonApps?.length, 1, "Test 12.2: dragonApps preserved when new fetch is missing them");
   assertEqual(emsCache.block?.onlineStringCount, 18, "Test 12.3: Rest of block data updated correctly");
+
+  // 13. Native connection permitted grouping & mismatch detection
+  const rawSources_CP = {
+    block: {
+      arrays: [
+        {
+          arrayIndex: 1,
+          onlineStringCount: 314,
+          nearlineStringCount: 3,
+          offlineStringCount: 2,
+          notCommunicationStringCount: 1,
+          strings: [
+            // 314 ONLINE strings with contactorsCloseExpected: true
+            ...Array.from({ length: 314 }, () => ({
+              stringConnectionState: "ONLINE",
+              contactorsCloseExpected: true,
+              positiveContactorClosed: true,
+              negativeContactorClosed: true
+            })),
+            // 3 NEARLINE strings with contactorsCloseExpected: false
+            ...Array.from({ length: 3 }, () => ({
+              stringConnectionState: "NEARLINE",
+              contactorsCloseExpected: false,
+              positiveContactorClosed: false,
+              negativeContactorClosed: false
+            })),
+            // 2 OFFLINE strings with contactorsCloseExpected: false
+            ...Array.from({ length: 2 }, () => ({
+              stringConnectionState: "OFFLINE",
+              contactorsCloseExpected: false,
+              positiveContactorClosed: false,
+              negativeContactorClosed: false
+            })),
+            // 1 NOT_COMM_LOSS (or Lost Comms) with contactorsCloseExpected: false
+            {
+              stringConnectionState: "LOST_COMMS",
+              contactorsCloseExpected: false,
+              positiveContactorClosed: false,
+              negativeContactorClosed: false
+            }
+          ]
+        }
+      ]
+    }
+  };
+
+  const snapshot_CP: any = {
+    rawSources: rawSources_CP,
+    normalized: {
+      // canonical rows mismatch (they say all are nearline)
+      strings: Array.from({ length: 320 }, (_, i) => ({
+        stringNumber: i + 1,
+        bucket: "nearline",
+        connectionPermitted: false
+      }))
+    },
+    rollups: {
+      stringSummary: {
+        rollups: {}
+      },
+      bessFleetSummary: {},
+      fleetCapacity: {}
+    }
+  };
+
+  repairFinalFleetRollupsFromStringsAndArrays(snapshot_CP);
+  assertEqual(snapshot_CP.rollups.stringSummary.rollups.online.connectionPermittedCount, 314, "Test 13.1: Connection Permitted online count matches 314");
+  assertEqual(snapshot_CP.rollups.stringSummary.rollups.nearline.connectionPermittedCount, 0, "Test 13.2: Connection Permitted nearline count is 0");
+  assertEqual(snapshot_CP.rollups.stringSummary.rollups.offline.connectionPermittedCount, 0, "Test 13.3: Connection Permitted offline count is 0");
+  assertEqual(snapshot_CP.rollups.stringSummary.rollups.notCommunicating.connectionPermittedCount, 0, "Test 13.4: Connection Permitted notCommunicating count is 0");
+
+  assertEqual(snapshot_CP.rollups.stringSummary.debug.connectionPermittedSource, "native-ems-per-string-connection-state", "Test 13.5: connectionPermittedSource matches");
+  assertEqual(snapshot_CP.rollups.stringSummary.debug.nativeConnectionPermittedCounts.online, 314, "Test 13.6: Debug nativeConnectionPermittedCounts online is 314");
+  assertEqual(snapshot_CP.rollups.stringSummary.debug.connectionPermittedMismatch, true, "Test 13.7: connectionPermittedMismatch is true");
+
+  // 14. Preserve contactor feedback priority
+  const test14Input = {
+    stringConnectionState: "ONLINE",
+    stringContactorState: "OPEN",
+    positiveContactorClosed: true,
+    negativeContactorClosed: true,
+    contactorsCloseExpected: true,
+    communicating: true,
+    inRotation: true
+  };
+  const norm14 = normalizeStringRow(test14Input);
+  assertEqual(norm14.bothContactorsClosed, true, "Test 14.1: bothContactorsClosed is true despite stringContactorState OPEN");
+  assertEqual(norm14.bucket, "online", "Test 14.2: bucket is online");
+  assertEqual(norm14.bucketReason, "communicating_in_rotation_contactors_closed", "Test 14.3: bucketReason matches");
 
   console.log(`\nTests finished: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {

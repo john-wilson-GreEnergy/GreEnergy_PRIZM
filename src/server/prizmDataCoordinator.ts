@@ -533,6 +533,118 @@ export function resolveStringBucket(row: any): string {
   return norm.bucket;
 }
 
+export function mapNativeStateToBucket(state: any): string | null {
+  if (state === null || state === undefined) return null;
+  const s = String(state).trim().toUpperCase();
+  if (s === "ONLINE") return "online";
+  if (s === "NEARLINE") return "nearline";
+  if (s === "OFFLINE") return "offline";
+  if (s === "NOT_COMMUNICATING" || s === "NOT COMMUNICATING" || s === "LOST_COMMS" || s === "COMM_LOSS") {
+    return "notCommunicating";
+  }
+  return null;
+}
+
+export function extractNativeEmsPerStringData(rawSources: any): {
+  strings: {
+    stringConnectionState: string | null;
+    contactorsCloseExpected: boolean | null;
+    positiveContactorClosed: boolean | null;
+    negativeContactorClosed: boolean | null;
+  }[];
+  sourcePath: string;
+} | null {
+  if (!rawSources) return null;
+
+  const candidates = [
+    rawSources.nativeBlockSummary,
+    rawSources.blockviewerRaw,
+    rawSources.nativeEmsBlock,
+    rawSources.block,
+    rawSources.status,
+    rawSources.lastCall
+  ].filter(c => c !== undefined && c !== null);
+
+  for (const src of candidates) {
+    // 1. Check arrays[].strings[]
+    const arraysCandidates = [
+      src.arrays,
+      src.blockReport?.arrays,
+      src.statusReport?.arrays,
+      src.blockReport?.blockReport?.arrays
+    ].filter(arr => Array.isArray(arr) && arr.length > 0);
+
+    for (const arrays of arraysCandidates) {
+      const allStrings: any[] = [];
+      let foundAny = false;
+      
+      arrays.forEach((arr, arrIdx) => {
+        if (arr && Array.isArray(arr.strings)) {
+          foundAny = true;
+          arr.strings.forEach((str) => {
+            if (str) {
+              allStrings.push({
+                stringConnectionState: str.stringConnectionState ?? null,
+                contactorsCloseExpected: str.contactorsCloseExpected !== undefined ? (str.contactorsCloseExpected === true || str.contactorsCloseExpected === "true" || str.contactorsCloseExpected === 1) : null,
+                positiveContactorClosed: str.positiveContactorClosed !== undefined ? (str.positiveContactorClosed === true || str.positiveContactorClosed === "true" || str.positiveContactorClosed === 1) : null,
+                negativeContactorClosed: str.negativeContactorClosed !== undefined ? (str.negativeContactorClosed === true || str.negativeContactorClosed === "true" || str.negativeContactorClosed === 1) : null
+              });
+            }
+          });
+        }
+      });
+
+      if (foundAny && allStrings.length > 0) {
+        return {
+          strings: allStrings,
+          sourcePath: "arrays[].strings[]"
+        };
+      }
+    }
+
+    // 2. Check blockReport.arrayReport.<array>.stringReport.<string>.stringData
+    const blockReport = src.blockReport || src;
+    const arrayReport = blockReport.arrayReport;
+    if (arrayReport && typeof arrayReport === "object") {
+      const arrayKeys = Object.keys(arrayReport).filter(k => !isNaN(Number(k)));
+      if (arrayKeys.length > 0) {
+        const allStrings: any[] = [];
+        let foundAny = false;
+        
+        arrayKeys.forEach(k => {
+          const stringReport = arrayReport[k]?.stringReport;
+          if (stringReport && typeof stringReport === "object") {
+            const stringKeys = Object.keys(stringReport).filter(sk => !isNaN(Number(sk)));
+            if (stringKeys.length > 0) {
+              foundAny = true;
+              stringKeys.forEach(sk => {
+                const stringData = stringReport[sk]?.stringData;
+                if (stringData) {
+                  allStrings.push({
+                    stringConnectionState: stringData.stringConnectionState ?? null,
+                    contactorsCloseExpected: stringData.contactorsCloseExpected !== undefined ? (stringData.contactorsCloseExpected === true || stringData.contactorsCloseExpected === "true" || stringData.contactorsCloseExpected === 1) : null,
+                    positiveContactorClosed: stringData.positiveContactorClosed !== undefined ? (stringData.positiveContactorClosed === true || stringData.positiveContactorClosed === "true" || stringData.positiveContactorClosed === 1) : null,
+                    negativeContactorClosed: stringData.negativeContactorClosed !== undefined ? (stringData.negativeContactorClosed === true || stringData.negativeContactorClosed === "true" || stringData.negativeContactorClosed === 1) : null
+                  });
+                }
+              });
+            }
+          }
+        });
+
+        if (foundAny && allStrings.length > 0) {
+          return {
+            strings: allStrings,
+            sourcePath: "blockReport.arrayReport.*.stringReport.*.stringData"
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export function findNativeEmsArrayStringCounts(rawSources: any): {
   source: string;
   online: number;
@@ -1412,7 +1524,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
       notCommunicating: comprehensiveNativeCounts.notCommunicating
     };
   } else {
-    // 1. Try native EMS/Kobold block-level String Summary
+    // 1. Try native EMS block-level String Summary
     const nativeBlockSummary = findNativeEmsBlockSummary(snapshot.rawSources);
     if (nativeBlockSummary) {
       stringSummarySource = 'native-ems-block-summary';
@@ -1491,6 +1603,82 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.stringSummary.rollups.notCommunicating = calculateBucketRollup(bucketsRaw.notCommunicating, "notCommunicating", notCommunicatingStoredKWhs);
   snapshot.rollups.stringSummary.rollups.unknown = calculateBucketRollup(bucketsRaw.unknown, "unknown", unknownStoredKWhs);
   
+  // Grouped by native stringConnectionState when native EMS is active
+  const canonicalConnectionPermittedCounts = {
+    online: snapshot.rollups.stringSummary.rollups.online.connectionPermittedCount || 0,
+    nearline: snapshot.rollups.stringSummary.rollups.nearline.connectionPermittedCount || 0,
+    offline: snapshot.rollups.stringSummary.rollups.offline.connectionPermittedCount || 0,
+    notCommunicating: snapshot.rollups.stringSummary.rollups.notCommunicating.connectionPermittedCount || 0
+  };
+
+  let connectionPermittedSource = "canonical-string-rows-repaired";
+  let nativeCPCounts = {
+    online: 0,
+    nearline: 0,
+    offline: 0,
+    notCommunicating: 0
+  };
+  let nativeKnownCounts = {
+    online: 0,
+    nearline: 0,
+    offline: 0,
+    notCommunicating: 0
+  };
+
+  const nativeStringsResult = extractNativeEmsPerStringData(snapshot.rawSources);
+
+  if (stringSummarySource !== 'canonical-string-rows-repaired' && nativeStringsResult) {
+    connectionPermittedSource = "native-ems-per-string-connection-state";
+    for (const str of nativeStringsResult.strings) {
+      const bucket = mapNativeStateToBucket(str.stringConnectionState);
+      if (bucket && bucket in nativeCPCounts) {
+        if (str.contactorsCloseExpected !== null && str.contactorsCloseExpected !== undefined) {
+          nativeKnownCounts[bucket as keyof typeof nativeKnownCounts]++;
+        }
+        if (str.contactorsCloseExpected === true) {
+          nativeCPCounts[bucket as keyof typeof nativeCPCounts]++;
+        }
+      }
+    }
+
+    // Override the visible counts
+    snapshot.rollups.stringSummary.rollups.online.connectionPermittedCount = nativeCPCounts.online;
+    snapshot.rollups.stringSummary.rollups.nearline.connectionPermittedCount = nativeCPCounts.nearline;
+    snapshot.rollups.stringSummary.rollups.offline.connectionPermittedCount = nativeCPCounts.offline;
+    snapshot.rollups.stringSummary.rollups.notCommunicating.connectionPermittedCount = nativeCPCounts.notCommunicating;
+
+    // Override the known counts
+    snapshot.rollups.stringSummary.rollups.online.connectionPermittedKnownCount = nativeKnownCounts.online;
+    snapshot.rollups.stringSummary.rollups.nearline.connectionPermittedKnownCount = nativeKnownCounts.nearline;
+    snapshot.rollups.stringSummary.rollups.offline.connectionPermittedKnownCount = nativeKnownCounts.offline;
+    snapshot.rollups.stringSummary.rollups.notCommunicating.connectionPermittedKnownCount = nativeKnownCounts.notCommunicating;
+
+    // Track sources
+    snapshot.rollups.stringSummary.rollups.online.connectionPermittedSource = "contactorsCloseExpected";
+    snapshot.rollups.stringSummary.rollups.nearline.connectionPermittedSource = "contactorsCloseExpected";
+    snapshot.rollups.stringSummary.rollups.offline.connectionPermittedSource = "contactorsCloseExpected";
+    snapshot.rollups.stringSummary.rollups.notCommunicating.connectionPermittedSource = "contactorsCloseExpected";
+  }
+
+  const finalCPCounts = (stringSummarySource !== 'canonical-string-rows-repaired' && nativeStringsResult) ? nativeCPCounts : canonicalConnectionPermittedCounts;
+  const connectionPermittedMismatch = (
+    finalCPCounts.online !== canonicalConnectionPermittedCounts.online ||
+    finalCPCounts.nearline !== canonicalConnectionPermittedCounts.nearline ||
+    finalCPCounts.offline !== canonicalConnectionPermittedCounts.offline ||
+    finalCPCounts.notCommunicating !== canonicalConnectionPermittedCounts.notCommunicating
+  );
+
+  snapshot.rollups.stringSummary.debug.connectionPermittedSource = connectionPermittedSource;
+  snapshot.rollups.stringSummary.debug.nativeConnectionPermittedCounts = nativeCPCounts;
+  snapshot.rollups.stringSummary.debug.canonicalConnectionPermittedCounts = canonicalConnectionPermittedCounts;
+  snapshot.rollups.stringSummary.debug.connectionPermittedMismatch = connectionPermittedMismatch;
+
+  if (stringSummarySource !== 'canonical-string-rows-repaired' && nativeStringsResult) {
+    snapshot.rollups.stringSummary.debug.nativeSourceTimestamp = snapshot.timestamp || new Date().toISOString();
+    snapshot.rollups.stringSummary.debug.nativeSourcePath = nativeStringsResult.sourcePath;
+    snapshot.rollups.stringSummary.debug.nativeSourceSelectionReason = "Matching stringConnectionState and contactorsCloseExpected from upstream EMS summary";
+  }
+
   snapshot.rollups.stringSummary.rollups.online.count = finalOnline;
   snapshot.rollups.stringSummary.rollups.nearline.count = finalNearline;
   snapshot.rollups.stringSummary.rollups.offline.count = finalOffline;
