@@ -1,0 +1,38 @@
+{
+  "id": "default-stack225_230",
+  "name": "Default Stack 225 / 230 / Distributed Profile",
+  "stationCode": "DIST001",
+  "blockIndex": 1,
+  "siteName": "Distributed Environmental BESS",
+  "customer": "Distributed Energy",
+  "layoutFamily": "stack225_230",
+  "equipmentModel": "containerized-distributed-environmental",
+  "uiMode": "distributed-environmental",
+  "architecture": {
+    "usesLineups": false,
+    "usesCollectionSegments": false,
+    "usesEnergySegments": false,
+    "usesContainers": true,
+    "usesStacks": true,
+    "usesCentralEnvironmentalPlc": false,
+    "usesDistributedEnvironmentalDevices": true
+  },
+  "assumptions": {
+    "arrayCount": 4,
+    "containersPerArray": 1,
+    "stacksPerContainer": 2,
+    "stringsPerStack": 10,
+    "environmentalControllersPerContainer": 12,
+    "upsPerArray": 1,
+    "enclosureSwitchesPerArray": 1,
+    "baseSubnet": "10.2.0.0/16"
+  },
+  "ipPlan": {
+    "subnet": "10.2.0.0/16",
+    "arrayThirdOctetMode": "array-index",
+    "customDevices": []
+  },
+  "createdAt": "2026-07-02T12:26:22.057Z",
+  "updatedAt": "2026-07-02T12:26:22.057Z",
+  "source": "default"
+}

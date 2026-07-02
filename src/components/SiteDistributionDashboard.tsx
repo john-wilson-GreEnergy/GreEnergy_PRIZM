@@ -308,6 +308,39 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
   const strings = data?.rows || [];
 
+  const stringListStatusBuckets = snapshot?.rollups?.stringSummary?.buckets || null;
+  const stringListStatusRows =
+    snapshot?.normalized?.strings ||
+    snapshot?.rollups?.stringSummary?.tableRows ||
+    strings ||
+    [];
+
+  const countStringBucket = (bucket: string): number =>
+    stringListStatusRows.filter((row: any) => row?.bucket === bucket).length;
+
+  const stringListStatusCounts = {
+    total: Number(stringListStatusBuckets?.online ?? NaN) >= 0
+      ? Number(stringListStatusBuckets.online || 0) +
+        Number(stringListStatusBuckets.nearline || 0) +
+        Number(stringListStatusBuckets.offline || 0) +
+        Number(stringListStatusBuckets.notCommunicating || 0) +
+        Number(stringListStatusBuckets.unknown || 0)
+      : (stringListStatusRows.length || strings.length),
+    online: Number(stringListStatusBuckets?.online ?? NaN) >= 0
+      ? Number(stringListStatusBuckets.online || 0)
+      : countStringBucket('online'),
+    nearline: Number(stringListStatusBuckets?.nearline ?? NaN) >= 0
+      ? Number(stringListStatusBuckets.nearline || 0)
+      : countStringBucket('nearline'),
+    offline: Number(stringListStatusBuckets?.offline ?? NaN) >= 0
+      ? Number(stringListStatusBuckets.offline || 0)
+      : countStringBucket('offline'),
+    notCommunicating: Number(stringListStatusBuckets?.notCommunicating ?? NaN) >= 0
+      ? Number(stringListStatusBuckets.notCommunicating || 0)
+      : countStringBucket('notCommunicating')
+  };
+
+
   // Generate Array options lists
   const arrayOptions = useMemo(() => {
     const list: number[] = Array.from(new Set(strings.map(s => Number(s.arrayIndex))));
@@ -326,6 +359,22 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   };
 
   // Filter application
+
+  const stringListTopRowSource =
+    normalizedStrings ||
+    strings ||
+    snapshot?.normalized?.strings ||
+    snapshot?.rollups?.stringSummary?.tableRows ||
+    [];
+
+  const stringListTopRowStatusCounts = {
+    total: stringListTopRowSource.length,
+    online: stringListTopRowSource.filter((r: any) => r?.bucket === "online").length,
+    nearline: stringListTopRowSource.filter((r: any) => r?.bucket === "nearline").length,
+    offline: stringListTopRowSource.filter((r: any) => r?.bucket === "offline").length,
+    notCommunicating: stringListTopRowSource.filter((r: any) => r?.bucket === "notCommunicating").length
+  };
+
   const filteredStrings = useMemo(() => {
     return strings.filter(s => {
       // 1. Array Index selection
@@ -1062,95 +1111,102 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
         </div>
 
         {/* ROLLUPS KEY-PERFORMANCE INDICATORS */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-8 gap-3">
           <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60">
             <span className="text-[9px] text-prizm-text-muted uppercase block">Total Strings</span>
-            <span className="font-bold text-base text-prizm-text">{data?.rollups?.stringCount ?? strings.length}</span>
+            <span className="font-bold text-base text-prizm-text">{stringListStatusCounts.total}</span>
+          </div>
+
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-emerald-500/30 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Online</span>
+              <span className="font-bold text-base text-emerald-600">{stringListStatusCounts.online}</span>
+            </div>
+            <span className="text-[9px] text-emerald-600 leading-tight">STRING STATUS</span>
+          </div>
+
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-cyan-500/30 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Nearline</span>
+              <span className="font-bold text-base text-cyan-600">{stringListStatusCounts.nearline}</span>
+            </div>
+            <span className="text-[9px] text-cyan-600 leading-tight">STRING STATUS</span>
+          </div>
+
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-amber-500/30 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Offline</span>
+              <span className="font-bold text-base text-amber-500">{stringListStatusCounts.offline}</span>
+            </div>
+            <span className="text-[9px] text-amber-600 leading-tight">STRING STATUS</span>
+          </div>
+
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-slate-500/40 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Not Comm</span>
+              <span className="font-bold text-base text-slate-500">{stringListStatusCounts.notCommunicating}</span>
+            </div>
+            <span className="text-[9px] text-slate-500 leading-tight">STRING STATUS</span>
           </div>
 
           <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 flex flex-col justify-between">
             <div>
-              <span className="text-[9px] text-prizm-text-muted uppercase block">Active Comms</span>
-              <span className="font-bold text-base text-emerald-600">
-                {data?.rollups?.communicatingCount ?? strings.filter(s => s.communicating).length}
-              </span>
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Listed Rows</span>
+              <span className="font-bold text-base text-prizm-info">{filteredStrings.length}</span>
             </div>
-            <span className="text-[9px] text-emerald-600 leading-tight">ONLINE COMPLIANT</span>
+            <span className="text-[9px] text-prizm-text-muted leading-tight">FILTERED VIEW</span>
           </div>
 
           <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 flex flex-col justify-between">
             <div>
-              <span className="text-[9px] text-prizm-text-muted uppercase block">Out of Rotation</span>
-              <span className="font-bold text-base text-amber-500">
-                {data?.rollups?.outOfRotationCount ?? strings.filter(s => !s.inRotation).length}
+              <span className="text-[9px] text-prizm-text-muted uppercase block">Warns / Alarms</span>
+              <span className="font-bold text-base">
+                <span className="text-prizm-warning">{siteRangeMetrics.warningCount}</span>
+                <span className="text-prizm-text-muted"> / </span>
+                <span className="text-prizm-danger">{siteRangeMetrics.alarmCount}</span>
               </span>
             </div>
-            <span className="text-[9px] text-amber-600 leading-tight">OFFLINE / BYPASSED</span>
+            <span className="text-[9px] text-prizm-text-muted leading-tight">FILTERED VIEW</span>
           </div>
 
-          <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 flex flex-col justify-between">
-            <div>
-              <span className="text-[9px] text-prizm-text-muted uppercase block">Comms Lost</span>
-              <span className="font-bold text-base text-slate-500">
-                {data?.rollups?.notCommunicatingCount ?? strings.filter(s => !s.communicating).length}
-              </span>
-            </div>
-            <span className="text-[9px] text-slate-500 leading-tight">NOT RESPONDING</span>
-          </div>
+          <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 col-span-2 sm:col-span-3 md:col-span-5 xl:col-span-1" id="site-range-limits-panel">
+            <span className="text-[9px] text-prizm-text-muted uppercase block font-extrabold border-b border-prizm-border/40 pb-1 mb-1">Range Limits</span>
 
-          <div className="bg-prizm-surface-strong p-2.5 rounded border border-prizm-border/60 col-span-2 md:col-span-1" id="site-range-limits-panel">
-            <span className="text-[9px] text-prizm-text-muted uppercase block font-extrabold border-b border-prizm-border/40 pb-1 mb-1">Site Range Limits & Counts</span>
-            
             <div className="text-[10px] space-y-2 mt-1 text-prizm-text">
-              {/* Voltage Min/Max/Avg */}
               <div className="space-y-0.5">
-                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold">Voltage (Min/Avg/Max)</span>
+                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold">Voltage Min/Avg/Max</span>
                 <div className="font-mono font-bold text-prizm-info flex justify-between">
                   <span>Vdc:</span>
                   <span>
-                    {siteRangeMetrics.voltMin !== null ? siteRangeMetrics.voltMin : "--"} / {siteRangeMetrics.voltAvg !== null ? siteRangeMetrics.voltAvg : "--"} / {siteRangeMetrics.voltMax !== null ? siteRangeMetrics.voltMax : "--"}
+                    {siteRangeMetrics.voltMin !== null ? siteRangeMetrics.voltMin : '--'} / {siteRangeMetrics.voltAvg !== null ? siteRangeMetrics.voltAvg : '--'} / {siteRangeMetrics.voltMax !== null ? siteRangeMetrics.voltMax : '--'}
                   </span>
                 </div>
               </div>
 
-              {/* Temperature Min/Max/Avg */}
               <div className="space-y-0.5 border-t border-prizm-border/20 pt-1">
-                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold font-mono">Temp (Min/Avg/Max)</span>
+                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold font-mono">Temp Min/Avg/Max</span>
                 <div className="font-mono font-semibold text-orange-400 flex flex-col gap-0.5">
                   <div className="flex justify-between font-bold">
                     <span>C:</span>
                     <span>
-                      {siteRangeMetrics.tempMin !== null ? siteRangeMetrics.tempMin.toFixed(1) : "--"} /{" "}
-                      {siteRangeMetrics.tempAvg !== null ? siteRangeMetrics.tempAvg.toFixed(1) : "--"} /{" "}
-                      {siteRangeMetrics.tempMax !== null ? siteRangeMetrics.tempMax.toFixed(1) : "--"}
+                      {siteRangeMetrics.tempMin !== null ? siteRangeMetrics.tempMin.toFixed(1) : '--'} /{' '}
+                      {siteRangeMetrics.tempAvg !== null ? siteRangeMetrics.tempAvg.toFixed(1) : '--'} /{' '}
+                      {siteRangeMetrics.tempMax !== null ? siteRangeMetrics.tempMax.toFixed(1) : '--'}
                     </span>
                   </div>
                   <div className="flex justify-between text-[8px] text-prizm-text-muted">
                     <span>F:</span>
                     <span>
-                      {siteRangeMetrics.tempMin !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMin)) : "--"} /{" "}
-                      {siteRangeMetrics.tempAvg !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempAvg)) : "--"} /{" "}
-                      {siteRangeMetrics.tempMax !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMax)) : "--"}
+                      {siteRangeMetrics.tempMin !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMin)) : '--'} /{' '}
+                      {siteRangeMetrics.tempAvg !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempAvg)) : '--'} /{' '}
+                      {siteRangeMetrics.tempMax !== null ? Math.round(celsiusToFahrenheit(siteRangeMetrics.tempMax)) : '--'}
                     </span>
                   </div>
                 </div>
               </div>
-
-              {/* String Counts */}
-              <div className="space-y-0.5 border-t border-prizm-border/20 pt-1 text-[8.5px] leading-snug">
-                <span className="text-[8px] text-prizm-text-muted block uppercase font-bold font-mono mb-0.5">String Metrics</span>
-                <div className="grid grid-cols-2 gap-x-2 font-mono">
-                  <div className="flex justify-between"><span className="text-prizm-text-muted">Included:</span> <span className="font-bold text-prizm-text">{siteRangeMetrics.includedCount}</span></div>
-                  <div className="flex justify-between"><span className="text-prizm-text-muted">Excluded:</span> <span className="font-bold text-prizm-text">{siteRangeMetrics.excludedCount}</span></div>
-                  <div className="flex justify-between"><span className="text-prizm-danger">Alarm:</span> <span className="font-bold text-prizm-danger">{siteRangeMetrics.alarmCount}</span></div>
-                  <div className="flex justify-between"><span className="text-prizm-warning">Warning:</span> <span className="font-bold text-prizm-warning">{siteRangeMetrics.warningCount}</span></div>
-                  <div className="flex justify-between col-span-2 border-t border-prizm-border/10 mt-0.5 pt-0.5"><span className="text-emerald-500">Ideal:</span> <span className="font-extrabold text-emerald-500">{siteRangeMetrics.idealCount}</span></div>
-                </div>
-              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </div>      </div>
 
       {/* WORKSPACE PANELS MATRIX */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
@@ -1308,6 +1364,45 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 Refilters to units with bad stats or threshold violations.
               </span>
             </div>
+          </div>
+
+
+          {/* Complete String Status Summary */}
+          <div className="space-y-2 pt-4 border-t border-prizm-border/60">
+            <span className="text-[10px] text-prizm-text-muted font-bold uppercase tracking-wider block">
+              Complete String Status
+            </span>
+
+            <div className="grid grid-cols-5 gap-1.5">
+              <div className="rounded border border-prizm-border bg-prizm-surface-strong px-2 py-2 text-center">
+                <div className="text-[8px] text-prizm-text-muted font-bold uppercase">Total</div>
+                <div className="text-sm font-black text-prizm-text">{stringListTopRowStatusCounts.total}</div>
+              </div>
+
+              <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-2 text-center">
+                <div className="text-[8px] text-emerald-300 font-bold uppercase">Online</div>
+                <div className="text-sm font-black text-emerald-300">{stringListTopRowStatusCounts.online}</div>
+              </div>
+
+              <div className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-2 text-center">
+                <div className="text-[8px] text-cyan-300 font-bold uppercase">Nearline</div>
+                <div className="text-sm font-black text-cyan-300">{stringListTopRowStatusCounts.nearline}</div>
+              </div>
+
+              <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-center">
+                <div className="text-[8px] text-amber-300 font-bold uppercase">Offline</div>
+                <div className="text-sm font-black text-amber-300">{stringListTopRowStatusCounts.offline}</div>
+              </div>
+
+              <div className="rounded border border-slate-500/40 bg-slate-500/10 px-2 py-2 text-center">
+                <div className="text-[8px] text-slate-300 font-bold uppercase">Not Comm</div>
+                <div className="text-sm font-black text-slate-300">{stringListTopRowStatusCounts.notCommunicating}</div>
+              </div>
+            </div>
+
+            <span className="text-[8.5px] text-prizm-text-muted block leading-tight">
+              Full site totals. Filters below only affect the displayed rows and exports.
+            </span>
           </div>
 
           {/* DYNAMIC EXPORT CONTROL BLOCK */}

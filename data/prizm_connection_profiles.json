@@ -67,6 +67,44 @@
       "cellChemistry": "LFP",
       "batteryManufacturer": "EVE/CATL/AESC/REPT compatible",
       "notes": "Operational capacity profile using 742.5 kWh per Energy Segment to account for process/circuit losses from the 750 kWh DC nameplate basis."
+    },
+    "sensorMonitoringProfile": {
+      "collectionSegment": {
+        "dataUnavailable": true,
+        "acDoors": true,
+        "dcDoors": true,
+        "topCapDoors": true,
+        "manualVentilation": true,
+        "smoke": true,
+        "fireTrouble": true,
+        "fire": true,
+        "io": true,
+        "heat": true,
+        "upsAlarm": true,
+        "moisture": false,
+        "leakDetector": false,
+        "hydrogen": false,
+        "hydrogenFault": false,
+        "envControllerVent": false
+      },
+      "energySegment": {
+        "dataUnavailable": true,
+        "batteryDoors": true,
+        "topCapDoors": true,
+        "envControllerVent": true,
+        "smoke": true,
+        "hydrogenFault": true,
+        "hydrogen": true,
+        "io": true,
+        "heat": true,
+        "fireTrouble": true,
+        "moisture": true,
+        "fire": false,
+        "acDoors": false,
+        "dcDoors": false,
+        "manualVentilation": false,
+        "upsAlarm": false
+      }
     }
   }
 ]

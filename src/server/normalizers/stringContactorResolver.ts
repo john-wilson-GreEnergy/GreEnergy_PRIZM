@@ -1,6 +1,14 @@
 import { getEmsCachedArrayReports, getEmsCachedLastCall, getEmsCachedBlock } from "../emsTurtleClient";
 import { getCachedStringDetail } from "../stringsDashboard";
 
+function safeIsoTimestamp(value: any): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+
+
 interface LkgState {
   positiveContactorClosed: boolean;
   negativeContactorClosed: boolean;
@@ -219,7 +227,7 @@ function pushCandidate(
   candidates.push({
     source,
     sourcePath,
-    timestamp: timestamp ? new Date(timestamp).toISOString() : null,
+    timestamp: timestamp ? safeIsoTimestamp(timestamp) : null,
     positiveContactorClosed: fields.pos,
     negativeContactorClosed: fields.neg,
     contactorsCloseExpected: fields.exp,
@@ -343,7 +351,7 @@ export function resolvePrioritizedContactors(arrayNumber: number, stringNumber: 
     candidates.push({
       source: "last-known-good",
       sourcePath: "prizm-stable-last-known-good",
-      timestamp: new Date(lkg.timestamp).toISOString(),
+      timestamp: safeIsoTimestamp(lkg.timestamp),
       positiveContactorClosed: lkg.positiveContactorClosed,
       negativeContactorClosed: lkg.negativeContactorClosed,
       contactorsCloseExpected: null,

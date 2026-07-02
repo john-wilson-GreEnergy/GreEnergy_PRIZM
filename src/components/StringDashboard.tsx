@@ -349,15 +349,73 @@ const handleManualRefresh = async () => {
     data?.rollups?.totalStrings ??
     summary?.totalStrings ??
     strings.length;
-  const normalCount =
-    countOf(data?.rollups?.normal) ??
-    countOf(data?.rollups?.online) ??
-    summary?.normalStrings ??
-    strings.filter((s:any) => s.operationalState === "NORMAL").length;
-  const offlineCount =
-    countOf(data?.rollups?.offline) ??
-    summary?.offlineStrings ??
-    strings.filter((s:any) => s.operationalState === "OFFLINE" || s.bucket === "offline" || s.bucket === "notCommunicating").length;
+  const bucketCount = (bucket: string) =>
+    strings.filter((s: any) => s.bucket === bucket).length;
+
+  const rowsHaveBuckets = strings.some((s: any) =>
+    s?.bucket === "online" ||
+    s?.bucket === "nearline" ||
+    s?.bucket === "offline" ||
+    s?.bucket === "notCommunicating"
+  );
+
+  const onlineCount = rowsHaveBuckets
+    ? bucketCount("online")
+    : (
+        summary?.normalStrings ??
+        countOf(data?.rollups?.online) ??
+        countOf(data?.rollups?.normal) ??
+        0
+      );
+
+  const nearlineCount = rowsHaveBuckets
+    ? bucketCount("nearline")
+    : (
+        summary?.nearlineStrings ??
+        countOf(data?.rollups?.nearline) ??
+        0
+      );
+
+  const offlineCount = rowsHaveBuckets
+    ? bucketCount("offline")
+    : (
+        summary?.offlineStrings ??
+        countOf(data?.rollups?.offline) ??
+        0
+      );
+
+  const notCommunicatingCount = rowsHaveBuckets
+    ? bucketCount("notCommunicating")
+    : (
+        summary?.notCommunicatingStrings ??
+        countOf(data?.rollups?.notCommunicating) ??
+        0
+      );
+
+  const liveKnownBpcCount =
+    strings.reduce((sum: number, row: any) => sum + (Number(row?.balCt ?? row?.balancingCount ?? row?.knownBpcCount ?? 0) || 0), 0) ||
+    countOf(data?.rollups?.knownBpcCount) ||
+    summary?.knownBpcCount ||
+    summary?.totalBpcs ||
+    0;
+
+  const liveExpectedBpcCount =
+    countOf(data?.rollups?.expectedBpcCount) ??
+    summary?.expectedBpcCount ??
+    (totalStrings ? totalStrings * 14 : null);
+
+  const liveWarningBpcCount =
+    strings.reduce((sum: number, row: any) => sum + (Number(row?.warningCount ?? 0) || 0), 0) ||
+    countOf(data?.rollups?.warningBpcs) ||
+    summary?.warningBpcs ||
+    0;
+
+  const liveAlarmBpcCount =
+    strings.reduce((sum: number, row: any) => sum + (Number(row?.alarmCount ?? 0) || 0), 0) ||
+    countOf(data?.rollups?.alarmBpcs) ||
+    summary?.alarmBpcs ||
+    0;
+
   const warningCount =
     countOf(data?.rollups?.warnings) ??
     summary?.warningStrings ??
@@ -583,34 +641,42 @@ const handleManualRefresh = async () => {
       </details>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6 shrink-0 text-center font-mono select-none">
-        <div className="bg-prizm-surface-strong border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase">Total Strings</span>
-          <span className="text-sm font-bold text-prizm-text">{formatMaybeInt(totalStrings)}</span>
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-10 gap-2 mb-4 shrink-0 text-center font-mono select-none">
+        <div className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Total Strings</span>
+          <span className="text-[12px] font-bold text-prizm-text">{formatMaybeInt(totalStrings)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase">Normal</span>
-          <span className="text-sm font-bold text-emerald-400">{formatMaybeInt(normalCount)}</span>
+        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Online</span>
+          <span className="text-[12px] font-bold text-emerald-400">{formatMaybeInt(onlineCount)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-danger/50 rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase">Offline</span>
-          <span className={offlineCount > 0 ? "text-sm font-bold text-prizm-danger" : "text-sm font-bold text-prizm-text"}>{formatMaybeInt(offlineCount)}</span>
+        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-cyan-500/50 rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Nearline</span>
+          <span className={nearlineCount > 0 ? "text-[12px] font-bold text-cyan-400" : "text-[12px] font-bold text-prizm-text"}>{formatMaybeInt(nearlineCount)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase">Warns / Alarms</span>
-          <span className="text-sm font-bold text-prizm-warning">{formatMaybeInt(warningCount)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(alarmCount)}</span></span>
+        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-danger/50 rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Offline</span>
+          <span className={offlineCount > 0 ? "text-[12px] font-bold text-prizm-danger" : "text-[12px] font-bold text-prizm-text"}>{formatMaybeInt(offlineCount)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Total BPCs</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">Known {formatMaybeInt(data?.rollups?.knownBpcCount ?? summary?.totalBpcs)} <span className="text-prizm-text-muted font-normal mx-0.5">/</span> {formatMaybeInt(data?.rollups?.expectedBpcCount)}</span>
+        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-slate-500/60 rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Not Comm</span>
+          <span className={notCommunicatingCount > 0 ? "text-[12px] font-bold text-slate-400" : "text-[12px] font-bold text-prizm-text"}>{formatMaybeInt(notCommunicatingCount)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">BPC Alerts</span>
-          <span className="text-sm font-bold text-prizm-warning">{formatMaybeInt(summary?.warningBpcs)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(summary?.alarmBpcs)}</span></span>
+        <div className="bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Warns / Alarms</span>
+          <span className="text-[12px] font-bold text-prizm-warning">{formatMaybeInt(warningCount)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(alarmCount)}</span></span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Cell / V Delta</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">
+        <div className="bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Total BPCs</span>
+          <span className="text-[10px] font-bold text-prizm-text mt-0.5">Known {formatMaybeInt(liveKnownBpcCount)} <span className="text-prizm-text-muted font-normal mx-0.5">/</span> {formatMaybeInt(liveExpectedBpcCount)}</span>
+        </div>
+        <div className="bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">BPC Alerts</span>
+          <span className="text-[12px] font-bold text-prizm-warning">{formatMaybeInt(liveWarningBpcCount)} <span className="text-prizm-text-muted mx-1">/</span> <span className="text-prizm-danger">{formatMaybeInt(liveAlarmBpcCount)}</span></span>
+        </div>
+        <div className="bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Fleet Avg Cell / V Delta</span>
+          <span className="text-[10px] font-bold text-prizm-text mt-0.5">
             {fleetAvgCellVoltage !== null && normalizeVoltage(fleetAvgCellVoltage) !== null
               ? `${normalizeVoltage(fleetAvgCellVoltage)!.toFixed(1)} mV`
               : "--"}
@@ -620,9 +686,9 @@ const handleManualRefresh = async () => {
               : "--"}
           </span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border rounded p-2 flex flex-col justify-center">
-          <span className="text-[9px] text-prizm-text-muted uppercase leading-tight">Fleet Avg Temp / Max &Delta;</span>
-          <span className="text-[11px] font-bold text-prizm-text mt-0.5">
+        <div className="bg-prizm-surface border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Fleet Avg Temp / Max &Delta;</span>
+          <span className="text-[10px] font-bold text-prizm-text mt-0.5">
             {fleetAvgCellTemp != null ? formatTemperatureF(fleetAvgCellTemp, { decimals: 1, showUnit: true, sourceUnit: "C" }) : "--"}
             <span className="text-prizm-text-muted mx-1">|</span>
             {fleetMaxCellTempDelta != null ? "\u0394" + (fleetMaxCellTempDelta * 1.8).toFixed(1) + "°F" : "--"}
@@ -796,20 +862,138 @@ const handleManualRefresh = async () => {
                   const isArrAllSelected = arrSelectedCount > 0 && arrSelectedCount === arrStrings.length;
                   const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrStrings.length;
                   
-                  // Rotation Dots
-                  const commsOk = s.badReport === false || (new Date().getTime() - new Date(s.timestampUtc || 0).getTime() < 300000);
-                  const inRotation = s.outRotation === false;
-                  const alertsState = s.alarmCount > 0 ? 'alarm' : s.warningCount > 0 ? 'warning' : 'ok';
-                  
-                  const rotDot1 = commsOk ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-text-muted/30';
-                  const rotDot2 = inRotation ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-prizm-text-muted/30';
-                  const rotDot3 = alertsState === 'alarm' ? 'bg-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]' : alertsState === 'warning' ? 'bg-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]' : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]';
-                  
-                  // Contactor Dots
-                  const contactorState = getContactorVisualState(s);
-                  const contDot1 = getTailwindClasses(contactorState.positiveDotColor);
-                  const contDot2 = getTailwindClasses(contactorState.negativeDotColor);
-                  const contDot3 = getTailwindClasses(contactorState.matchDotColor);
+                  const normalizeText = (value: any): string => {
+                    if (value === null || value === undefined) return "";
+                    if (typeof value === "string") return value.toUpperCase();
+                    try { return JSON.stringify(value).toUpperCase(); } catch { return String(value).toUpperCase(); }
+                  };
+
+                  const rowWarnings = [
+                    ...(Array.isArray(s.warnings) ? s.warnings : []),
+                    ...(Array.isArray(s.notificationList) ? s.notificationList : []),
+                    ...(Array.isArray(s.activeNotifications) ? s.activeNotifications : []),
+                    ...(Array.isArray(s.faults) ? s.faults : [])
+                  ];
+
+                  const rowAlarms = Array.isArray(s.alarms) ? s.alarms : [];
+
+                  const alertText = [
+                    ...rowWarnings,
+                    ...rowAlarms,
+                    s.alertSummary,
+                    s.operationalState,
+                    s.statusLabel,
+                    s.rotationStatus,
+                    s.rotationState,
+                    s.stringRotationState,
+                    s.balMode,
+                    s.balanceMode,
+                    s.bucket,
+                    s.stringConnectionState
+                  ].map(normalizeText).join(" ");
+
+                  const rowBucket = String(s.bucket || "").toLowerCase();
+                  const balModeText = String(s.balMode || s.balanceMode || "").trim().toUpperCase();
+
+                  // Reference legend: dot 1 in rotation group is communication timestamp.
+                  const sampleAgeMs = Number(s.sampleAgeMs ?? 0);
+                  const rowTimestampMs = s.timestampUtc ? new Date(s.timestampUtc).getTime() : 0;
+                  const timestampAgeMs = rowTimestampMs > 0 ? Date.now() - rowTimestampMs : Number.POSITIVE_INFINITY;
+
+                  const commState =
+                    s.bucket === "notCommunicating" || s.communicating === false || rowBucket === "notcommunicating"
+                      ? "lost"
+                      : s.stale === true || s.badReport === true || sampleAgeMs > 120000 || timestampAgeMs > 300000
+                        ? "delayed"
+                        : "fresh";
+
+                  // Reference legend: dot 2 in rotation group is rotation state.
+                  // Offline, OOR, balance mode Off, or explicit OUT must render as out-of-rotation.
+                  const explicitOutOfRotation =
+                    s.outRotation === true ||
+                    s.inRotation === false ||
+                    balModeText === "OFF" ||
+                    String(s.rotationStatus || "").toUpperCase().includes("OUT") ||
+                    String(s.rotationState || "").toUpperCase().includes("OUT") ||
+                    String(s.stringRotationState || "").toUpperCase().includes("OUT") ||
+                    alertText.includes("STRING OOR") ||
+                    alertText.includes("OUT OF ROTATION") ||
+                    alertText.includes("OUT-OF-ROTATION") ||
+                    alertText.includes("OOR WARNING") ||
+                    rowBucket === "offline" ||
+                    rowBucket === "notcommunicating";
+
+                  const inRotation = !explicitOutOfRotation;
+
+                  // Reference legend: dot 3 in rotation group is notification severity.
+                  const warningTotal =
+                    Number(s.warningCount || 0) +
+                    Number(s.uniqueWarningCount || 0) +
+                    rowWarnings.length +
+                    (explicitOutOfRotation ? 1 : 0);
+
+                  const alarmTotal =
+                    Number(s.alarmCount || 0) +
+                    Number(s.uniqueAlarmCount || 0) +
+                    rowAlarms.length;
+
+                  const alertsState = alarmTotal > 0 ? "alarm" : warningTotal > 0 ? "warning" : "ok";
+
+                  const rotDot1 =
+                    commState === "lost"
+                      ? "bg-prizm-danger border border-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]"
+                      : commState === "delayed"
+                        ? "bg-prizm-warning border border-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]"
+                        : "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
+
+                  const rotDot2 = inRotation
+                    ? "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
+                    : "bg-black border border-slate-500";
+
+                  const rotDot3 =
+                    alertsState === "alarm"
+                      ? "bg-prizm-danger border border-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]"
+                      : alertsState === "warning"
+                        ? "bg-prizm-warning border border-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]"
+                        : "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
+
+                  // Reference legend: contactor group dot 1 is requested/expected state.
+                  const requestedClosed =
+                    s.contactorsCloseExpected === true ||
+                    s.connectionPermitted === true ||
+                    s.contactorRequestedClosed === true ||
+                    String(s.requestedContactorState || "").toUpperCase() === "CLOSED";
+
+                  const aggregateOpen = String(s.stringContactorState || "").toUpperCase() === "OPEN";
+
+                  const actualOpenEvidence =
+                    aggregateOpen ||
+                    s.contactorMismatch === true ||
+                    alertText.includes("CONTACTORS OPEN") ||
+                    alertText.includes("CONTACTOR OPEN") ||
+                    alertText.includes("CONTACTOR MISMATCH") ||
+                    alertText.includes("DOESN'T MATCH") ||
+                    alertText.includes("DOES NOT MATCH");
+
+                  // Dot 2/3 compare actual feedback against requested state.
+                  // For visual parity with the reference EMS string list, aggregate OPEN means both actuals display open.
+                  const positiveClosed = actualOpenEvidence ? false : s.positiveContactorClosed === true;
+                  const negativeClosed = actualOpenEvidence ? false : s.negativeContactorClosed === true;
+
+                  const positiveMatchesRequest = requestedClosed ? positiveClosed : !positiveClosed;
+                  const negativeMatchesRequest = requestedClosed ? negativeClosed : !negativeClosed;
+
+                  const contDot1 = requestedClosed
+                    ? "bg-blue-500 border border-blue-600 shadow-[0_0_5px_rgba(59,130,246,0.5)]"
+                    : "bg-white border border-slate-500";
+
+                  const contDot2 = positiveMatchesRequest
+                    ? "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
+                    : "bg-prizm-danger border border-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]";
+
+                  const contDot3 = negativeMatchesRequest
+                    ? "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
+                    : "bg-prizm-danger border border-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]";
                   
                   // Fans logic & color mapping
                   const MAX_FAN_RPM = 7500;
@@ -983,7 +1167,7 @@ const handleManualRefresh = async () => {
 <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
-                         title={`Expected: ${s.contactorsCloseExpected !== undefined ? (s.contactorsCloseExpected ? "CLOSED" : "OPEN") : "Unknown"} | Positive: ${s.positiveContactorClosed !== undefined ? (s.positiveContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Negative: ${s.negativeContactorClosed !== undefined ? (s.negativeContactorClosed ? "CLOSED" : "OPEN") : "Unknown"} | Actual: ${contactorState.actualLabel} | Match: ${contactorState.matchLabel} | Reclose Count: ${s.recloseCount ?? "--"}`}
+                         title={`Request: ${requestedClosed ? "CLOSED" : "OPEN"} | Positive actual: ${positiveClosed ? "CLOSED" : "OPEN"} (${positiveMatchesRequest ? "matches" : "does not match"}) | Negative actual: ${negativeClosed ? "CLOSED" : "OPEN"} (${negativeMatchesRequest ? "matches" : "does not match"}) | Reclose Count: ${s.recloseCount ?? "--"}`}
                        >
                            <div className={`w-2 h-2 rounded-full ${contDot1}`}></div>
                            <div className={`w-2 h-2 rounded-full ${contDot2}`}></div>
@@ -994,7 +1178,7 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
-                         title={`Comms: ${commsOk?"OK":"Stale"} | Rotation: ${inRotation?"IN":"OUT"} | Alerts: ${alertsState}`}
+                         title={`Comm: ${commState.toUpperCase()} | Rotation: ${inRotation ? "IN" : "OUT"} | Notification: ${alertsState.toUpperCase()}`}
                        >
                           <div className={`w-2 h-2 rounded-full ${rotDot1}`}></div>
                           <div className={`w-2 h-2 rounded-full ${rotDot2}`}></div>

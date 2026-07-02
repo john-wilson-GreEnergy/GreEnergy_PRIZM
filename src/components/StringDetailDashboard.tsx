@@ -10,6 +10,25 @@ import { cToF } from "../lib/temperatureUnits";
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
+
+async function fetchNormalizedStringRowForDetails(arrayNumber: number, stringNumber: number): Promise<any | null> {
+  try {
+    const res = await fetch("/api/local/strings/dashboard?refresh=true&maxAgeMs=0");
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    const rows = Array.isArray(json?.strings) ? json.strings : [];
+
+    return rows.find((row: any) =>
+      Number(row?.arrayNumber ?? row?.arrayIndex) === Number(arrayNumber) &&
+      Number(row?.stringNumber ?? row?.stringIndex) === Number(stringNumber)
+    ) || null;
+  } catch (err) {
+    console.warn("[String Detail] normalized row fetch failed", err);
+    return null;
+  }
+}
+
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const { snapshot } = useSiteData();
   const [data, setData] = useState<any>(null);
@@ -34,7 +53,24 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
         }
         if (res.ok && !unmounted) {
           const json = await res.json();
-          setData(json);
+          const normalizedRow = await fetchNormalizedStringRowForDetails(
+            stringDataArrayNumber,
+            stringDataStringNumber
+          );
+          setData({
+            ...json,
+            ...(normalizedRow || {}),
+            normalizedRow,
+            notificationList: normalizedRow?.notificationList || json.notificationList || [],
+            activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
+            faults: normalizedRow?.faults || normalizedRow?.notificationList || json.faults || [],
+            warnings: normalizedRow?.warnings || json.warnings || [],
+            alarms: normalizedRow?.alarms || json.alarms || [],
+            warningCount: normalizedRow?.warningCount ?? json.warningCount ?? 0,
+            alarmCount: normalizedRow?.alarmCount ?? json.alarmCount ?? 0,
+            uniqueWarningCount: normalizedRow?.uniqueWarningCount ?? json.uniqueWarningCount ?? 0,
+            uniqueAlarmCount: normalizedRow?.uniqueAlarmCount ?? json.uniqueAlarmCount ?? 0
+          });
         }
       } catch (err) {
         console.error("Failed to fetch string detail", err);
@@ -62,7 +98,24 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       }
       if (res.ok) {
         const json = await res.json();
-        setData(json);
+        const normalizedRow = await fetchNormalizedStringRowForDetails(
+          stringDataArrayNumber,
+          stringDataStringNumber
+        );
+        setData({
+          ...json,
+          ...(normalizedRow || {}),
+          normalizedRow,
+          notificationList: normalizedRow?.notificationList || json.notificationList || [],
+          activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
+          faults: normalizedRow?.faults || normalizedRow?.notificationList || json.faults || [],
+          warnings: normalizedRow?.warnings || json.warnings || [],
+          alarms: normalizedRow?.alarms || json.alarms || [],
+          warningCount: normalizedRow?.warningCount ?? json.warningCount ?? 0,
+          alarmCount: normalizedRow?.alarmCount ?? json.alarmCount ?? 0,
+          uniqueWarningCount: normalizedRow?.uniqueWarningCount ?? json.uniqueWarningCount ?? 0,
+          uniqueAlarmCount: normalizedRow?.uniqueAlarmCount ?? json.uniqueAlarmCount ?? 0
+        });
       }
     } catch (err) {
       console.error("Failed to refresh detail manually", err);

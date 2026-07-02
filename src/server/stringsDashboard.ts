@@ -1,3 +1,27 @@
+
+let lastGoodDirectLastCallForDashboard: any | null = null;
+
+async function fetchDirectLastCallForDashboard(baseUrl: string): Promise<any | null> {
+    try {
+        const cleanBase = String(baseUrl || "").replace(/\/$/, "");
+        const url = cleanBase.endsWith("/turtle")
+            ? `${cleanBase}/tools/report/ems/lastCall.json`
+            : `${cleanBase}/turtle/tools/report/ems/lastCall.json`;
+
+        const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (!res.ok) return lastGoodDirectLastCallForDashboard;
+        const data = await res.json();
+        const arrayReport = data?.blockReport?.arrayReport;
+        if (arrayReport && typeof arrayReport === "object") {
+            lastGoodDirectLastCallForDashboard = data;
+        }
+        return lastGoodDirectLastCallForDashboard;
+    } catch (err: any) {
+        console.warn("[String Dashboard] direct lastCall fetch failed; using last good direct sample:", err?.message || err);
+        return lastGoodDirectLastCallForDashboard;
+    }
+}
+
 import { Router } from "express";
 import {
   getEmsCachedStatus,
@@ -18,6 +42,7 @@ import * as prizmHistory from "./history/prizmHistory";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } from "../lib/bessStatusCodes";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
+import { applyCanonicalStringSnapshot } from "./normalizers/canonicalStringSnapshot";
 
 const router = Router();
 
@@ -747,6 +772,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
     }
 
     const arrayReports = getEmsCachedArrayReports() || {};
+    const directLastCallForDashboard = await fetchDirectLastCallForDashboard(baseUrl);
 
     const strings: any[] = [];
     
@@ -1650,6 +1676,13 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         }));
     }
 
+    const canonicalStringSnapshot = applyCanonicalStringSnapshot(strings, {
+        lastCall: directLastCallForDashboard || lastCallWrapper.data,
+        blockviewer: blockWrapper.data
+    });
+    strings.length = 0;
+    strings.push(...canonicalStringSnapshot.strings);
+
     // Recompute all summary counters from final canonical strings!
     let finalNormalStrings = 0;
     let finalWarningStrings = 0;
@@ -1737,7 +1770,608 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         }
     });
 
+    const forceLastCallStringConnectionState = (() => {
+        const directArrayReport = directLastCallForDashboard?.blockReport?.arrayReport;
+        const cachedArrayReport = lastCallWrapper?.data?.blockReport?.arrayReport;
+        const arrayReport = directArrayReport || cachedArrayReport;
+        if (!arrayReport || typeof arrayReport !== "object") return null;
+
+        const bucketFromConnectionState = (value: any) => {
+            const state = String(value ?? "").trim().toUpperCase();
+            if (state === "ONLINE") return "online";
+            if (state === "NEARLINE") return "nearline";
+            if (state === "OFFLINE") return "offline";
+            if (
+                state === "NOT_COMMUNICATING" ||
+                state === "NOT COMMUNICATING" ||
+                state.includes("NOT_COMM") ||
+                state.includes("COMM_LOSS") ||
+                state.includes("LOST_COMMS")
+            ) return "notCommunicating";
+            return null;
+        };
+
+        const bucketsByKey = new Map<string, string>();
+        const rawStateByKey = new Map<string, string>();
+
+        for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+            const stringReport = arrayReport[String(arrayNumber)]?.stringReport || {};
+            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+                const stringData =
+                    stringReport[String(stringNumber)]?.stringData ||
+                    stringReport[stringNumber]?.stringData ||
+                    stringReport[String(stringNumber)] ||
+                    null;
+
+                const rawState = stringData?.stringConnectionState;
+                const bucket = bucketFromConnectionState(rawState);
+                if (!bucket) continue;
+
+                const key = `${arrayNumber}-${stringNumber}`;
+                bucketsByKey.set(key, bucket);
+                rawStateByKey.set(key, String(rawState));
+            }
+        }
+
+        if (bucketsByKey.size === 0) return null;
+
+        // Harden lost-communication detection:
+        // Some upstream payloads report array-level notCommunicatingStackCount correctly,
+        // but do not expose a clean per-string stringConnectionState for the affected row.
+        // In that case, preserve explicit ONLINE/NEARLINE/OFFLINE states first, then assign
+        // the array-level communication deficit to the most likely string rows in that array.
+        for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+            const arrayPayload = arrayReport[String(arrayNumber)];
+            const expectedNotComm = Number(arrayPayload?.arrayData?.notCommunicatingStackCount ?? 0);
+            if (!Number.isFinite(expectedNotComm) || expectedNotComm <= 0) continue;
+
+            let alreadyNotComm = 0;
+            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+                if (bucketsByKey.get(`${arrayNumber}-${stringNumber}`) === "notCommunicating") {
+                    alreadyNotComm++;
+                }
+            }
+
+            const deficit = Math.max(0, expectedNotComm - alreadyNotComm);
+            if (deficit <= 0) continue;
+
+            const stringReport = arrayPayload?.stringReport || {};
+            const candidates: any[] = [];
+
+            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+                const key = `${arrayNumber}-${stringNumber}`;
+                const currentBucket = bucketsByKey.get(key);
+
+                // Do not steal strings already explicitly classified as NEARLINE/OFFLINE.
+                if (currentBucket === "nearline" || currentBucket === "offline" || currentBucket === "notCommunicating") {
+                    continue;
+                }
+
+                const raw =
+                    stringReport[String(stringNumber)]?.stringData ||
+                    stringReport[stringNumber]?.stringData ||
+                    stringReport[String(stringNumber)] ||
+                    {};
+
+                const rawText = JSON.stringify(raw).toUpperCase();
+
+                let score = 0;
+
+                if (rawText.includes("NOT_COMM") || rawText.includes("NOT COMM")) score += 100;
+                if (rawText.includes("LOST_COMM") || rawText.includes("LOST COMM")) score += 100;
+                if (rawText.includes("COMM_LOSS") || rawText.includes("COMM LOSS")) score += 100;
+                if (rawText.includes("COMMUNICATION_LOST") || rawText.includes("COMMUNICATION LOST")) score += 100;
+                if (rawText.includes("NO_COMM") || rawText.includes("NO COMM")) score += 80;
+                if (rawText.includes("TIMEOUT") || rawText.includes("STALE")) score += 50;
+
+                const measuredVoltage = Number(raw.measuredVoltage ?? raw.measV ?? raw.measuredV ?? raw.stackVoltage ?? raw.busVoltage ?? NaN);
+                const calculatedVoltage = Number(raw.calculatedVoltage ?? raw.calcV ?? raw.calculatedV ?? NaN);
+                const maxCellVoltage = Number(raw.maxCellVoltage ?? raw.maxCellVoltageMv ?? raw.measuredMaxCellVoltage ?? NaN);
+                const minCellVoltage = Number(raw.minCellVoltage ?? raw.minCellVoltageMv ?? raw.measuredMinCellVoltage ?? NaN);
+                const soc = Number(raw.soc ?? raw.socPct ?? raw.stateOfCharge ?? NaN);
+
+                if (Number.isFinite(measuredVoltage) && measuredVoltage === 0) score += 25;
+                if (Number.isFinite(calculatedVoltage) && calculatedVoltage === 0) score += 15;
+                if (Number.isFinite(maxCellVoltage) && maxCellVoltage === 0) score += 20;
+                if (Number.isFinite(minCellVoltage) && minCellVoltage === 0) score += 20;
+                if (Number.isFinite(soc) && soc === 0) score += 10;
+
+                // Rows missing from stringReport are strong candidates when the array reports not-comm.
+                if (!raw || Object.keys(raw).length === 0) score += 60;
+
+                candidates.push({
+                    key,
+                    stringNumber,
+                    score,
+                    rawState: raw?.stringConnectionState ?? raw?.communicationState ?? raw?.status ?? "array-not-communicating-deficit"
+                });
+            }
+
+            candidates
+                .sort((a, b) => b.score - a.score || a.stringNumber - b.stringNumber)
+                .slice(0, deficit)
+                .forEach((candidate) => {
+                    bucketsByKey.set(candidate.key, "notCommunicating");
+                    rawStateByKey.set(candidate.key, String(candidate.rawState || "array-not-communicating-deficit"));
+                });
+        }
+
+        for (const s of strings) {
+            const arrayNumber = Number(s.arrayNumber ?? s.arrayIndex);
+            const stringNumber = Number(s.stringNumber ?? s.stringIndex);
+            const key = `${arrayNumber}-${stringNumber}`;
+            const bucket = bucketsByKey.get(key);
+            if (!bucket) continue;
+
+            s.bucket = bucket;
+            s.stringConnectionState = rawStateByKey.get(key) || s.stringConnectionState;
+            s.connectionState = s.stringConnectionState;
+
+            if (bucket === "online") {
+                s.operationalState = s.alarmCount > 0 ? "ALARM" : s.warningCount > 0 ? "WARNING" : "NORMAL";
+                s.communicating = true;
+            } else if (bucket === "nearline") {
+                s.operationalState = "NEARLINE";
+                s.communicating = true;
+            } else if (bucket === "offline") {
+                s.operationalState = "OFFLINE";
+                s.communicating = true;
+            } else if (bucket === "notCommunicating") {
+                s.operationalState = "NOT_COMMUNICATING";
+                s.communicating = false;
+            }
+
+            s.sourceDebug = {
+                ...(s.sourceDebug || {}),
+                forcedLastCallStringConnectionState: {
+                    source: "lastCall.blockReport.arrayReport.stringReport.stringData.stringConnectionState",
+                    rawState: rawStateByKey.get(key),
+                    finalBucket: s.bucket,
+                    arrayNumber,
+                    stringNumber
+                }
+            };
+        }
+
+        return true;
+    })();
+
+    const finalBucketCounts = {
+        online: strings.filter((s: any) => s.bucket === "online").length,
+        nearline: strings.filter((s: any) => s.bucket === "nearline").length,
+        offline: strings.filter((s: any) => s.bucket === "offline").length,
+        notCommunicating: strings.filter((s: any) => s.bucket === "notCommunicating").length,
+        unknown: strings.filter((s: any) => s.bucket === "unknown").length
+    };
+
+    finalNormalStrings = finalBucketCounts.online;
+    finalNearlineStrings = finalBucketCounts.nearline;
+    finalOfflineStrings = finalBucketCounts.offline;
+    finalNotCommunicatingStrings = finalBucketCounts.notCommunicating;
+
+    const finalStringWarningCount = strings.reduce((sum: number, s: any) => sum + (Number(s.warningCount) || 0), 0);
+    const finalStringAlarmCount = strings.reduce((sum: number, s: any) => sum + (Number(s.alarmCount) || 0), 0);
+
+    const finalConnectionPermitted = strings.filter((s: any) =>
+        s.connectionPermitted === true ||
+        s.contactorsCloseExpected === true ||
+        (s.positiveContactorClosed === true && s.negativeContactorClosed === true)
+    ).length;
+
     const finalTotalStrings = strings.length;
+
+    const normalizeStringAlerts = (row: any) => {
+        const raw = row?.raw || row?.sourceRaw || row?.sourceDebug?.raw || {};
+        const sourceWarnings =
+            row?.warnings ||
+            row?.warningDetails ||
+            row?.activeWarnings ||
+            raw?.warnings ||
+            raw?.warningDetails ||
+            raw?.activeWarnings ||
+            [];
+
+        const sourceAlarms =
+            row?.alarms ||
+            row?.alarmDetails ||
+            row?.activeAlarms ||
+            raw?.alarms ||
+            raw?.alarmDetails ||
+            raw?.activeAlarms ||
+            [];
+
+        const normalizeList = (value: any): any[] => {
+            if (!value) return [];
+            if (Array.isArray(value)) return value.filter(Boolean);
+            if (typeof value === "object") {
+                return Object.entries(value)
+                    .filter(([, v]) => Boolean(v))
+                    .map(([key, v]) => {
+                        if (typeof v === "object" && v !== null) return { code: key, ...v as any };
+                        return { code: key, value: v };
+                    });
+            }
+            if (typeof value === "string") {
+                return value.split(/[;,|]/).map(v => v.trim()).filter(Boolean);
+            }
+            return [];
+        };
+
+        const warnings = normalizeList(sourceWarnings);
+        const alarms = normalizeList(sourceAlarms);
+
+        const dedupeAlertList = (items: any[]) => {
+            const seen = new Set<string>();
+            const deduped: any[] = [];
+
+            for (const item of items) {
+                const key = typeof item === "string"
+                    ? item.trim()
+                    : String(item?.code ?? item?.name ?? item?.description ?? JSON.stringify(item));
+
+                if (!key || seen.has(key)) continue;
+                seen.add(key);
+                deduped.push(item);
+            }
+
+            return deduped;
+        };
+
+        const uniqueWarnings = dedupeAlertList(warnings);
+        const uniqueAlarms = dedupeAlertList(alarms);
+
+        const explicitWarningCount = Number(row?.warningCount ?? raw?.warningCount ?? raw?.warningsCount);
+        const explicitAlarmCount = Number(row?.alarmCount ?? raw?.alarmCount ?? raw?.alarmsCount);
+
+        row.warnings = uniqueWarnings;
+        row.alarms = uniqueAlarms;
+
+        row.warningCount = Number.isFinite(explicitWarningCount)
+            ? explicitWarningCount
+            : warnings.length;
+
+        row.alarmCount = Number.isFinite(explicitAlarmCount)
+            ? explicitAlarmCount
+            : alarms.length;
+
+        row.uniqueWarningCount = uniqueWarnings.length;
+        row.uniqueAlarmCount = uniqueAlarms.length;
+
+        row.alertSummary = {
+            warningCount: row.warningCount,
+            alarmCount: row.alarmCount,
+            uniqueWarningCount: row.uniqueWarningCount,
+            uniqueAlarmCount: row.uniqueAlarmCount,
+            warnings: uniqueWarnings,
+            alarms: uniqueAlarms
+        };
+
+        return row;
+    };
+
+    strings.forEach((row: any) => normalizeStringAlerts(row));
+
+    const applyAggregateContactorState = (row: any) => {
+        const aggregate = String(row?.stringContactorState ?? row?.contactorState ?? "").trim().toUpperCase();
+        if (!aggregate) return row;
+
+        const requestedClosed =
+            row?.contactorsCloseExpected === true ||
+            row?.connectionPermitted === true ||
+            row?.contactorRequestedClosed === true ||
+            String(row?.requestedContactorState ?? "").trim().toUpperCase() === "CLOSED";
+
+        const alertText = [
+            ...(Array.isArray(row?.warnings) ? row.warnings : []),
+            ...(Array.isArray(row?.alarms) ? row.alarms : []),
+            row?.operationalState,
+            row?.statusLabel,
+            row?.alertSummary ? JSON.stringify(row.alertSummary) : ""
+        ].join(" ").toUpperCase();
+
+        const hasExplicitOpenMismatchEvidence =
+            requestedClosed &&
+            aggregate === "OPEN" &&
+            (
+                alertText.includes("CONTACTORS OPEN") ||
+                alertText.includes("CONTACTOR OPEN") ||
+                alertText.includes("CONTACTOR MISMATCH") ||
+                alertText.includes("DOESN'T MATCH") ||
+                alertText.includes("DOES NOT MATCH")
+            );
+
+        // Do not globally treat aggregate OPEN as both actual contactors open.
+        // Some rows report aggregate OPEN while positive/negative feedback remains healthy.
+        // Only force the visual actual state open when row-level alert evidence confirms mismatch.
+        if (hasExplicitOpenMismatchEvidence) {
+            row.positiveContactorClosed = false;
+            row.negativeContactorClosed = false;
+            row.contactorsClosed = false;
+            row.contactorMismatch = true;
+        } else {
+            const pos = row?.positiveContactorClosed === true;
+            const neg = row?.negativeContactorClosed === true;
+            row.contactorsClosed = pos && neg;
+            row.contactorMismatch = requestedClosed ? !(pos && neg) : (pos || neg);
+        }
+
+        row.sourceDebug = {
+            ...(row.sourceDebug || {}),
+            aggregateContactorStateApplied: {
+                aggregate,
+                requestedClosed,
+                explicitOpenMismatchEvidence: hasExplicitOpenMismatchEvidence,
+                positiveContactorClosed: row.positiveContactorClosed,
+                negativeContactorClosed: row.negativeContactorClosed,
+                contactorMismatch: row.contactorMismatch,
+                source: "stringContactorState + row-level alert evidence"
+            }
+        };
+
+        return row;
+    };
+
+    strings.forEach((row: any) => applyAggregateContactorState(row));
+
+    // Normalize alert detail aliases for the string detail drawer/panels.
+    const applyRotationStateFromAlerts = (row: any) => {
+        const alertText = [
+            ...(Array.isArray(row?.warnings) ? row.warnings : []),
+            ...(Array.isArray(row?.alarms) ? row.alarms : []),
+            row?.operationalState,
+            row?.statusLabel,
+            row?.alertSummary ? JSON.stringify(row.alertSummary) : ""
+        ].join(" ").toUpperCase();
+
+        const explicitOutOfRotation =
+            alertText.includes("STRING OOR") ||
+            alertText.includes("OUT OF ROTATION") ||
+            alertText.includes("OUT-OF-ROTATION") ||
+            alertText.includes("OOR WARNING") ||
+            String(row?.balanceMode || row?.balMode || "").trim().toUpperCase() === "OFF";
+
+        if (explicitOutOfRotation) {
+            row.inRotation = false;
+            row.outRotation = true;
+            row.rotationStatus = "OUT";
+            row.rotationState = "OUT";
+            row.stringRotationState = "OUT";
+            row.rotation = {
+                ...(row.rotation || {}),
+                inRotation: false,
+                outOfRotation: true,
+                displayState: "OUT",
+                source: "alert-normalized",
+                sourcePath: "warnings/String OOR"
+            };
+            row.sourceDebug = {
+                ...(row.sourceDebug || {}),
+                rotationForcedFromAlert: true
+            };
+        }
+
+        return row;
+    };
+
+    strings.forEach((row: any) => applyRotationStateFromAlerts(row));
+
+    strings.forEach((row: any) => {
+        const warnings = Array.isArray(row.warnings) ? row.warnings : [];
+        const alarms = Array.isArray(row.alarms) ? row.alarms : [];
+
+        row.notificationList = [
+            ...warnings.map((item: any) => ({
+                severity: "warning",
+                level: "warning",
+                code: typeof item === "string" ? item.split(" - ")[0] : item?.code,
+                name: typeof item === "string" ? item : (item?.name || item?.description || item?.code || "Warning"),
+                description: typeof item === "string" ? item : (item?.description || item?.name || item?.code || "Warning")
+            })),
+            ...alarms.map((item: any) => ({
+                severity: "alarm",
+                level: "alarm",
+                code: typeof item === "string" ? item.split(" - ")[0] : item?.code,
+                name: typeof item === "string" ? item : (item?.name || item?.description || item?.code || "Alarm"),
+                description: typeof item === "string" ? item : (item?.description || item?.name || item?.code || "Alarm")
+            }))
+        ];
+
+        row.activeNotifications = row.notificationList;
+        row.faults = row.notificationList;
+        row.notificationCount = row.notificationList.length;
+    });
+
+    // Prevent global/rollup alarm counts from appearing as string-level alarms when no actual
+    // alarm details are attached to the affected row.
+    strings.forEach((row: any) => {
+        if ((!row.alarms || row.alarms.length === 0) && Number(row.alarmCount || 0) > 0) {
+            row.sourceDebug = {
+                ...(row.sourceDebug || {}),
+                alarmCountSuppressedWithoutDetails: row.alarmCount
+            };
+            row.alarmCount = 0;
+            row.alertSummary = {
+                ...(row.alertSummary || {}),
+                alarmCount: 0,
+                alarms: []
+            };
+        }
+    });
+
+    const finalBucketMetricRollups = (() => {
+        const finite = (value: any): number | null => {
+            if (value === null || value === undefined || value === "") return null;
+            const n = Number(value);
+            return Number.isFinite(n) ? n : null;
+        };
+
+        const sum = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) : 0;
+        const avg = (values: number[]) => values.length ? sum(values) / values.length : null;
+        const min = (values: number[]) => values.length ? Math.min(...values) : null;
+        const max = (values: number[]) => values.length ? Math.max(...values) : null;
+
+        const readFirst = (row: any, keys: string[]): number | null => {
+            for (const key of keys) {
+                const value = finite(row?.[key]);
+                if (value !== null) return value;
+            }
+            return null;
+        };
+
+        const toCellMillivolts = (value: any): number | null => {
+            const n = finite(value);
+            if (n === null) return null;
+            // Cell voltage sometimes arrives as volts, e.g. 3.245, and sometimes as mV, e.g. 3245.
+            if (n > 0 && n < 10) return n * 1000;
+            return n;
+        };
+
+        const readCellMv = (row: any, keys: string[]): number | null => {
+            for (const key of keys) {
+                const value = toCellMillivolts(row?.[key]);
+                if (value !== null) return value;
+            }
+            return null;
+        };
+
+        const toCellDeltaMillivolts = (value: any): number | null => {
+            const n = finite(value);
+            if (n === null) return null;
+            // Delta values can arrive as volts, e.g. 0.04, or mV, e.g. 9/14/40.
+            // Only sub-1 values are volts. Do not multiply normal mV deltas like 9.
+            if (n > 0 && n < 1) return n * 1000;
+            return n;
+        };
+
+        const readCellDeltaMv = (row: any, keys: string[]): number | null => {
+            for (const key of keys) {
+                const value = toCellDeltaMillivolts(row?.[key]);
+                if (value !== null) return value;
+            }
+            return null;
+        };
+
+        const readKwh = (row: any): number | null => {
+            return readFirst(row, [
+                "kwh",
+                "kWh",
+                "availableKWh",
+                "availableKwh",
+                "storedKWh",
+                "energyKWh",
+                "energykWh",
+                "socKWh",
+                "socKwh",
+                "ah"
+            ]);
+        };
+
+        const readSocPct = (row: any): number | null => {
+            const raw = readFirst(row, ["socPct", "soc", "SOC", "stateOfCharge", "stateOfChargePct"]);
+            if (raw === null) return null;
+            if (raw >= 0 && raw <= 1) return raw * 100;
+            if (raw >= 0 && raw <= 100) return raw;
+            return null;
+        };
+
+        const readConnectionPermitted = (row: any): boolean | null => {
+            const values = [
+                row?.connectionPermitted,
+                row?.contactorsCloseExpected,
+                row?.closePermitted,
+                row?.canConnect,
+                row?.stringConnectionPermitted,
+                row?.permitClose,
+                row?.readyToConnect
+            ];
+
+            for (const value of values) {
+                if (value === true || value === 1 || value === "1") return true;
+                if (String(value).toLowerCase() === "true") return true;
+                if (value === false || value === 0 || value === "0") return false;
+                if (String(value).toLowerCase() === "false") return false;
+            }
+
+            if (row?.positiveContactorClosed === true && row?.negativeContactorClosed === true) return true;
+            return null;
+        };
+
+        const buildBucket = (bucket: string) => {
+            const rows = strings.filter((s: any) => s.bucket === bucket);
+            const socs = rows.map(readSocPct).filter((v: any) => v !== null) as number[];
+            const kwhs = rows.map(readKwh).filter((v: any) => v !== null) as number[];
+
+            const currents = rows.map((r: any) => readFirst(r, ["amps", "currentA", "currentAmp", "stringCurrent"])).filter((v: any) => v !== null) as number[];
+            const minVoltages = rows.map((r: any) => readCellMv(r, ["minCellVoltage", "minCellVoltageMv", "measuredMinCellVoltage"])).filter((v: any) => v !== null) as number[];
+            const avgVoltages = rows.map((r: any) => readCellMv(r, ["avgCellVoltage", "avgCellVoltageMv", "averageCellVoltage"])).filter((v: any) => v !== null) as number[];
+            const maxVoltages = rows.map((r: any) => readCellMv(r, ["maxCellVoltage", "maxCellVoltageMv", "measuredMaxCellVoltage"])).filter((v: any) => v !== null) as number[];
+            const voltageDeltas = rows.map((r: any) => {
+                const explicit = readCellDeltaMv(r, ["cellVoltageDelta", "cellVoltageDeltaMv", "maxCellVoltageDelta"]);
+                if (explicit !== null) return explicit;
+                const hi = readCellMv(r, ["maxCellVoltage", "maxCellVoltageMv", "measuredMaxCellVoltage"]);
+                const lo = readCellMv(r, ["minCellVoltage", "minCellVoltageMv", "measuredMinCellVoltage"]);
+                return hi !== null && lo !== null ? hi - lo : null;
+            }).filter((v: any) => v !== null) as number[];
+
+            const minTemps = rows.map((r: any) => readFirst(r, ["minCellTemperature", "minCellTempC", "lowCellTempC"])).filter((v: any) => v !== null) as number[];
+            const avgTemps = rows.map((r: any) => readFirst(r, ["avgCellTemperature", "avgCellTempC", "averageCellTempC"])).filter((v: any) => v !== null) as number[];
+            const maxTemps = rows.map((r: any) => readFirst(r, ["maxCellTemperature", "maxCellTempC", "highCellTempC"])).filter((v: any) => v !== null) as number[];
+            const tempDeltas = rows.map((r: any) => {
+                const explicit = readFirst(r, ["cellTempDelta", "cellTempDeltaC", "maxCellTempDelta"]);
+                if (explicit !== null) return explicit;
+                const hi = readFirst(r, ["maxCellTemperature", "maxCellTempC", "highCellTempC"]);
+                const lo = readFirst(r, ["minCellTemperature", "minCellTempC", "lowCellTempC"]);
+                return hi !== null && lo !== null ? hi - lo : null;
+            }).filter((v: any) => v !== null) as number[];
+
+            const permitted = rows
+                .map(readConnectionPermitted)
+                .filter((v: any) => v === true).length;
+
+            return {
+                count: rows.length,
+                connectionPermittedCount: permitted,
+                connectionPermittedKnownCount: rows.map(readConnectionPermitted).filter((v: any) => v !== null).length,
+                connectionPermittedSource: "final-string-bucket-rollup",
+
+                socPctAvg: avg(socs),
+                storedKWhTotal: sum(kwhs),
+                storedKWhAvg: avg(kwhs),
+                socKwhAvg: sum(kwhs),
+                kWhAvg: avg(kwhs),
+
+                maxCurrentA: max(currents),
+                minCurrentA: min(currents),
+
+                maxCellVoltageMv: max(maxVoltages),
+                avgCellVoltageMv: avg(avgVoltages),
+                minCellVoltageMv: min(minVoltages),
+                maxCellVoltageDeltaMv: max(voltageDeltas),
+
+                highCellTempC: max(maxTemps),
+                avgCellTempC: avg(avgTemps),
+                lowCellTempC: min(minTemps),
+                maxCellTempDeltaC: max(tempDeltas)
+            };
+        };
+
+        return {
+            online: buildBucket("online"),
+            nearline: buildBucket("nearline"),
+            offline: buildBucket("offline"),
+            notCommunicating: buildBucket("notCommunicating"),
+            unknown: buildBucket("unknown")
+        };
+    })();
+
+    const applyFinalBucketMetricRollups = (target: any) => {
+        if (!target) return;
+        target.online = { ...(target.online || {}), ...finalBucketMetricRollups.online };
+        target.nearline = { ...(target.nearline || {}), ...finalBucketMetricRollups.nearline };
+        target.offline = { ...(target.offline || {}), ...finalBucketMetricRollups.offline };
+        target.notCommunicating = { ...(target.notCommunicating || {}), ...finalBucketMetricRollups.notCommunicating };
+        target.unknown = { ...(target.unknown || {}), ...finalBucketMetricRollups.unknown };
+    };
 
     startStringDetailWarmup(strings);
 
@@ -1756,9 +2390,10 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         enrichedRowCount: enrich ? strings.length : 0,
         cards: {
             totalStrings: strings.length > 0 ? strings.length : 320,
-            normal: finalNormalStrings,
-            offline: finalOfflineStrings,
-            nearline: finalNearlineStrings,
+            normal: finalBucketCounts.online,
+            offline: finalBucketCounts.offline,
+            nearline: finalBucketCounts.nearline,
+            notCommunicating: finalBucketCounts.notCommunicating,
             warnings: finalGWarnCount,
             alarms: finalGAlarmCount,
             totalBpcs: finalTotalBpcs || finalKnownBpcCount,
@@ -1771,9 +2406,10 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         },
         rollups: {
             totalStrings: strings.length > 0 ? strings.length : 320,
-            normal: finalNormalStrings,
-            offline: finalOfflineStrings,
-            nearline: finalNearlineStrings,
+            normal: finalBucketCounts.online,
+            offline: finalBucketCounts.offline,
+            nearline: finalBucketCounts.nearline,
+            notCommunicating: finalBucketCounts.notCommunicating,
             warnings: finalGWarnCount,
             alarms: finalGAlarmCount,
             totalBpcs: finalTotalBpcs || finalKnownBpcCount,
@@ -1786,20 +2422,30 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         },
         totalStrings: strings.length,
         arrayCount: new Set(strings.map(s => s.arrayNumber)).size,
-        normal: finalNormalStrings,
-        offline: finalOfflineStrings,
-        nearline: finalNearlineStrings,
-        warnings: finalGWarnCount,
+        normal: finalBucketCounts.online,
+        offline: finalBucketCounts.offline,
+        nearline: finalBucketCounts.nearline,
+            notCommunicating: finalBucketCounts.notCommunicating,
+            warnings: finalGWarnCount,
         alarms: finalGAlarmCount,
         totalBpcs: finalTotalBpcs || finalKnownBpcCount,
+        warningStrings: finalStringWarningCount,
+        alarmStrings: finalStringAlarmCount,
+        finalBucketMetricRollupsApplied: true,
+        finalBucketMetricRollups,
+        canonicalStringSnapshot: {
+            source: canonicalStringSnapshot.source,
+            rollups: canonicalStringSnapshot.rollups,
+            perArray: canonicalStringSnapshot.perArray
+        },
         summary: {
             totalArrays: new Set(strings.map(s => s.arrayNumber)).size,
             totalStrings: finalTotalStrings,
-            normalStrings: finalNormalStrings,
+            normalStrings: finalBucketCounts.online,
             warningStrings: finalWarningStrings,
             alarmStrings: finalAlarmStrings,
-            offlineStrings: finalOfflineStrings,
-            nearlineStrings: finalNearlineStrings,
+            offlineStrings: finalBucketCounts.offline,
+            nearlineStrings: finalBucketCounts.nearline,
             totalBpcs: finalTotalBpcs,
             warningBpcs: finalWarningBpcs,
             alarmBpcs: finalAlarmBpcs,
@@ -2102,6 +2748,22 @@ function normalizeStringViewerMonitorData(raw: any) {
   };
 }
 
+
+async function getNormalizedStringRowForDetail(arrayNumber: number, stringNumber: number): Promise<any | null> {
+    try {
+        const dashboard = await buildNormalizedStringsData(true, null);
+        const rows = Array.isArray((dashboard as any)?.strings) ? (dashboard as any).strings : [];
+        return rows.find((row: any) =>
+            Number(row?.arrayNumber ?? row?.arrayIndex) === Number(arrayNumber) &&
+            Number(row?.stringNumber ?? row?.stringIndex) === Number(stringNumber)
+        ) || null;
+    } catch (err: any) {
+        console.warn("[String Detail] normalized row merge failed:", err?.message || err);
+        return null;
+    }
+}
+
+
 router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
     const startedAt = Date.now();
     const includePerf = req.query.includePerf === "true";
@@ -2269,33 +2931,105 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                 };
             }
 
-            // Filter and map notifications for this specific string
+            // Filter and map notifications for this specific string.
+            // Match BOTH array and string; stringIndex alone can pull notifications from the wrong array.
             const stringNotifications = rawNotifications
                 .filter((n: any) => {
                     const source = n?.notificationSource || {};
+                    const aIdx = source.arrayIndex ?? source.arrayNumber ?? source.arrayNo ?? n.arrayIndex ?? n.arrayNumber;
                     const sIdx = source.stringIndex ?? source.stringNumber ?? source.stringNo ?? n.stringIndex ?? n.stringNumber;
-                    return sIdx !== undefined && Number(sIdx) === stringNumber;
+
+                    return (
+                        aIdx !== undefined &&
+                        sIdx !== undefined &&
+                        Number(aIdx) === Number(arrayNumber) &&
+                        Number(sIdx) === Number(stringNumber)
+                    );
                 })
                 .map((n: any) => {
                     const type = n?.notificationType || {};
                     const source = n?.notificationSource || {};
+                    const rawCategory = String(type.notificationCategory || n.category || n.level || "General").toUpperCase();
+                    const isAlarm =
+                        rawCategory.includes("ALARM") ||
+                        rawCategory.includes("FAULT") ||
+                        rawCategory.includes("CRITICAL");
+
+                    const code = type.notificationId || n.id || n.code || type.notificationCode || "Unknown";
+                    const triggerMessage = n.triggerMessage || n.displayText || n.message || n.text || "Active Fault";
+
                     return {
-                        category: type.notificationCategory || n.category || "General",
-                        id: type.notificationId || n.id || "Unknown",
-                        code: type.notificationId || n.code || type.notificationCode || "Unknown",
+                        category: rawCategory,
+                        severity: isAlarm ? "alarm" : "warning",
+                        level: isAlarm ? "ALARM" : "WARN",
+                        id: code,
+                        code,
+                        name: `${code} - ${triggerMessage}`,
+                        description: `${code} - ${triggerMessage}`,
                         endpointType: source.endpointType || n.endpointType || "EMS",
                         arrayIndex: source.arrayIndex ?? n.arrayIndex ?? arrayNumber,
                         stringIndex: source.stringIndex ?? n.stringIndex ?? stringNumber,
                         batteryPackIndex: source.batteryPackIndex ?? n.batteryPackIndex ?? null,
                         cellGroupIndex: source.cellGroupIndex ?? n.cellGroupIndex ?? null,
-                        triggerMessage: n.triggerMessage || n.displayText || n.message || n.text || "Active Fault",
+                        triggerMessage,
                         timestamp: n.timestamp || new Date().toISOString(),
-                        level: n.level || (type.notificationCategory === "Fault" || type.notificationCategory === "Alarm" ? "ALARM" : "WARN"),
                         raw: n
                     };
                 });
 
+            const stringWarnings = stringNotifications.filter((n: any) => String(n.level || n.severity || "").toUpperCase().includes("WARN"));
+            const stringAlarms = stringNotifications.filter((n: any) => {
+                const level = String(n.level || n.severity || n.category || "").toUpperCase();
+                return level.includes("ALARM") || level.includes("FAULT") || level.includes("CRITICAL");
+            });
+
+            const notificationDebugMatches = rawNotifications
+                .map((n: any) => {
+                    const source = n?.notificationSource || {};
+                    const type = n?.notificationType || {};
+                    return {
+                        category: type.notificationCategory,
+                        id: type.notificationId,
+                        arrayIndex: source.arrayIndex ?? n.arrayIndex,
+                        stringIndex: source.stringIndex ?? n.stringIndex,
+                        endpointType: source.endpointType ?? n.endpointType,
+                        batteryPackIndex: source.batteryPackIndex ?? n.batteryPackIndex,
+                        cellGroupIndex: source.cellGroupIndex ?? n.cellGroupIndex,
+                        triggerMessage: n.triggerMessage || n.displayText || n.message || n.text
+                    };
+                })
+                .filter((n: any) =>
+                    Number(n.arrayIndex) === Number(arrayNumber) ||
+                    Number(n.stringIndex) === Number(stringNumber)
+                )
+                .slice(0, 50);
+
             finalData.notifications = stringNotifications;
+            finalData.notificationList = stringNotifications;
+            finalData.activeNotifications = stringNotifications;
+            finalData.faults = stringNotifications;
+            finalData.warnings = stringWarnings;
+            finalData.alarms = stringAlarms;
+            finalData.warningCount = stringWarnings.length;
+            finalData.alarmCount = stringAlarms.length;
+            finalData.uniqueWarningCount = new Set(stringWarnings.map((n: any) => `${n.code}:${n.description}`)).size;
+            finalData.uniqueAlarmCount = new Set(stringAlarms.map((n: any) => `${n.code}:${n.description}`)).size;
+            finalData.notificationDebug = {
+                requestedArrayNumber: arrayNumber,
+                requestedStringNumber: stringNumber,
+                rawNotificationCount: rawNotifications.length,
+                matchedNotificationCount: stringNotifications.length,
+                nearbyOrPartialMatches: notificationDebugMatches
+            };
+            finalData.alertSummary = {
+                warningCount: finalData.warningCount,
+                alarmCount: finalData.alarmCount,
+                uniqueWarningCount: finalData.uniqueWarningCount,
+                uniqueAlarmCount: finalData.uniqueAlarmCount,
+                warnings: stringWarnings,
+                alarms: stringAlarms,
+                notifications: stringNotifications
+            };
 
             finalData.sourceHealth = {
                 stringviewerReport: reportSourceHealth,

@@ -1,0 +1,45 @@
+{
+  "id": "default-stack360",
+  "name": "Default Stack 360 / Containerized Profile",
+  "stationCode": "YUMA001",
+  "blockIndex": 1,
+  "siteName": "Yuma Containerized BESS",
+  "customer": "Yuma Energy",
+  "layoutFamily": "stack360",
+  "equipmentModel": "containerized-central-control",
+  "uiMode": "container",
+  "architecture": {
+    "usesLineups": false,
+    "usesCollectionSegments": false,
+    "usesEnergySegments": false,
+    "usesContainers": true,
+    "usesStacks": true,
+    "usesCentralEnvironmentalPlc": true,
+    "usesDistributedEnvironmentalDevices": false
+  },
+  "assumptions": {
+    "arrayCount": 4,
+    "containersPerArray": 1,
+    "stacksPerContainer": 2,
+    "stringsPerStack": 10,
+    "environmentalControllersPerContainer": 1,
+    "upsPerArray": 1,
+    "enclosureSwitchesPerArray": 1,
+    "baseSubnet": "10.1.0.0/16"
+  },
+  "ipPlan": {
+    "subnet": "10.1.0.0/16",
+    "arrayThirdOctetMode": "array-index",
+    "stack360": {
+      "controlsRange": "10.1.x.11",
+      "pcsRange": "10.1.x.40",
+      "environmentalControllerRange": "10.1.x.50-10.1.x.51",
+      "upsRange": "10.1.x.30",
+      "enclosureSwitchRange": "10.1.x.10",
+      "dhcpStackRange": "10.1.x.100-10.1.x.120"
+    }
+  },
+  "createdAt": "2026-07-02T12:26:22.057Z",
+  "updatedAt": "2026-07-02T12:26:22.057Z",
+  "source": "default"
+}

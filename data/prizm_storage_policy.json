@@ -1,0 +1,16 @@
+{
+  "history": {
+    "enabled": false,
+    "maxHistoryBytes": 524288000,
+    "maxHistoryAgeDays": 7,
+    "cleanupIntervalMinutes": 30,
+    "minFreeDiskBytes": 2147483648,
+    "deleteOldestFirst": true
+  },
+  "runtimeCache": {
+    "maxCacheBytes": 786432000,
+    "maxCacheAgeDays": 3,
+    "cleanupIntervalMinutes": 30,
+    "minFreeDiskBytes": 2147483648
+  }
+}

@@ -756,7 +756,20 @@ export default function SiteOperationsDashboard({
 
                 {/* Hover Tooltip Popup panel */}
                 {(() => {
-                  const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+                  const stringRollups = sum?.stringSummary?.rollups;
+                  const derivedFleetCapacity = stringRollups ? {
+                    ...(sum?.fleetCapacity || {}),
+                    availableStoredKWh:
+                      Number(stringRollups?.online?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.nearline?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.offline?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.notCommunicating?.storedKWhTotal ?? 0),
+                    onlineStoredKWh: Number(stringRollups?.online?.storedKWhTotal ?? 0),
+                    nearlineStoredKWh: Number(stringRollups?.nearline?.storedKWhTotal ?? 0),
+                    offlineStoredKWh: Number(stringRollups?.offline?.storedKWhTotal ?? 0),
+                    notCommunicatingStoredKWh: Number(stringRollups?.notCommunicating?.storedKWhTotal ?? 0)
+                  } : null;
+                  const fc = derivedFleetCapacity || sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
                   const formatVal = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "Unavailable";
                   const formatMWhOrDash = (v: number | null | undefined) => v != null ? (v / 1000).toFixed(2) : "--";
 
@@ -793,7 +806,20 @@ export default function SiteOperationsDashboard({
 
                 <div className="flex flex-col mt-4">
                   {(() => {
-                    const fc = sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
+                    const stringRollups = sum?.stringSummary?.rollups;
+                  const derivedFleetCapacity = stringRollups ? {
+                    ...(sum?.fleetCapacity || {}),
+                    availableStoredKWh:
+                      Number(stringRollups?.online?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.nearline?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.offline?.storedKWhTotal ?? 0) +
+                      Number(stringRollups?.notCommunicating?.storedKWhTotal ?? 0),
+                    onlineStoredKWh: Number(stringRollups?.online?.storedKWhTotal ?? 0),
+                    nearlineStoredKWh: Number(stringRollups?.nearline?.storedKWhTotal ?? 0),
+                    offlineStoredKWh: Number(stringRollups?.offline?.storedKWhTotal ?? 0),
+                    notCommunicatingStoredKWh: Number(stringRollups?.notCommunicating?.storedKWhTotal ?? 0)
+                  } : null;
+                  const fc = derivedFleetCapacity || sum?.fleetCapacity || sum?.stringSummary?.rollups?.fleetCapacity;
                     const formatMWhStr = (v: number | null | undefined): string => {
                       if (v == null) return "Unavailable";
                       return (v / 1000).toFixed(2);

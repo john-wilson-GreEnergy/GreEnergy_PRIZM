@@ -1,0 +1,44 @@
+{
+  "id": "default-stack750",
+  "name": "Default Stack 750 / Centipede Profile",
+  "stationCode": "BHE0020",
+  "blockIndex": 1,
+  "siteName": "Solar Star Centipede BESS",
+  "customer": "GreEnergy Star",
+  "layoutFamily": "stack750_800",
+  "equipmentModel": "centipede",
+  "uiMode": "lineup",
+  "architecture": {
+    "usesLineups": true,
+    "usesCollectionSegments": true,
+    "usesEnergySegments": true,
+    "usesContainers": false,
+    "usesStacks": false,
+    "usesCentralEnvironmentalPlc": false,
+    "usesDistributedEnvironmentalDevices": false
+  },
+  "assumptions": {
+    "arrayCount": 8,
+    "energySegmentsPerArray": 20,
+    "collectionSegmentsPerArray": 1,
+    "stringsPerEnergySegment": 2,
+    "pcsCount": 1,
+    "bmsUnitsPerString": 1,
+    "phoenixBmsPerString": 1,
+    "baseSubnet": "10.0.0.0/16"
+  },
+  "ipPlan": {
+    "subnet": "10.0.0.0/16",
+    "arrayThirdOctetMode": "array-index",
+    "stack750": {
+      "feather": {
+        "collectionSegmentLastOctet": 3,
+        "energySegmentStartLastOctet": 10,
+        "energySegmentStep": 5
+      }
+    }
+  },
+  "createdAt": "2026-07-02T12:26:22.057Z",
+  "updatedAt": "2026-07-02T12:26:22.057Z",
+  "source": "default"
+}

@@ -2666,6 +2666,55 @@ async function doBackgroundPoll() {
       }
 
       repairFinalFleetRollupsFromStringsAndArrays(newSnap);
+
+      // Final authority: the String Dashboard builder has already bucketed rows from
+      // lastCall stringConnectionState and rebuilt per-bucket metrics from final strings[].
+      // The generic fleet repair above can re-collapse NEARLINE rows back into ONLINE,
+      // so overwrite the snapshot string summary from stringsResult after that repair.
+      if (stringsResult?.strings?.length && stringsResult?.finalBucketMetricRollups) {
+          const finalRows = stringsResult.strings;
+          const finalRollups = stringsResult.finalBucketMetricRollups;
+
+          newSnap.normalized.strings = finalRows;
+
+          if (!newSnap.rollups.stringSummary) {
+              newSnap.rollups.stringSummary = {};
+          }
+
+          newSnap.rollups.stringSummary.tableRows = finalRows;
+          newSnap.rollups.stringSummary.totalStrings = finalRows.length;
+          newSnap.rollups.stringSummary.valid = true;
+
+          newSnap.rollups.stringSummary.buckets = {
+              online: finalRows.filter((r: any) => r.bucket === 'online').length,
+              nearline: finalRows.filter((r: any) => r.bucket === 'nearline').length,
+              offline: finalRows.filter((r: any) => r.bucket === 'offline').length,
+              notCommunicating: finalRows.filter((r: any) => r.bucket === 'notCommunicating').length,
+              unknown: finalRows.filter((r: any) => r.bucket === 'unknown').length
+          };
+
+          newSnap.rollups.stringSummary.rollups = {
+              ...(newSnap.rollups.stringSummary.rollups || {}),
+              online: finalRollups.online,
+              nearline: finalRollups.nearline,
+              offline: finalRollups.offline,
+              notCommunicating: finalRollups.notCommunicating,
+              unknown: finalRollups.unknown,
+              normal: finalRollups.online?.count ?? 0,
+              totalStrings: finalRows.length,
+              onlineCount: finalRollups.online?.count ?? 0,
+              nearlineCount: finalRollups.nearline?.count ?? 0,
+              offlineCount: finalRollups.offline?.count ?? 0,
+              notCommunicatingCount: finalRollups.notCommunicating?.count ?? 0
+          };
+
+          newSnap.rollups.stringSummary.debug = {
+              ...(newSnap.rollups.stringSummary.debug || {}),
+              finalStringDashboardOverrideApplied: true,
+              finalStringDashboardSource: stringsResult.canonicalStringSnapshot?.source || 'strings-dashboard-final-bucket-rollups',
+              finalStringDashboardBuckets: newSnap.rollups.stringSummary.buckets
+          };
+      }
       repairFinalCorrectiveActionsFromSnapshot(newSnap);
 
       let acceptSnapshot = true;
