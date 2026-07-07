@@ -3,6 +3,100 @@ import { SiteReportPayload } from './reportTypes';
 
 // --- Safe Access Helpers ---
 
+
+function compactNumberRangesForPdf(values: any[]): string {
+  const nums = Array.from(
+    new Set(
+      (values || [])
+        .map((v: any) => Number(v))
+        .filter((v: number) => Number.isFinite(v))
+    )
+  ).sort((a, b) => a - b);
+
+  if (!nums.length) return "--";
+
+  const ranges: string[] = [];
+  let start = nums[0];
+  let prev = nums[0];
+
+  for (let i = 1; i <= nums.length; i += 1) {
+    const current = nums[i];
+
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+
+    ranges.push(start === prev ? String(start) : `${start}-${prev}`);
+    start = current;
+    prev = current;
+  }
+
+  return ranges.join(", ");
+}
+
+function pickPdfTargetPart(target: any, keys: string[], fallback: any = null): any {
+  for (const key of keys) {
+    const value = target?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function condensePdfAffectedTargets(targets: any[]): any[] {
+  const groups = new Map<string, any>();
+
+  for (const target of targets || []) {
+    const block = pickPdfTargetPart(target, ["blockIndex", "block", "blockNumber"], 1);
+    const array = pickPdfTargetPart(target, ["arrayIndex", "arrayNumber", "array"], null);
+    const es = pickPdfTargetPart(target, ["energySegmentIndex", "energySegmentNumber", "energySegment", "es"], null);
+    const string = pickPdfTargetPart(target, ["stringIndex", "stringNumber", "string"], null);
+    const side = pickPdfTargetPart(target, ["side"], null);
+    const bpc = pickPdfTargetPart(target, ["batteryPackIndex", "bpcIndex", "bpc", "batteryPack"], null);
+
+    const key = [block, array, es, string, side, bpc].join("|");
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        block,
+        array,
+        es,
+        string,
+        side,
+        bpc,
+        cellGroups: [],
+        rawTargets: [],
+        representative: target
+      });
+    }
+
+    const group = groups.get(key);
+    group.rawTargets.push(target);
+
+    const cg = pickPdfTargetPart(target, ["cellGroupIndex", "cellGroupNumber", "cell", "cg"], null);
+    if (cg !== null && cg !== undefined) group.cellGroups.push(cg);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const parts = [
+      group.block !== null && group.block !== undefined ? `Block ${group.block}` : null,
+      group.array !== null && group.array !== undefined ? `Array ${group.array}` : null,
+      group.es !== null && group.es !== undefined ? `ES${group.es}` : null,
+      group.string !== null && group.string !== undefined ? `String ${group.string}` : null,
+      group.side ? `${group.side}` : null,
+      group.bpc !== null && group.bpc !== undefined ? `BPC ${group.bpc}` : null,
+      group.cellGroups.length ? `CG ${compactNumberRangesForPdf(group.cellGroups)}` : null
+    ].filter(Boolean);
+
+    return {
+      ...group.representative,
+      condensedLabel: parts.join(" / "),
+      condensedCount: group.rawTargets.length,
+      condensedRawTargets: group.rawTargets
+    };
+  });
+}
+
 function safeText(value: any, fallback = "--"): string {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);

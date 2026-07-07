@@ -1,6 +1,7 @@
 import { BalancerTestResultRow, BalancerTestAnalysis, BalancerTestCorrelatedWarning } from "./balancerTestTypes";
 import { formatStringEsLabel, stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
 import { getNormalizedStringFaults } from "../faults/normalizedFaultSource";
+import { getSiteNotificationEngineView } from "../notifications/siteNotificationEngine";
 
 export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[], endpointBase: string): BalancerTestAnalysis {
   const totalCellGroups = rows.length;
@@ -246,6 +247,112 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
   console.log(`[BalancerTestAnalyzer Debug] selected target arrays: [${targetArrays.join(", ")}]`);
   console.log(`[BalancerTestAnalyzer Debug] native report warning count: ${reportWarningCount}`);
   console.log(`[BalancerTestAnalyzer Debug] current corrective action count: ${debugCurrentCorrectiveActionCount}`);
+
+  // --- Add active BPC balancing notifications from the new site notification engine ---
+  // The old normalized string fault source can miss the active warning/corrective-action stream.
+  // For balancer testing, use summaryAll because this page needs raw BPC/cell-group correlation,
+  // not the summary tile's filtered/batched view.
+  try {
+    const notificationView = getSiteNotificationEngineView({ filter: "summaryAll" });
+    const engineNotifications = Array.isArray(notificationView?.notifications)
+      ? notificationView.notifications
+      : [];
+
+    const existingKeys = new Set(
+      correlatedWarnings.map((w: any) => [
+        String(w.code ?? ""),
+        Number(w.arrayNumber ?? -1),
+        Number(w.stringNumber ?? -1),
+        Number(w.bpc ?? -1),
+        Number(w.cell ?? -1)
+      ].join("|"))
+    );
+
+    const activeBalancingNotifications = engineNotifications.filter((n: any) => {
+      const source = n?.source || {};
+      const arrayNumber = Number(source.arrayIndex);
+      const code = String(n?.code ?? "");
+      const matrixEntryId = String(n?.troubleshooting?.matrixEntryId ?? "");
+      const family = String(n?.family ?? "");
+
+      const isBalancingRelated =
+        matrixEntryId === "bpc-not-balancing" ||
+        family === "bpc-not-balancing" ||
+        code === "2073" ||
+        code === "2074";
+
+      const isTargetArray =
+        targetArrays.length === 0 ||
+        targetArrays.includes(arrayNumber);
+
+      return isBalancingRelated && isTargetArray;
+    });
+
+    for (const n of activeBalancingNotifications) {
+      const source = n?.source || {};
+      const code = String(n?.code ?? "");
+      const arrayNumber = Number(source.arrayIndex);
+      const stringNumber = Number(source.stringIndex);
+      const bpc = Number(source.batteryPackIndex);
+      const cell = Number(source.cellGroupIndex);
+
+      const dedupeKey = [
+        code,
+        Number.isFinite(arrayNumber) ? arrayNumber : -1,
+        Number.isFinite(stringNumber) ? stringNumber : -1,
+        Number.isFinite(bpc) ? bpc : -1,
+        Number.isFinite(cell) ? cell : -1
+      ].join("|");
+
+      if (existingKeys.has(dedupeKey)) continue;
+      existingKeys.add(dedupeKey);
+
+      const block = Number(source.blockIndex ?? source.block ?? n?.raw?.action?.block ?? 1);
+      const energySegmentNumber =
+        Number(source.energySegmentIndex) ||
+        (Number.isFinite(stringNumber) ? stringNumberToEnergySegment(stringNumber) : null);
+
+      const label = formatStringEsLabel({
+        blockIndex: block,
+        arrayNumber: Number.isFinite(arrayNumber) ? arrayNumber : null,
+        stringNumber: Number.isFinite(stringNumber) ? stringNumber : null,
+        energySegmentNumber: energySegmentNumber || undefined,
+        includeBlock: true,
+        compact: false
+      });
+
+      const severity = String(n?.level || n?.severity || "WARNING").toUpperCase();
+      const title = String(n?.name || n?.description || `BPC Balancing Notification ${code}`);
+
+      correlatedWarnings.push({
+        source: "live-notification",
+        confidence: "high",
+        code: isNaN(Number(code)) ? code : Number(code),
+        severity,
+        title,
+        rawMessage: String(n?.description || n?.name || title),
+        block,
+        arrayNumber: Number.isFinite(arrayNumber) ? arrayNumber : null,
+        stringNumber: Number.isFinite(stringNumber) ? stringNumber : null,
+        energySegmentNumber: energySegmentNumber || null,
+        bpc: Number.isFinite(bpc) ? bpc : null,
+        cell: Number.isFinite(cell) ? cell : null,
+        label,
+        reason: "Active BPC balancing-related notification from site notification engine",
+        testIds,
+        detectedAt: n?.timestamp || n?.raw?.action?.detectedAt || n?.raw?.action?.timestamp || null,
+        raw: n
+      });
+    }
+
+    if (activeBalancingNotifications.length > 0) {
+      console.log(`[BalancerTestAnalyzer Debug] notification engine balancing matches: ${activeBalancingNotifications.length}`);
+    }
+  } catch (err) {
+    console.warn("[BalancerTestAnalyzer Debug] notification engine correlation failed", err);
+  }
+
+
   console.log(`[BalancerTestAnalyzer Debug] correlated warning count: ${correlatedWarnings.length}`);
   console.log(`[BalancerTestAnalyzer Debug] matched warning codes: [${matchedWarningCodes.join(", ")}]`);
   console.log(`[BalancerTestAnalyzer Debug] unmatched warning codes: [${unmatchedWarningCodes.join(", ")}]`);

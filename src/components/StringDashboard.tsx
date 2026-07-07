@@ -174,6 +174,8 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     };
   }, [snapshot]);
 
+  const [notificationRollupsByString, setNotificationRollupsByString] = useState<Record<string, any>>({});
+
   const [loading, setLoading] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(15000);
   
@@ -199,6 +201,30 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [contactorModalOpen, setContactorModalOpen] = useState(false);
   const [contactorModalAction, setContactorModalAction] = useState<"open" | "close">("open");
   const [contactorModalTargets, setContactorModalTargets] = useState<any[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadNotificationRollups = async () => {
+      try {
+        const res = await fetch("/api/local/site-data/notifications/rollups");
+        if (!res.ok) return;
+        const json = await res.json();
+        const byString = json?.grouped?.byString || json?.byString || json?.raw?.byString || {};
+        if (!cancelled) setNotificationRollupsByString(byString);
+      } catch (err) {
+        console.warn("[StringDashboard] notification rollups fetch failed", err);
+      }
+    };
+
+    loadNotificationRollups();
+    const timer = window.setInterval(loadNotificationRollups, 10000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
@@ -926,16 +952,25 @@ const handleManualRefresh = async () => {
                   const inRotation = !explicitOutOfRotation;
 
                   // Reference legend: dot 3 in rotation group is notification severity.
+                  const stringNotificationKey = `${Number(s.arrayNumber ?? s.arrayIndex)}-${Number(s.stringNumber ?? s.stringIndex)}`;
+                  const stringNotificationRollup = notificationRollupsByString[stringNotificationKey] || null;
+
                   const warningTotal =
-                    Number(s.warningCount || 0) +
-                    Number(s.uniqueWarningCount || 0) +
-                    rowWarnings.length +
-                    (explicitOutOfRotation ? 1 : 0);
+                    Number(stringNotificationRollup?.warningCount ?? 0) ||
+                    (
+                      Number(s.warningCount || 0) +
+                      Number(s.uniqueWarningCount || 0) +
+                      rowWarnings.length +
+                      (explicitOutOfRotation ? 1 : 0)
+                    );
 
                   const alarmTotal =
-                    Number(s.alarmCount || 0) +
-                    Number(s.uniqueAlarmCount || 0) +
-                    rowAlarms.length;
+                    Number(stringNotificationRollup?.alarmCount ?? 0) ||
+                    (
+                      Number(s.alarmCount || 0) +
+                      Number(s.uniqueAlarmCount || 0) +
+                      rowAlarms.length
+                    );
 
                   const alertsState = alarmTotal > 0 ? "alarm" : warningTotal > 0 ? "warning" : "ok";
 
@@ -958,27 +993,53 @@ const handleManualRefresh = async () => {
                         : "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
 
                   // Reference legend: contactor group dot 1 is requested/expected state.
-                  const requestedClosed =
-                    s.contactorsCloseExpected === true ||
-                    s.connectionPermitted === true ||
-                    s.contactorRequestedClosed === true ||
-                    String(s.requestedContactorState || "").toUpperCase() === "CLOSED";
+                  const aggregateState = String(s.stringContactorState || s.contactorStatus || "").toUpperCase();
+                  const aggregateOpen = aggregateState === "OPEN";
+                  const aggregateClosed = aggregateState === "CLOSED" || aggregateState === "CLOSE";
 
-                  const aggregateOpen = String(s.stringContactorState || "").toUpperCase() === "OPEN";
-
-                  const actualOpenEvidence =
-                    aggregateOpen ||
+                  const contactorMismatchEvidence =
                     s.contactorMismatch === true ||
                     alertText.includes("CONTACTORS OPEN") ||
                     alertText.includes("CONTACTOR OPEN") ||
                     alertText.includes("CONTACTOR MISMATCH") ||
                     alertText.includes("DOESN'T MATCH") ||
-                    alertText.includes("DOES NOT MATCH");
+                    alertText.includes("DOES NOT MATCH") ||
+                    alertText.includes("2534");
+
+                  // Dot 1 is requested/expected state.
+                  // Normal site-wide OPEN should render as open-requested, not closed-requested.
+                  // Only force closed-requested on explicit contactor-open/mismatch evidence.
+                  const explicitClosedRequest =
+                    String(s.requestedContactorState || "").toUpperCase() === "CLOSED" ||
+                    s.contactorRequestedClosed === true;
+
+                  const requestedClosed =
+                    aggregateOpen
+                      ? explicitClosedRequest
+                      : (
+                          contactorMismatchEvidence ||
+                          explicitClosedRequest ||
+                          s.contactorsCloseExpected === true ||
+                          s.connectionPermitted === true ||
+                          aggregateClosed
+                        );
 
                   // Dot 2/3 compare actual feedback against requested state.
-                  // For visual parity with the reference EMS string list, aggregate OPEN means both actuals display open.
-                  const positiveClosed = actualOpenEvidence ? false : s.positiveContactorClosed === true;
-                  const negativeClosed = actualOpenEvidence ? false : s.negativeContactorClosed === true;
+                  // Aggregate OPEN is valid actual-open evidence for normal open contactor state.
+                  // Explicit mismatch/contactors-open evidence also means actuals are open against a closed request.
+                  const positiveClosed =
+                    aggregateOpen || contactorMismatchEvidence
+                      ? false
+                      : aggregateClosed
+                        ? true
+                        : s.positiveContactorClosed === true;
+
+                  const negativeClosed =
+                    aggregateOpen || contactorMismatchEvidence
+                      ? false
+                      : aggregateClosed
+                        ? true
+                        : s.negativeContactorClosed === true;
 
                   const positiveMatchesRequest = requestedClosed ? positiveClosed : !positiveClosed;
                   const negativeMatchesRequest = requestedClosed ? negativeClosed : !negativeClosed;

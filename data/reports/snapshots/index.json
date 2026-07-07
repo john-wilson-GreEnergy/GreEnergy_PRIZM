@@ -1,0 +1,21 @@
+[
+  {
+    "snapshotId": "a4f9baa7-3d26-4cd9-a187-13ee1088c701",
+    "snapshotType": "report",
+    "label": "Snapshot",
+    "capturedAt": "2026-07-07T19:36:14.473Z",
+    "stationCode": "BHE0020",
+    "blockIndex": 1,
+    "topologyFamily": "stack750_800",
+    "siteReadiness": "limited",
+    "sourceConfidence": "low",
+    "alarmCount": 0,
+    "warningCount": 0,
+    "onlineStrings": 0,
+    "nearlineStrings": 320,
+    "offlineStrings": 0,
+    "notCommunicatingStrings": 0,
+    "storedEnergyKWh": 0,
+    "systemSocPct": 0
+  }
+]

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  getLatestSnapshot,
+getLatestSnapshot,
   getSiteDataStatusView,
   getBlockSummaryView,
   getStringsView,
@@ -12,6 +12,11 @@ import {
   getSensorsView,
   triggerImmediatePoll
 } from "./prizmDataCoordinator";
+import {
+  getSiteNotificationEngineView,
+  getStringNotificationView,
+  getNotificationRollupsView
+} from "./notifications/siteNotificationEngine";
 
 export const siteDataRouter = Router();
 
@@ -88,6 +93,57 @@ siteDataRouter.get("/feather", (req, res) => {
     res.json(view);
   } catch (err: any) {
     res.json({ warming: true, error: err.message });
+  }
+});
+
+
+siteDataRouter.get("/notifications/site", (req, res) => {
+  try {
+    const filter = String(req.query.filter || "summaryDefault") as any;
+    const view = getSiteNotificationEngineView({ filter });
+    res.json(view);
+  } catch (error: any) {
+    console.error("[Notifications] site view failed", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Failed to build site notification view"
+    });
+  }
+});
+
+siteDataRouter.get("/notifications/string/:arrayNumber/:stringNumber", (req, res) => {
+  try {
+    const arrayNumber = Number(req.params.arrayNumber);
+    const stringNumber = Number(req.params.stringNumber);
+
+    if (!Number.isFinite(arrayNumber) || !Number.isFinite(stringNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: "arrayNumber and stringNumber must be numeric"
+      });
+    }
+
+    const view = getStringNotificationView(arrayNumber, stringNumber);
+    res.json(view);
+  } catch (error: any) {
+    console.error("[Notifications] string view failed", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Failed to build string notification view"
+    });
+  }
+});
+
+siteDataRouter.get("/notifications/rollups", (_req, res) => {
+  try {
+    const view = getNotificationRollupsView();
+    res.json(view);
+  } catch (error: any) {
+    console.error("[Notifications] rollups failed", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Failed to build notification rollups"
+    });
   }
 });
 

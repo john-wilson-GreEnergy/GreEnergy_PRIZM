@@ -29,6 +29,78 @@ async function fetchNormalizedStringRowForDetails(arrayNumber: number, stringNum
   }
 }
 
+
+async function fetchStringNotificationEngineView(arrayNumber: number, stringNumber: number): Promise<any | null> {
+  try {
+    const res = await fetch(`/api/local/site-data/notifications/string/${arrayNumber}/${stringNumber}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.warn("[String Detail] notification engine fetch failed", err);
+    return null;
+  }
+}
+
+function mergeNotificationEngineIntoDetail(detail: any, notificationView: any | null): any {
+  if (!notificationView?.success) return detail;
+
+  const notifications = Array.isArray(notificationView.notifications)
+    ? notificationView.notifications
+    : [];
+
+  const groupedNotifications = Array.isArray(notificationView.groupedNotifications)
+    ? notificationView.groupedNotifications
+    : notifications;
+
+  const alarms = Array.isArray(notificationView.alarms)
+    ? notificationView.alarms
+    : notifications.filter((n: any) => String(n?.severity || n?.level || "").toLowerCase().includes("alarm"));
+
+  const warnings = Array.isArray(notificationView.warnings)
+    ? notificationView.warnings
+    : notifications.filter((n: any) => String(n?.severity || n?.level || "").toLowerCase().includes("warning"));
+
+  return {
+    ...detail,
+
+    // Raw normalized notification engine data.
+    notificationEngine: notificationView,
+    notifications,
+    notificationList: notifications,
+    activeNotifications: notifications,
+    faults: notifications,
+
+    // Grouped display-ready view. This keeps alarm-over-warning family grouping available.
+    groupedNotifications,
+    groupedNotificationList: groupedNotifications,
+
+    alarms,
+    warnings,
+
+    notificationCount: notificationView.notificationCount ?? notifications.length,
+    alarmCount: notificationView.alarmCount ?? alarms.length,
+    warningCount: notificationView.warningCount ?? warnings.length,
+    highestSeverity: notificationView.highestSeverity ?? "none",
+
+    groupedNotificationCount: notificationView.groupedNotificationCount ?? groupedNotifications.length,
+    groupedAlarmCount: notificationView.groupedAlarmCount,
+    groupedWarningCount: notificationView.groupedWarningCount,
+    groupedHighestSeverity: notificationView.groupedHighestSeverity,
+
+    alertSummary: {
+      ...(detail?.alertSummary || {}),
+      notificationCount: notificationView.notificationCount ?? notifications.length,
+      alarmCount: notificationView.alarmCount ?? alarms.length,
+      warningCount: notificationView.warningCount ?? warnings.length,
+      highestSeverity: notificationView.highestSeverity ?? "none",
+      notifications,
+      groupedNotifications,
+      alarms,
+      warnings
+    }
+  };
+}
+
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
   const { snapshot } = useSiteData();
   const [data, setData] = useState<any>(null);
@@ -57,9 +129,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             stringDataArrayNumber,
             stringDataStringNumber
           );
-          setData({
+          const notificationView = await fetchStringNotificationEngineView(
+            stringDataArrayNumber,
+            stringDataStringNumber
+          );
+
+          const mergedDetail = {
             ...json,
-            ...(normalizedRow || {}),
             normalizedRow,
             notificationList: normalizedRow?.notificationList || json.notificationList || [],
             activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
@@ -70,7 +146,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
             alarmCount: normalizedRow?.alarmCount ?? json.alarmCount ?? 0,
             uniqueWarningCount: normalizedRow?.uniqueWarningCount ?? json.uniqueWarningCount ?? 0,
             uniqueAlarmCount: normalizedRow?.uniqueAlarmCount ?? json.uniqueAlarmCount ?? 0
-          });
+          };
+
+          setData(mergeNotificationEngineIntoDetail(mergedDetail, notificationView));
         }
       } catch (err) {
         console.error("Failed to fetch string detail", err);
@@ -102,9 +180,13 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
           stringDataArrayNumber,
           stringDataStringNumber
         );
-        setData({
+        const notificationView = await fetchStringNotificationEngineView(
+          stringDataArrayNumber,
+          stringDataStringNumber
+        );
+
+        const mergedDetail = {
           ...json,
-          ...(normalizedRow || {}),
           normalizedRow,
           notificationList: normalizedRow?.notificationList || json.notificationList || [],
           activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
@@ -115,7 +197,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
           alarmCount: normalizedRow?.alarmCount ?? json.alarmCount ?? 0,
           uniqueWarningCount: normalizedRow?.uniqueWarningCount ?? json.uniqueWarningCount ?? 0,
           uniqueAlarmCount: normalizedRow?.uniqueAlarmCount ?? json.uniqueAlarmCount ?? 0
-        });
+        };
+
+        setData(mergeNotificationEngineIntoDetail(mergedDetail, notificationView));
       }
     } catch (err) {
       console.error("Failed to refresh detail manually", err);
@@ -704,28 +788,50 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
                            <thead className="bg-black/20 text-prizm-text-muted sticky top-0">
                               <tr>
-                                 <th className="p-2 border-b border-prizm-border">Code/Level</th>
-                                 <th className="p-2 border-b border-prizm-border">Message</th>
-                                 <th className="p-2 border-b border-prizm-border">Timestamp</th>
-                                 <th className="p-2 border-b border-prizm-border">Trigger</th>
-                              </tr>
+                                                <th className="p-2 text-left w-[120px]">Code/Level</th>
+                                                <th className="p-2 text-center w-[70px]">BPC</th>
+                                                <th className="p-2 text-center w-[70px]">CG</th>
+                                                <th className="p-2 text-left min-w-[260px]">Message</th>
+                                                <th className="p-2 text-right w-[190px]">Timestamp</th>
+                                            </tr>
                            </thead>
                            <tbody className="divide-y divide-prizm-border/20">
                                {notifications.map((n: any, i: number) => {
-                                   const isAlarm = n.level === 'ALARM';
+                                   const severityText = String(n.level || n.severity || "WARNING").toUpperCase();
+                                   const isAlarm = severityText.includes("ALARM");
+                                   const src = n.source || {};
+                                   const message =
+                                     n.name ||
+                                     n.description ||
+                                     n.displayText ||
+                                     n.message ||
+                                     n.text ||
+                                     (n.code ? `${severityText} Code ${n.code}` : "Active notification");
+
+                                   const bpcText =
+                                     src.batteryPackIndex !== null && src.batteryPackIndex !== undefined
+                                       ? src.batteryPackIndex
+                                       : "--";
+
+                                   const cgText =
+                                     src.cellGroupIndex !== null && src.cellGroupIndex !== undefined
+                                       ? src.cellGroupIndex
+                                       : "--";
+
                                    return (
                                    <tr key={i} className="hover:bg-black/10">
                                        <td className="p-2">
                                            <div className="flex items-center gap-2">
                                                 <span className={`px-1.5 py-0.5 rounded font-bold ${isAlarm ? 'bg-prizm-danger/20 text-prizm-danger' : 'bg-prizm-warning/20 text-prizm-warning'}`}>
-                                                    {n.level || "WARN"}
+                                                    {isAlarm ? "ALARM" : "WARNING"}
                                                 </span>
                                                 {n.code && <span className="text-prizm-text ml-1 opacity-80">{n.code}</span>}
                                            </div>
                                        </td>
-                                       <td className="p-2 whitespace-normal break-words text-prizm-text">{n.displayText || n.message || n.text || String(n)}</td>
-                                       <td className="p-2 text-prizm-text-muted">{formatPrizmUtcTimestamp(n.timestamp || s.timestampUtc)}</td>
-                                       <td className="p-2 text-prizm-text-muted font-bold">{n.trigger !== undefined ? n.trigger : "--"}</td>
+                                       <td className="p-2 text-prizm-text-muted font-bold text-center">{bpcText}</td>
+                                       <td className="p-2 text-prizm-text-muted font-bold text-center">{cgText}</td>
+                                       <td className="p-2 whitespace-normal break-words text-prizm-text min-w-[260px]">{message}</td>
+                                       <td className="p-2 text-prizm-text-muted text-right whitespace-nowrap">{formatPrizmUtcTimestamp(n.timestamp || s.timestampUtc)}</td>
                                    </tr>
                                )})}
                            </tbody>

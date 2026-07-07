@@ -1656,6 +1656,100 @@ app.post("/api/local/reports/cleanup", (req, res) => {
   }
 });
 
+
+function compactCorrectivePdfNumberRanges(values: any[]): string {
+  const nums = Array.from(
+    new Set(
+      (values || [])
+        .map((v: any) => Number(v))
+        .filter((v: number) => Number.isFinite(v))
+    )
+  ).sort((a, b) => a - b);
+
+  if (!nums.length) return "--";
+
+  const ranges: string[] = [];
+  let start = nums[0];
+  let prev = nums[0];
+
+  for (let i = 1; i <= nums.length; i += 1) {
+    const current = nums[i];
+
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+
+    ranges.push(start === prev ? String(start) : `${start}-${prev}`);
+    start = current;
+    prev = current;
+  }
+
+  return ranges.join(", ");
+}
+
+function pickCorrectivePdfTargetPart(target: any, keys: string[], fallback: any = null): any {
+  for (const key of keys) {
+    const value = target?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function condenseCorrectivePdfTargets(targets: any[]): any[] {
+  const groups = new Map<string, any>();
+
+  for (const target of targets || []) {
+    const block = pickCorrectivePdfTargetPart(target, ["blockIndex", "block", "blockNumber"], 1);
+    const array = pickCorrectivePdfTargetPart(target, ["arrayIndex", "arrayNumber", "array"], null);
+    const es = pickCorrectivePdfTargetPart(target, ["energySegmentIndex", "energySegmentNumber", "energySegment", "es"], null);
+    const string = pickCorrectivePdfTargetPart(target, ["stringIndex", "stringNumber", "string"], null);
+    const side = pickCorrectivePdfTargetPart(target, ["side"], null);
+    const bpc = pickCorrectivePdfTargetPart(target, ["batteryPackIndex", "bpcIndex", "bpc", "batteryPack"], null);
+
+    const key = [block, array, es, string, side, bpc].join("|");
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        block,
+        array,
+        es,
+        string,
+        side,
+        bpc,
+        cgs: [],
+        rawTargets: [],
+        representative: target
+      });
+    }
+
+    const group = groups.get(key);
+    group.rawTargets.push(target);
+
+    const cg = pickCorrectivePdfTargetPart(target, ["cellGroupIndex", "cellGroupNumber", "cell", "cg"], null);
+    if (cg !== null && cg !== undefined) group.cgs.push(cg);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const parts = [
+      group.block !== null && group.block !== undefined ? `Block ${group.block}` : null,
+      group.array !== null && group.array !== undefined ? `Array ${group.array}` : null,
+      group.es !== null && group.es !== undefined ? `ES${group.es}` : null,
+      group.string !== null && group.string !== undefined ? `String ${group.string}` : null,
+      group.side ? `${group.side}` : null,
+      group.bpc !== null && group.bpc !== undefined ? `BPC ${group.bpc}` : null,
+      group.cgs.length ? `CG ${compactCorrectivePdfNumberRanges(group.cgs)}` : null
+    ].filter(Boolean);
+
+    return {
+      ...group.representative,
+      condensedLabel: parts.join(" / "),
+      condensedCount: group.rawTargets.length,
+      condensedRawTargets: group.rawTargets
+    };
+  });
+}
+
 async function generateCorrectiveActionsPdf(
   filePath: string,
   stationCode: string,
@@ -1838,22 +1932,27 @@ async function generateCorrectiveActionsPdf(
             doc.moveDown(0.3);
           }
 
-          // List of affected targets
+          // Condensed list of affected targets
           const affList = act.affected || [];
           if (affList.length > 0) {
-            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`Affected Targets (${affList.length}):`, 70);
+            const condensedTargets = condenseCorrectivePdfTargets(affList);
+
+            doc.fontSize(8).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(
+              `Affected Targets (${affList.length} raw / ${condensedTargets.length} grouped):`,
+              70
+            );
             doc.moveDown(0.2);
 
-            const displayLimit = 15;
-            const toRender = affList.slice(0, displayLimit);
-            toRender.forEach((aff: any) => {
-              const affText = `• ${formatAffectedTargetForDisplay(aff, resolved?.system, resolved?.resolvedTroubleshooting?.detailView)}`;
+            condensedTargets.forEach((aff: any) => {
+              const countSuffix =
+                Number(aff.condensedCount || 1) > 1
+                  ? `  x${aff.condensedCount}`
+                  : "";
+
+              const affText = `• ${aff.condensedLabel || formatAffectedTargetForDisplay(aff, resolved?.system, resolved?.resolvedTroubleshooting?.detailView)}${countSuffix}`;
               doc.fontSize(7.5).font("Helvetica").fillColor(TEXT_MAIN).text(affText, 90);
             });
 
-            if (affList.length > displayLimit) {
-              doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text(`• ... and ${affList.length - displayLimit} more affected targets`, 90);
-            }
             doc.moveDown(0.4);
           }
 

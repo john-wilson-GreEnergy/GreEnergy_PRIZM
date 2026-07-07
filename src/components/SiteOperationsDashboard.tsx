@@ -35,6 +35,80 @@ import { getSystemSocAndSource } from "../lib/socUtils";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 
+
+function compactNumberRangesForCorrectivePdf(values: any[]): string {
+  const nums = Array.from(new Set((values || []).map((v: any) => Number(v)).filter((v: number) => Number.isFinite(v)))).sort((a, b) => a - b);
+  if (!nums.length) return "--";
+  const ranges: string[] = [];
+  let start = nums[0];
+  let prev = nums[0];
+
+  for (let i = 1; i <= nums.length; i += 1) {
+    const current = nums[i];
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+    ranges.push(start === prev ? String(start) : `${start}-${prev}`);
+    start = current;
+    prev = current;
+  }
+
+  return ranges.join(", ");
+}
+
+function pickCorrectivePdfTargetPart(target: any, keys: string[], fallback: any = null): any {
+  for (const key of keys) {
+    const value = target?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function condenseCorrectivePdfTargets(targets: any[]): any[] {
+  const groups = new Map<string, any>();
+
+  for (const target of targets || []) {
+    const block = pickCorrectivePdfTargetPart(target, ["blockIndex", "block", "blockNumber"], 1);
+    const array = pickCorrectivePdfTargetPart(target, ["arrayIndex", "arrayNumber", "array"], null);
+    const es = pickCorrectivePdfTargetPart(target, ["energySegmentIndex", "energySegmentNumber", "energySegment", "es"], null);
+    const string = pickCorrectivePdfTargetPart(target, ["stringIndex", "stringNumber", "string"], null);
+    const side = pickCorrectivePdfTargetPart(target, ["side"], null);
+    const bpc = pickCorrectivePdfTargetPart(target, ["batteryPackIndex", "bpcIndex", "bpc", "batteryPack"], null);
+    const key = [block, array, es, string, side, bpc].join("|");
+
+    if (!groups.has(key)) {
+      groups.set(key, { block, array, es, string, side, bpc, cgs: [], rawTargets: [], representative: target });
+    }
+
+    const group = groups.get(key);
+    group.rawTargets.push(target);
+
+    const cg = pickCorrectivePdfTargetPart(target, ["cellGroupIndex", "cellGroupNumber", "cell", "cg"], null);
+    if (cg !== null && cg !== undefined) group.cgs.push(cg);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const parts = [
+      group.block !== null && group.block !== undefined ? `Block ${group.block}` : null,
+      group.array !== null && group.array !== undefined ? `Array ${group.array}` : null,
+      group.es !== null && group.es !== undefined ? `ES${group.es}` : null,
+      group.string !== null && group.string !== undefined ? `String ${group.string}` : null,
+      group.side ? `${group.side}` : null,
+      group.bpc !== null && group.bpc !== undefined ? `BPC ${group.bpc}` : null,
+      group.cgs.length ? `CG ${compactNumberRangesForCorrectivePdf(group.cgs)}` : null
+    ].filter(Boolean);
+
+    return {
+      ...group.representative,
+      condensedLabel: parts.join(" / "),
+      condensedCount: group.rawTargets.length,
+      condensedRawTargets: group.rawTargets
+    };
+  });
+}
+
+
 function formatAffectedTargetForDisplay(target: any, system?: string, detailView?: string): string {
   const block = target.blockIndex ?? 1;
   const array = target.arrayIndex ?? 1;
@@ -199,6 +273,104 @@ export async function fetchJsonWithTimeout(
     throw e;
   }
 }
+
+
+function compactNumberRanges(values: any[]): string {
+  const nums = Array.from(
+    new Set(
+      values
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v))
+    )
+  ).sort((a, b) => a - b);
+
+  if (!nums.length) return "--";
+
+  const ranges: string[] = [];
+  let start = nums[0];
+  let prev = nums[0];
+
+  for (let i = 1; i <= nums.length; i += 1) {
+    const current = nums[i];
+
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+
+    ranges.push(start === prev ? String(start) : `${start}–${prev}`);
+    start = current;
+    prev = current;
+  }
+
+  return ranges.join(", ");
+}
+
+function getTargetPart(target: any, keys: string[], fallback: any = null): any {
+  for (const key of keys) {
+    const value = target?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function condenseAffectedTargetsForDisplay(targets: any[]): any[] {
+  const groups = new Map<string, any>();
+
+  for (const target of targets || []) {
+    const block = getTargetPart(target, ["blockIndex", "block", "blockNumber"], 1);
+    const array = getTargetPart(target, ["arrayIndex", "arrayNumber", "array"], null);
+    const es = getTargetPart(target, ["energySegmentIndex", "energySegmentNumber", "energySegment", "es"], null);
+    const string = getTargetPart(target, ["stringIndex", "stringNumber", "string"], null);
+    const side = getTargetPart(target, ["side"], null);
+    const bpc = getTargetPart(target, ["batteryPackIndex", "bpcIndex", "bpc", "batteryPack"], null);
+
+    const key = [block, array, es, string, side, bpc].join("|");
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        block,
+        array,
+        es,
+        string,
+        side,
+        bpc,
+        source: target?.source || "EMS",
+        rawTargets: [],
+        cellGroups: [],
+        representative: target
+      });
+    }
+
+    const group = groups.get(key);
+    group.rawTargets.push(target);
+
+    const cg = getTargetPart(target, ["cellGroupIndex", "cellGroupNumber", "cell", "cg"], null);
+    if (cg !== null && cg !== undefined) group.cellGroups.push(cg);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const parts = [
+      group.block !== null && group.block !== undefined ? `Block ${group.block}` : null,
+      group.array !== null && group.array !== undefined ? `Array ${group.array}` : null,
+      group.es !== null && group.es !== undefined ? `ES${group.es}` : null,
+      group.string !== null && group.string !== undefined ? `String ${group.string}` : null,
+      group.side ? `${group.side}` : null,
+      group.bpc !== null && group.bpc !== undefined ? `BPC ${group.bpc}` : null,
+      group.cellGroups.length ? `CG ${compactNumberRanges(group.cellGroups)}` : null
+    ].filter(Boolean);
+
+    return {
+      ...group.representative,
+      condensedLabel: parts.join(" / "),
+      condensedCount: group.rawTargets.length,
+      condensedCellGroupSummary: group.cellGroups.length ? compactNumberRanges(group.cellGroups) : "--",
+      condensedRawTargets: group.rawTargets,
+      source: group.source
+    };
+  });
+}
+
 
 export default function SiteOperationsDashboard({
   setActiveTab,
@@ -1391,9 +1563,13 @@ export default function SiteOperationsDashboard({
                                 {issue.affected && issue.affected.length > 0 ? (
                                   <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[180px] overflow-y-auto no-scrollbar bg-black/20 divide-y divide-prizm-border/10">
                                     {(() => {
-                                      const affCount = issue.affected.length;
-                                      const displayLimit = 15;
-                                      const toShow = affCount <= displayLimit ? issue.affected : issue.affected.slice(0, displayLimit);
+                                      const rawTargets = issue.affected || [];
+                                      const condensedTargets = condenseAffectedTargetsForDisplay(rawTargets);
+                                      const displayLimit = 25;
+                                      const toShow = condensedTargets.length <= displayLimit
+                                        ? condensedTargets
+                                        : condensedTargets.slice(0, displayLimit);
+
                                       const listElems = toShow.map((aff: any, affIdx: number) => (
                                         <div
                                           key={affIdx}
@@ -1401,23 +1577,41 @@ export default function SiteOperationsDashboard({
                                             e.stopPropagation();
                                             handleActionClick(aff);
                                           }}
-                                          className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center"
+                                          className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center gap-3"
+                                          title={`${aff.condensedLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)} (${aff.condensedCount || 1} target${(aff.condensedCount || 1) === 1 ? "" : "s"})`}
                                         >
                                           <span className="text-prizm-text font-bold truncate">
-                                            {formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
+                                            {aff.condensedLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
                                           </span>
-                                          <span className="text-[8px] bg-black/30 px-1 rounded text-prizm-text-muted">
-                                            {aff.source || "EMS"}
+                                          <span className="flex items-center gap-1 shrink-0">
+                                            {(aff.condensedCount || 1) > 1 ? (
+                                              <span className="text-[8px] bg-prizm-primary/15 border border-prizm-primary/30 px-1 rounded text-prizm-primary font-bold">
+                                                ×{aff.condensedCount}
+                                              </span>
+                                            ) : null}
+                                            <span className="text-[8px] bg-black/30 px-1 rounded text-prizm-text-muted">
+                                              {aff.source || "EMS"}
+                                            </span>
                                           </span>
                                         </div>
                                       ));
-                                      if (affCount > displayLimit) {
+
+                                      if (condensedTargets.length > displayLimit) {
                                         listElems.push(
                                           <div key="condensed-indicator" className="py-1.5 px-2.5 bg-black/30 text-prizm-text-muted italic text-[9px]">
-                                            ... and {affCount - displayLimit} more affected targets
+                                            ... and {condensedTargets.length - displayLimit} more condensed target groups
                                           </div>
                                         );
                                       }
+
+                                      if (rawTargets.length !== condensedTargets.length) {
+                                        listElems.unshift(
+                                          <div key="condensed-summary" className="py-1.5 px-2.5 bg-prizm-primary/5 text-prizm-primary text-[9px] font-bold uppercase tracking-wider">
+                                            Condensed {rawTargets.length} affected targets into {condensedTargets.length} target group{condensedTargets.length === 1 ? "" : "s"}
+                                          </div>
+                                        );
+                                      }
+
                                       return listElems;
                                     })()}
                                   </div>
