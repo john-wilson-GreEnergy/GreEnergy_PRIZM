@@ -12,7 +12,7 @@ export type NotificationCatalogEntry = {
 export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
   "1023": {
     code: "1023",
-    name: "Cell Group Disconnect Alarm",
+    name: "CGC Disconnect Alarm",
     family: "cgc-disconnect",
     component: "Cell Group",
     summaryVisibility: "show",
@@ -20,7 +20,7 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
   },
   "2023": {
     code: "2023",
-    name: "Cell Group Disconnect Warning",
+    name: "CGC Disconnect Warning",
     family: "cgc-disconnect",
     component: "Cell Group",
     summaryVisibility: "show",
@@ -28,11 +28,51 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
   },
   "3023": {
     code: "3023",
-    name: "Cell Group Disconnect Info",
+    name: "CGC Disconnect Info",
     family: "cgc-disconnect",
     component: "Cell Group",
     summaryVisibility: "rollupOnly",
     exportVisibility: "exclude"
+  },
+  "1024": {
+    code: "1024",
+    name: "BPC Disconnect Alarm",
+    family: "bpc-disconnect",
+    component: "BPC",
+    summaryVisibility: "show",
+    exportVisibility: "include"
+  },
+  "2024": {
+    code: "2024",
+    name: "BPC Disconnect Warning",
+    family: "bpc-disconnect",
+    component: "BPC",
+    summaryVisibility: "show",
+    exportVisibility: "include"
+  },
+  "3024": {
+    code: "3024",
+    name: "BPC Disconnect Info",
+    family: "bpc-disconnect",
+    component: "BPC",
+    summaryVisibility: "rollupOnly",
+    exportVisibility: "exclude"
+  },
+  "2014": {
+    code: "2014",
+    name: "CellGroup Low Temperature Warning",
+    family: "abnormal-cell-temperature",
+    component: "Cell Group",
+    summaryVisibility: "show",
+    exportVisibility: "include"
+  },
+  "2018": {
+    code: "2018",
+    name: "CellGroup Temperature Delta Warning",
+    family: "abnormal-cell-temperature",
+    component: "Cell Group",
+    summaryVisibility: "show",
+    exportVisibility: "include"
   },
   "2073": {
     code: "2073",
@@ -52,7 +92,7 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
   },
   "2534": {
     code: "2534",
-    name: "Contactors Open Warning",
+    name: "Contactor Open Warning",
     family: "contactor-open",
     component: "String",
     summaryVisibility: "rollupOnly",
