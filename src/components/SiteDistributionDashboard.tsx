@@ -360,6 +360,14 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
   // Filter application
 
+  const normalizedStrings =
+    Array.isArray((data as any)?.strings) ? (data as any).strings :
+    Array.isArray((siteData as any)?.strings) ? (siteData as any).strings :
+    Array.isArray((summary as any)?.strings) ? (summary as any).strings :
+    Array.isArray((snapshot as any)?.normalized?.strings) ? (snapshot as any).normalized.strings :
+    Array.isArray((snapshot as any)?.strings) ? (snapshot as any).strings :
+    [];
+
   const stringListTopRowSource =
     normalizedStrings ||
     strings ||
