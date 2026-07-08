@@ -1,5 +1,0 @@
-"id","severity","code","faultName","affectedCount","suggestedAction","source","firstSeen","lastSeen"
-"WARNING-nocode-CellGroup Charge Balancer Warning","WARNING",,"CellGroup Charge Balancer Warning",1,"Inspect BPC balancing circuit status and cell group telemetry.","array-notifications",,
-"WARNING-nocode-WARNING Code 2018","WARNING",,"WARNING Code 2018",1,"Open Feather/HVAC or String List details and inspect affected device.","array-notifications",,
-"WARNING-nocode-WARNING Code 2014","WARNING",,"WARNING Code 2014",1,"Open Feather/HVAC or String List details and inspect affected device.","array-notifications",,
-"WARNING-nocode-CellGroup Discharge Balancer Warning","WARNING",,"CellGroup Discharge Balancer Warning",1,"Inspect BPC balancing circuit status and cell group telemetry.","array-notifications",,

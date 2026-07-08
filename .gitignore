@@ -26,3 +26,18 @@ provisioning/site-files/**/*.bak
 
 !provisioning/site-files/**/README.md
 !provisioning/site-files/**/.gitkeep
+
+# PRIZM local runtime artifacts
+prizm_mac_runtime.pid
+prizm_mac_runtime.log
+*.pid
+*.log
+
+# Generated local reports
+data/reports/*.pdf
+data/reports/*.csv
+data/reports/*.json
+data/reports/*.zip
+
+# macOS
+.DS_Store
