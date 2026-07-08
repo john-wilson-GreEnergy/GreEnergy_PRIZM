@@ -401,11 +401,45 @@ export default function SiteOperationsDashboard({
   const [expandedCorrectiveActions, setExpandedCorrectiveActions] = useState<
     Record<number, boolean>
   >({});
+  const [showCorrectiveExportOptions, setShowCorrectiveExportOptions] = useState(false);
+  const [correctiveExportingFormat, setCorrectiveExportingFormat] = useState<string | null>(null);
   const toggleCorrectiveAction = (idx: number) => {
     setExpandedCorrectiveActions((prev) => ({
       ...prev,
       [idx]: !prev[idx],
     }));
+  };
+
+  const exportCorrectiveActionsPdf = async (
+    pdfFormat: "field-work-order" | "field-handoff" | "checklist-report"
+  ) => {
+    setCorrectiveExportingFormat(pdfFormat);
+    try {
+      const response = await fetch("/api/local/reports/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reportType: "corrective-actions",
+          format: "pdf",
+          pdfFormat,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || "Corrective action PDF export failed");
+      }
+
+      if (result.downloadUrl) {
+        window.open(result.downloadUrl, "_blank");
+      }
+    } catch (err) {
+      console.error("[CorrectiveActionsExport] PDF export failed", err);
+      alert(err instanceof Error ? err.message : "Corrective action PDF export failed");
+    } finally {
+      setCorrectiveExportingFormat(null);
+      setShowCorrectiveExportOptions(false);
+    }
   };
   const [rotationCapabilities, setRotationCapabilities] = useState<any>(null);
   const [pcsModalOpen, setPcsModalOpen] = useState(false);
@@ -1438,10 +1472,41 @@ export default function SiteOperationsDashboard({
           <TriangleAlert size={14} className="text-prizm-danger" />{" "}
           CORRECTIVE ACTIONS (DATA-BASED FAULTS)
         </span>
-        <span className="text-[9px] text-prizm-text-muted tracking-wider uppercase font-mono">
-          Click row to expand • Click target to drill-down
+        <span className="flex items-center gap-3">
+          <span className="text-[9px] text-prizm-text-muted tracking-wider uppercase font-mono">
+            Click row to expand • Click target to drill-down
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowCorrectiveExportOptions((v) => !v)}
+            className="px-2 py-1 rounded border border-prizm-primary/40 bg-prizm-primary/10 text-prizm-primary hover:bg-prizm-primary/20 transition-colors text-[9px] uppercase tracking-widest font-bold"
+          >
+            Export PDF
+          </button>
         </span>
       </h3>
+      {showCorrectiveExportOptions ? (
+        <div className="border-b border-prizm-border bg-black/30 p-3 flex flex-wrap items-center gap-2 text-[10px] font-mono">
+          <span className="text-prizm-text-muted uppercase tracking-wider mr-2">
+            Select corrective-action export format:
+          </span>
+          {[
+            ["field-work-order", "Field Work Order"],
+            ["field-handoff", "Field Handoff"],
+            ["checklist-report", "Checklist Report"],
+          ].map(([formatId, label]) => (
+            <button
+              key={formatId}
+              type="button"
+              disabled={!!correctiveExportingFormat}
+              onClick={() => exportCorrectiveActionsPdf(formatId as "field-work-order" | "field-handoff" | "checklist-report")}
+              className="px-3 py-1.5 rounded border border-prizm-border bg-prizm-surface hover:bg-prizm-surface-strong text-prizm-text disabled:opacity-50 disabled:cursor-not-allowed transition-colors uppercase tracking-wider font-bold"
+            >
+              {correctiveExportingFormat === formatId ? "Generating..." : label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="overflow-x-auto no-scrollbar flex-1">
         <div className="max-h-[450px] overflow-y-auto no-scrollbar">
           {sum?.correctiveActions && sum.correctiveActions.length > 0 ? (

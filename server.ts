@@ -1750,11 +1750,242 @@ function condenseCorrectivePdfTargets(targets: any[]): any[] {
   });
 }
 
+
+function correctivePdfSeverityColor(level: string): string {
+  const sev = String(level || "").toUpperCase();
+  if (sev === "ALARM" || sev === "FAULT" || sev === "CRITICAL") return "#ef4444";
+  if (sev === "WARNING") return "#f59e0b";
+  return "#3b82f6";
+}
+
+function correctivePdfIssueName(act: any): string {
+  return String(act?.faultName || act?.fault || act?.faultLabel || act?.resolved?.resolvedTroubleshooting?.issueName || "Unknown Issue");
+}
+
+function correctivePdfMatrixName(act: any): string {
+  return String(act?.resolved?.resolvedTroubleshooting?.issueName || correctivePdfIssueName(act));
+}
+
+function correctivePdfActions(act: any): string[] {
+  const resolved = act?.resolved || {};
+  const actions = resolved?.recommendedActions || [];
+  if (Array.isArray(actions) && actions.length) return actions;
+  return [
+    act?.suggestedAction || "Inspect the affected device and verify the active fault condition.",
+    "Confirm wiring, power, communication, and telemetry at the affected target.",
+    "Validate the fault clears after corrective action."
+  ];
+}
+
+function correctivePdfValidation(act: any): string[] {
+  const resolved = act?.resolved || {};
+  const checks = resolved?.validationChecks || resolved?.clearingCriteria || [];
+  if (Array.isArray(checks) && checks.length) return checks;
+  return [
+    "Confirm the notification clears from active EMS / PRIZM faults.",
+    "Confirm target telemetry is valid after corrective action.",
+    "Record technician notes and any parts replaced."
+  ];
+}
+
+function correctivePdfTargetGroups(act: any): any[] {
+  return condenseCorrectivePdfTargets(act?.affected || []);
+}
+
+function correctivePdfWriteTitle(doc: any, title: string, stationCode: string, activeProfile: any, correctiveActions: any[]) {
+  const alarmCount = correctiveActions.filter((a: any) => String(a.level || "").toUpperCase() === "ALARM").length;
+  const warningCount = correctiveActions.filter((a: any) => String(a.level || "").toUpperCase() === "WARNING").length;
+
+  doc.rect(36, 32, 523, 4).fill("#32A97B");
+  doc.fontSize(10).font("Helvetica-Bold").fillColor("#32A97B").text("GREENERGY PRIZM", 36, 50);
+  doc.fontSize(18).font("Helvetica-Bold").fillColor("#0f172a").text(title, 36, 66, { width: 523 });
+  doc.moveTo(36, 96).lineTo(559, 96).strokeColor("#d1d5db").stroke();
+
+  doc.fontSize(8).font("Helvetica").fillColor("#64748b");
+  doc.text(`Station: ${stationCode}`, 36, 110);
+  doc.text(`Generated: ${new Date().toUTCString()}`, 180, 110);
+  doc.text(`Profile: ${activeProfile?.profileName || "Active Profile"}`, 36, 124);
+  doc.text(`Issues: ${correctiveActions.length} active  |  Alarms: ${alarmCount}  |  Warnings: ${warningCount}`, 180, 124);
+  doc.y = 148;
+}
+
+function correctivePdfEnsureRoom(doc: any, needed = 90) {
+  if (doc.y > doc.page.height - needed - 36) {
+    doc.addPage();
+    doc.rect(36, 32, 523, 3).fill("#32A97B");
+    doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("GreEnergy PRIZM - Continued", 36, 44);
+    doc.moveTo(36, 56).lineTo(559, 56).strokeColor("#d1d5db").stroke();
+    doc.y = 72;
+  }
+}
+
+function correctivePdfBullet(doc: any, text: string, x = 58, width = 485) {
+  correctivePdfEnsureRoom(doc, 34);
+  doc.fontSize(7.5).font("Helvetica").fillColor("#1e293b").text(`• ${text}`, x, doc.y, { width });
+  doc.moveDown(0.18);
+}
+
+function correctivePdfCheckbox(doc: any, text: string, x = 58, width = 485) {
+  correctivePdfEnsureRoom(doc, 34);
+  doc.fontSize(8).font("Helvetica").fillColor("#1e293b").text(`☐ ${text}`, x, doc.y, { width });
+  doc.moveDown(0.24);
+}
+
+async function generateCorrectiveActionsFormattedPdf(
+  filePath: string,
+  stationCode: string,
+  activeProfile: any,
+  correctiveActions: any[],
+  pdfFormat: string
+): Promise<void> {
+  const enrichedActions = correctiveActions.map((act: any) => ({
+    ...act,
+    resolved: act.resolved || resolveCorrectiveAction(act)
+  }));
+
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 36, size: "A4" });
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+
+      if (pdfFormat === "field-work-order") {
+        correctivePdfWriteTitle(doc, "PRIZM FIELD WORK ORDER", stationCode, activeProfile, enrichedActions);
+
+        enrichedActions.forEach((act: any, idx: number) => {
+          correctivePdfEnsureRoom(doc, 160);
+          const startY = doc.y;
+          const sevColor = correctivePdfSeverityColor(act.level);
+
+          doc.rect(36, startY, 523, 24).fill("#f8fafc").strokeColor("#d1d5db").stroke();
+          doc.rect(36, startY, 6, 24).fill(sevColor);
+          doc.fontSize(10).font("Helvetica-Bold").fillColor("#0f172a")
+            .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 48, startY + 7, { width: 360 });
+          doc.fontSize(7).font("Helvetica").fillColor("#64748b")
+            .text(`Matrix: ${correctivePdfMatrixName(act)}`, 410, startY + 8, { width: 135 });
+          doc.y = startY + 34;
+
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("AFFECTED TARGET GROUPS", 48);
+          correctivePdfTargetGroups(act).forEach((t: any) => {
+            correctivePdfBullet(doc, `${t.condensedLabel || t.label || "Affected Target"}${Number(t.condensedCount || 1) > 1 ? `  x${t.condensedCount}` : ""}`, 58);
+          });
+
+          doc.moveDown(0.2);
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("FIELD ACTIONS", 48);
+          correctivePdfActions(act).slice(0, 6).forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
+
+          doc.moveDown(0.2);
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("VALIDATE / CLEAR WHEN", 48);
+          correctivePdfValidation(act).slice(0, 4).forEach((v: string) => correctivePdfCheckbox(doc, v, 58));
+
+          doc.moveDown(0.2);
+          doc.fontSize(8).font("Helvetica-Oblique").fillColor("#64748b")
+            .text("Technician Notes: ________________________________________________________________", 48);
+          doc.moveDown(0.8);
+        });
+      } else if (pdfFormat === "checklist-report") {
+        correctivePdfWriteTitle(doc, "PRIZM CHECKLIST REPORT", stationCode, activeProfile, enrichedActions);
+
+        enrichedActions.forEach((act: any, idx: number) => {
+          const targets = correctivePdfTargetGroups(act);
+          correctivePdfEnsureRoom(doc, 120);
+
+          doc.fontSize(11).font("Helvetica-Bold").fillColor("#0f172a")
+            .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 36, doc.y, { width: 523 });
+          doc.fontSize(7.5).font("Helvetica").fillColor("#64748b")
+            .text(`Troubleshooting Matrix: ${correctivePdfMatrixName(act)}  |  Source: ${act.source || "System"}`, 36);
+          doc.moveDown(0.4);
+
+          targets.forEach((target: any, tIdx: number) => {
+            correctivePdfEnsureRoom(doc, 150);
+            doc.rect(42, doc.y, 510, 18).fill("#f8fafc").strokeColor("#d1d5db").stroke();
+            doc.fontSize(8).font("Helvetica-Bold").fillColor("#0f172a")
+              .text(`Target ${tIdx + 1}: ${target.condensedLabel || target.label || "Affected Target"}${Number(target.condensedCount || 1) > 1 ? `  x${target.condensedCount}` : ""}`, 50, doc.y + 5, { width: 492 });
+            doc.y += 26;
+
+            correctivePdfCheckbox(doc, "Locate and positively identify the affected target.", 58);
+            correctivePdfCheckbox(doc, "Verify communication/status is valid in PRIZM String Details or device status.", 58);
+
+            const actions = correctivePdfActions(act).slice(0, 4);
+            actions.forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
+
+            correctivePdfCheckbox(doc, "Retest or refresh active notifications after corrective action.", 58);
+            correctivePdfCheckbox(doc, "Record corrective action, parts replaced, and validation result.", 58);
+
+            doc.fontSize(7.5).font("Helvetica-Oblique").fillColor("#64748b")
+              .text("Notes: __________________________________________________________________________", 58);
+            doc.moveDown(0.6);
+          });
+        });
+      } else {
+        correctivePdfWriteTitle(doc, "PRIZM FIELD HANDOFF", stationCode, activeProfile, enrichedActions);
+
+        doc.fontSize(11).font("Helvetica-Bold").fillColor("#0f172a").text("ACTIVE ISSUE SUMMARY", 36);
+        doc.moveDown(0.3);
+
+        enrichedActions.forEach((act: any, idx: number) => {
+          correctivePdfEnsureRoom(doc, 45);
+          const groups = correctivePdfTargetGroups(act);
+          doc.fontSize(8).font("Helvetica-Bold").fillColor(correctivePdfSeverityColor(act.level))
+            .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 48, doc.y, { width: 300 });
+          doc.fontSize(7.5).font("Helvetica").fillColor("#1e293b")
+            .text(`${groups.length} target group(s) | ${act.source || "System"}`, 360, doc.y - 10, { width: 180 });
+          doc.fontSize(7.5).font("Helvetica").fillColor("#64748b")
+            .text(`Matrix: ${correctivePdfMatrixName(act)}`, 58, doc.y, { width: 485 });
+          doc.moveDown(0.35);
+        });
+
+        doc.moveDown(0.6);
+        doc.fontSize(11).font("Helvetica-Bold").fillColor("#0f172a").text("AFFECTED TARGET GROUPS", 36);
+        doc.moveDown(0.3);
+
+        enrichedActions.forEach((act: any, idx: number) => {
+          correctivePdfEnsureRoom(doc, 60);
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B")
+            .text(`${idx + 1}. ${correctivePdfIssueName(act)}`, 48);
+          correctivePdfTargetGroups(act).forEach((t: any) => {
+            correctivePdfBullet(doc, `${t.condensedLabel || t.label || "Affected Target"}${Number(t.condensedCount || 1) > 1 ? `  x${t.condensedCount}` : ""}`, 58);
+          });
+          doc.moveDown(0.2);
+        });
+
+        doc.addPage();
+        doc.rect(36, 32, 523, 3).fill("#32A97B");
+        doc.fontSize(12).font("Helvetica-Bold").fillColor("#0f172a").text("TROUBLESHOOTING APPENDIX", 36, 50);
+        doc.y = 78;
+
+        const uniqueByMatrix = new Map<string, any>();
+        enrichedActions.forEach((act: any) => {
+          const key = correctivePdfMatrixName(act);
+          if (!uniqueByMatrix.has(key)) uniqueByMatrix.set(key, act);
+        });
+
+        Array.from(uniqueByMatrix.values()).forEach((act: any) => {
+          correctivePdfEnsureRoom(doc, 140);
+          doc.fontSize(10).font("Helvetica-Bold").fillColor("#0f172a").text(correctivePdfMatrixName(act), 36);
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("Recommended Actions", 48);
+          correctivePdfActions(act).slice(0, 6).forEach((a: string) => correctivePdfBullet(doc, a, 58));
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("Validation / Clearing Criteria", 48);
+          correctivePdfValidation(act).slice(0, 5).forEach((v: string) => correctivePdfBullet(doc, v, 58));
+          doc.moveDown(0.7);
+        });
+      }
+
+      doc.end();
+      stream.on("finish", () => resolve());
+      stream.on("error", (err: any) => reject(err));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 async function generateCorrectiveActionsPdf(
   filePath: string,
   stationCode: string,
   activeProfile: any,
-  correctiveActions: any[]
+  correctiveActions: any[],
+  pdfFormat: string = "field-handoff"
 ): Promise<void> {
   // Let's resolve the actions with the matrix first to ensure we have enriched data
   const enrichedActions = correctiveActions.map(act => {
@@ -1764,6 +1995,10 @@ async function generateCorrectiveActionsPdf(
       resolved
     };
   });
+
+  if (["field-work-order", "field-handoff", "checklist-report"].includes(pdfFormat)) {
+    return generateCorrectiveActionsFormattedPdf(filePath, stationCode, activeProfile, enrichedActions, pdfFormat);
+  }
 
   return new Promise((resolve, reject) => {
     try {
@@ -1786,7 +2021,12 @@ async function generateCorrectiveActionsPdf(
 
       // Title & Subtitle
       doc.fontSize(10).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GREENERGY PRIZM", 50, 60);
-      doc.fontSize(18).font("Helvetica-Bold").fillColor(TEXT_MAIN).text("PRIZM CORRECTIVE ACTION SUMMARY", 50, 75);
+      const reportFormatTitle =
+        pdfFormat === "field-work-order" ? "FIELD WORK ORDER" :
+        pdfFormat === "checklist-report" ? "CHECKLIST REPORT" :
+        "FIELD HANDOFF";
+
+      doc.fontSize(18).font("Helvetica-Bold").fillColor(TEXT_MAIN).text(`PRIZM CORRECTIVE ACTION SUMMARY - ${reportFormatTitle}`, 50, 75);
       
       doc.moveTo(50, 100).lineTo(545, 100).strokeColor(BORDER_LIGHT).stroke();
 
@@ -1989,7 +2229,7 @@ async function generateCorrectiveActionsPdf(
 // 6. POST: Generate Report
 app.post("/api/local/reports/generate", async (req, res) => {
   try {
-    const { reportType, format, includeRawJson, includeCsv, includePdf } = req.body;
+    const { reportType, format, pdfFormat, includeRawJson, includeCsv, includePdf } = req.body;
     
     const activeProfile: any = ProfileStore.getActiveProfile() || {
       profileName: "Default Active",
@@ -2007,6 +2247,9 @@ app.post("/api/local/reports/generate", async (req, res) => {
     const stationCode = activeProfile.stationCode || "BHE0020";
     const ts = Date.now();
     const cleanFormat = (format || "json").toLowerCase();
+    const cleanPdfFormat = String(pdfFormat || "field-handoff")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-");
 
     // Query active telemetry
     const liveMetrics: any = getEmsCachedStatus() || {};
@@ -2203,11 +2446,11 @@ app.post("/api/local/reports/generate", async (req, res) => {
 
       } else if (cleanFormat === "pdf") {
         // PDF Summary output (rendered as an elegant PDF binary file)
-        const filename = `${prefix}.pdf`;
+        const filename = `${prefix}_${cleanPdfFormat}.pdf`;
         const filePath = path.join(reportsDir, filename);
         
         try {
-          await generateCorrectiveActionsPdf(filePath, stationCode, activeProfile, correctiveActions);
+          await generateCorrectiveActionsPdf(filePath, stationCode, activeProfile, correctiveActions, cleanPdfFormat);
           const stat = fs.statSync(filePath);
           return res.json({
             success: true,
