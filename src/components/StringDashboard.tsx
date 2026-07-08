@@ -175,6 +175,10 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   }, [snapshot]);
 
   const [notificationRollupsByString, setNotificationRollupsByString] = useState<Record<string, any>>({});
+  const [liveStringRows, setLiveStringRows] = useState<any[]>([]);
+  const [liveStringRowsReady, setLiveStringRowsReady] = useState(false);
+  const [liveStringRowsLoading, setLiveStringRowsLoading] = useState(false);
+  const [liveStringRowsLastUpdated, setLiveStringRowsLastUpdated] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(15000);
@@ -225,6 +229,50 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       window.clearInterval(timer);
     };
   }, []);
+
+  const loadLiveStringRows = async (force = false) => {
+    if (!active && !force) return;
+    setLiveStringRowsLoading(true);
+
+    try {
+      const res = await fetch("/api/local/strings/dashboard?refresh=true&maxAgeMs=0");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const json = await res.json();
+      const rows = Array.isArray(json?.strings) ? json.strings : [];
+
+      if (rows.length >= 300) {
+        setLiveStringRows(rows);
+        setLiveStringRowsReady(true);
+        setLiveStringRowsLastUpdated(new Date().toISOString());
+      } else if (!liveStringRowsReady) {
+        setLiveStringRows(rows);
+      }
+    } catch (err) {
+      console.warn("[StringDashboard] live string rows fetch failed", err);
+    } finally {
+      setLiveStringRowsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!active) return;
+
+    let cancelled = false;
+
+    const run = async () => {
+      if (cancelled) return;
+      await loadLiveStringRows(false);
+    };
+
+    run();
+    const timer = window.setInterval(run, 10000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [active, liveStringRowsReady]);
 
   useEffect(() => {
     localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
@@ -353,7 +401,65 @@ const handleManualRefresh = async () => {
       }
   };
 
-  const strings = data?.strings || [];
+  const snapshotStrings = data?.strings || [];
+  const strings = liveStringRowsReady && liveStringRows.length ? liveStringRows : snapshotStrings;
+  const stringRowsAreWarming = !liveStringRowsReady && snapshotStrings.length > 0;
+
+  const getStringContactorClosedState = (row: any): boolean | null => {
+    const positiveFeedback =
+      row?.positiveContactorClosed === true ? true :
+      row?.positiveContactorClosed === false ? false :
+      null;
+
+    const negativeFeedback =
+      row?.negativeContactorClosed === true ? true :
+      row?.negativeContactorClosed === false ? false :
+      null;
+
+    if (positiveFeedback === true && negativeFeedback === true) return true;
+    if (positiveFeedback === false && negativeFeedback === false) return false;
+    if (positiveFeedback !== null || negativeFeedback !== null) return null;
+
+    const statusText = String(
+      row?.contactorStatus ||
+      row?.contactStatus ||
+      row?.contactState ||
+      row?.contactorState ||
+      row?.stringContactorState ||
+      row?.contactorsState ||
+      row?.contactors?.status ||
+      row?.contactors?.state ||
+      ""
+    ).trim().toUpperCase();
+
+    const codeText = String(
+      row?.contactorCode ??
+      row?.stringContactorCode ??
+      row?.contactCode ??
+      row?.rawContactorState ??
+      ""
+    ).trim().toUpperCase();
+
+    if (
+      statusText === "CLOSED" ||
+      statusText === "CLOSE" ||
+      statusText.includes("CLOSED") ||
+      codeText === "5"
+    ) return true;
+
+    if (
+      statusText === "OPEN" ||
+      statusText === "OPENED" ||
+      statusText.includes("OPEN") ||
+      codeText === "6"
+    ) return false;
+
+    return null;
+  };
+
+  const contactorClosedCount = strings.filter((row: any) => getStringContactorClosedState(row) === true).length;
+  const contactorOpenCount = strings.filter((row: any) => getStringContactorClosedState(row) === false).length;
+  const contactorUnknownCount = strings.filter((row: any) => getStringContactorClosedState(row) === null).length;
 
   const countOf = (value:any): number | null => {
     if (typeof value === "number") return value;
@@ -667,10 +773,21 @@ const handleManualRefresh = async () => {
       </details>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-10 gap-2 mb-4 shrink-0 text-center font-mono select-none">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-11 gap-2 mb-4 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
           <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Total Strings</span>
           <span className="text-[12px] font-bold text-prizm-text">{formatMaybeInt(totalStrings)}</span>
+        </div>
+        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-warning/60 rounded px-2 py-1.5 flex flex-col justify-center">
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Contactors Open</span>
+          <span className={contactorOpenCount > 0 ? "text-[12px] font-bold text-prizm-warning" : "text-[12px] font-bold text-emerald-400"}>
+            {formatMaybeInt(contactorOpenCount)}
+            <span className="text-prizm-text-muted mx-1">/</span>
+            <span className="text-prizm-text">{formatMaybeInt(totalStrings)}</span>
+          </span>
+          {contactorUnknownCount > 0 ? (
+            <span className="text-[8px] text-prizm-text-muted mt-0.5">UNK {formatMaybeInt(contactorUnknownCount)}</span>
+          ) : null}
         </div>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded px-2 py-1.5 flex flex-col justify-center">
           <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Online</span>
@@ -992,57 +1109,45 @@ const handleManualRefresh = async () => {
                         ? "bg-prizm-warning border border-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]"
                         : "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
 
-                  // Reference legend: contactor group dot 1 is requested/expected state.
-                  const aggregateState = String(s.stringContactorState || s.contactorStatus || "").toUpperCase();
-                  const aggregateOpen = aggregateState === "OPEN";
-                  const aggregateClosed = aggregateState === "CLOSED" || aggregateState === "CLOSE";
+                  // Reference legend: contactor group dots.
+                  //
+                  // The backend endpoint now publishes authoritative actual contactor state
+                  // from stringviewer-live. Do not infer from requested state, connection
+                  // permitted, stale aggregate values, or reclose count.
+                  //
+                  // Dot 1 = actual contactor state
+                  // Dot 2 = positive feedback matches actual state
+                  // Dot 3 = negative feedback matches actual state
+                  const statusText = String(s.contactorStatus ?? "").trim().toUpperCase();
 
-                  const contactorMismatchEvidence =
-                    s.contactorMismatch === true ||
-                    alertText.includes("CONTACTORS OPEN") ||
-                    alertText.includes("CONTACTOR OPEN") ||
-                    alertText.includes("CONTACTOR MISMATCH") ||
-                    alertText.includes("DOESN'T MATCH") ||
-                    alertText.includes("DOES NOT MATCH") ||
-                    alertText.includes("2534");
+                  const interpretedClosed =
+                    statusText === "CLOSED" ? true :
+                    statusText === "OPEN" ? false :
+                    null;
 
-                  // Dot 1 is requested/expected state.
-                  // Normal site-wide OPEN should render as open-requested, not closed-requested.
-                  // Only force closed-requested on explicit contactor-open/mismatch evidence.
-                  const explicitClosedRequest =
-                    String(s.requestedContactorState || "").toUpperCase() === "CLOSED" ||
-                    s.contactorRequestedClosed === true;
+                  const requestedClosed = interpretedClosed === true;
 
-                  const requestedClosed =
-                    aggregateOpen
-                      ? explicitClosedRequest
-                      : (
-                          contactorMismatchEvidence ||
-                          explicitClosedRequest ||
-                          s.contactorsCloseExpected === true ||
-                          s.connectionPermitted === true ||
-                          aggregateClosed
-                        );
-
-                  // Dot 2/3 compare actual feedback against requested state.
-                  // Aggregate OPEN is valid actual-open evidence for normal open contactor state.
-                  // Explicit mismatch/contactors-open evidence also means actuals are open against a closed request.
                   const positiveClosed =
-                    aggregateOpen || contactorMismatchEvidence
-                      ? false
-                      : aggregateClosed
-                        ? true
-                        : s.positiveContactorClosed === true;
+                    s.positiveContactorClosed === true ? true :
+                    s.positiveContactorClosed === false ? false :
+                    interpretedClosed === true ? true :
+                    interpretedClosed === false ? false :
+                    false;
 
                   const negativeClosed =
-                    aggregateOpen || contactorMismatchEvidence
-                      ? false
-                      : aggregateClosed
-                        ? true
-                        : s.negativeContactorClosed === true;
+                    s.negativeContactorClosed === true ? true :
+                    s.negativeContactorClosed === false ? false :
+                    interpretedClosed === true ? true :
+                    interpretedClosed === false ? false :
+                    false;
 
-                  const positiveMatchesRequest = requestedClosed ? positiveClosed : !positiveClosed;
-                  const negativeMatchesRequest = requestedClosed ? negativeClosed : !negativeClosed;
+                  const positiveMatchesRequest =
+                    interpretedClosed === null ? false :
+                    requestedClosed ? positiveClosed : !positiveClosed;
+
+                  const negativeMatchesRequest =
+                    interpretedClosed === null ? false :
+                    requestedClosed ? negativeClosed : !negativeClosed;
 
                   const contDot1 = requestedClosed
                     ? "bg-blue-500 border border-blue-600 shadow-[0_0_5px_rgba(59,130,246,0.5)]"

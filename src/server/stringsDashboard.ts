@@ -2587,6 +2587,29 @@ router.get("/", async (req, res) => {
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
+        // Real-data-only contactor correction:
+        // The dashboard list row can be stale/incorrect for contactor actuals.
+        // Pull actual positive/negative contactor feedback from the live stringviewer endpoint
+        // and merge only confirmed actual states. If the live actual state is unavailable,
+        // publish UNKNOWN instead of preserving guessed CLOSED/OPEN values.
+        if (outputData && Array.isArray((outputData as any).strings)) {
+            (outputData as any).strings = await mapWithConcurrency(
+                (outputData as any).strings,
+                32,
+                async (row: any) => {
+                    const liveClosed = await fetchStringviewerContactorStateForRow(baseUrl, row);
+                    return applyAuthoritativeContactorState(row, liveClosed, "stringviewer-live");
+                }
+            );
+
+            (outputData as any).contactorSummary = {
+                open: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "OPEN").length,
+                closed: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "CLOSED").length,
+                unknown: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "UNKNOWN").length,
+                source: "stringviewer-live"
+            };
+        }
+
         res.json({ 
             ...outputData, 
             ...cacheMetadata,
@@ -2615,6 +2638,155 @@ router.get("/", async (req, res) => {
         res.status(500).json({ error: e.message || "Failed to process strings dashboard" });
     }
 });
+
+
+
+async function fetchStringviewerContactorStateForRow(baseUrl: string, row: any): Promise<boolean | null> {
+  const arrayNumber = Number(row?.arrayNumber ?? row?.arrayIndex);
+  const stringNumber = Number(row?.stringNumber ?? row?.stringIndex);
+
+  if (!Number.isFinite(arrayNumber) || !Number.isFinite(stringNumber)) return null;
+
+  const endpoint = `/tools/monitor/ems/stringviewer/array/${arrayNumber}/${stringNumber}/data`;
+  const url = `${baseUrl}${endpoint}`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return null;
+
+    const raw = await res.json();
+    const model = raw?.stringViewerDataModel ?? raw;
+
+    const pos = strictBool(model?.positiveContactorClosed);
+    const neg = strictBool(model?.negativeContactorClosed);
+
+    if (pos === true && neg === true) return true;
+    if (pos === false && neg === false) return false;
+
+    // Partial/mismatch is real but not a confirmed open/closed state.
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    () => worker()
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
+function strictBool(value: any): boolean | null {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value === null || value === undefined || value === "") return null;
+  const text = String(value).trim().toUpperCase();
+  if (["TRUE", "1", "CLOSED", "CLOSE", "ON"].includes(text)) return true;
+  if (["FALSE", "0", "OPEN", "OPENED", "OFF"].includes(text)) return false;
+  return null;
+}
+
+function strictContactorClosedFromAny(source: any): boolean | null {
+  if (!source || typeof source !== "object") return null;
+
+  const pos = strictBool(
+    source.positiveContactorClosed ??
+    source.positiveClosed ??
+    source.posContactorClosed ??
+    source.contactorPositiveClosed
+  );
+
+  const neg = strictBool(
+    source.negativeContactorClosed ??
+    source.negativeClosed ??
+    source.negContactorClosed ??
+    source.contactorNegativeClosed
+  );
+
+  if (pos === true && neg === true) return true;
+  if (pos === false && neg === false) return false;
+  if (pos !== null || neg !== null) return null;
+
+  const statusText = String(
+    source.contactorStatus ??
+    source.contactStatus ??
+    source.contactState ??
+    source.contactorState ??
+    source.stringContactorState ??
+    source.stringConnectionState ??
+    ""
+  ).trim().toUpperCase();
+
+  if (statusText === "CLOSED" || statusText === "CLOSE") return true;
+  if (statusText === "OPEN" || statusText === "OPENED") return false;
+
+  return null;
+}
+
+function applyAuthoritativeContactorState(row: any, closed: boolean | null, source: string): any {
+  if (closed === true) {
+    return {
+      ...row,
+      positiveContactorClosed: true,
+      negativeContactorClosed: true,
+      bothContactorsClosed: true,
+      contactorsClosed: true,
+      contactorStatus: "CLOSED",
+      contactorState: "CLOSED",
+      stringContactorState: "CLOSED",
+      actualContactorStateSource: source
+    };
+  }
+
+  if (closed === false) {
+    return {
+      ...row,
+      positiveContactorClosed: false,
+      negativeContactorClosed: false,
+      bothContactorsClosed: false,
+      contactorsClosed: false,
+      contactorStatus: "OPEN",
+      contactorState: "OPEN",
+      stringContactorState: "OPEN",
+      actualContactorStateSource: source
+    };
+  }
+
+  return {
+    ...row,
+    positiveContactorClosed: null,
+    negativeContactorClosed: null,
+    bothContactorsClosed: null,
+    contactorsClosed: null,
+    contactorStatus: "UNKNOWN",
+    contactorState: "UNKNOWN",
+    stringContactorState: "UNKNOWN",
+    actualContactorStateSource: source
+  };
+}
 
 router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
     try {

@@ -111,7 +111,11 @@ export function getNullableBothContactorsClosed(row: any): boolean | null {
 
   if (positiveContactorClosed !== null && negativeContactorClosed !== null) {
     if (positiveContactorClosed === true && negativeContactorClosed === true) return true;
-    return false;
+    if (positiveContactorClosed === false && negativeContactorClosed === false) return false;
+
+    // Do not guess on partial/mismatched feedback.
+    // One open and one closed is not a confirmed OPEN state; it is unknown/mismatch.
+    return null;
   }
 
   let rawBoth: any = undefined;

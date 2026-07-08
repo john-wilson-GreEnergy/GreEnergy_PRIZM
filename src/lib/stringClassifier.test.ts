@@ -25,9 +25,9 @@ function runTests() {
     negativeContactorClosed: false
   };
   const res2 = classifyStringOperationalState(t2);
-  assert.strictEqual(res2.state, "nearline");
-  assert.strictEqual(res2.bucket, "nearline");
-  assert.strictEqual(res2.reason, "communicating_in_rotation_contactors_open");
+  assert.strictEqual(res2.state, "unknown");
+  assert.strictEqual(res2.bucket, "unknown");
+  assert.strictEqual(res2.reason, "missing_contactor_feedback");
   console.log("  -> Test 2 passed!");
 
   // 3. communicating=true, inRotation=false, contactorsClosed=true -> offline
