@@ -1788,6 +1788,66 @@ function correctivePdfValidation(act: any): string[] {
   ];
 }
 
+function correctivePdfCompactFieldChecks(act: any): string[] {
+  const matrix = correctivePdfMatrixName(act).toLowerCase();
+  const issue = correctivePdfIssueName(act).toLowerCase();
+
+  if (matrix.includes("balanc") || issue.includes("balanc")) {
+    return [
+      "24VDC balancing power verified at affected BPC.",
+      "12VDC BPC control / logic power verified if status or communication is abnormal.",
+      "BPC power harness and connector seating inspected.",
+      "BPC balancing harness ports inspected.",
+      "Affected cell-group balancing harness connections inspected.",
+      "BPC communication and cell-group telemetry confirmed valid.",
+      "Active notification refreshed / retested after corrective action."
+    ];
+  }
+
+  if (matrix.includes("temperature") || issue.includes("temperature") || issue.includes("temp")) {
+    return [
+      "Affected target location confirmed.",
+      "Sensor value compared against adjacent cells/groups.",
+      "Harness and sensor connection inspected.",
+      "Thermal condition physically verified where safe.",
+      "Telemetry refreshed after corrective action.",
+      "Notification clear condition confirmed."
+    ];
+  }
+
+  if (matrix.includes("disconnect") || issue.includes("disconnect") || issue.includes("communication")) {
+    return [
+      "Affected target location confirmed.",
+      "Communication/status checked in PRIZM.",
+      "Control power verified.",
+      "Harness and connector seating inspected.",
+      "Device telemetry refreshed after corrective action.",
+      "Notification clear condition confirmed."
+    ];
+  }
+
+  return correctivePdfActions(act).slice(0, 6);
+}
+
+function correctivePdfWorkScope(act: any): string {
+  const matrix = correctivePdfMatrixName(act).toLowerCase();
+  const issue = correctivePdfIssueName(act).toLowerCase();
+
+  if (matrix.includes("balanc") || issue.includes("balanc")) {
+    return "Inspect balancing power, BPC logic power, BPC harnessing, balancing harnessing, and telemetry for the listed target groups.";
+  }
+
+  if (matrix.includes("temperature") || issue.includes("temperature") || issue.includes("temp")) {
+    return "Verify the reported temperature condition, inspect sensor/harness integrity, and confirm telemetry returns to the expected range.";
+  }
+
+  if (matrix.includes("disconnect") || issue.includes("disconnect") || issue.includes("communication")) {
+    return "Verify communication, control power, and harness integrity for the affected target.";
+  }
+
+  return act?.suggestedAction || "Inspect the affected target and validate the active fault condition.";
+}
+
 function correctivePdfTargetGroups(act: any): any[] {
   return condenseCorrectivePdfTargets(act?.affected || []);
 }
@@ -1827,7 +1887,7 @@ function correctivePdfBullet(doc: any, text: string, x = 58, width = 485) {
 
 function correctivePdfCheckbox(doc: any, text: string, x = 58, width = 485) {
   correctivePdfEnsureRoom(doc, 34);
-  doc.fontSize(8).font("Helvetica").fillColor("#1e293b").text(`☐ ${text}`, x, doc.y, { width });
+  doc.fontSize(8).font("Helvetica").fillColor("#1e293b").text(`[ ] ${text}`, x, doc.y, { width });
   doc.moveDown(0.24);
 }
 
@@ -1853,34 +1913,42 @@ async function generateCorrectiveActionsFormattedPdf(
         correctivePdfWriteTitle(doc, "PRIZM FIELD WORK ORDER", stationCode, activeProfile, enrichedActions);
 
         enrichedActions.forEach((act: any, idx: number) => {
-          correctivePdfEnsureRoom(doc, 160);
+          correctivePdfEnsureRoom(doc, 170);
           const startY = doc.y;
           const sevColor = correctivePdfSeverityColor(act.level);
+          const targetGroups = correctivePdfTargetGroups(act);
 
-          doc.rect(36, startY, 523, 24).fill("#f8fafc").strokeColor("#d1d5db").stroke();
-          doc.rect(36, startY, 6, 24).fill(sevColor);
+          doc.rect(36, startY, 523, 26).fill("#f8fafc").strokeColor("#d1d5db").stroke();
+          doc.rect(36, startY, 6, 26).fill(sevColor);
           doc.fontSize(10).font("Helvetica-Bold").fillColor("#0f172a")
-            .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 48, startY + 7, { width: 360 });
+            .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 48, startY + 6, { width: 360 });
           doc.fontSize(7).font("Helvetica").fillColor("#64748b")
-            .text(`Matrix: ${correctivePdfMatrixName(act)}`, 410, startY + 8, { width: 135 });
-          doc.y = startY + 34;
+            .text(`Matrix: ${correctivePdfMatrixName(act)}\nTargets: ${targetGroups.length} group(s)`, 410, startY + 5, { width: 135 });
+          doc.y = startY + 36;
+
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("WORK SCOPE", 48);
+          doc.fontSize(8).font("Helvetica").fillColor("#1e293b")
+            .text(correctivePdfWorkScope(act), 58, doc.y, { width: 485 });
+          doc.moveDown(0.45);
 
           doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("AFFECTED TARGET GROUPS", 48);
-          correctivePdfTargetGroups(act).forEach((t: any) => {
+          targetGroups.forEach((t: any) => {
             correctivePdfBullet(doc, `${t.condensedLabel || t.label || "Affected Target"}${Number(t.condensedCount || 1) > 1 ? `  x${t.condensedCount}` : ""}`, 58);
           });
 
           doc.moveDown(0.2);
-          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("FIELD ACTIONS", 48);
-          correctivePdfActions(act).slice(0, 6).forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("REQUIRED FIELD CHECKS", 48);
+          correctivePdfCompactFieldChecks(act).slice(0, 8).forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
 
           doc.moveDown(0.2);
           doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("VALIDATE / CLEAR WHEN", 48);
           correctivePdfValidation(act).slice(0, 4).forEach((v: string) => correctivePdfCheckbox(doc, v, 58));
 
-          doc.moveDown(0.2);
+          doc.moveDown(0.25);
           doc.fontSize(8).font("Helvetica-Oblique").fillColor("#64748b")
             .text("Technician Notes: ________________________________________________________________", 48);
+          doc.fontSize(8).font("Helvetica-Oblique").fillColor("#64748b")
+            .text("Completed By: ______________________    Date/Time: ____________________________", 48);
           doc.moveDown(0.8);
         });
       } else if (pdfFormat === "checklist-report") {
@@ -1888,34 +1956,38 @@ async function generateCorrectiveActionsFormattedPdf(
 
         enrichedActions.forEach((act: any, idx: number) => {
           const targets = correctivePdfTargetGroups(act);
-          correctivePdfEnsureRoom(doc, 120);
+          correctivePdfEnsureRoom(doc, 170);
 
           doc.fontSize(11).font("Helvetica-Bold").fillColor("#0f172a")
             .text(`${idx + 1}. [${act.level}] ${correctivePdfIssueName(act)}`, 36, doc.y, { width: 523 });
           doc.fontSize(7.5).font("Helvetica").fillColor("#64748b")
-            .text(`Troubleshooting Matrix: ${correctivePdfMatrixName(act)}  |  Source: ${act.source || "System"}`, 36);
+            .text(`Troubleshooting Matrix: ${correctivePdfMatrixName(act)}  |  Source: ${act.source || "System"}  |  Target Groups: ${targets.length}`, 36);
+          doc.moveDown(0.45);
+
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("GLOBAL CHECKS FOR THIS ISSUE", 48);
+          correctivePdfCheckbox(doc, "Locate and positively identify each affected target group.", 58);
+          correctivePdfCompactFieldChecks(act).slice(0, 7).forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
+          correctivePdfCheckbox(doc, "Retest or refresh active notifications after corrective action.", 58);
+          correctivePdfCheckbox(doc, "Record corrective action, parts replaced, and validation result.", 58);
+
           doc.moveDown(0.4);
-
+          doc.fontSize(8).font("Helvetica-Bold").fillColor("#32A97B").text("TARGET COMPLETION CHECKLIST", 48);
           targets.forEach((target: any, tIdx: number) => {
-            correctivePdfEnsureRoom(doc, 150);
-            doc.rect(42, doc.y, 510, 18).fill("#f8fafc").strokeColor("#d1d5db").stroke();
-            doc.fontSize(8).font("Helvetica-Bold").fillColor("#0f172a")
-              .text(`Target ${tIdx + 1}: ${target.condensedLabel || target.label || "Affected Target"}${Number(target.condensedCount || 1) > 1 ? `  x${target.condensedCount}` : ""}`, 50, doc.y + 5, { width: 492 });
-            doc.y += 26;
-
-            correctivePdfCheckbox(doc, "Locate and positively identify the affected target.", 58);
-            correctivePdfCheckbox(doc, "Verify communication/status is valid in PRIZM String Details or device status.", 58);
-
-            const actions = correctivePdfActions(act).slice(0, 4);
-            actions.forEach((a: string) => correctivePdfCheckbox(doc, a, 58));
-
-            correctivePdfCheckbox(doc, "Retest or refresh active notifications after corrective action.", 58);
-            correctivePdfCheckbox(doc, "Record corrective action, parts replaced, and validation result.", 58);
-
-            doc.fontSize(7.5).font("Helvetica-Oblique").fillColor("#64748b")
-              .text("Notes: __________________________________________________________________________", 58);
-            doc.moveDown(0.6);
+            correctivePdfEnsureRoom(doc, 26);
+            correctivePdfCheckbox(
+              doc,
+              `Target ${tIdx + 1}: ${target.condensedLabel || target.label || "Affected Target"}${Number(target.condensedCount || 1) > 1 ? `  x${target.condensedCount}` : ""}`,
+              58,
+              485
+            );
           });
+
+          doc.moveDown(0.25);
+          doc.fontSize(7.5).font("Helvetica-Oblique").fillColor("#64748b")
+            .text("Issue Notes: ____________________________________________________________________", 58);
+          doc.fontSize(7.5).font("Helvetica-Oblique").fillColor("#64748b")
+            .text("Completed By: ______________________    Date/Time: ____________________________", 58);
+          doc.moveDown(0.8);
         });
       } else {
         correctivePdfWriteTitle(doc, "PRIZM FIELD HANDOFF", stationCode, activeProfile, enrichedActions);
