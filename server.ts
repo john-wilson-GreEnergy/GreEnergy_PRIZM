@@ -1843,7 +1843,7 @@ async function generateCorrectiveActionsPdf(
 
         enrichedActions.forEach((act, idx) => {
           // Check for page break before starting a new item card
-          if (doc.y > 580) {
+          if (doc.y > 650) {
             doc.addPage();
             doc.rect(50, 40, 495, 3).fill(BRAND_GREEN);
             doc.fontSize(8).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM - Corrective Action Summary (Cont.)", 50, 50);
@@ -1961,7 +1961,7 @@ async function generateCorrectiveActionsPdf(
           doc.moveDown(0.3);
           doc.fontSize(7.5).font("Helvetica-Oblique").fillColor(TEXT_MUTED).text("Field Repair Notes: ____________________________________________________________________", 70);
           
-          doc.moveDown(1.2);
+          doc.moveDown(0.4);
           const itemEndY = doc.y;
           const itemHeight = itemEndY - itemStartY;
 
@@ -1969,52 +1969,13 @@ async function generateCorrectiveActionsPdf(
           doc.rect(50, itemStartY, 495, itemHeight).strokeColor(BORDER_LIGHT).stroke();
           doc.rect(51, itemStartY + 1, 6, itemHeight - 2).fill(severityColor);
 
-          doc.y = itemEndY + 15;
+          doc.y = itemEndY + 8;
         });
       }
 
-      // Run second-pass on all pages to draw standard, beautiful running footers with Page Numbers!
-      const range = doc.bufferedPageRange();
-      for (let i = range.start; i < range.start + range.count; i++) {
-        doc.switchToPage(i);
-
-        const pageNumber = i - range.start + 1;
-        const totalPages = range.count;
-
-        // Header (only on page 2+)
-        if (pageNumber > 1) {
-          doc.fontSize(7).font("Helvetica-Bold").fillColor(BRAND_GREEN).text("GreEnergy PRIZM", 50, 20, { lineBreak: false });
-          doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED).text(`PRIZM Corrective Action Summary  |  Station ${stationCode}`, 50, 30, { align: "right", width: 495, lineBreak: false });
-          doc.moveTo(50, 42).lineTo(545, 42).strokeColor(BORDER_LIGHT).stroke();
-        }
-
-        // Standard Footer - Confidential Line
-        doc.fontSize(7).font("Helvetica-Bold").fillColor(TEXT_MUTED);
-        doc.text(
-          "CONFIDENTIAL - INTERNAL GREENERGY BESS FIELD OPERATION USE ONLY",
-          50,
-          doc.page.height - 45,
-          {
-            width: doc.page.width - 100,
-            align: "center",
-            lineBreak: false
-          }
-        );
-
-        // Standard Footer - Page Number Line
-        doc.fontSize(7).font("Helvetica").fillColor(TEXT_MUTED);
-        doc.text(
-          `GreEnergy PRIZM | Corrective Action Summary | Station ${stationCode} | Page ${pageNumber} of ${totalPages}`,
-          50,
-          doc.page.height - 32,
-          {
-            width: doc.page.width - 100,
-            align: "center",
-            lineBreak: false
-          }
-        );
-      }
-
+      // Footer/page-number pass intentionally disabled.
+      // PDFKit text written during a buffered second pass was creating footer-only trailing pages.
+      // The field-tech export formats will reintroduce footers using a safer renderer.
       doc.end();
 
       stream.on("finish", () => resolve());
