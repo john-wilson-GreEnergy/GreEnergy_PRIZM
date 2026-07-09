@@ -106,6 +106,14 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   const [arrayFilter, setArrayFilter] = useState<string>("all");
   const [stringFilter, setStringFilter] = useState<string>("all");
   const [issueFilter, setIssueFilter] = useState<"all" | "warnings" | "alarms" | "any">("all");
+  const [hvacFilter, setHvacFilter] = useState<
+    "all" |
+    "mismatch" |
+    "hvac1-mismatch" |
+    "hvac2-mismatch" |
+    "commanded-no-current" |
+    "current-no-command"
+  >("all");
   const [ipSortDesc, setIpSortDesc] = useState<boolean>(false);
 
   // Drawer detail selection
@@ -580,6 +588,63 @@ function getHvacSampleDetails(hvac: any) {
     };
   };
 
+  const getSingleHvacMismatchState = (hvac: any) => {
+    const unit = hvac || {};
+    const commanded = !!(
+      unit.fanLowOn ||
+      unit.fanHighOn ||
+      unit.compressorOn ||
+      unit.electricHeatOn ||
+      unit.reversingValveOn
+    );
+
+    const active = !!(
+      (Number(unit.currentA || 0) > 0.2) ||
+      (Number(unit.fanSpeedRpm || 0) > 0)
+    );
+
+    let mismatchType: "none" | "commanded_not_active" | "active_not_commanded" = "none";
+
+    if (commanded && !active) mismatchType = "commanded_not_active";
+    else if (!commanded && active) mismatchType = "active_not_commanded";
+
+    return {
+      commanded,
+      active,
+      isMismatched: mismatchType !== "none",
+      mismatchType
+    };
+  };
+
+  const deviceMatchesHvacFilter = (device: any): boolean => {
+    if (hvacFilter === "all") return true;
+
+    const hvac1 = getSingleHvacMismatchState(device?.hvac1);
+    const hvac2 = getSingleHvacMismatchState(device?.hvac2);
+
+    if (hvacFilter === "mismatch") {
+      return hvac1.isMismatched || hvac2.isMismatched;
+    }
+
+    if (hvacFilter === "hvac1-mismatch") {
+      return hvac1.isMismatched;
+    }
+
+    if (hvacFilter === "hvac2-mismatch") {
+      return hvac2.isMismatched;
+    }
+
+    if (hvacFilter === "commanded-no-current") {
+      return hvac1.mismatchType === "commanded_not_active" || hvac2.mismatchType === "commanded_not_active";
+    }
+
+    if (hvacFilter === "current-no-command") {
+      return hvac1.mismatchType === "active_not_commanded" || hvac2.mismatchType === "active_not_commanded";
+    }
+
+    return true;
+  };
+
   // Utility to calculate target count preview
   const getTargetCountPreview = (): { count: number; isValid: boolean; warningMsg: string | null } => {
     if (scanMode === "cidr") {
@@ -918,7 +983,10 @@ function getHvacSampleDetails(hvac: any) {
     if (issueFilter === "alarms" && d.alarmCount === 0) return false;
     if (issueFilter === "any" && d.warningCount === 0 && d.alarmCount === 0) return false;
 
-    // 8. Discovery Controls overall selection
+    // 8. HVAC command/feedback mismatch filter
+    if (!deviceMatchesHvacFilter(d)) return false;
+
+    // 9. Discovery Controls overall selection
     if (discoverySource === "topology" && d.discoveryMethod === "manual") return false;
     if (discoverySource === "manual" && d.discoveryMethod !== "manual") return false;
 
@@ -1273,6 +1341,19 @@ function getHvacSampleDetails(hvac: any) {
               <option value="warnings" className="text-prizm-warning">Warnings Active</option>
               <option value="alarms" className="text-prizm-danger">TRIPS / Alarms Active</option>
               <option value="any" className="text-orange-400">Any Faults Present</option>
+            </select>
+
+            <select
+              value={hvacFilter}
+              onChange={e => setHvacFilter(e.target.value as any)}
+              className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 text-xs text-prizm-primary focus:outline-none"
+            >
+              <option value="all" className="text-prizm-text">HVAC: All</option>
+              <option value="mismatch" className="text-prizm-warning">HVAC: Any Mismatch</option>
+              <option value="hvac1-mismatch" className="text-prizm-warning">HVAC 1 Mismatch</option>
+              <option value="hvac2-mismatch" className="text-prizm-warning">HVAC 2 Mismatch</option>
+              <option value="commanded-no-current" className="text-prizm-danger">Commanded / No Current</option>
+              <option value="current-no-command" className="text-prizm-danger">Current / No Command</option>
             </select>
 
           </div>

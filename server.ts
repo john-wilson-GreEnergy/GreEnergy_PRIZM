@@ -82,6 +82,7 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 
 import lightbarRouter from "./src/server/lightbar/lightbarRoutes";
+import { triggerContactorRefresh } from "./src/server/contactorStateEngine";
 
 app.use("/api/local/lightbar", lightbarRouter);
 app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
@@ -3491,6 +3492,24 @@ if (process.env.PRIZM_FORCE_DEV === "true") {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Warm the contactor snapshot shortly after server start so the String List
+  // can render from a latest-known normalized snapshot instead of waiting for
+  // the first browser request to trigger a sweep.
+  setTimeout(() => {
+    console.log("[Contactor Engine] Startup warm refresh beginning...");
+    triggerContactorRefresh({
+      ttlMs: 5000,
+      timeoutMs: 5000,
+      concurrency: 12
+    })
+      .then((result) => {
+        console.log("[Contactor Engine] Startup warm refresh complete:", result.summary);
+      })
+      .catch((err: any) => {
+        console.warn("[Contactor Engine] Startup warm refresh failed:", err?.message || err);
+      });
+  }, 3000);
   try {
     initLocalStorageMaintenance();
   } catch (err) {

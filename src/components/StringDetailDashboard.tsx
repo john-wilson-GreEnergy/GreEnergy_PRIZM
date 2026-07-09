@@ -13,7 +13,7 @@ import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
 async function fetchNormalizedStringRowForDetails(arrayNumber: number, stringNumber: number): Promise<any | null> {
   try {
-    const res = await fetch("/api/local/strings/dashboard?refresh=true&maxAgeMs=0");
+    const res = await fetch("/api/local/strings/dashboard?maxAgeMs=5000");
     if (!res.ok) return null;
 
     const json = await res.json();

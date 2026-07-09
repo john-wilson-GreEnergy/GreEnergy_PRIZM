@@ -14,7 +14,9 @@ export function parseStatusPayload(rawText: string, totalCellGroups: number): Ba
 
   for (const line of lines) {
     try {
-      const parsed = JSON.parse(line);
+      const parsed = 
+
+JSON.parse(line);
       const id = parsed.testId !== undefined && parsed.testId !== null ? Number(parsed.testId) : -1;
       const direction = parsed.direction || "Unknown";
       const statusMessage = parsed.statusMessage || "";

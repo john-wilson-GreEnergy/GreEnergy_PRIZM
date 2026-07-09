@@ -90,8 +90,33 @@ export class BalancerTestService {
 
       let parsed: any = {};
       try {
-        parsed = JSON.parse(cleanJson);
-      } catch (e) {}
+        if (
+          cleanJson.toLowerCase().includes("no balancer test started") ||
+          cleanJson.toLowerCase().includes("no balance")
+        ) {
+          parsed = {
+            success: true,
+            active: false,
+            running: false,
+            state: "idle",
+            status: "idle",
+            message: cleanJson || "No balancer test started.",
+            raw: cleanJson
+          };
+        } else {
+          parsed = JSON.parse(cleanJson);
+        }
+      } catch (e) {
+        parsed = {
+          success: false,
+          active: false,
+          running: false,
+          state: "unknown",
+          status: "unknown",
+          message: cleanJson || "Unable to parse balancer test status.",
+          raw: cleanJson
+        };
+      }
 
       const { results, ...rawMeta } = parsed;
 

@@ -43,8 +43,114 @@ import { BESS_STATUS_CODE_MAP, describeBessStatusCode, classifyBessStatusCode } 
 import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 import { applyCanonicalStringSnapshot } from "./normalizers/canonicalStringSnapshot";
+import { getLatestContactorSnapshot, triggerContactorRefresh, mergeContactorStateIntoStringRow } from "./contactorStateEngine";
+import { analyzeContactorStates, analyzeHvacDevices, summarizeCorrectiveActions } from "./correctiveActionsEngine";
 
 const router = Router();
+
+type LatchedCorrectiveFinding = {
+  finding: any;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  healthyPolls: number;
+};
+
+const hvacCorrectiveFindingLatch = new Map<string, LatchedCorrectiveFinding>();
+
+const HVAC_CORRECTIVE_LATCH_CLEAR_AFTER_HEALTHY_POLLS = 3;
+const HVAC_CORRECTIVE_LATCH_MAX_AGE_MS = 90_000;
+
+function getCorrectiveFindingLatchKey(finding: any): string {
+  const category = finding?.category || "unknown";
+  const subsystem = finding?.subsystem || "unknown";
+  const strategy = finding?.remediationStrategyId || finding?.id || finding?.title || "finding";
+  const arrayNumber = finding?.arrayNumber ?? finding?.evidence?.arrayNumber ?? "A?";
+  const stringNumber = finding?.stringNumber ?? finding?.evidence?.stringNumber ?? "S?";
+  const hvacUnit =
+    finding?.evidence?.hvacUnit ||
+    finding?.evidence?.hvac ||
+    (String(finding?.title || "").includes("HVAC 1") ? "HVAC1" :
+     String(finding?.title || "").includes("HVAC 2") ? "HVAC2" :
+     "HVAC?");
+  const deviceIp = finding?.evidence?.deviceIp || finding?.deviceIp || "";
+  return [category, subsystem, strategy, arrayNumber, stringNumber, hvacUnit, deviceIp].join("|");
+}
+
+function applyHvacCorrectiveFindingLatch(currentFindings: any[]): any[] {
+  const now = Date.now();
+  const activeKeys = new Set<string>();
+
+  const passthrough: any[] = [];
+  const currentHvac: any[] = [];
+
+  for (const finding of currentFindings || []) {
+    const isHvac =
+      String(finding?.subsystem || "").toLowerCase() === "hvac" ||
+      String(finding?.title || "").toLowerCase().includes("hvac");
+
+    if (isHvac) currentHvac.push(finding);
+    else passthrough.push(finding);
+  }
+
+  for (const finding of currentHvac) {
+    const key = getCorrectiveFindingLatchKey(finding);
+    activeKeys.add(key);
+
+    const existing = hvacCorrectiveFindingLatch.get(key);
+    hvacCorrectiveFindingLatch.set(key, {
+      finding: {
+        ...(existing?.finding || {}),
+        ...finding,
+        evidence: {
+          ...(existing?.finding?.evidence || {}),
+          ...(finding?.evidence || {}),
+          latched: true,
+          firstSeenAt: existing?.firstSeenAt ? new Date(existing.firstSeenAt).toISOString() : new Date(now).toISOString(),
+          lastSeenAt: new Date(now).toISOString(),
+          healthyPolls: 0
+        }
+      },
+      firstSeenAt: existing?.firstSeenAt || now,
+      lastSeenAt: now,
+      healthyPolls: 0
+    });
+  }
+
+  for (const [key, entry] of Array.from(hvacCorrectiveFindingLatch.entries())) {
+    if (!activeKeys.has(key)) {
+      entry.healthyPolls += 1;
+
+      const expiredByHealthyPolls = entry.healthyPolls >= HVAC_CORRECTIVE_LATCH_CLEAR_AFTER_HEALTHY_POLLS;
+      const expiredByAge = now - entry.lastSeenAt > HVAC_CORRECTIVE_LATCH_MAX_AGE_MS;
+
+      if (expiredByHealthyPolls || expiredByAge) {
+        hvacCorrectiveFindingLatch.delete(key);
+      } else {
+        hvacCorrectiveFindingLatch.set(key, {
+          ...entry,
+          finding: {
+            ...entry.finding,
+            evidence: {
+              ...(entry.finding?.evidence || {}),
+              latched: true,
+              lastSeenAt: new Date(entry.lastSeenAt).toISOString(),
+              healthyPolls: entry.healthyPolls,
+              latchStatus: `Retained pending ${HVAC_CORRECTIVE_LATCH_CLEAR_AFTER_HEALTHY_POLLS} healthy polls`
+            }
+          }
+        });
+      }
+    }
+  }
+
+  const latchedHvacFindings = Array.from(hvacCorrectiveFindingLatch.values()).map((entry) => entry.finding);
+
+  return [
+    ...passthrough,
+    ...latchedHvacFindings
+  ];
+}
+
 
 type StringDetailCacheEntry = {
   arrayNumber: number;
@@ -2587,26 +2693,50 @@ router.get("/", async (req, res) => {
 
         const outputData = policy === "live-only" && !wasLiveSucceeded ? {} : cacheEntry.data;
 
-        // Real-data-only contactor correction:
-        // The dashboard list row can be stale/incorrect for contactor actuals.
-        // Pull actual positive/negative contactor feedback from the live stringviewer endpoint
-        // and merge only confirmed actual states. If the live actual state is unavailable,
-        // publish UNKNOWN instead of preserving guessed CLOSED/OPEN values.
+        // Dedicated contactor state engine, fast path:
+        // Do NOT block the String List route on a 320-endpoint stringviewer sweep.
+        // Merge the latest normalized contactor snapshot immediately, and trigger a
+        // background refresh when missing/stale or explicitly requested.
         if (outputData && Array.isArray((outputData as any).strings)) {
-            (outputData as any).strings = await mapWithConcurrency(
-                (outputData as any).strings,
-                32,
-                async (row: any) => {
-                    const liveClosed = await fetchStringviewerContactorStateForRow(baseUrl, row);
-                    return applyAuthoritativeContactorState(row, liveClosed, "stringviewer-live");
-                }
+            const snapshot = getLatestContactorSnapshot();
+            const snapshotAgeMs = typeof snapshot.ageMs === "number" ? snapshot.ageMs : null;
+            const snapshotMissing = !snapshot.hasSnapshot || snapshot.states.length === 0;
+            const snapshotStale = snapshotAgeMs === null || snapshotAgeMs > 5000;
+            const refreshRequested = req.query.refresh === "true";
+
+            if ((snapshotMissing || snapshotStale || refreshRequested) && !snapshot.inFlight) {
+                triggerContactorRefresh({
+                    ttlMs: 5000,
+                    timeoutMs: 5000,
+                    concurrency: 12
+                }).catch((err: any) => {
+                    console.warn("[Contactor Engine] Background refresh failed:", err?.message || err);
+                });
+            }
+
+            const stateByKey = new Map(
+                snapshot.states.map((state) => [`${state.arrayNumber}:${state.stringNumber}`, state])
             );
 
+            (outputData as any).strings = (outputData as any).strings.map((row: any) => {
+                const arrayNumber = Number(row?.arrayNumber ?? row?.arrayIndex);
+                const stringNumber = Number(row?.stringNumber ?? row?.stringIndex);
+                return mergeContactorStateIntoStringRow(row, stateByKey.get(`${arrayNumber}:${stringNumber}`));
+            });
+
             (outputData as any).contactorSummary = {
-                open: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "OPEN").length,
-                closed: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "CLOSED").length,
-                unknown: (outputData as any).strings.filter((row: any) => row?.contactorStatus === "UNKNOWN").length,
-                source: "stringviewer-live"
+                ...snapshot.summary,
+                ageMs: snapshotAgeMs,
+                snapshotReady: snapshot.hasSnapshot,
+                inFlight: snapshot.inFlight,
+                lastError: snapshot.lastError
+            };
+
+            (outputData as any).freshness = {
+                ...((outputData as any).freshness || {}),
+                contactorAgeMs: snapshotAgeMs,
+                contactorSnapshotReady: snapshot.hasSnapshot,
+                contactorRefreshInFlight: snapshot.inFlight
             };
         }
 
@@ -2787,6 +2917,76 @@ function applyAuthoritativeContactorState(row: any, closed: boolean | null, sour
     actualContactorStateSource: source
   };
 }
+
+
+
+router.get("/corrective-actions", async (req, res) => {
+    try {
+        const snapshot = getLatestContactorSnapshot();
+
+        if ((!snapshot.hasSnapshot || snapshot.states.length === 0) && !snapshot.inFlight) {
+            triggerContactorRefresh({
+                ttlMs: 5000,
+                timeoutMs: 5000,
+                concurrency: 12
+            }).catch((err: any) => {
+                console.warn("[Corrective Actions] Background contactor refresh failed:", err?.message || err);
+            });
+        }
+
+        let hvacFindings: any[] = [];
+
+        try {
+            const port = process.env.PORT || "3000";
+            const featherRes = await fetch(`http://localhost:${port}/api/feather/devices?cache=cache-first&maxAgeMs=60000`);
+            if (featherRes.ok) {
+                const featherJson: any = await featherRes.json();
+                const devices = Array.isArray(featherJson?.devices) ? featherJson.devices : [];
+                hvacFindings = analyzeHvacDevices(devices);
+            }
+        } catch (err: any) {
+            console.warn("[Corrective Actions] HVAC analysis skipped:", err?.message || err);
+        }
+
+        const findings = [
+            ...analyzeContactorStates(snapshot.states),
+            ...hvacFindings
+        ];
+
+        const summary = summarizeCorrectiveActions(findings);
+
+        res.json({
+            success: true,
+            summary,
+            findings,
+            source: {
+                contactorSnapshotReady: snapshot.hasSnapshot,
+                contactorAgeMs: snapshot.ageMs,
+                contactorRefreshInFlight: snapshot.inFlight,
+                lastError: snapshot.lastError
+            }
+        });
+    } catch (err: any) {
+        res.status(500).json({
+            success: false,
+            error: err?.message || String(err)
+        });
+    }
+});
+
+router.get("/contactors/state", async (req, res) => {
+    try {
+        const result = await getContactorStatesForAllStrings({
+            refresh: req.query.refresh === "true",
+            ttlMs: req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 2500,
+            timeoutMs: req.query.timeoutMs ? Number(req.query.timeoutMs) : 1800,
+            concurrency: req.query.concurrency ? Number(req.query.concurrency) : 40
+        });
+        res.json({ success: true, ...result });
+    } catch (err: any) {
+        res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+});
 
 router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
     try {

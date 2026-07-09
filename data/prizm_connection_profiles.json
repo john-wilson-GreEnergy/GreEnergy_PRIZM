@@ -15,9 +15,96 @@
     "notes": "Default local EMS profile",
     "isActive": true,
     "createdAt": "2026-06-10T20:18:54.250Z",
-    "updatedAt": "2026-06-10T20:18:54.250Z",
-    "lastTestedAt": null,
-    "lastTestResult": null,
+    "updatedAt": "2026-07-08T19:14:19.806Z",
+    "lastTestedAt": "2026-07-08T19:14:19.806Z",
+    "lastTestResult": {
+      "success": true,
+      "emsUrlTested": "http://10.0.0.3:8080/turtle",
+      "statusEndpointResult": {
+        "turtleType": "Dragon_Apart - dragon,apart",
+        "turtleVersion": "2.73.42",
+        "dateTime": "2026-07-08T19:14:15.855Z",
+        "warnCount": 10561146,
+        "queueStatuses": [
+          {
+            "queueSize": 0,
+            "enqueueCount": 0,
+            "dequeueCount": 0,
+            "lastEnqueue": "1970-01-01T00:00:00.000+0000",
+            "queueName": "PhoenixFromString"
+          },
+          {
+            "queueSize": 0,
+            "enqueueCount": 0,
+            "dequeueCount": 0,
+            "lastEnqueue": "1970-01-01T00:00:00.000+0000",
+            "queueName": "DragonToFeather"
+          },
+          {
+            "queueSize": 0,
+            "enqueueCount": 0,
+            "dequeueCount": 0,
+            "lastEnqueue": "1970-01-01T00:00:00.000+0000",
+            "queueName": "PhoenixToStringCommands"
+          },
+          {
+            "queueSize": 0,
+            "enqueueCount": 1500216,
+            "dequeueCount": 1500216,
+            "lastEnqueue": "2026-07-08T19:14:14.648+0000",
+            "queueName": "DragonToPhoenix"
+          }
+        ],
+        "callStatuses": [
+          {
+            "lastSuccessfulCall": "2026-07-08T19:14:15.729+0000",
+            "failedCalls": 3,
+            "attemptedCalls": 4199312,
+            "channel": "PhoenixFromDragon"
+          },
+          {
+            "lastSuccessfulCall": "Never",
+            "failedCalls": 0,
+            "attemptedCalls": 0,
+            "channel": "PhoenixFromFeather"
+          },
+          {
+            "lastSuccessfulCall": "Never",
+            "failedCalls": 0,
+            "attemptedCalls": 0,
+            "channel": "DragonToPhoenix"
+          },
+          {
+            "lastSuccessfulCall": "Never",
+            "failedCalls": 0,
+            "attemptedCalls": 0,
+            "channel": "PhoenixFromString"
+          },
+          {
+            "lastSuccessfulCall": "Never",
+            "failedCalls": 0,
+            "attemptedCalls": 0,
+            "channel": "FeatherToPhoenix"
+          },
+          {
+            "lastSuccessfulCall": "2026-07-08T19:14:12.952+0000",
+            "failedCalls": 189,
+            "attemptedCalls": 261927,
+            "channel": "DragonToGoblin"
+          }
+        ],
+        "errorCount": 10289
+      },
+      "turtleVersion": "Unknown",
+      "stationCode": "BHE0020",
+      "blockIndex": 1,
+      "error": null,
+      "durations": {
+        "status": 68,
+        "reportStatus": 70,
+        "blockviewer": 155
+      }
+    },
     "modbusUnitId": 1,
     "topologyModel": {
       "type": "standard-array-segment",

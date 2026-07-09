@@ -187,6 +187,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [arrayFilter, setArrayFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [healthFilter, setHealthFilter] = useState("all");
+  const [contactorFilter, setContactorFilter] = useState<"all" | "abnormal" | "open" | "partial" | "closed" | "unknown">("all");
   
   const cacheTtlMs = 15000;
   const [selectedString, setSelectedString] = useState<any | null>(null);
@@ -235,7 +236,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     setLiveStringRowsLoading(true);
 
     try {
-      const res = await fetch("/api/local/strings/dashboard?refresh=true&maxAgeMs=0");
+      const res = await fetch("/api/local/strings/dashboard?maxAgeMs=5000");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const json = await res.json();
@@ -461,6 +462,37 @@ const handleManualRefresh = async () => {
   const contactorOpenCount = strings.filter((row: any) => getStringContactorClosedState(row) === false).length;
   const contactorUnknownCount = strings.filter((row: any) => getStringContactorClosedState(row) === null).length;
 
+  const getStringContactorFilterState = (row: any): "open" | "partial" | "closed" | "unknown" => {
+    const actualState = String(row?.contactor?.actualState ?? row?.contactorStatus ?? "").trim().toLowerCase();
+
+    if (actualState === "open") return "open";
+    if (actualState === "partial" || actualState === "mismatch") return "partial";
+    if (actualState === "closed") return "closed";
+
+    const pos = row?.positiveContactorClosed;
+    const neg = row?.negativeContactorClosed;
+
+    if (pos === true && neg === true) return "closed";
+    if (pos === false && neg === false) return "open";
+    if (pos !== null && pos !== undefined && neg !== null && neg !== undefined && pos !== neg) return "partial";
+
+    return "unknown";
+  };
+
+  const stringMatchesContactorFilter = (row: any): boolean => {
+    if (contactorFilter === "all") return true;
+    const state = getStringContactorFilterState(row);
+
+    if (contactorFilter === "abnormal") {
+      return state === "open" || state === "partial";
+    }
+
+    return state === contactorFilter;
+  };
+
+  const contactorPartialCount = strings.filter((row: any) => getStringContactorFilterState(row) === "partial").length;
+  const contactorAbnormalCount = contactorOpenCount + contactorPartialCount;
+
   const countOf = (value:any): number | null => {
     if (typeof value === "number") return value;
     if (value && typeof value.count === "number") return value.count;
@@ -615,13 +647,14 @@ const handleManualRefresh = async () => {
         if (healthFilter === "alarms" && s.alarmCount <= 0) return false;
         if (healthFilter === "warnings" && s.warningCount <= 0) return false;
       }
+      if (contactorFilter !== "all" && !stringMatchesContactorFilter(s)) return false;
       if (search) {
         const sq = search.toLowerCase();
         if (!s.stringKey.toLowerCase().includes(sq) && !s.stringControllerIp?.toLowerCase().includes(sq)) return false;
       }
       return true;
     });
-  }, [strings, arrayFilter, stateFilter, healthFilter, search]);
+  }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search]);
 
   const downloadCsv = () => {
     if (filtered.length === 0) return;
@@ -778,17 +811,27 @@ const handleManualRefresh = async () => {
           <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Total Strings</span>
           <span className="text-[12px] font-bold text-prizm-text">{formatMaybeInt(totalStrings)}</span>
         </div>
-        <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-prizm-warning/60 rounded px-2 py-1.5 flex flex-col justify-center">
-          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Contactors Open</span>
+        <button
+          type="button"
+          onClick={() => setContactorFilter(contactorFilter === "abnormal" ? "all" : "abnormal")}
+          title="Show open or mismatched contactors"
+          className={`bg-prizm-surface border border-prizm-border border-b-2 rounded px-2 py-1.5 flex flex-col justify-center text-left transition-colors ${
+            contactorFilter === "abnormal"
+              ? "border-b-prizm-warning bg-prizm-warning/10"
+              : "border-b-prizm-warning/60 hover:bg-prizm-surface-strong"
+          }`}
+        >
+          <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide leading-tight">Contactor Abnormal</span>
           <span className={contactorOpenCount > 0 ? "text-[12px] font-bold text-prizm-warning" : "text-[12px] font-bold text-emerald-400"}>
-            {formatMaybeInt(contactorOpenCount)}
+            {formatMaybeInt(contactorAbnormalCount)}
             <span className="text-prizm-text-muted mx-1">/</span>
             <span className="text-prizm-text">{formatMaybeInt(totalStrings)}</span>
           </span>
-          {contactorUnknownCount > 0 ? (
-            <span className="text-[8px] text-prizm-text-muted mt-0.5">UNK {formatMaybeInt(contactorUnknownCount)}</span>
-          ) : null}
-        </div>
+          <span className="text-[8px] text-prizm-text-muted mt-0.5">
+            OPEN {formatMaybeInt(contactorOpenCount)} | PARTIAL {formatMaybeInt(contactorPartialCount)}
+            {contactorUnknownCount > 0 ? ` | UNK ${formatMaybeInt(contactorUnknownCount)}` : ""}
+          </span>
+        </button>
         <div className="bg-prizm-surface border border-prizm-border border-b-2 border-b-emerald-500/50 rounded px-2 py-1.5 flex flex-col justify-center">
           <span className="text-[8px] text-prizm-text-muted uppercase tracking-wide">Online</span>
           <span className="text-[12px] font-bold text-emerald-400">{formatMaybeInt(onlineCount)}</span>
@@ -863,6 +906,14 @@ const handleManualRefresh = async () => {
             <option value="offline">Offline</option>
             <option value="notCommunicating">Not Communicating</option>
             <option value="unknown">Unknown</option>
+          </select>
+          <select value={contactorFilter} onChange={e => setContactorFilter(e.target.value as any)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+            <option value="all">Contactors: All</option>
+            <option value="abnormal">Contactors: Abnormal</option>
+            <option value="open">Contactors: Open Only</option>
+            <option value="partial">Contactors: Partial / Mismatch</option>
+            <option value="closed">Contactors: Closed</option>
+            <option value="unknown">Contactors: Unknown</option>
           </select>
           <select value={healthFilter} onChange={e => setHealthFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Health: All</option>
@@ -1125,29 +1176,45 @@ const handleManualRefresh = async () => {
                     statusText === "OPEN" ? false :
                     null;
 
-                  const requestedClosed = interpretedClosed === true;
-
+                  // Contactor dots compare actual feedback against requested state.
+                  //
+                  // green = this contactor matches requested open/closed state
+                  // red   = this contactor does not match requested state
+                  //
+                  // Example:
+                  // requested OPEN + positive open / negative open = both green
+                  // requested OPEN + positive closed / negative open = positive red, negative green
+                  // requested CLOSED + positive closed / negative open = positive green, negative red
                   const positiveClosed =
                     s.positiveContactorClosed === true ? true :
                     s.positiveContactorClosed === false ? false :
-                    interpretedClosed === true ? true :
-                    interpretedClosed === false ? false :
-                    false;
+                    null;
 
                   const negativeClosed =
                     s.negativeContactorClosed === true ? true :
                     s.negativeContactorClosed === false ? false :
-                    interpretedClosed === true ? true :
-                    interpretedClosed === false ? false :
-                    false;
+                    null;
+
+                  const expectedClosed =
+                    s.contactor?.contactorsCloseExpected === true ? true :
+                    s.contactor?.contactorsCloseExpected === false ? false :
+                    s.contactorsCloseExpected === true ? true :
+                    s.contactorsCloseExpected === false ? false :
+                    s.requestedContactorState === "closed" ? true :
+                    s.requestedContactorState === "open" ? false :
+                    null;
+
+                  const requestedClosed = expectedClosed === true;
 
                   const positiveMatchesRequest =
-                    interpretedClosed === null ? false :
-                    requestedClosed ? positiveClosed : !positiveClosed;
+                    expectedClosed === null || positiveClosed === null
+                      ? false
+                      : positiveClosed === expectedClosed;
 
                   const negativeMatchesRequest =
-                    interpretedClosed === null ? false :
-                    requestedClosed ? negativeClosed : !negativeClosed;
+                    expectedClosed === null || negativeClosed === null
+                      ? false
+                      : negativeClosed === expectedClosed;
 
                   const contDot1 = requestedClosed
                     ? "bg-blue-500 border border-blue-600 shadow-[0_0_5px_rgba(59,130,246,0.5)]"
