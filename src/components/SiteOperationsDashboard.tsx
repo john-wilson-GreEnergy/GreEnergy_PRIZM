@@ -3323,9 +3323,17 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                           <div key="condensed-occ-indicator" className="col-span-2 py-1 px-2.5 bg-white border border-slate-200 text-slate-900 text-slate-600 italic text-[9px] rounded border border-prizm-border/20">
                                             ... and {occCount - displayLimit} more affected targets
                                           </div>
-                                        
+                                        );
+                                      }
 
-<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      return listElems;
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="lg:col-span-7 flex flex-col gap-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   {/* Recommended Actions */}
                                   <div>
                                     <div className="text-[9.5px] uppercase font-bold text-emerald-400 tracking-wider mb-1.5">
