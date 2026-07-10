@@ -7,8 +7,13 @@ import {
   saveTroubleshootingOverride
 } from "./troubleshootingOverrides";
 import { resolveTroubleshooting, formatAffectedTargetForDisplay, shouldShowTargetIp } from "./troubleshootingResolver";
+import knowledgeRouter from "../knowledge/knowledgeRoutes";
 
 export const troubleshootingRouter = Router();
+
+// PRIZM Phase 2 knowledge acquisition workspace API.
+// Mounted at /api/local/troubleshooting/knowledge/* so existing server wiring remains stable.
+troubleshootingRouter.use("/knowledge", knowledgeRouter);
 
 // Retrieve all entries in the PRIZM troubleshooting knowledge base
 troubleshootingRouter.get("/library", (req, res) => {
