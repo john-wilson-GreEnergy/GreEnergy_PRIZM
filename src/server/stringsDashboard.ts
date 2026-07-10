@@ -45,6 +45,7 @@ import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringT
 import { applyCanonicalStringSnapshot } from "./normalizers/canonicalStringSnapshot";
 import { getLatestContactorSnapshot, triggerContactorRefresh, mergeContactorStateIntoStringRow } from "./contactorStateEngine";
 import { analyzeContactorStates, analyzeHvacDevices, summarizeCorrectiveActions } from "./correctiveActionsEngine";
+import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
 
 const router = Router();
 
@@ -59,6 +60,27 @@ const hvacCorrectiveFindingLatch = new Map<string, LatchedCorrectiveFinding>();
 
 const HVAC_CORRECTIVE_LATCH_CLEAR_AFTER_HEALTHY_POLLS = 3;
 const HVAC_CORRECTIVE_LATCH_MAX_AGE_MS = 90_000;
+
+function getNormalizedFeatherDevicesFromDashboardInputs(...sources: any[]): any[] {
+  for (const source of sources) {
+    const candidates = [
+      source?.normalized?.feather,
+      source?.snapshot?.normalized?.feather,
+      source?.siteData?.normalized?.feather,
+      source?.devices,
+      source?.featherDevices,
+      source?.feather?.devices,
+      source?.feather
+    ];
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate) && candidate.length > 0) return candidate;
+    }
+  }
+
+  return [];
+}
+
 
 function getCorrectiveFindingLatchKey(finding: any): string {
   const category = finding?.category || "unknown";
@@ -2942,7 +2964,11 @@ router.get("/corrective-actions", async (req, res) => {
             if (featherRes.ok) {
                 const featherJson: any = await featherRes.json();
                 const devices = Array.isArray(featherJson?.devices) ? featherJson.devices : [];
-                hvacFindings = analyzeHvacDevices(devices);
+                const featherNormalizedHvacFindings = normalizeFeatherHvacCorrectiveFindings(devices, { profile: "dometic" });
+
+                hvacFindings = featherNormalizedHvacFindings.length > 0
+                    ? featherNormalizedHvacFindings
+                    : analyzeHvacDevices(devices);
             }
         } catch (err: any) {
             console.warn("[Corrective Actions] HVAC analysis skipped:", err?.message || err);

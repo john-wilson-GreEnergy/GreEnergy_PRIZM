@@ -1211,6 +1211,61 @@ function getCorrectiveIssueTitleForTile(issue: any): string {
 
 
 
+
+function getCorrectiveExpandedTargetLabels(issue: any): string[] {
+  const items = [
+    issue,
+    ...(Array.isArray(issue?.relatedIssues) ? issue.relatedIssues : []),
+    ...(Array.isArray(issue?.related) ? issue.related : []),
+    ...(Array.isArray(issue?.children) ? issue.children : []),
+    ...(Array.isArray(issue?.occurrences) ? issue.occurrences : [])
+  ];
+
+  const labels: string[] = [];
+
+  const addLabel = (value: any) => {
+    const label = String(value || "").trim();
+    if (!label) return;
+    if (/^block\s+\d+$/i.test(label)) return;
+    if (/target group/i.test(label)) return;
+    if (!labels.includes(label)) labels.push(label);
+  };
+
+  for (const item of items) {
+    addLabel(item?.evidence?.targetLabel);
+    addLabel(item?.targetLabel);
+    addLabel(item?.stringKey);
+
+    const affectedTargets =
+      item?.evidence?.affectedTargets ||
+      item?.affectedTargets ||
+      item?.targets;
+
+    if (Array.isArray(affectedTargets)) {
+      for (const target of affectedTargets) addLabel(target);
+    }
+  }
+
+  return labels;
+}
+
+function isCorrectiveHvacIssue(issue: any): boolean {
+  const text = [
+    issue?.subsystem,
+    issue?.resolved?.system,
+    issue?.code,
+    issue?.faultCode,
+    issue?.nativeFaultCode,
+    issue?.evidence?.faultCode,
+    issue?.evidence?.normalizedFaultCode,
+    issue?.title,
+    issue?.issueName,
+    issue?.resolved?.issueName
+  ].map((v) => String(v || "").toLowerCase()).join(" ");
+
+  return text.includes("hvac") || text.includes("env-hvac");
+}
+
 function getExpandedCorrectiveTargetsForDisplay(issue: any): string[] {
   const targets = getCorrectiveAffectedTargets(issue);
 
@@ -3242,9 +3297,24 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                 {issue.affected && issue.affected.length > 0 ? (
                                   <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[180px] overflow-y-auto no-scrollbar bg-white border border-slate-200 text-slate-900 divide-y divide-prizm-border/10">
                                     {(() => {
-                                      const rawTargets = issue.affected || [];
-                                      const condensedTargets = condenseAffectedTargetsForDisplay(rawTargets);
-                                      const displayLimit = 25;
+                                      const hvacTargetLabels = isCorrectiveHvacIssue(issue)
+                                        ? getCorrectiveExpandedTargetLabels(issue)
+                                        : [];
+
+                                      const rawTargets = hvacTargetLabels.length > 0
+                                        ? hvacTargetLabels.map((label: string) => ({
+                                            condensedLabel: label,
+                                            condensedCount: 1,
+                                            source: "FEATHER",
+                                            targetLabel: label
+                                          }))
+                                        : (issue.affected || []);
+
+                                      const condensedTargets = hvacTargetLabels.length > 0
+                                        ? rawTargets
+                                        : condenseAffectedTargetsForDisplay(rawTargets);
+
+                                      const displayLimit = 60;
                                       const toShow = condensedTargets.length <= displayLimit
                                         ? condensedTargets
                                         : condensedTargets.slice(0, displayLimit);
@@ -3257,10 +3327,10 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                             handleActionClick(aff);
                                           }}
                                           className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center gap-3"
-                                          title={`${aff.condensedLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)} (${aff.condensedCount || 1} target${(aff.condensedCount || 1) === 1 ? "" : "s"})`}
+                                          title={`${aff.condensedLabel || aff.targetLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)} (${aff.condensedCount || 1} target${(aff.condensedCount || 1) === 1 ? "" : "s"})`}
                                         >
                                           <span className="text-prizm-text font-bold truncate">
-                                            {aff.condensedLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
+                                            {aff.condensedLabel || aff.targetLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
                                           </span>
                                           <span className="flex items-center gap-1 shrink-0">
                                             {(aff.condensedCount || 1) > 1 ? (
@@ -3283,10 +3353,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                         );
                                       }
 
-                                      if (rawTargets.length !== condensedTargets.length) {
-                                        listElems.unshift(
-                                          
-                                        );
+                                      if (!hvacTargetLabels.length && rawTargets.length !== condensedTargets.length) {
+                                        // Legacy non-HVAC condensation only.
                                       }
 
                                       return listElems;
