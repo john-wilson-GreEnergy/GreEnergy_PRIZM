@@ -9,10 +9,14 @@ import {
   listFragmentsForRun,
   listKnowledgeSources,
   saveScannerResult,
-  searchKnowledgeFragments
+  searchKnowledgeFragments,
+  saveNormalizedNotificationKnowledge,
+  readNormalizedNotificationDefinitions,
+  readNormalizedNotificationObservations
 } from "./knowledgeRepository";
 import { scanNotificationCsv } from "./scanners/csvNotificationScanner";
 import { scanWarFile } from "./scanners/warScanner";
+import { normalizeNotificationKnowledge } from "./normalizers/notificationNormalizer";
 
 const router = express.Router();
 
@@ -69,6 +73,87 @@ router.get("/search", (req, res) => {
   const query = String(req.query.q || "");
   const limit = Number(req.query.limit || 250);
   res.json({ success: true, query, fragments: searchKnowledgeFragments(query, limit) });
+});
+
+
+router.post("/normalize/notifications", (_req, res) => {
+  try {
+    const catalog = getKnowledgeCatalog();
+    const result = normalizeNotificationKnowledge(catalog);
+    const saved = saveNormalizedNotificationKnowledge(result);
+
+    res.json({
+      success: true,
+      ...saved
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error?.message || String(error)
+    });
+  }
+});
+
+router.get("/notifications/definitions", (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit || 500), 5000));
+  const code = String(req.query.code || "").trim();
+  const query = String(req.query.q || "").trim().toLowerCase();
+
+  let definitions = readNormalizedNotificationDefinitions();
+
+  if (code) {
+    definitions = definitions.filter((definition: any) =>
+      String(definition.code ?? definition.nativeNotificationId ?? "") === code
+    );
+  }
+
+  if (query) {
+    definitions = definitions.filter((definition: any) =>
+      [
+        definition.name,
+        definition.normalizedName,
+        definition.type,
+        definition.category,
+        definition.cluster,
+        ...(Array.isArray(definition.aliases) ? definition.aliases : [])
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }
+
+  res.json({
+    success: true,
+    count: Math.min(definitions.length, limit),
+    definitions: definitions.slice(0, limit)
+  });
+});
+
+router.get("/notifications/observations", (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit || 500), 10000));
+  const definitionId = String(req.query.definitionId || "").trim();
+  const entity = String(req.query.entity || "").trim().toLowerCase();
+
+  let observations = readNormalizedNotificationObservations();
+
+  if (definitionId) {
+    observations = observations.filter(
+      (observation: any) => observation.definitionId === definitionId
+    );
+  }
+
+  if (entity) {
+    observations = observations.filter((observation: any) =>
+      String(observation.entity || "").toLowerCase().includes(entity)
+    );
+  }
+
+  res.json({
+    success: true,
+    count: Math.min(observations.length, limit),
+    observations: observations.slice(0, limit)
+  });
 });
 
 router.post("/scan/war", (req, res) => {

@@ -19,9 +19,35 @@ function looksNotificationRelated(value: string) {
   return /(notification|alarm|warning|fault|disconnect|unavailable|trip|temperature|voltage|current|contactor|cgc|bpc|hvac)/i.test(value);
 }
 
+function isLikelyHttpEndpoint(value: string): boolean {
+  const candidate = value.trim();
+
+  if (!candidate.startsWith("/")) return false;
+  if (candidate.length < 4) return false;
+  if (/^\/[A-Z][A-Za-z0-9_$]*$/.test(candidate)) return false;
+  if (/^\/(?:String|StringBuilder|StringKey|NotificationType|NotificationChange)$/i.test(candidate)) {
+    return false;
+  }
+
+  if (
+    candidate.includes("java/") ||
+    candidate.includes("javax/") ||
+    candidate.includes("com/powin/") ||
+    candidate.includes("org/")
+  ) {
+    return false;
+  }
+
+  return /^\/(?:api|rest|tools|monitor|report|block|notifications?|firstresponder|v\d+)(?:\/|$)/i.test(candidate);
+}
+
 function endpointCandidates(value: string): string[] {
-  const matches = value.match(/\/(?:api|rest|monitor|block|string|notification|notifications)[A-Za-z0-9_./?=&{}:-]*/gi) || [];
-  return Array.from(new Set(matches));
+  const matches =
+    value.match(
+      /\/(?:api|rest|tools|monitor|report|block|notifications?|firstresponder|v\d+)[A-Za-z0-9_./?=&{}:-]*/gi
+    ) || [];
+
+  return Array.from(new Set(matches.filter(isLikelyHttpEndpoint)));
 }
 
 export function scanWarFile(filePath: string): ScannerResult {

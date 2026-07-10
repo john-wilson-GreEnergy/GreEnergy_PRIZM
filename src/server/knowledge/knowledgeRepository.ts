@@ -72,6 +72,36 @@ export function getKnowledgeCatalog(): KnowledgeCatalogSnapshot {
 export function saveScannerResult(result: ScannerResult): KnowledgeCatalogSnapshot {
   const catalog = readCatalogFile();
 
+  // A source ID includes source type, path, and content hash. If this exact
+  // source has already been scanned successfully, do not append another run
+  // containing duplicate artifacts and fragments.
+  const existingCompleteRun = catalog.runs.find(
+    (run) =>
+      run.sourceId === result.source.id &&
+      run.status === "complete"
+  );
+
+  if (existingCompleteRun) {
+    const sourceIndex = catalog.sources.findIndex(
+      (item) => item.id === result.source.id
+    );
+
+    if (sourceIndex >= 0) {
+      catalog.sources[sourceIndex] = {
+        ...catalog.sources[sourceIndex],
+        lastScannedAt: result.source.lastScannedAt,
+        metadata: {
+          ...(catalog.sources[sourceIndex].metadata || {}),
+          ...(result.source.metadata || {}),
+          duplicateScanSkippedAt: new Date().toISOString()
+        }
+      };
+      writeCatalogFile(catalog);
+    }
+
+    return catalog;
+  }
+
   const sourceIndex = catalog.sources.findIndex((item) => item.id === result.source.id);
   if (sourceIndex >= 0) {
     catalog.sources[sourceIndex] = {
@@ -84,8 +114,23 @@ export function saveScannerResult(result: ScannerResult): KnowledgeCatalogSnapsh
   }
 
   catalog.runs.push(result.run);
-  catalog.artifacts.push(...result.artifacts);
-  catalog.fragments.push(...result.fragments);
+
+  const uniqueArtifacts = Array.from(
+    new Map(result.artifacts.map((artifact) => [artifact.id, artifact])).values()
+  );
+  const uniqueFragments = Array.from(
+    new Map(result.fragments.map((fragment) => [fragment.id, fragment])).values()
+  );
+
+  const existingArtifactIds = new Set(catalog.artifacts.map((artifact) => artifact.id));
+  const existingFragmentIds = new Set(catalog.fragments.map((fragment) => fragment.id));
+
+  catalog.artifacts.push(
+    ...uniqueArtifacts.filter((artifact) => !existingArtifactIds.has(artifact.id))
+  );
+  catalog.fragments.push(
+    ...uniqueFragments.filter((fragment) => !existingFragmentIds.has(fragment.id))
+  );
 
   writeCatalogFile(catalog);
   return catalog;
@@ -139,4 +184,58 @@ export function getKnowledgeStorageInfo() {
     sizeBytes: fs.existsSync(CATALOG_PATH) ? fs.statSync(CATALOG_PATH).size : 0,
     migrationTarget: "sqlite"
   };
+}
+
+export function saveNormalizedNotificationKnowledge(
+  result: import("./normalizers/notificationNormalizer").NotificationNormalizationResult
+) {
+  ensureDataDir();
+
+  const definitionsPath = path.join(DATA_DIR, "notification-definitions.json");
+  const observationsPath = path.join(DATA_DIR, "notification-observations.json");
+
+  const definitionsTmp = `${definitionsPath}.tmp`;
+  const observationsTmp = `${observationsPath}.tmp`;
+
+  fs.writeFileSync(definitionsTmp, JSON.stringify(result.definitions, null, 2));
+  fs.writeFileSync(observationsTmp, JSON.stringify(result.observations, null, 2));
+
+  fs.renameSync(definitionsTmp, definitionsPath);
+  fs.renameSync(observationsTmp, observationsPath);
+
+  return {
+    definitionsPath,
+    observationsPath,
+    definitionCount: result.definitions.length,
+    observationCount: result.observations.length,
+    stats: result.stats
+  };
+}
+
+export function readNormalizedNotificationDefinitions() {
+  ensureDataDir();
+  const filePath = path.join(DATA_DIR, "notification-definitions.json");
+
+  if (!fs.existsSync(filePath)) return [];
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function readNormalizedNotificationObservations() {
+  ensureDataDir();
+  const filePath = path.join(DATA_DIR, "notification-observations.json");
+
+  if (!fs.existsSync(filePath)) return [];
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
