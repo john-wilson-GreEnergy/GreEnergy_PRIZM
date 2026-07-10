@@ -1,4 +1,5 @@
-import { TROUBLESHOOTING_KB, TroubleshootingEntry } from "./troubleshootingKnowledgeBase";
+import { TroubleshootingEntry } from "./troubleshootingKnowledgeBase";
+import { getMergedTroubleshootingLibrary } from "./troubleshootingOverrides";
 
 /**
  * Resolves a raw fault, warning, or corrective action item to its curated troubleshooting entry
@@ -34,7 +35,7 @@ export function resolveTroubleshooting(issue: any): TroubleshootingEntry {
 
   // 1. Exact Code Match
   if (parsedCode !== null) {
-    const exactMatch = TROUBLESHOOTING_KB.find(entry => {
+    const exactMatch = getMergedTroubleshootingLibrary().find(entry => {
       return (entry.faultCodes || []).includes(parsedCode!) ||
              (entry.warningCodes || []).includes(parsedCode!) ||
              (entry.infoCodes || []).includes(parsedCode!) ||
@@ -48,7 +49,7 @@ export function resolveTroubleshooting(issue: any): TroubleshootingEntry {
   // 2. Alarm/Warning/Info Family Match (e.g. 1024, 2024, 3024 all map to BPC Disconnect)
   if (parsedCode !== null) {
     const familyBase = parsedCode % 1000;
-    const familyMatch = TROUBLESHOOTING_KB.find(entry => {
+    const familyMatch = getMergedTroubleshootingLibrary().find(entry => {
       const codes = [
         ...(entry.faultCodes || []),
         ...(entry.warningCodes || []),
@@ -63,7 +64,7 @@ export function resolveTroubleshooting(issue: any): TroubleshootingEntry {
   }
 
   // 3. Exact/Alias Name Match
-  const nameMatch = TROUBLESHOOTING_KB.find(entry => {
+  const nameMatch = getMergedTroubleshootingLibrary().find(entry => {
     const matchesName = entry.issueName.toLowerCase() === lowerLabel || entry.id.toLowerCase() === String(rawCode).toLowerCase();
     const matchesAlias = (entry.aliases || []).some(alias => alias.toLowerCase() === lowerLabel);
     return matchesName || matchesAlias;
@@ -73,7 +74,7 @@ export function resolveTroubleshooting(issue: any): TroubleshootingEntry {
   }
 
   // Term substring match on name or aliases
-  const termMatch = TROUBLESHOOTING_KB.find(entry => {
+  const termMatch = getMergedTroubleshootingLibrary().find(entry => {
     const nameSub = lowerLabel.includes(entry.issueName.toLowerCase());
     const aliasSub = (entry.aliases || []).some(alias => lowerLabel.includes(alias.toLowerCase()));
     return nameSub || aliasSub;
@@ -87,58 +88,58 @@ export function resolveTroubleshooting(issue: any): TroubleshootingEntry {
 
   if (lowerLabel.includes("hvac") || lowerLabel.includes("cooling")) {
     if (lowerLabel.includes("hvac 1") || lowerLabel.includes("hvac1")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "hvac-1-not-cooling");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "hvac-1-not-cooling");
     } else if (lowerLabel.includes("hvac 2") || lowerLabel.includes("hvac2")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "hvac-2-not-cooling");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "hvac-2-not-cooling");
     } else if (lowerLabel.includes("both") || lowerLabel.includes("total")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "both-hvacs-not-cooling");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "both-hvacs-not-cooling");
     } else {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "hvac-1-not-cooling");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "hvac-1-not-cooling");
     }
   } else if (lowerLabel.includes("balancer") || lowerLabel.includes("balancing")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "bpc-not-balancing");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "bpc-not-balancing");
   } else if (lowerLabel.includes("bpc")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "bpc-disconnect");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "bpc-disconnect");
   } else if (lowerLabel.includes("cell") && (lowerLabel.includes("volts") || lowerLabel.includes("voltage"))) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "abnormal-cell-voltage");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "abnormal-cell-voltage");
   } else if (lowerLabel.includes("cell") && (lowerLabel.includes("temp") || lowerLabel.includes("temperature"))) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "abnormal-cell-temp");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "abnormal-cell-temp");
   } else if (lowerLabel.includes("cgc") || lowerLabel.includes("cell group")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "cgc-disconnect");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "cgc-disconnect");
   } else if (lowerLabel.includes("fire") || lowerLabel.includes("smoke")) {
     if (lowerLabel.includes("trouble")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "fire-trouble");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "fire-trouble");
     } else {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "fire-alarm");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "fire-alarm");
     }
   } else if (lowerLabel.includes("ups")) {
     if (lowerLabel.includes("ups 1") || lowerLabel.includes("ups1")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "ups-1-offline");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "ups-1-offline");
     } else if (lowerLabel.includes("ups 2") || lowerLabel.includes("ups2")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "ups-2-offline");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "ups-2-offline");
     } else if (lowerLabel.includes("ups 3") || lowerLabel.includes("ups3")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "ups-3-offline");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "ups-3-offline");
     } else if (lowerLabel.includes("ups 4") || lowerLabel.includes("ups4")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "ups-4-offline");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "ups-4-offline");
     } else {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "ups-offline");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "ups-offline");
     }
   } else if (lowerLabel.includes("contactor")) {
     if (lowerLabel.includes("won't close") || lowerLabel.includes("wont close")) {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "string-contactors-wont-close");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "string-contactors-wont-close");
     } else {
-      fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "string-contactor-mismatch");
+      fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "string-contactor-mismatch");
     }
   } else if (lowerLabel.includes("lineup") && lowerLabel.includes("disconnect")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "lineup-disconnected");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "lineup-disconnected");
   } else if (lowerLabel.includes("booster") || lowerLabel.includes("fan")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "booster-fans-fault");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "booster-fans-fault");
   } else if (lowerLabel.includes("senva")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "senva-not-communicating");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "senva-not-communicating");
   } else if (lowerLabel.includes("feather")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "feather-unavailable");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "feather-unavailable");
   } else if (lowerLabel.includes("door")) {
-    fallbackEntry = TROUBLESHOOTING_KB.find(e => e.id === "door-sensors-tripped-closed");
+    fallbackEntry = getMergedTroubleshootingLibrary().find(e => e.id === "door-sensors-tripped-closed");
   }
 
   if (fallbackEntry) {

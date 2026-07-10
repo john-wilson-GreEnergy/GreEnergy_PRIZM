@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 // TODO: Implement route-level dynamic imports for code splitting.
 import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
+import CorrectiveActionsDashboard from "./components/CorrectiveActionsDashboard";
 import StringDashboard from "./components/StringDashboard";
 import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
 import PcsDashboard from "./components/PcsDashboard";
@@ -38,6 +39,7 @@ import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
 import StringFanCommandHold from "./components/StringFanCommandHold";
 import BalancerTestDashboard from "./components/BalancerTestDashboard";
 import TroubleshootingLibrary from "./components/TroubleshootingLibrary";
+import TroubleshootingMatrixEditor from "./components/TroubleshootingMatrixEditor";
 
 const Reporting = React.lazy(() => import("./components/Reporting"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
@@ -49,7 +51,7 @@ import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteData } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
-type AppTabId = "overview" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced" | "troubleshooting-library";
+type AppTabId = "overview" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -58,6 +60,7 @@ interface TabItem {
 
 const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "overview": { label: "Block Summary", icon: Activity },
+  "corrective-actions": { label: "Corrective Actions", icon: ShieldAlert },
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
   "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
@@ -72,6 +75,7 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
 
 const DEFAULT_TABS_ORDER: string[] = [
   "overview",
+  "corrective-actions",
   "arrays-strings",
   "site-health",
   "pcs-dashboard",
@@ -103,6 +107,7 @@ export default function App() {
     startTransition(() => setActiveTab(tab as AppTabId));
   };
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold" | "provisioning">("feather");
+  const [troubleshootingSub, setTroubleshootingSub] = useState<"library" | "matrix">("library");
   const [loading, setLoading] = useState(true);
   const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
   const [manualRepolling, setManualRepolling] = useState(false);
@@ -742,6 +747,12 @@ export default function App() {
                 </div>
               )}
 
+              {visitedTabs.has("corrective-actions") && (
+                <div className={activeTab === "corrective-actions" ? "block animate-fade-in" : "hidden"}>
+                  <CorrectiveActionsDashboard active={activeTab === "corrective-actions"} />
+                </div>
+              )}
+
               {visitedTabs.has("arrays-strings") && (
                 <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
                   <StringDashboard active={activeTab === "arrays-strings"} />
@@ -862,8 +873,37 @@ export default function App() {
               )}
 
               {visitedTabs.has("troubleshooting-library") && (
-                <div className={activeTab === "troubleshooting-library" ? "block animate-fade-in" : "hidden"}>
-                  <TroubleshootingLibrary />
+                <div className={activeTab === "troubleshooting-library" ? "block space-y-4 animate-fade-in" : "hidden"}>
+                  <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
+                    <button
+                      onClick={() => setTroubleshootingSub("library")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        troubleshootingSub === "library"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      Troubleshooting Library
+                    </button>
+                    <button
+                      onClick={() => setTroubleshootingSub("matrix")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        troubleshootingSub === "matrix"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      Corrective Action Matrix
+                    </button>
+                  </div>
+
+                  <div className={troubleshootingSub === "library" ? "block" : "hidden"}>
+                    <TroubleshootingLibrary />
+                  </div>
+
+                  <div className={troubleshootingSub === "matrix" ? "block" : "hidden"}>
+                    <TroubleshootingMatrixEditor />
+                  </div>
                 </div>
               )}
             </Suspense>
