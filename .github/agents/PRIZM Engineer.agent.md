@@ -438,3 +438,12 @@ When replacing legacy functionality:
 - Verify against a live EMS before approval.
 - Legacy functionality must not be removed until the replacement has been validated.
 - Observable behavior is considered part of the public contract.
+## Runtime Restart Verification
+
+After changing server-side runtime code:
+
+- Confirm the previous process has stopped.
+- Start a fresh server process.
+- Verify the listening PID changed.
+- Run live validation against the fresh process.
+- Never report runtime parity from a stale server process.
