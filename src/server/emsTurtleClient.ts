@@ -1319,7 +1319,27 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
       return statusText;
     }),
     fetchAndRecord('/tools/report/ems/status.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.status = { ...emsCache.status, ...d }; return d; }),
-    fetchAndRecord('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS, 'json').then(d => { setEmsCachedBlock(d); return d; }),
+    acquireEmsEndpointWithRestProvider('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS)
+      .then(result => {
+        if (!result.success) {
+          throw new Error(result.error || 'blockviewer acquisition failed');
+        }
+        setEmsCachedBlock(result.data);
+
+        // Preserve legacy raw endpoint cache behavior for diagnostics and parity checks.
+        const safeKey = '/tools/monitor/ems/blockviewer/data'.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+        try {
+          const prizmCache = require('./cache/prizmCache');
+          prizmCache.set('raw_' + safeKey, result.data, {
+            sourceUrl: result.attemptUrl || `${baseUrl}/tools/monitor/ems/blockviewer/data`,
+            isRaw: true,
+            rawExt: '.json',
+            ttlMs: 15000
+          });
+        } catch {}
+
+        return result.data;
+      }),
     acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS)
       .then(result => {
         if (!result.success) {
