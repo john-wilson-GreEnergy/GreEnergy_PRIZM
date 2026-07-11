@@ -54,8 +54,7 @@ import {
 import { ProfileStore, getDefaultTopologyModel } from "./src/server/profiles/profileStore";
 import { ProfileManager, validateTopologyModel, generateTopologyPreview } from "./src/server/profiles/profileManager";
 import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
-import { getFeatherCache, clearFeatherCache, queryFeatherDevice, queryFeatherInternalDiagnostics } from "./src/server/feather/featherClient";
-import { buildFeatherDeviceStatusResponse } from "./src/server/feather/featherStatusResponse";
+import { getFeatherCache, clearFeatherCache } from "./src/server/feather/featherClient";
 import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTopology";
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
 import { executeDataDiscovery } from "./src/server/telemetry/discovery";
@@ -76,6 +75,7 @@ import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOp
 import { resolveCorrectiveAction } from "./src/server/correctiveActions/correctiveActionResolver";
 import { STACK750_FAULT_MATRIX, MATRIX_METADATA } from "./src/server/correctiveActions/correctiveActionMatrix";
 import { buildLocalStringsResponse } from "./src/server/localStringsBrokerRoute";
+import { buildFeatherDeviceStatusRouteResponse } from "./src/server/feather/featherStatusBrokerRoute";
 
 
 
@@ -1305,29 +1305,21 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
     const { source } = req.query;
     const sourceMethod = (source && typeof source === "string") ? (source as any) : "manual";
     const includeDiagnostics = req.query.includeDiagnostics === "true";
+    const forceLegacy = req.query.legacy === "true" || process.env.PRIZM_FEATHER_STATUS_FORCE_LEGACY === "true";
+    const disableBroker = process.env.PRIZM_FEATHER_STATUS_DISABLE_BROKER === "true";
 
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
-    const direct = (await queryFeatherDevice(deviceIp, sourceMethod, timeout)) as any;
-    const diagnostics = includeDiagnostics
-      ? await queryFeatherInternalDiagnostics(deviceIp, timeout)
-      : null;
     const snapshot: any = prizmDataCoordinator.getLatestSnapshot();
 
-    const existing: any =
-      snapshot?.normalized?.feather?.find((d: any) =>
-        d.ip === deviceIp || d.deviceIp === deviceIp
-      ) ||
-      lastEnrichedCache?.devices?.find((d: any) =>
-        d.ip === deviceIp || d.deviceIp === deviceIp
-      );
-
-    const response = buildFeatherDeviceStatusResponse({
+    const { response } = await buildFeatherDeviceStatusRouteResponse({
       deviceIp,
-      direct,
-      existing,
+      sourceMethod,
       includeDiagnostics,
-      diagnostics,
-      mergedFromSnapshot: !!snapshot?.normalized?.feather,
+      timeoutMs: timeout,
+      snapshot,
+      lastEnrichedCache,
+      forceLegacy,
+      disableBroker,
     });
 
     res.json(response);
