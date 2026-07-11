@@ -75,6 +75,7 @@ import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
 import { resolveCorrectiveAction } from "./src/server/correctiveActions/correctiveActionResolver";
 import { STACK750_FAULT_MATRIX, MATRIX_METADATA } from "./src/server/correctiveActions/correctiveActionMatrix";
+import { buildLocalStringsResponse } from "./src/server/localStringsBrokerRoute";
 
 
 
@@ -408,144 +409,27 @@ app.get("/api/local/arrays", (req, res) => {
 });
 
 
-// Optional Helper for safely parsing numbers
-function pN(val: any, def: number | null = null): number | null {
-  if (val === undefined || val === null || val === "") return def;
-  const n = Number(val);
-  return isNaN(n) ? def : n;
-}
-
-
 // Site Distribution Endpoint is modularized under /src/server/siteDistribution/siteDistributionRoutes.ts
 
 // 5. GET /api/local/strings: Derived from tools/report/ems/strings.csv or fallback to blockviewer
-app.get("/api/local/strings", (req, res) => {
+app.get("/api/local/strings", async (req, res) => {
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
   const ipMapWrapper = getEmsStringIpMap();
   const snapshot = prizmDataCoordinator.getLatestSnapshot() as any;
-  const snapshotRawStrings = Array.isArray(snapshot?.rawSources?.strings) ? snapshot.rawSources.strings : [];
+  const forceLegacy = req.query.legacy === "true" || process.env.PRIZM_STRINGS_ROUTE_FORCE_LEGACY === "true";
+  const disableBroker = process.env.PRIZM_STRINGS_ROUTE_DISABLE_BROKER === "true";
 
-  const hasUsableStringIdentity = (rows: any[]): boolean => {
-    if (!Array.isArray(rows) || rows.length === 0) return false;
-    return rows.some((row: any) => {
-      if (!row || typeof row !== "object") return false;
-      return (
-        row.arrayIndex != null || row.ArrayIndex != null || row.array != null || row.Array != null ||
-        row.stringIndex != null || row.StringIndex != null || row.string != null || row.String != null ||
-        row.stringKey != null || row.StringKey != null
-      );
-    });
-  };
-  
-  let rawData = [];
-  let metaWrapper = rawStringsWrapper;
-  if (snapshotRawStrings.length > 0) {
-    rawData = snapshotRawStrings;
-  } else if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
-    rawData = rawStringsWrapper.data;
-  } else {
-    rawData = blockWrapper.data?.strings || [];
-    metaWrapper = blockWrapper;
-  }
-
-  if (!hasUsableStringIdentity(rawData)) {
-    const snap = prizmDataCoordinator.getLatestSnapshot() as any;
-    const snapRows = Array.isArray(snap?.rawSources?.strings) ? snap.rawSources.strings : [];
-    if (hasUsableStringIdentity(snapRows)) {
-      rawData = snapRows;
-      metaWrapper = rawStringsWrapper;
-    }
-  }
-  
-  let ipMap: any[] = [];
-  if (ipMapWrapper && Array.isArray(ipMapWrapper.data)) {
-    ipMap = ipMapWrapper.data;
-  }
-
-  const normalizedRows = rawData.map((row: any) => {
-    const arrayIndex = pN(row.arrayIndex || row.ArrayIndex || row.array || row.Array || row.arrayNumber || row.ArrayNumber || row.array_number, 1)!;
-    const stringIndex = pN(row.stringIndex || row.StringIndex || row.string || row.String || row.stringNumber || row.StringNumber || row.string_number || row.segmentId, 1)!;
-    const stringKey = row.stringKey || row.StringKey || row.displayKey || row.key || `A${arrayIndex}-S${stringIndex}`;
-    
-    // Look up ipMap
-    const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
-
-    let connectionState = row.connectionState || row.stringConnectionState || row.StringConnectionState || row.Status || row.status || row.state || row.contact || row.communicating || row.communicationState;
-    if (connectionState === true || connectionState === "true") connectionState = "Online";
-    else if (connectionState === false || connectionState === "false") connectionState = "Offline";
-    else if (!connectionState) connectionState = "Unknown";
-    else connectionState = String(connectionState);
-
-    const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? row.ContactorsCloseExpected ?? (connectionState === "Online"));
-    const positiveContactorClosed = Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? row.PositiveContactorClosed ?? (connectionState === "Online"));
-    const negativeContactorClosed = Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? row.NegativeContactorClosed ?? (connectionState === "Online"));
-    
-    const contactorMismatch = (contactorsCloseExpected !== positiveContactorClosed) || (contactorsCloseExpected !== negativeContactorClosed);
-
-    const maxT = pN(row.cellGroupTempMax || row.MaxCellGroupTemp || row.cellTempMax);
-    const minT = pN(row.cellGroupTempMin || row.MinCellGroupTemp || row.cellTempMin);
-    const maxV = pN(row.cellGroupVoltageMax || row.MaxCellGroupVoltage || row.cellVoltsMax || row.maxCellVoltage);
-    const minV = pN(row.cellGroupVoltageMin || row.MinCellGroupVoltage || row.cellVoltsMin || row.minCellVoltage);
-
-    return {
-      arrayIndex,
-      stringIndex,
-      stringKey,
-      timestamp: row.timestamp || row.Timestamp || row.TimestampUtc || row.timeStamp || row.time || metaWrapper.lastUpdated || new Date().toISOString(),
-      datetime: row.datetime || row.Datetime || row.dateTime || "",
-      connectionState,
-      soc: pN(row.soc || row.Soc || row.SoC || row.powerSoc || row.socPct || row.stateOfCharge),
-      kw: pN(row.kw || row.KW || row.powerkW || row.measuredKw || row.activePowerKw || row.realPowerKw),
-      kwh: pN(row.kwh || row.KWh || row.powerKwh || row.energyKwh),
-      ah: pN(row.ah || row.Ah),
-      calculatedVoltage: pN(row.voltageCalculated || row.CalculatedStringVoltage || row.voltageCalc || row.calculatedVoltage),
-      measuredVoltage: pN(row.voltageMeasured || row.MeasuredStringVoltage || row.voltageMeas || row.measuredVoltage),
-      dcBusVoltage: pN(row.voltageDcBus || row.DcBusVoltage || row.voltageBus),
-      stringCurrent: pN(row.current || row.stringCurrent || row.StringCurrent),
-      ctCurrent1: pN(row.ctCurrent1 || row.CtCurrent1),
-      ctCurrent2: pN(row.ctCurrent2 || row.CtCurrent2),
-      contactorsCloseExpected,
-      positiveContactorClosed,
-      negativeContactorClosed,
-      contactorMismatch,
-      recloseCount: pN(row.recloseCount || row.RecloseCount, 0),
-      outRotation: Boolean(row.out_rotation ?? row.outRotation ?? row.OutRotation ?? (row.rotation === "fault" || row.outOfRotation)),
-      maxCellTemp: maxT ?? pN(row.maxCellTemp),
-      minCellTemp: minT ?? pN(row.minCellTemp),
-      avgCellTemp: pN(row.cellGroupTempAvg || row.AvgCellGroupTemp || row.avgCellTemp || row.averageCellTemp),
-      tempDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
-      maxCellVoltage: maxV ?? pN(row.maxCellVoltage),
-      minCellVoltage: minV ?? pN(row.minCellVoltage),
-      avgCellVoltage: pN(row.cellGroupVoltageAvg || row.AvgCellGroupVoltage || row.avgCellVoltage || row.averageCellVoltage),
-      voltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
-      alarmCount: pN(row.alarmCount || row.AlarmCount || row.alarms, 0),
-      alarms: row.alarmsList || row.Alarms || [],
-      warnCount: pN(row.warningCount || row.WarnCount || row.warnings, 0),
-      warns: row.warningsList || row.Warns || [],
-      lastFanCommand: row.lastFanCommand || row.LastFanCommand || row.fanStatus || "Unknown",
-      location: row.location || row.Location || `R${arrayIndex}-Rack${stringIndex}`,
-      ipAddress: row.ipAddress || row.IpAddress || row.IPAddress || ipInfo?.ip || "Unknown",
-      entityToken: row.entityToken || row.EntityToken || row.IdentityToken || ipInfo?.token || "N/A"
-    };
+  const { response } = await buildLocalStringsResponse({
+    rawStringsWrapper,
+    blockWrapper,
+    ipMapWrapper,
+    snapshot,
+    forceLegacy,
+    disableBroker,
   });
 
-  res.json({
-    source: metaWrapper.source,
-    staleData: metaWrapper.staleData,
-    lastUpdated: metaWrapper.lastUpdated,
-    activeEmsBaseUrl: metaWrapper.activeEmsBaseUrl,
-    activeProfileName: metaWrapper.activeProfileName,
-    activeProfileId: metaWrapper.activeProfileId,
-    stationCode: metaWrapper.stationCode,
-    blockIndex: metaWrapper.blockIndex,
-    lastError: metaWrapper.lastError,
-    cacheProfileId: metaWrapper.cacheProfileId,
-    cacheEmsBaseUrl: metaWrapper.cacheEmsBaseUrl,
-    cacheCreatedAt: metaWrapper.cacheCreatedAt,
-    cacheLastUpdatedAt: metaWrapper.cacheLastUpdatedAt,
-    data: normalizedRows
-  });
+  res.json(response);
 });
 
 
