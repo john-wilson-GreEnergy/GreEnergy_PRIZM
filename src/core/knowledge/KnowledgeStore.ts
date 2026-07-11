@@ -1,3 +1,6 @@
+import { EventBus } from '../events';
+import type { Subscription } from '../events';
+import type { IdentityResolutionResult } from '../identity';
 import { Assertion } from './Assertion';
 import { Evidence } from './Evidence';
 import { Observation } from './Observation';
@@ -48,6 +51,24 @@ export class KnowledgeStore {
 
   public listAssertions(): readonly Assertion[] {
     return Array.from(this.assertions.values());
+  }
+
+  public subscribeTo(eventBus: EventBus): Subscription {
+    return eventBus.subscribe('IdentityResolved', (event) => {
+      const payload = event.payload as IdentityResolutionResult;
+      const observation: ObservationRecord = {
+        id: `observation-${payload.objectId ?? 'unknown'}-${Date.now()}`,
+        source: 'knowledge-store',
+        sourceType: 'derived',
+        observedAt: event.timestamp,
+        receivedAt: event.timestamp,
+        subject: payload.objectId ?? 'unknown',
+        payload,
+        summary: `Identity resolved for ${payload.objectId ?? 'unknown'}`,
+      };
+
+      this.addObservation(observation);
+    });
   }
 
   public snapshot(): KnowledgeStoreSnapshot<Observation | Evidence | Assertion> {

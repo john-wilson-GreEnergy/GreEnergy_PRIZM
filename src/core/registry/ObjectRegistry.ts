@@ -1,13 +1,40 @@
+import { EventBus } from '../events';
+import type { CoreEvent } from '../events';
 import type { PrizmObject } from '../models';
 import { RegistryStore } from './RegistryStore';
 import type { RegistryUpdates } from './types';
 import type { RegistryStatistics } from './RegistryStatistics';
 
+export interface ObjectRegistryOptions {
+  readonly eventBus?: EventBus;
+}
+
 export class ObjectRegistry<T extends PrizmObject = PrizmObject> {
   private readonly store = new RegistryStore<T>();
+  private readonly eventBus?: EventBus;
+
+  constructor(options: ObjectRegistryOptions = {}) {
+    this.eventBus = options.eventBus;
+  }
 
   public register(object: T): Readonly<T> | undefined {
-    return this.store.set(object);
+    const registered = this.store.set(object);
+    if (registered && this.eventBus) {
+      const event: CoreEvent<{ objectId: string; object: Readonly<T>; source: string }> = {
+        type: 'ObjectRegistered',
+        payload: {
+          objectId: registered.id,
+          object: registered,
+          source: 'registry',
+        },
+        source: 'registry',
+        timestamp: new Date().toISOString(),
+      };
+
+      this.eventBus.publish(event);
+    }
+
+    return registered;
   }
 
   public get(id: string): Readonly<T> | undefined {
