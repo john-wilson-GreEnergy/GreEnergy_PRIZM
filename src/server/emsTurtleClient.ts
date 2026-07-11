@@ -1152,7 +1152,14 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     }),
     fetchAndRecord('/tools/report/ems/status.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.status = { ...emsCache.status, ...d }; return d; }),
     fetchAndRecord('/tools/monitor/ems/blockviewer/data', EMS_FAST_TIMEOUT_MS, 'json').then(d => { setEmsCachedBlock(d); return d; }),
-    fetchAndRecord('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS, 'json').then(d => { emsCache.lastCall = d; return d; }),
+    acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS)
+      .then(result => {
+        if (!result.success) {
+          throw new Error(result.error || 'lastCall acquisition failed');
+        }
+        emsCache.lastCall = result.data;
+        return result.data;
+      }),
     fetchAndRecord('/tools/report/ems/strings.csv', EMS_FAST_TIMEOUT_MS, 'text').then(text => { emsCache.strings = parseCsv(text); return text; })
   ]);
 
