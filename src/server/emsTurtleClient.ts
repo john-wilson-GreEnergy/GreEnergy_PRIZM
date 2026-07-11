@@ -862,6 +862,36 @@ export function clearEmsTelemetryCache() {
       endpointDebugMap[k].fallbackUrl = null;
     }
   });
+
+  Object.keys(arrayNotificationsCache).forEach((k) => {
+    delete (arrayNotificationsCache as any)[k];
+  });
+  Object.keys(stringNotificationsCache).forEach((k) => {
+    delete (stringNotificationsCache as any)[k];
+  });
+  lastNotificationHybridComparison = {
+    comparisonTimestamp: new Date(0).toISOString(),
+    canonicalIdentityVersion: "notification-identity-v2",
+    canonicalIdentityFormat: "v2|sev:<ALARM|WARNING|UNKNOWN>|id:<notificationId|NA>|src:<sourceType|NA>|a:<array|NA>|s:<string|NA>|bp:<batteryPack|NA>|cg:<cellGroup|NA>",
+    legacyRawCount: 0,
+    turtleArrayRawCount: 0,
+    turtleStringRawCount: 0,
+    legacyCount: 0,
+    turtleArrayCount: 0,
+    turtleStringCount: 0,
+    legacyDuplicateCount: 0,
+    turtleArrayDuplicateCount: 0,
+    turtleStringDuplicateCount: 0,
+    sampleDuplicateIdentities: [],
+    matchedNotifications: [],
+    missingFromLegacy: [],
+    missingFromTurtle: [],
+    sampleMissingFromLegacy: [],
+    sampleMissingFromTurtle: [],
+    arraysPolled: [],
+    stringTargetsPolled: [],
+    legacyProductionOutputUnchanged: true,
+  };
 }
 
 // Diagnostics list endpoints report
@@ -943,6 +973,10 @@ interface EmsRestAcquisitionResult {
   kind?: string;
   statusCode?: number | null;
   attemptUrl?: string;
+  responseDurationMs?: number | null;
+  sourceUsed?: string | null;
+  fallbackUsed?: boolean;
+  fallbackUrl?: string | null;
 }
 
 interface EmsCsvAcquisitionResult {
@@ -1092,7 +1126,13 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
       }
     }
 
-    return finalAttempt;
+    return {
+      ...finalAttempt,
+      responseDurationMs: debugItem.durationMs,
+      sourceUsed: debugItem.sourceUsed || null,
+      fallbackUsed: !!debugItem.fallbackUsed,
+      fallbackUrl: debugItem.fallbackUrl || null,
+    };
   } catch (error) {
     debugItem.durationMs = Date.now() - startedAt;
     debugItem.success = false;
@@ -1109,6 +1149,10 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
       error: debugItem.lastError,
       statusCode: debugItem.statusCode,
       attemptUrl: url,
+      responseDurationMs: debugItem.durationMs,
+      sourceUsed: debugItem.sourceUsed || null,
+      fallbackUsed: !!debugItem.fallbackUsed,
+      fallbackUrl: debugItem.fallbackUrl || null,
     };
   }
 }
@@ -1753,17 +1797,111 @@ export function getEmsCachedArrayReports(): any {
   return emsCache.arrayReports || {};
 }
 
-export const arrayNotificationsCache: Record<number, {
+export type EmsNotificationCacheEntry = {
   ok: boolean;
   endpoint: string;
   fullUrl?: string;
-  status?: number;
+  status?: number | null;
+  responseDurationMs?: number | null;
+  sourceUsed?: string | null;
+  fallbackUsed?: boolean;
+  fallbackUrl?: string | null;
+  stale?: boolean;
   lastUpdated: string | null;
   data: any | null;
   error?: string | null;
   notificationCount?: number;
   sample?: any[];
-}> = {};
+};
+
+export const arrayNotificationsCache: Record<number, EmsNotificationCacheEntry> = {};
+const stringNotificationsCache: Record<string, EmsNotificationCacheEntry> = {};
+
+export type NotificationIdentifier = {
+  id: string;
+  code: string;
+  severity: "alarm" | "warning";
+  arrayIndex: number | null;
+  stringIndex: number | null;
+  batteryPackIndex: number | null;
+  cellGroupIndex: number | null;
+  sourceEndpointType: string | null;
+};
+
+export type NotificationHybridComparison = {
+  comparisonTimestamp: string;
+  canonicalIdentityVersion: string;
+  canonicalIdentityFormat: string;
+  legacyRawCount: number;
+  turtleArrayRawCount: number;
+  turtleStringRawCount: number;
+  legacyCount: number;
+  turtleArrayCount: number;
+  turtleStringCount: number;
+  legacyDuplicateCount: number;
+  turtleArrayDuplicateCount: number;
+  turtleStringDuplicateCount: number;
+  sampleDuplicateIdentities: string[];
+  matchedNotifications: string[];
+  missingFromLegacy: string[];
+  missingFromTurtle: string[];
+  sampleMissingFromLegacy: string[];
+  sampleMissingFromTurtle: string[];
+  arraysPolled: number[];
+  stringTargetsPolled: string[];
+  legacyProductionOutputUnchanged: boolean;
+};
+
+let lastNotificationHybridComparison: NotificationHybridComparison = {
+  comparisonTimestamp: new Date(0).toISOString(),
+  canonicalIdentityVersion: "notification-identity-v2",
+  canonicalIdentityFormat: "v2|sev:<ALARM|WARNING|UNKNOWN>|id:<notificationId|NA>|src:<sourceType|NA>|a:<array|NA>|s:<string|NA>|bp:<batteryPack|NA>|cg:<cellGroup|NA>",
+  legacyRawCount: 0,
+  turtleArrayRawCount: 0,
+  turtleStringRawCount: 0,
+  legacyCount: 0,
+  turtleArrayCount: 0,
+  turtleStringCount: 0,
+  legacyDuplicateCount: 0,
+  turtleArrayDuplicateCount: 0,
+  turtleStringDuplicateCount: 0,
+  sampleDuplicateIdentities: [],
+  matchedNotifications: [],
+  missingFromLegacy: [],
+  missingFromTurtle: [],
+  sampleMissingFromLegacy: [],
+  sampleMissingFromTurtle: [],
+  arraysPolled: [],
+  stringTargetsPolled: [],
+  legacyProductionOutputUnchanged: true,
+};
+
+function normalizeNotificationContainer(data: any): { notification: any[] } {
+  if (data && typeof data === "object" && Array.isArray((data as any).notification)) {
+    return data as { notification: any[] };
+  }
+  return { notification: [] };
+}
+
+function buildNotificationCacheEntry(endpoint: string, result: EmsRestAcquisitionResult): EmsNotificationCacheEntry {
+  const normalized = normalizeNotificationContainer(result.data);
+  return {
+    ok: !!result.success,
+    endpoint,
+    fullUrl: result.attemptUrl,
+    status: result.statusCode ?? null,
+    responseDurationMs: result.responseDurationMs ?? null,
+    sourceUsed: result.sourceUsed ?? null,
+    fallbackUsed: !!result.fallbackUsed,
+    fallbackUrl: result.fallbackUrl ?? null,
+    stale: !result.success,
+    lastUpdated: new Date().toISOString(),
+    data: normalized,
+    error: result.success ? null : (result.error || "REST acquisition failed"),
+    notificationCount: normalized.notification.length,
+    sample: normalized.notification.slice(0, 2),
+  };
+}
 
 function getSimulatedArrayNotifications(arrayNumber: number): any {
   if (arrayNumber !== 1) {
@@ -1910,65 +2048,42 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
     const ep = `/tools/report/ems/array/${a}/notifications.json`;
     const baseUrl = getNormalizedBaseUrl();
     const targetUrl = `${baseUrl}${ep}`;
-    
-    let responseStatus: number | undefined = undefined;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), EMS_NORMAL_TIMEOUT_MS);
-    
+
     try {
       if (process.env.PRIZM_USE_SIMULATED_ARRAY_NOTIFICATIONS === "true") {
-        const data = getSimulatedArrayNotifications(a);
+        const data = normalizeNotificationContainer(getSimulatedArrayNotifications(a));
         arrayNotificationsCache[a] = {
           ok: true,
           endpoint: ep,
           fullUrl: targetUrl,
           status: 200,
+          responseDurationMs: 0,
+          sourceUsed: "simulated",
+          fallbackUsed: false,
+          fallbackUrl: null,
+          stale: false,
           lastUpdated: new Date().toISOString(),
           data,
           notificationCount: data.notification.length,
           sample: data.notification.slice(0, 2)
         };
-        clearTimeout(timeoutId);
         return;
       }
 
-      const response = await fetch(targetUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      responseStatus = response.status;
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      if (!data || typeof data !== "object") {
-        throw new Error("Invalid response: body is not a JSON object");
-      }
-      if (!Array.isArray(data.notification)) {
-        throw new Error("Invalid response: notification list is missing or not an array");
-      }
-      
-      const notificationCount = data.notification.length;
-      const sample = data.notification.slice(0, 2);
-      
-      arrayNotificationsCache[a] = {
-        ok: true,
-        endpoint: ep,
-        fullUrl: targetUrl,
-        status: responseStatus,
-        lastUpdated: new Date().toISOString(),
-        data,
-        notificationCount,
-        sample
-      };
+      const result = await acquireEmsEndpointWithRestProvider(ep, EMS_NORMAL_TIMEOUT_MS);
+      arrayNotificationsCache[a] = buildNotificationCacheEntry(ep, result);
     } catch (err: any) {
-      clearTimeout(timeoutId);
       const errorMsg = err.message || String(err);
       arrayNotificationsCache[a] = {
         ok: false,
         endpoint: ep,
         fullUrl: targetUrl,
-        status: responseStatus,
+        status: null,
+        responseDurationMs: null,
+        sourceUsed: "primary",
+        fallbackUsed: false,
+        fallbackUrl: null,
+        stale: true,
         lastUpdated: new Date().toISOString(),
         data: { notification: [] },
         error: errorMsg,
@@ -1980,22 +2095,377 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
   await Promise.allSettled(promises);
 }
 
-export function getEmsCachedArrayNotifications(): Record<number, {
-  ok: boolean;
-  endpoint: string;
-  fullUrl?: string;
-  status?: number;
-  lastUpdated: string | null;
-  data: any | null;
-  error?: string | null;
-  notificationCount?: number;
-  sample?: any[];
-}> {
+export async function pollEmsStringNotifications(
+  stringTargets: Array<{ arrayIndex: number; stringIndex: number }>,
+  options?: { timeoutMs?: number; maxTargets?: number }
+): Promise<Record<string, EmsNotificationCacheEntry>> {
+  const timeoutMs = options?.timeoutMs ?? EMS_NORMAL_TIMEOUT_MS;
+  const maxTargets = Math.max(1, Math.min(options?.maxTargets ?? 24, 64));
+  const boundedTargets = stringTargets.slice(0, maxTargets);
+
+  const tasks = boundedTargets.map(async ({ arrayIndex, stringIndex }) => {
+    const key = `${arrayIndex}:${stringIndex}`;
+    const endpoint = `/tools/report/ems/array/${arrayIndex}/string/${stringIndex}/notifications.json`;
+    const result = await acquireEmsEndpointWithRestProvider(endpoint, timeoutMs);
+    stringNotificationsCache[key] = buildNotificationCacheEntry(endpoint, result);
+  });
+
+  await Promise.allSettled(tasks);
+  return stringNotificationsCache;
+}
+
+export function getEmsCachedArrayNotifications(): Record<number, EmsNotificationCacheEntry> {
   return arrayNotificationsCache;
 }
 
 export function getEmsCachedArrayNotificationsForArray(arrayNumber: number) {
   return arrayNotificationsCache[arrayNumber] || null;
+}
+
+export function getEmsCachedStringNotifications(): Record<string, EmsNotificationCacheEntry> {
+  return stringNotificationsCache;
+}
+
+function normalizeSeverity(input: any): "alarm" | "warning" {
+  const s = String(input || "").toUpperCase();
+  return s === "ALARM" || s === "CRITICAL" ? "alarm" : "warning";
+}
+
+function normalizeSeverityForIdentity(input: any): "ALARM" | "WARNING" | "UNKNOWN" {
+  const s = String(input || "").trim().toUpperCase();
+  if (s === "ALARM" || s === "CRITICAL") return "ALARM";
+  if (s === "WARNING") return "WARNING";
+  return "UNKNOWN";
+}
+
+function toNumberOrNull(value: any): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizeIndexForIdentity(value: any): string {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : "NA";
+}
+
+function normalizeTokenForIdentity(value: any): string {
+  const v = String(value ?? "").trim();
+  return v ? v.toUpperCase() : "NA";
+}
+
+function buildNotificationIdentifier(
+  code: string,
+  severity: "alarm" | "warning",
+  arrayIndex: number | null,
+  stringIndex: number | null,
+  batteryPackIndex: number | null,
+  cellGroupIndex: number | null
+): string {
+  return [
+    severity,
+    code || "UNKNOWN",
+    arrayIndex ?? "-",
+    stringIndex ?? "-",
+    batteryPackIndex ?? "-",
+    cellGroupIndex ?? "-",
+  ].join("|");
+}
+
+function buildCanonicalNotificationIdentityV2(parts: {
+  severity: any;
+  notificationId: any;
+  sourceType: any;
+  arrayIndex: any;
+  stringIndex: any;
+  batteryPackIndex: any;
+  cellGroupIndex: any;
+}): string {
+  return [
+    "v2",
+    `sev:${normalizeSeverityForIdentity(parts.severity)}`,
+    `id:${normalizeTokenForIdentity(parts.notificationId)}`,
+    `src:${normalizeTokenForIdentity(parts.sourceType)}`,
+    `a:${normalizeIndexForIdentity(parts.arrayIndex)}`,
+    `s:${normalizeIndexForIdentity(parts.stringIndex)}`,
+    `bp:${normalizeIndexForIdentity(parts.batteryPackIndex)}`,
+    `cg:${normalizeIndexForIdentity(parts.cellGroupIndex)}`,
+  ].join("|");
+}
+
+function countDuplicatesAndSamples(rawIds: string[]): { duplicateCount: number; sampleDuplicates: string[] } {
+  const counts = new Map<string, number>();
+  for (const id of rawIds) {
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  const sampleDuplicates = [...counts.entries()]
+    .filter(([, c]) => c > 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([id, c]) => `${id}#dup:${c - 1}`);
+  const duplicateCount = [...counts.values()].reduce((sum, c) => sum + Math.max(c - 1, 0), 0);
+  return { duplicateCount, sampleDuplicates };
+}
+
+function extractRawCanonicalIdsFromTurtleNotifications(notificationRows: any[]): string[] {
+  const rawIds: string[] = [];
+  for (const row of notificationRows) {
+    const source = row?.notificationSource || {};
+    rawIds.push(
+      buildCanonicalNotificationIdentityV2({
+        severity: row?.notificationType?.notificationCategory,
+        notificationId: row?.notificationType?.notificationId,
+        sourceType: source.endpointType || source.type || row?.sourceEndpointType,
+        arrayIndex: source.arrayIndex,
+        stringIndex: source.stringIndex,
+        batteryPackIndex: source.batteryPackIndex,
+        cellGroupIndex: source.cellGroupIndex,
+      })
+    );
+  }
+  return rawIds;
+}
+
+function extractRawCanonicalIdsFromLegacyNotifications(legacyNotifications: any[]): string[] {
+  const rawIds: string[] = [];
+  for (const action of legacyNotifications || []) {
+    const targets = Array.isArray(action?.affected) ? action.affected : [];
+    const baseSeverity = action?.severity || action?.level;
+    const baseCode = action?.code ?? action?.rawCode;
+    const baseSourceType = action?.endpointType || action?.sourceEndpoint || action?.sourcePath || action?.source;
+
+    if (targets.length === 0) {
+      rawIds.push(
+        buildCanonicalNotificationIdentityV2({
+          severity: baseSeverity,
+          notificationId: baseCode,
+          sourceType: baseSourceType,
+          arrayIndex: null,
+          stringIndex: null,
+          batteryPackIndex: null,
+          cellGroupIndex: null,
+        })
+      );
+      continue;
+    }
+
+    for (const target of targets) {
+      rawIds.push(
+        buildCanonicalNotificationIdentityV2({
+          severity: baseSeverity,
+          notificationId: baseCode,
+          sourceType: target?.endpointType || target?.sourceEndpoint || target?.sourcePath || baseSourceType,
+          arrayIndex: target?.arrayIndex,
+          stringIndex: target?.stringIndex,
+          batteryPackIndex: target?.batteryPackIndex,
+          cellGroupIndex: target?.cellGroupIndex,
+        })
+      );
+    }
+  }
+  return rawIds;
+}
+
+function extractIdentifiersFromTurtleNotifications(notificationRows: any[]): NotificationIdentifier[] {
+  const out: NotificationIdentifier[] = [];
+  for (const row of notificationRows) {
+    const source = row?.notificationSource || {};
+    const code = String(row?.notificationType?.notificationId ?? "");
+    const severity = normalizeSeverity(row?.notificationType?.notificationCategory);
+    const arrayIndex = toNumberOrNull(source.arrayIndex);
+    const stringIndex = toNumberOrNull(source.stringIndex);
+    const batteryPackIndex = toNumberOrNull(source.batteryPackIndex);
+    const cellGroupIndex = toNumberOrNull(source.cellGroupIndex);
+    out.push({
+      id: buildNotificationIdentifier(code, severity, arrayIndex, stringIndex, batteryPackIndex, cellGroupIndex),
+      code,
+      severity,
+      arrayIndex,
+      stringIndex,
+      batteryPackIndex,
+      cellGroupIndex,
+      sourceEndpointType: source.endpointType ? String(source.endpointType) : null,
+    });
+  }
+  return out;
+}
+
+function extractIdentifiersFromLegacyNotifications(legacyNotifications: any[]): string[] {
+  const ids: string[] = [];
+  for (const action of legacyNotifications || []) {
+    const code = String(action?.code ?? action?.rawCode ?? "");
+    const severity = normalizeSeverity(action?.severity || action?.level);
+    const targets = Array.isArray(action?.affected) ? action.affected : [];
+    if (targets.length === 0) {
+      ids.push(buildNotificationIdentifier(code, severity, null, null, null, null));
+      continue;
+    }
+    for (const target of targets) {
+      ids.push(
+        buildNotificationIdentifier(
+          code,
+          severity,
+          toNumberOrNull(target?.arrayIndex),
+          toNumberOrNull(target?.stringIndex),
+          toNumberOrNull(target?.batteryPackIndex),
+          toNumberOrNull(target?.cellGroupIndex)
+        )
+      );
+    }
+  }
+  return ids;
+}
+
+export function updateNotificationHybridTelemetry(
+  legacyNotifications: any[],
+  scope?: {
+    arrayNumbers?: number[];
+    stringTargets?: Array<{ arrayIndex: number; stringIndex: number }>;
+  },
+  datasets?: {
+    arrayEntries?: Record<number, EmsNotificationCacheEntry>;
+    stringEntries?: Record<string, EmsNotificationCacheEntry>;
+  }
+): NotificationHybridComparison {
+  const scopedArrays = Array.isArray(scope?.arrayNumbers) && scope!.arrayNumbers!.length > 0
+    ? new Set(scope!.arrayNumbers)
+    : null;
+  const scopedStrings = Array.isArray(scope?.stringTargets) && scope!.stringTargets!.length > 0
+    ? new Set(scope!.stringTargets!.map((t) => `${t.arrayIndex}:${t.stringIndex}`))
+    : null;
+
+  const arraySource = datasets?.arrayEntries || arrayNotificationsCache;
+  const stringSource = datasets?.stringEntries || stringNotificationsCache;
+
+  const arrayRows = Object.entries(arraySource)
+    .filter(([k]) => (scopedArrays ? scopedArrays.has(Number(k)) : true))
+    .flatMap(([, entry]) => normalizeNotificationContainer(entry?.data).notification);
+
+  const stringRows = Object.entries(stringSource)
+    .filter(([k]) => (scopedStrings ? scopedStrings.has(k) : true))
+    .flatMap(([, entry]) => normalizeNotificationContainer(entry?.data).notification);
+
+  const legacyRawIds = extractRawCanonicalIdsFromLegacyNotifications(legacyNotifications || []);
+  const turtleArrayRawIds = extractRawCanonicalIdsFromTurtleNotifications(arrayRows);
+  const turtleStringRawIds = extractRawCanonicalIdsFromTurtleNotifications(stringRows);
+
+  const legacyIds = new Set(legacyRawIds);
+  const turtleArrayIds = new Set(turtleArrayRawIds);
+  const turtleStringIds = new Set(turtleStringRawIds);
+  const turtleUnionIds = new Set<string>([...turtleArrayIds, ...turtleStringIds]);
+
+  const matched = [...legacyIds].filter((id) => turtleUnionIds.has(id)).sort();
+  const missingFromLegacy = [...turtleUnionIds].filter((id) => !legacyIds.has(id)).sort();
+  const missingFromTurtle = [...legacyIds].filter((id) => !turtleUnionIds.has(id)).sort();
+
+  const legacyDup = countDuplicatesAndSamples(legacyRawIds);
+  const turtleArrayDup = countDuplicatesAndSamples(turtleArrayRawIds);
+  const turtleStringDup = countDuplicatesAndSamples(turtleStringRawIds);
+  const sampleDuplicateIdentities = [
+    ...legacyDup.sampleDuplicates,
+    ...turtleArrayDup.sampleDuplicates,
+    ...turtleStringDup.sampleDuplicates,
+  ].slice(0, 5);
+
+  lastNotificationHybridComparison = {
+    comparisonTimestamp: new Date().toISOString(),
+    canonicalIdentityVersion: "notification-identity-v2",
+    canonicalIdentityFormat: "v2|sev:<ALARM|WARNING|UNKNOWN>|id:<notificationId|NA>|src:<sourceType|NA>|a:<array|NA>|s:<string|NA>|bp:<batteryPack|NA>|cg:<cellGroup|NA>",
+    legacyRawCount: legacyRawIds.length,
+    turtleArrayRawCount: turtleArrayRawIds.length,
+    turtleStringRawCount: turtleStringRawIds.length,
+    legacyCount: legacyIds.size,
+    turtleArrayCount: turtleArrayIds.size,
+    turtleStringCount: turtleStringIds.size,
+    legacyDuplicateCount: legacyDup.duplicateCount,
+    turtleArrayDuplicateCount: turtleArrayDup.duplicateCount,
+    turtleStringDuplicateCount: turtleStringDup.duplicateCount,
+    sampleDuplicateIdentities,
+    matchedNotifications: matched,
+    missingFromLegacy,
+    missingFromTurtle,
+    sampleMissingFromLegacy: missingFromLegacy.slice(0, 5),
+    sampleMissingFromTurtle: missingFromTurtle.slice(0, 5),
+    arraysPolled: Object.keys(arraySource)
+      .map((k) => Number(k))
+      .filter((n) => Number.isFinite(n) && (scopedArrays ? scopedArrays.has(n) : true))
+      .sort((a, b) => a - b),
+    stringTargetsPolled: Object.keys(stringSource)
+      .filter((k) => (scopedStrings ? scopedStrings.has(k) : true))
+      .sort(),
+    legacyProductionOutputUnchanged: true,
+  };
+
+  return lastNotificationHybridComparison;
+}
+
+export async function runNotificationHybridComparison(options: {
+  legacyNotifications: any[];
+  arrayNumbers?: number[];
+  stringTargets?: Array<{ arrayIndex: number; stringIndex: number }>;
+  refreshArrays?: boolean;
+  refreshStrings?: boolean;
+  maxStringTargets?: number;
+  timeoutMs?: number;
+}): Promise<NotificationHybridComparison> {
+  const arrayNumbers = Array.isArray(options.arrayNumbers) && options.arrayNumbers.length > 0
+    ? options.arrayNumbers
+    : [1, 2, 3, 4, 5, 6, 7, 8];
+  const stringTargets = Array.isArray(options.stringTargets) ? options.stringTargets : [];
+  const refreshArrays = options.refreshArrays !== false;
+  const refreshStrings = options.refreshStrings !== false;
+
+  const scopedArrayEntries: Record<number, EmsNotificationCacheEntry> = {};
+  const scopedStringEntries: Record<string, EmsNotificationCacheEntry> = {};
+
+  if (refreshArrays) {
+    const arrTasks = arrayNumbers.map(async (arrayIndex) => {
+      const endpoint = `/tools/report/ems/array/${arrayIndex}/notifications.json`;
+      const result = await acquireEmsEndpointWithRestProvider(endpoint, options.timeoutMs ?? EMS_NORMAL_TIMEOUT_MS);
+      const entry = buildNotificationCacheEntry(endpoint, result);
+      arrayNotificationsCache[arrayIndex] = entry;
+      scopedArrayEntries[arrayIndex] = entry;
+    });
+    await Promise.allSettled(arrTasks);
+  } else {
+    for (const arrayIndex of arrayNumbers) {
+      if (arrayNotificationsCache[arrayIndex]) {
+        scopedArrayEntries[arrayIndex] = arrayNotificationsCache[arrayIndex];
+      }
+    }
+  }
+
+  if (refreshStrings && stringTargets.length > 0) {
+    const maxTargets = Math.max(1, Math.min(options.maxStringTargets ?? 24, 64));
+    const boundedTargets = stringTargets.slice(0, maxTargets);
+    const strTasks = boundedTargets.map(async ({ arrayIndex, stringIndex }) => {
+      const key = `${arrayIndex}:${stringIndex}`;
+      const endpoint = `/tools/report/ems/array/${arrayIndex}/string/${stringIndex}/notifications.json`;
+      const result = await acquireEmsEndpointWithRestProvider(endpoint, options.timeoutMs ?? EMS_NORMAL_TIMEOUT_MS);
+      const entry = buildNotificationCacheEntry(endpoint, result);
+      stringNotificationsCache[key] = entry;
+      scopedStringEntries[key] = entry;
+    });
+    await Promise.allSettled(strTasks);
+  } else {
+    for (const target of stringTargets) {
+      const key = `${target.arrayIndex}:${target.stringIndex}`;
+      if (stringNotificationsCache[key]) {
+        scopedStringEntries[key] = stringNotificationsCache[key];
+      }
+    }
+  }
+
+  return updateNotificationHybridTelemetry(options.legacyNotifications || [], {
+    arrayNumbers,
+    stringTargets,
+  }, {
+    arrayEntries: scopedArrayEntries,
+    stringEntries: scopedStringEntries,
+  });
+}
+
+export function getNotificationHybridTelemetry(): NotificationHybridComparison {
+  return lastNotificationHybridComparison;
 }
 
 export function getFirstResponderEndpointDebugInfo() {

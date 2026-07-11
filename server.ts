@@ -47,7 +47,9 @@ import {
   isDemoActive,
   getEmsCachedControllerStatistics,
   getEmsCachedLastCall,
-  clearEmsTelemetryCache
+  clearEmsTelemetryCache,
+  runNotificationHybridComparison,
+  getNotificationHybridTelemetry
 } from "./src/server/emsTurtleClient";
 import { ProfileStore, getDefaultTopologyModel } from "./src/server/profiles/profileStore";
 import { ProfileManager, validateTopologyModel, generateTopologyPreview } from "./src/server/profiles/profileManager";
@@ -647,6 +649,65 @@ app.get("/api/local/modbus-map", (req, res) => {
 // 11. GET /api/local/debug/sources: Reports endpoint polling metrics
 app.get("/api/local/debug/sources", (req, res) => {
   res.json(getEmsSourcesDebugInfo());
+});
+
+// 11b. GET /api/local/debug/notifications/hybrid: compare legacy parsed notifications vs Turtle notification endpoints.
+app.get("/api/local/debug/notifications/hybrid", async (req, res) => {
+  try {
+    const snapshot = prizmDataCoordinator.getLatestSnapshot() as any;
+    const legacyNotifications = Array.isArray(snapshot?.normalized?.correctiveActions)
+      ? snapshot.normalized.correctiveActions
+      : [];
+
+    const arraysRaw = typeof req.query.arrays === "string" ? req.query.arrays : "";
+    const stringsRaw = typeof req.query.strings === "string" ? req.query.strings : "";
+    const refresh = req.query.refresh === "true";
+    const maxStringTargets = Math.max(1, Math.min(Number(req.query.maxStringTargets) || 24, 64));
+
+    const arrayNumbers = arraysRaw
+      ? arraysRaw.split(",").map((x) => Number(x.trim())).filter((n) => Number.isFinite(n) && n >= 1 && n <= 64)
+      : [1, 2, 3, 4, 5, 6, 7, 8];
+
+    const stringTargets = stringsRaw
+      ? stringsRaw
+          .split(",")
+          .map((token) => token.trim())
+          .filter(Boolean)
+          .map((pair) => {
+            const parts = pair.split(":");
+            return {
+              arrayIndex: Number(parts[0]),
+              stringIndex: Number(parts[1]),
+            };
+          })
+          .filter((t) => Number.isFinite(t.arrayIndex) && Number.isFinite(t.stringIndex) && t.arrayIndex >= 1 && t.stringIndex >= 1)
+          .slice(0, maxStringTargets)
+      : [];
+
+    const comparison = refresh
+      ? await runNotificationHybridComparison({
+          legacyNotifications,
+          arrayNumbers,
+          stringTargets,
+          refreshArrays: true,
+          refreshStrings: stringTargets.length > 0,
+          maxStringTargets,
+        })
+      : getNotificationHybridTelemetry();
+
+    res.json({
+      success: true,
+      comparison,
+      requested: {
+        refresh,
+        arrays: arrayNumbers,
+        stringTargets,
+        maxStringTargets,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to build hybrid notification comparison" });
+  }
 });
 
 // 12. GET /api/local/ip-map: Reports site IP mapping

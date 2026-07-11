@@ -1,4 +1,4 @@
-import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports, getEmsCachedArrayNotifications } from "./emsTurtleClient";
+import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports, getEmsCachedArrayNotifications, updateNotificationHybridTelemetry } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./siteOperations";
@@ -4233,6 +4233,9 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
   snapshot.correctiveActions = finalActions;
   
   snapshot.debug.correctiveActionsCount = finalActions.length;
+
+  // Hybrid mode: keep legacy corrective output as production while recording parity deltas in debug telemetry.
+  const notificationHybrid = updateNotificationHybridTelemetry(finalActions);
   
   snapshot.debug.correctiveActionDedup = {
     inputCount: rawEvents.length,
@@ -4264,4 +4267,6 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
     finalActionCount: finalActions.length,
     sampleFaultLabels: finalActions.slice(0, 5).map((a: any) => a.faultLabel)
   };
+
+  snapshot.debug.notificationHybridComparison = notificationHybrid;
 }
