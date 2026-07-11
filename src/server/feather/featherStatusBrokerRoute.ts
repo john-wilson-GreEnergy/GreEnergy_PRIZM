@@ -1,7 +1,6 @@
 import { queryFeatherDevice, queryFeatherInternalDiagnostics } from "./featherClient";
 import { buildFeatherDeviceStatusResponse } from "./featherStatusResponse";
-import { TelemetryBroker } from "../telemetry/TelemetryBroker";
-import { FeatherTelemetryProvider } from "../telemetry/providers/FeatherTelemetryProvider";
+import { collectTelemetrySnapshot, getTelemetryBroker } from "../telemetry/TelemetryRuntime";
 
 type FeatherStatusRouteArgs = {
   deviceIp: string;
@@ -29,9 +28,6 @@ type FeatherStatusParity = {
   alarmsEqual: boolean;
   diagnosticsPresenceEqual: boolean;
 };
-
-const featherStatusTelemetryBroker = new TelemetryBroker();
-featherStatusTelemetryBroker.registerProvider(new FeatherTelemetryProvider());
 
 function findLegacyExisting(snapshot: any, lastEnrichedCache: any, deviceIp: string): any {
   return (
@@ -81,8 +77,8 @@ function computeFeatherParity(brokerResponse: any, legacyResponse: any, includeD
   };
 }
 
-export function getFeatherStatusTelemetryBroker(): TelemetryBroker {
-  return featherStatusTelemetryBroker;
+export function getFeatherStatusTelemetryBroker() {
+  return getTelemetryBroker();
 }
 
 export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusRouteArgs): Promise<{
@@ -130,7 +126,7 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
   }
 
   try {
-    const bSnapshot = brokerSnapshot ?? await (collectBrokerSnapshotFn ? collectBrokerSnapshotFn() : featherStatusTelemetryBroker.collectSnapshot());
+    const bSnapshot = brokerSnapshot ?? await (collectBrokerSnapshotFn ? collectBrokerSnapshotFn() : collectTelemetrySnapshot());
     const authority = bSnapshot?.authorities?.["feather-hvac-telemetry"];
     const providerId = authority?.chosenProviderId;
     const providerHealth = providerId ? bSnapshot?.health?.[providerId] : null;

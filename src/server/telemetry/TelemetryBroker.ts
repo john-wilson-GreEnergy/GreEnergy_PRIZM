@@ -42,7 +42,30 @@ export class TelemetryBroker {
     const providerHealth: Record<string, any> = {};
 
     const jobs = [...this.providers.values()].map(async (provider) => {
-      const snapshot = await provider.captureSnapshot();
+      let snapshot: TelemetryProviderSnapshot;
+      const startedAt = Date.now();
+      try {
+        snapshot = await provider.captureSnapshot();
+      } catch (error: unknown) {
+        snapshot = {
+          providerId: provider.id,
+          capturedAt: new Date().toISOString(),
+          domains: {},
+          health: {
+            providerId: provider.id,
+            healthy: false,
+            stale: true,
+            latencyMs: Date.now() - startedAt,
+            lastSuccessAt: null,
+            lastError: error instanceof Error ? error.message : String(error),
+            consecutiveFailures: 1,
+          },
+          provenance: {
+            source: provider.id,
+            metadata: { captureRejected: true },
+          },
+        };
+      }
       providerSnapshots[provider.id] = cloneValue(snapshot);
       providerHealth[provider.id] = cloneValue(snapshot.health);
     });

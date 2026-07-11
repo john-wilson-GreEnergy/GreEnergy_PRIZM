@@ -1,5 +1,4 @@
-import { TelemetryBroker } from "./telemetry/TelemetryBroker";
-import { TurtleTelemetryProvider } from "./telemetry/providers/TurtleTelemetryProvider";
+import { collectTelemetrySnapshot, getTelemetryBroker } from "./telemetry/TelemetryRuntime";
 
 type LocalStringsMetaWrapper = {
   source: string;
@@ -81,9 +80,6 @@ type BrokerParitySummary = {
     maxCellTemp: boolean;
   };
 };
-
-const stringsTelemetryBroker = new TelemetryBroker();
-stringsTelemetryBroker.registerProvider(new TurtleTelemetryProvider());
 
 function pN(val: any, def: number | null = null): number | null {
   if (val === undefined || val === null || val === "") return def;
@@ -234,8 +230,8 @@ function getBrokerRawRowsFromSnapshot(snapshot: any): { rawData: any[]; authorit
   return { rawData: rawRows, authority };
 }
 
-export function getStringsTelemetryBroker(): TelemetryBroker {
-  return stringsTelemetryBroker;
+export function getStringsTelemetryBroker() {
+  return getTelemetryBroker();
 }
 
 export async function buildLocalStringsResponse(args: BuildLocalStringsResponseArgs): Promise<{ response: any; parity: BrokerParitySummary | null; usingBroker: boolean }> {
@@ -252,7 +248,7 @@ export async function buildLocalStringsResponse(args: BuildLocalStringsResponseA
 
   if (!forceLegacy && !disableBroker) {
     try {
-      const bSnapshot = brokerSnapshot ?? await stringsTelemetryBroker.collectSnapshot();
+      const bSnapshot = brokerSnapshot ?? await collectTelemetrySnapshot();
       const { rawData: brokerRawRows, authority } = getBrokerRawRowsFromSnapshot(bSnapshot);
       const brokerRows = normalizeRows(brokerRawRows, ipMap, rawStringsWrapper);
       parity = computeBrokerParitySummary(brokerRows, legacyRows);

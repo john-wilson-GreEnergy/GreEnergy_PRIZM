@@ -4,6 +4,7 @@ export * from "./TelemetryProvider";
 export * from "./TelemetryAuthority";
 export * from "./TelemetrySnapshot";
 export * from "./TelemetryBroker";
+export * from "./TelemetryRuntime";
 export * from "./providers/TurtleTelemetryProvider";
 export * from "./providers/FeatherTelemetryProvider";
 export * from "./providers/FirstResponderTelemetryProvider";
