@@ -1,6 +1,4 @@
-export * from './base/AcquisitionProvider';
-export * from './base/AcquisitionResult';
-export * from './base/AcquisitionSource';
+export type { AcquisitionProvider, AcquisitionResult, AcquisitionSource } from './base/AcquisitionProvider';
 export { AcquisitionManager } from './AcquisitionManager';
 export { CsvProvider } from './providers/CsvProvider';
 export { RestProvider } from './providers/RestProvider';

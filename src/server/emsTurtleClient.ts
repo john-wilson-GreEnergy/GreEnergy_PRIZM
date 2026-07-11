@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { AcquisitionManager } from "../acquisition/AcquisitionManager";
+import { RestProvider } from "../acquisition/providers/RestProvider";
 import { ProfileStore } from "./profiles/profileStore";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
 
@@ -359,6 +361,10 @@ interface EndpointDebugInfo {
   lastError: string | null;
   lastSuccessAt?: string | null;
   lastFailureAt?: string | null;
+  lastAttemptAt?: string | null;
+  sourceUsed?: string | null;
+  fallbackUsed?: boolean;
+  fallbackUrl?: string | null;
 }
 
 const endpointDebugMap: Record<string, EndpointDebugInfo> = {
@@ -787,6 +793,10 @@ export function clearEmsTelemetryCache() {
       endpointDebugMap[k].statusCode = null;
       endpointDebugMap[k].durationMs = null;
       endpointDebugMap[k].lastError = "Prior cache flushed";
+      endpointDebugMap[k].lastAttemptAt = null;
+      endpointDebugMap[k].sourceUsed = null;
+      endpointDebugMap[k].fallbackUsed = false;
+      endpointDebugMap[k].fallbackUrl = null;
     }
   });
 }
@@ -832,6 +842,10 @@ export function getEmsSourcesDebugInfo() {
     lastStatusCode: item.statusCode || 0,
     durationMs: item.durationMs || 0,
     lastDurationMs: item.durationMs || 0,
+    lastAttemptAt: item.lastAttemptAt || item.lastPollTime || null,
+    sourceUsed: item.sourceUsed || null,
+    fallbackUsed: !!item.fallbackUsed,
+    fallbackUrl: item.fallbackUrl || null,
     stale: isStale || !item.success,
     lastError: item.lastError || "NONE"
   }));
@@ -852,7 +866,177 @@ const EMS_FAST_TIMEOUT_MS = Number(process.env.EMS_FAST_TIMEOUT_MS) || 2500;
 const EMS_NORMAL_TIMEOUT_MS = Number(process.env.EMS_NORMAL_TIMEOUT_MS) || 5000;
 const EMS_SLOW_TIMEOUT_MS = Number(process.env.EMS_SLOW_TIMEOUT_MS) || 15000;
 
+const emsRestAcquisitionManager = new AcquisitionManager([new RestProvider()]);
+
 let lastSlowFetchTime = 0;
+
+interface EmsRestAcquisitionResult {
+  success: boolean;
+  data: any;
+  error?: string;
+  payload?: unknown;
+  source?: string;
+  kind?: string;
+  statusCode?: number | null;
+  attemptUrl?: string;
+}
+
+function getOrInitEndpointDebug(endpoint: string): EndpointDebugInfo {
+  if (!endpointDebugMap[endpoint]) {
+    endpointDebugMap[endpoint] = {
+      endpoint,
+      success: false,
+      lastPollTime: null,
+      statusCode: null,
+      durationMs: null,
+      lastError: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastAttemptAt: null,
+      sourceUsed: null,
+      fallbackUsed: false,
+      fallbackUrl: null,
+    };
+  }
+  return endpointDebugMap[endpoint];
+}
+
+function buildLocalFallbackUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.hostname === "127.0.0.1" || urlObj.hostname === "localhost") {
+      return null;
+    }
+    return `http://127.0.0.1:3000${urlObj.pathname}${urlObj.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeoutMs = EMS_NORMAL_TIMEOUT_MS): Promise<EmsRestAcquisitionResult> {
+  const baseUrl = getNormalizedBaseUrl();
+  let url = `${baseUrl}${endpoint}`;
+  const startedAt = Date.now();
+  const debugItem = getOrInitEndpointDebug(endpoint);
+  debugItem.lastAttemptAt = new Date().toISOString();
+  debugItem.lastPollTime = debugItem.lastAttemptAt;
+  debugItem.sourceUsed = "primary";
+  debugItem.fallbackUsed = false;
+  debugItem.fallbackUrl = null;
+
+  const tryAcquire = async (targetUrl: string): Promise<EmsRestAcquisitionResult> => {
+    const result = await emsRestAcquisitionManager.acquire(
+      { name: endpoint, kind: "rest", config: { timeoutMs } },
+      { name: endpoint, kind: "rest", url: targetUrl, timeoutMs }
+    );
+
+    const resultPayload = result.payload as { status?: number } | undefined;
+    const statusCode = typeof resultPayload?.status === "number" ? resultPayload.status : null;
+
+    if (!result.success) {
+      return {
+        success: false,
+        data: null,
+        error: result.error || "REST acquisition failed",
+        payload: result.payload,
+        source: result.source,
+        kind: result.kind,
+        statusCode,
+        attemptUrl: targetUrl,
+      };
+    }
+
+    const payload = result.payload as { body?: string; bodyIsJson?: boolean } | undefined;
+    if (typeof payload?.body === "string" && payload.bodyIsJson) {
+      try {
+        return {
+          success: true,
+          data: JSON.parse(payload.body),
+          payload,
+          source: result.source,
+          kind: result.kind,
+          statusCode,
+          attemptUrl: targetUrl,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          data: null,
+          error: error instanceof Error ? error.message : "Invalid JSON payload",
+          payload,
+          source: result.source,
+          kind: result.kind,
+          statusCode,
+          attemptUrl: targetUrl,
+        };
+      }
+    }
+
+    return {
+      success: true,
+      data: payload?.body ?? null,
+      payload,
+      source: result.source,
+      kind: result.kind,
+      statusCode,
+      attemptUrl: targetUrl,
+    };
+  };
+  try {
+    const firstAttempt = await tryAcquire(url);
+    let finalAttempt = firstAttempt;
+
+    if (!firstAttempt.success && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+      const fallbackUrl = buildLocalFallbackUrl(url);
+      if (fallbackUrl) {
+        if (url.includes("10.0.0.3") || url.includes("10.0.0.")) {
+          isEmsOffline = true;
+        }
+        debugItem.fallbackUsed = true;
+        debugItem.fallbackUrl = fallbackUrl;
+        finalAttempt = await tryAcquire(fallbackUrl);
+      }
+    }
+
+    debugItem.durationMs = Date.now() - startedAt;
+    debugItem.statusCode = finalAttempt.statusCode ?? null;
+    debugItem.lastPollTime = new Date().toISOString();
+    debugItem.lastAttemptAt = debugItem.lastPollTime;
+    debugItem.sourceUsed = debugItem.fallbackUsed ? "fallback-local-mock" : "primary";
+
+    if (finalAttempt.success) {
+      debugItem.success = true;
+      debugItem.lastSuccessAt = new Date().toISOString();
+      debugItem.lastError = null;
+    } else {
+      debugItem.success = false;
+      debugItem.lastFailureAt = new Date().toISOString();
+      debugItem.lastError = finalAttempt.error || "REST acquisition failed";
+      if (debugItem.statusCode === null && debugItem.lastError?.toLowerCase().includes("abort")) {
+        debugItem.statusCode = 408;
+      }
+    }
+
+    return finalAttempt;
+  } catch (error) {
+    debugItem.durationMs = Date.now() - startedAt;
+    debugItem.success = false;
+    debugItem.lastPollTime = new Date().toISOString();
+    debugItem.lastAttemptAt = debugItem.lastPollTime;
+    debugItem.lastFailureAt = new Date().toISOString();
+    debugItem.lastError = error instanceof Error ? error.message : String(error);
+    if (debugItem.statusCode === null && debugItem.lastError?.toLowerCase().includes("abort")) {
+      debugItem.statusCode = 408;
+    }
+    return {
+      success: false,
+      data: null,
+      error: debugItem.lastError,
+      statusCode: debugItem.statusCode,
+      attemptUrl: url,
+    };
+  }
+}
 
 function getSimulatedArrayReport(arrayNum: number) {
   const strings: Record<string, any> = {};
@@ -979,7 +1163,13 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   });
 
   const optionalFetches = Promise.allSettled([
-    fetchAndRecord('/tools/report/ems/controllerStatistics.json', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.controllerStatistics = d; }),
+    acquireEmsEndpointWithRestProvider('/tools/report/ems/controllerStatistics.json', EMS_NORMAL_TIMEOUT_MS)
+      .then(result => {
+        if (!result.success) {
+          throw new Error(result.error || 'controllerStatistics acquisition failed');
+        }
+        emsCache.controllerStatistics = result.data;
+      }),
     fetchAndRecord('/tools/report/ems/bessStatusCodes.json', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.bessStatusCodes = d; }),
     fetchAndRecord('/tools/report/ems/ipMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').then(t => { try { emsCache.ipMap = JSON.parse(t); } catch { emsCache.ipMap = t; } }).catch(async () => { const csv = await fetchAndRecord('/tools/report/ems/ipMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text'); try { emsCache.ipMap = JSON.parse(csv); } catch { emsCache.ipMap = csv; } }),
     fetchAndRecord('/tools/report/ems/stringIPMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').then(t => { try { emsCache.stringIPMap = JSON.parse(t); } catch { emsCache.stringIPMap = t; } }).catch(async () => { const csv = await fetchAndRecord('/tools/report/ems/stringIPMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text'); try { emsCache.stringIPMap = JSON.parse(csv); } catch { emsCache.stringIPMap = csv; } }),
