@@ -356,3 +356,85 @@ Every pull request should be:
 A reviewer should understand the entire change in less than 15 minutes.
 
 If the implementation becomes too large, recommend splitting it into multiple pull requests.
+
+# Migration Workflow
+
+PRIZM is an active production system. Existing functionality must be preserved while migrating to the new Core architecture.
+
+## Migration Strategy
+
+Every migration follows this sequence:
+
+1. Isolate one capability.
+2. Replace only the targeted implementation.
+3. Preserve all existing API contracts.
+4. Preserve existing UI behavior.
+5. Preserve cache behavior.
+6. Preserve timeout behavior.
+7. Preserve fallback behavior.
+8. Preserve debug telemetry.
+9. Verify against a live EMS.
+10. Commit only after successful validation.
+
+Do not migrate multiple capabilities in a single PR unless explicitly requested.
+
+Examples of capabilities:
+
+- EMS Health
+- String Data
+- Block Summary
+- Notifications
+- Feather
+- Fleet Capacity
+
+---
+
+# Definition of Done
+
+Every implementation must satisfy ALL of the following before requesting review.
+
+## Scope
+
+- Scope remained within requested PR.
+- No unrelated refactors.
+- Existing functionality preserved.
+
+## Quality
+
+- TypeScript diagnostics pass.
+- npm run build passes.
+- Focused regression tests pass.
+
+## Runtime
+
+If the PR changes runtime behavior:
+
+- Ready for live EMS validation.
+- Existing API contracts preserved.
+- Existing polling behavior preserved.
+- Existing cache behavior preserved.
+- Existing telemetry preserved.
+
+## Review Output
+
+Every implementation summary must include:
+
+- Files modified
+- Public API changes
+- Runtime behavior changes
+- Technical debt
+- Risks
+- Verification performed
+
+## Commit Policy
+
+Never commit or push unless explicitly instructed.
+# Production Migration Rule
+
+When replacing legacy functionality:
+
+- Prefer wrapping existing behavior over rewriting it.
+- Migrate one endpoint or capability at a time.
+- Verify against a live EMS before approval.
+- Legacy functionality must not be removed until the replacement has been validated.
+- Observable behavior is considered part of the public contract.
