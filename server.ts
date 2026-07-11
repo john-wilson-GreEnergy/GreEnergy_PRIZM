@@ -420,14 +420,39 @@ app.get("/api/local/strings", (req, res) => {
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
   const ipMapWrapper = getEmsStringIpMap();
+  const snapshot = prizmDataCoordinator.getLatestSnapshot() as any;
+  const snapshotRawStrings = Array.isArray(snapshot?.rawSources?.strings) ? snapshot.rawSources.strings : [];
+
+  const hasUsableStringIdentity = (rows: any[]): boolean => {
+    if (!Array.isArray(rows) || rows.length === 0) return false;
+    return rows.some((row: any) => {
+      if (!row || typeof row !== "object") return false;
+      return (
+        row.arrayIndex != null || row.ArrayIndex != null || row.array != null || row.Array != null ||
+        row.stringIndex != null || row.StringIndex != null || row.string != null || row.String != null ||
+        row.stringKey != null || row.StringKey != null
+      );
+    });
+  };
   
   let rawData = [];
   let metaWrapper = rawStringsWrapper;
-  if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
+  if (snapshotRawStrings.length > 0) {
+    rawData = snapshotRawStrings;
+  } else if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
     rawData = rawStringsWrapper.data;
   } else {
     rawData = blockWrapper.data?.strings || [];
     metaWrapper = blockWrapper;
+  }
+
+  if (!hasUsableStringIdentity(rawData)) {
+    const snap = prizmDataCoordinator.getLatestSnapshot() as any;
+    const snapRows = Array.isArray(snap?.rawSources?.strings) ? snap.rawSources.strings : [];
+    if (hasUsableStringIdentity(snapRows)) {
+      rawData = snapRows;
+      metaWrapper = rawStringsWrapper;
+    }
   }
   
   let ipMap: any[] = [];
@@ -436,69 +461,69 @@ app.get("/api/local/strings", (req, res) => {
   }
 
   const normalizedRows = rawData.map((row: any) => {
-    const arrayIndex = pN(row.arrayIndex || row.array, 1)!;
-    const stringIndex = pN(row.stringIndex || row.string, 1)!;
-    const stringKey = `A${arrayIndex}-S${stringIndex}`;
+    const arrayIndex = pN(row.arrayIndex || row.ArrayIndex || row.array || row.Array || row.arrayNumber || row.ArrayNumber || row.array_number, 1)!;
+    const stringIndex = pN(row.stringIndex || row.StringIndex || row.string || row.String || row.stringNumber || row.StringNumber || row.string_number || row.segmentId, 1)!;
+    const stringKey = row.stringKey || row.StringKey || row.displayKey || row.key || `A${arrayIndex}-S${stringIndex}`;
     
     // Look up ipMap
     const ipInfo = ipMap.find((ip: any) => ip.array === arrayIndex && ip.string === stringIndex);
 
-    let connectionState = row.connectionState || row.contact || row.communicating;
+    let connectionState = row.connectionState || row.stringConnectionState || row.StringConnectionState || row.Status || row.status || row.state || row.contact || row.communicating || row.communicationState;
     if (connectionState === true || connectionState === "true") connectionState = "Online";
     else if (connectionState === false || connectionState === "false") connectionState = "Offline";
     else if (!connectionState) connectionState = "Unknown";
     else connectionState = String(connectionState);
 
-    const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? (connectionState === "Online"));
-    const positiveContactorClosed = Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? (connectionState === "Online"));
-    const negativeContactorClosed = Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? (connectionState === "Online"));
+    const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? row.ContactorsCloseExpected ?? (connectionState === "Online"));
+    const positiveContactorClosed = Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? row.PositiveContactorClosed ?? (connectionState === "Online"));
+    const negativeContactorClosed = Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? row.NegativeContactorClosed ?? (connectionState === "Online"));
     
     const contactorMismatch = (contactorsCloseExpected !== positiveContactorClosed) || (contactorsCloseExpected !== negativeContactorClosed);
 
-    const maxT = pN(row.cellGroupTempMax || row.cellTempMax);
-    const minT = pN(row.cellGroupTempMin || row.cellTempMin);
-    const maxV = pN(row.cellGroupVoltageMax || row.cellVoltsMax || row.maxCellVoltage);
-    const minV = pN(row.cellGroupVoltageMin || row.cellVoltsMin || row.minCellVoltage);
+    const maxT = pN(row.cellGroupTempMax || row.MaxCellGroupTemp || row.cellTempMax);
+    const minT = pN(row.cellGroupTempMin || row.MinCellGroupTemp || row.cellTempMin);
+    const maxV = pN(row.cellGroupVoltageMax || row.MaxCellGroupVoltage || row.cellVoltsMax || row.maxCellVoltage);
+    const minV = pN(row.cellGroupVoltageMin || row.MinCellGroupVoltage || row.cellVoltsMin || row.minCellVoltage);
 
     return {
       arrayIndex,
       stringIndex,
       stringKey,
-      timestamp: row.timestamp || metaWrapper.lastUpdated || new Date().toISOString(),
-      datetime: row.datetime || "",
+      timestamp: row.timestamp || row.Timestamp || row.TimestampUtc || row.timeStamp || row.time || metaWrapper.lastUpdated || new Date().toISOString(),
+      datetime: row.datetime || row.Datetime || row.dateTime || "",
       connectionState,
-      soc: pN(row.soc || row.powerSoc),
-      kw: pN(row.kw || row.powerkW || row.measuredKw),
-      kwh: pN(row.kwh || row.powerKwh),
-      ah: pN(row.ah),
-      calculatedVoltage: pN(row.voltageCalculated || row.voltageCalc),
-      measuredVoltage: pN(row.voltageMeasured || row.voltageMeas),
-      dcBusVoltage: pN(row.voltageDcBus || row.voltageBus),
-      stringCurrent: pN(row.current || row.stringCurrent),
-      ctCurrent1: pN(row.ctCurrent1),
-      ctCurrent2: pN(row.ctCurrent2),
+      soc: pN(row.soc || row.Soc || row.SoC || row.powerSoc || row.socPct || row.stateOfCharge),
+      kw: pN(row.kw || row.KW || row.powerkW || row.measuredKw || row.activePowerKw || row.realPowerKw),
+      kwh: pN(row.kwh || row.KWh || row.powerKwh || row.energyKwh),
+      ah: pN(row.ah || row.Ah),
+      calculatedVoltage: pN(row.voltageCalculated || row.CalculatedStringVoltage || row.voltageCalc || row.calculatedVoltage),
+      measuredVoltage: pN(row.voltageMeasured || row.MeasuredStringVoltage || row.voltageMeas || row.measuredVoltage),
+      dcBusVoltage: pN(row.voltageDcBus || row.DcBusVoltage || row.voltageBus),
+      stringCurrent: pN(row.current || row.stringCurrent || row.StringCurrent),
+      ctCurrent1: pN(row.ctCurrent1 || row.CtCurrent1),
+      ctCurrent2: pN(row.ctCurrent2 || row.CtCurrent2),
       contactorsCloseExpected,
       positiveContactorClosed,
       negativeContactorClosed,
       contactorMismatch,
-      recloseCount: pN(row.recloseCount, 0),
-      outRotation: Boolean(row.out_rotation ?? row.outRotation ?? (row.rotation === "fault" || row.outOfRotation)),
-      maxCellTemp: maxT,
-      minCellTemp: minT,
-      avgCellTemp: pN(row.cellGroupTempAvg || row.avgCellTemp),
+      recloseCount: pN(row.recloseCount || row.RecloseCount, 0),
+      outRotation: Boolean(row.out_rotation ?? row.outRotation ?? row.OutRotation ?? (row.rotation === "fault" || row.outOfRotation)),
+      maxCellTemp: maxT ?? pN(row.maxCellTemp),
+      minCellTemp: minT ?? pN(row.minCellTemp),
+      avgCellTemp: pN(row.cellGroupTempAvg || row.AvgCellGroupTemp || row.avgCellTemp || row.averageCellTemp),
       tempDelta: (maxT !== null && minT !== null) ? Number((maxT - minT).toFixed(1)) : null,
-      maxCellVoltage: maxV,
-      minCellVoltage: minV,
-      avgCellVoltage: pN(row.cellGroupVoltageAvg || row.avgCellVoltage),
+      maxCellVoltage: maxV ?? pN(row.maxCellVoltage),
+      minCellVoltage: minV ?? pN(row.minCellVoltage),
+      avgCellVoltage: pN(row.cellGroupVoltageAvg || row.AvgCellGroupVoltage || row.avgCellVoltage || row.averageCellVoltage),
       voltageDelta: (maxV !== null && minV !== null) ? Number((maxV - minV).toFixed(3)) : null,
-      alarmCount: pN(row.alarmCount || row.alarms, 0),
-      alarms: row.alarmsList || [],
-      warnCount: pN(row.warningCount || row.warnings, 0),
-      warns: row.warningsList || [],
-      lastFanCommand: row.lastFanCommand || row.fanStatus || "Unknown",
-      location: row.location || `R${arrayIndex}-Rack${stringIndex}`,
-      ipAddress: row.ipAddress || ipInfo?.ip || "Unknown",
-      entityToken: row.entityToken || ipInfo?.token || "N/A"
+      alarmCount: pN(row.alarmCount || row.AlarmCount || row.alarms, 0),
+      alarms: row.alarmsList || row.Alarms || [],
+      warnCount: pN(row.warningCount || row.WarnCount || row.warnings, 0),
+      warns: row.warningsList || row.Warns || [],
+      lastFanCommand: row.lastFanCommand || row.LastFanCommand || row.fanStatus || "Unknown",
+      location: row.location || row.Location || `R${arrayIndex}-Rack${stringIndex}`,
+      ipAddress: row.ipAddress || row.IpAddress || row.IPAddress || ipInfo?.ip || "Unknown",
+      entityToken: row.entityToken || row.EntityToken || row.IdentityToken || ipInfo?.token || "N/A"
     };
   });
 

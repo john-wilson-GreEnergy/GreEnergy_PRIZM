@@ -5,6 +5,9 @@ import type { AcquisitionProvider, AcquisitionResult, AcquisitionSource } from '
 interface CsvSource extends AcquisitionSource {
   readonly path?: string;
   readonly content?: string;
+  readonly url?: string;
+  readonly timeoutMs?: number;
+  readonly fallbackUrl?: string;
 }
 
 interface CsvRow {
@@ -18,6 +21,22 @@ interface CsvPayload {
   readonly headers: readonly string[];
   readonly rowCount: number;
   readonly columnCount: number;
+  readonly statusCode?: number;
+  readonly sourceUrl?: string;
+  readonly fallbackUsed?: boolean;
+}
+
+interface CsvContentResult {
+  readonly content: string;
+  readonly statusCode?: number;
+  readonly sourceUrl?: string;
+  readonly fallbackUsed: boolean;
+}
+
+interface CsvAcquireError extends Error {
+  statusCode?: number;
+  sourceUrl?: string;
+  fallbackUsed?: boolean;
 }
 
 export class CsvProvider implements AcquisitionProvider<CsvPayload> {
@@ -29,7 +48,8 @@ export class CsvProvider implements AcquisitionProvider<CsvPayload> {
     const sourceLabel = source?.name ?? this.name;
 
     try {
-      const rawContent = await this.readContent(source);
+      const contentResult = await this.readContent(source);
+      const rawContent = contentResult.content;
       const normalized = this.parseCsv(rawContent);
 
       return {
@@ -43,32 +63,112 @@ export class CsvProvider implements AcquisitionProvider<CsvPayload> {
           headers: normalized.headers,
           rowCount: normalized.rows.length,
           columnCount: normalized.headers.length,
+          statusCode: contentResult.statusCode,
+          sourceUrl: contentResult.sourceUrl,
+          fallbackUsed: contentResult.fallbackUsed,
         },
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
+      const typedError = error as CsvAcquireError;
       const message = error instanceof Error ? error.message : 'Unknown CSV acquisition error';
       return {
         source: sourceLabel,
         kind: this.kind,
         success: false,
         error: message,
+        payload: {
+          source: sourceLabel,
+          rawContent: '',
+          rows: [],
+          headers: [],
+          rowCount: 0,
+          columnCount: 0,
+          statusCode: typedError.statusCode,
+          sourceUrl: typedError.sourceUrl,
+          fallbackUsed: !!typedError.fallbackUsed,
+        },
         timestamp: new Date().toISOString(),
       };
     }
   }
 
-  private async readContent(source: CsvSource): Promise<string> {
+  private async readContent(source: CsvSource): Promise<CsvContentResult> {
     if (typeof source?.content === 'string') {
-      return source.content;
+      return {
+        content: source.content,
+        fallbackUsed: false,
+      };
+    }
+
+    if (typeof source?.url === 'string' && source.url.length > 0) {
+      const timeoutMs = source.timeoutMs ?? 5000;
+
+      try {
+        return await this.fetchUrl(source.url, timeoutMs, false);
+      } catch (firstError) {
+        if (typeof source.fallbackUrl === 'string' && source.fallbackUrl.length > 0) {
+          try {
+            return await this.fetchUrl(source.fallbackUrl, timeoutMs, true);
+          } catch (fallbackError) {
+            const error = fallbackError as CsvAcquireError;
+            error.fallbackUsed = true;
+            throw error;
+          }
+        }
+        const error = firstError as CsvAcquireError;
+        throw error;
+      }
     }
 
     if (typeof source?.path === 'string' && source.path.length > 0) {
       const absolutePath = path.isAbsolute(source.path) ? source.path : path.resolve(source.path);
-      return readFile(absolutePath, 'utf8');
+      return {
+        content: await readFile(absolutePath, 'utf8'),
+        sourceUrl: absolutePath,
+        fallbackUsed: false,
+      };
     }
 
     throw new Error('CSV acquisition requires either a content string or a file path');
+  }
+
+  private async fetchUrl(url: string, timeoutMs: number, fallbackUsed: boolean): Promise<CsvContentResult> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      const statusCode = response.status;
+      if (!response.ok) {
+        const error = new Error(`HTTP ${statusCode}`) as CsvAcquireError;
+        error.statusCode = statusCode;
+        error.sourceUrl = url;
+        error.fallbackUsed = fallbackUsed;
+        throw error;
+      }
+
+      return {
+        content: await response.text(),
+        statusCode,
+        sourceUrl: url,
+        fallbackUsed,
+      };
+    } catch (error) {
+      const typedError = error as CsvAcquireError;
+      typedError.sourceUrl = typedError.sourceUrl || url;
+      typedError.fallbackUsed = typeof typedError.fallbackUsed === 'boolean' ? typedError.fallbackUsed : fallbackUsed;
+      if (!typedError.statusCode && typedError.name === 'AbortError') {
+        typedError.statusCode = 408;
+      }
+      throw typedError;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private parseCsv(rawContent: string): { headers: string[]; rows: CsvRow[] } {

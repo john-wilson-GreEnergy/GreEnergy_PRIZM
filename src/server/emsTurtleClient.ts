@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { AcquisitionManager } from "../acquisition/AcquisitionManager";
+import { CsvProvider } from "../acquisition/providers/CsvProvider";
 import { RestProvider } from "../acquisition/providers/RestProvider";
 import { ProfileStore } from "./profiles/profileStore";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
@@ -310,6 +311,68 @@ export const OFFLINE_TEMPLATES = {
 };
 
 // Simple helper to parse CSV into rows of records
+function applyLegacyStringRowCompatibilityAliases(row: any): any {
+  if (!row || typeof row !== 'object') return row;
+
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      if (row[key] !== undefined && row[key] !== null && row[key] !== '') return row[key];
+    }
+    return undefined;
+  };
+
+  const aliasMap: Record<string, any> = {
+    arrayIndex: pick('arrayIndex', 'ArrayIndex', 'Array'),
+    array: pick('array', 'Array', 'ArrayIndex'),
+    stringIndex: pick('stringIndex', 'StringIndex', 'String'),
+    string: pick('string', 'String', 'StringIndex'),
+    stringKey: pick('stringKey', 'StringKey'),
+    timestamp: pick('timestamp', 'Timestamp', 'TimestampUtc'),
+    datetime: pick('datetime', 'Datetime'),
+    connectionState: pick('connectionState', 'StringConnectionState', 'Status', 'CommunicationState'),
+    soc: pick('soc', 'Soc', 'SoC'),
+    kw: pick('kw', 'KW', 'kW'),
+    kwh: pick('kwh', 'KWh', 'KWH'),
+    ah: pick('ah', 'Ah', 'AH'),
+    voltageCalculated: pick('voltageCalculated', 'CalculatedStringVoltage'),
+    voltageMeasured: pick('voltageMeasured', 'MeasuredStringVoltage'),
+    voltageDcBus: pick('voltageDcBus', 'DcBusVoltage'),
+    current: pick('current', 'StringCurrent'),
+    stringCurrent: pick('stringCurrent', 'StringCurrent'),
+    ctCurrent1: pick('ctCurrent1', 'CtCurrent1'),
+    ctCurrent2: pick('ctCurrent2', 'CtCurrent2'),
+    contactCloseExpected: pick('contactCloseExpected', 'ContactorsCloseExpected'),
+    positiveContactorClosed: pick('positiveContactorClosed', 'PositiveContactorClosed'),
+    negativeContactorClosed: pick('negativeContactorClosed', 'NegativeContactorClosed'),
+    recloseCount: pick('recloseCount', 'RecloseCount'),
+    outRotation: pick('outRotation', 'OutRotation'),
+    cellGroupTempMax: pick('cellGroupTempMax', 'MaxCellGroupTemp'),
+    cellGroupTempMin: pick('cellGroupTempMin', 'MinCellGroupTemp'),
+    cellGroupTempAvg: pick('cellGroupTempAvg', 'AvgCellGroupTemp'),
+    cellGroupVoltageMax: pick('cellGroupVoltageMax', 'MaxCellGroupVoltage'),
+    cellGroupVoltageMin: pick('cellGroupVoltageMin', 'MinCellGroupVoltage'),
+    cellGroupVoltageAvg: pick('cellGroupVoltageAvg', 'AvgCellGroupVoltage'),
+    alarmCount: pick('alarmCount', 'AlarmCount'),
+    alarms: pick('alarms', 'Alarms'),
+    warningCount: pick('warningCount', 'WarnCount'),
+    warnings: pick('warnings', 'WarnCount'),
+    warningsList: pick('warningsList', 'Warns'),
+    warns: pick('warns', 'Warns'),
+    lastFanCommand: pick('lastFanCommand', 'LastFanCommand', 'FanCommand'),
+    lastFanCommandTime: pick('lastFanCommandTime', 'LastFanCommandTime'),
+    location: pick('location', 'Location'),
+    entityToken: pick('entityToken', 'EntityToken', 'IdentityToken'),
+    ipAddress: pick('ipAddress', 'IpAddress', 'IPAddress'),
+  };
+
+  const aliases: any = {};
+  Object.entries(aliasMap).forEach(([key, value]) => {
+    if (value !== undefined) aliases[key] = value;
+  });
+
+  return { ...row, ...aliases };
+}
+
 function parseCsv(text: string): any[] {
   if (!text) return [];
   const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
@@ -347,7 +410,7 @@ function parseCsv(text: string): any[] {
     headers.forEach((header, index) => {
       obj[header] = values[index] || "";
     });
-    rows.push(obj);
+    rows.push(applyLegacyStringRowCompatibilityAliases(obj));
   }
   return rows;
 }
@@ -867,6 +930,7 @@ const EMS_NORMAL_TIMEOUT_MS = Number(process.env.EMS_NORMAL_TIMEOUT_MS) || 5000;
 const EMS_SLOW_TIMEOUT_MS = Number(process.env.EMS_SLOW_TIMEOUT_MS) || 15000;
 
 const emsRestAcquisitionManager = new AcquisitionManager([new RestProvider()]);
+const emsCsvAcquisitionManager = new AcquisitionManager([new CsvProvider()]);
 
 let lastSlowFetchTime = 0;
 
@@ -879,6 +943,17 @@ interface EmsRestAcquisitionResult {
   kind?: string;
   statusCode?: number | null;
   attemptUrl?: string;
+}
+
+interface EmsCsvAcquisitionResult {
+  success: boolean;
+  rawContent: string | null;
+  rows: any[];
+  headers: string[];
+  error?: string;
+  statusCode?: number | null;
+  sourceUrl?: string;
+  fallbackUsed?: boolean;
 }
 
 function getOrInitEndpointDebug(endpoint: string): EndpointDebugInfo {
@@ -1038,6 +1113,99 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
   }
 }
 
+export async function acquireEmsCsvEndpointWithCsvProvider(endpoint: string, timeoutMs = EMS_FAST_TIMEOUT_MS): Promise<EmsCsvAcquisitionResult> {
+  const baseUrl = getNormalizedBaseUrl();
+  const url = `${baseUrl}${endpoint}`;
+  const startedAt = Date.now();
+  const debugItem = getOrInitEndpointDebug(endpoint);
+  debugItem.lastAttemptAt = new Date().toISOString();
+  debugItem.lastPollTime = debugItem.lastAttemptAt;
+  debugItem.sourceUsed = "primary";
+  debugItem.fallbackUsed = false;
+  debugItem.fallbackUrl = null;
+
+  const fallbackUrl = (!url.includes("127.0.0.1:3000") && !url.includes("localhost:3000"))
+    ? buildLocalFallbackUrl(url)
+    : null;
+
+  const result = await emsCsvAcquisitionManager.acquire(
+    { name: endpoint, kind: "csv", config: { timeoutMs } },
+    {
+      name: endpoint,
+      kind: "csv",
+      url,
+      timeoutMs,
+      fallbackUrl: fallbackUrl ?? undefined,
+    }
+  );
+
+  const payload = result.payload as {
+    rawContent?: string;
+    rows?: readonly any[];
+    headers?: readonly string[];
+    statusCode?: number;
+    sourceUrl?: string;
+    fallbackUsed?: boolean;
+  } | undefined;
+
+  debugItem.durationMs = Date.now() - startedAt;
+  debugItem.statusCode = typeof payload?.statusCode === "number" ? payload.statusCode : null;
+  debugItem.lastPollTime = new Date().toISOString();
+  debugItem.lastAttemptAt = debugItem.lastPollTime;
+  debugItem.fallbackUsed = !!payload?.fallbackUsed;
+  debugItem.fallbackUrl = payload?.fallbackUsed ? (payload.sourceUrl || fallbackUrl) : null;
+  debugItem.sourceUsed = payload?.fallbackUsed ? "fallback-local-mock" : "primary";
+
+  if (payload?.fallbackUsed && (url.includes("10.0.0.3") || url.includes("10.0.0."))) {
+    isEmsOffline = true;
+  }
+
+  if (!result.success) {
+    debugItem.success = false;
+    debugItem.lastFailureAt = new Date().toISOString();
+    debugItem.lastError = result.error || "CSV acquisition failed";
+    if (debugItem.statusCode === null && debugItem.lastError?.toLowerCase().includes("abort")) {
+      debugItem.statusCode = 408;
+    }
+
+    return {
+      success: false,
+      rawContent: null,
+      rows: [],
+      headers: [],
+      error: debugItem.lastError,
+      statusCode: debugItem.statusCode,
+      sourceUrl: payload?.sourceUrl,
+      fallbackUsed: !!payload?.fallbackUsed,
+    };
+  }
+
+  debugItem.success = true;
+  debugItem.lastSuccessAt = new Date().toISOString();
+  debugItem.lastError = null;
+
+  const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+  try {
+    const prizmCache = require('./cache/prizmCache');
+    prizmCache.set('raw_' + safeKey, payload?.rawContent ?? '', {
+      sourceUrl: payload?.sourceUrl || url,
+      isRaw: true,
+      rawExt: '.csv',
+      ttlMs: 15000
+    });
+  } catch {}
+
+  return {
+    success: true,
+    rawContent: payload?.rawContent ?? '',
+    rows: Array.isArray(payload?.rows) ? [...payload.rows] : [],
+    headers: Array.isArray(payload?.headers) ? [...payload.headers] : [],
+    statusCode: typeof payload?.statusCode === "number" ? payload.statusCode : null,
+    sourceUrl: payload?.sourceUrl,
+    fallbackUsed: !!payload?.fallbackUsed,
+  };
+}
+
 function getSimulatedArrayReport(arrayNum: number) {
   const strings: Record<string, any> = {};
   for (let s = 1; s <= 40; s++) {
@@ -1160,7 +1328,14 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
         emsCache.lastCall = result.data;
         return result.data;
       }),
-    fetchAndRecord('/tools/report/ems/strings.csv', EMS_FAST_TIMEOUT_MS, 'text').then(text => { emsCache.strings = parseCsv(text); return text; })
+    acquireEmsCsvEndpointWithCsvProvider('/tools/report/ems/strings.csv', EMS_FAST_TIMEOUT_MS)
+      .then(result => {
+        if (!result.success) {
+          throw new Error(result.error || 'strings.csv acquisition failed');
+        }
+        emsCache.strings = parseCsv(result.rawContent || '');
+        return result.rawContent;
+      })
   ]);
 
   const criticalResults = await criticalFetches;
