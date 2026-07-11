@@ -8,6 +8,121 @@ import { isDemoActive } from "../emsTurtleClient";
 // Key is activeProfileId
 const featherProfilesCache = new Map<string, FeatherCacheEntry>();
 
+type JsonFetchResult = {
+  ok: boolean;
+  status: number;
+  data: any | null;
+  error: string | null;
+  durationMs: number;
+};
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<JsonFetchResult> {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "curl/feather-check",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    const durationMs = Date.now() - startedAt;
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        data: null,
+        error: `HTTP Error Status: ${res.status} ${res.statusText}`,
+        durationMs,
+      };
+    }
+
+    try {
+      const data = await res.json();
+      return { ok: true, status: res.status, data, error: null, durationMs };
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: res.status,
+        data: null,
+        error: `JSON parse error: ${err?.message || String(err)}`,
+        durationMs,
+      };
+    }
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: err?.name === "AbortError" ? "Fetch Aborted: timeout exceeded" : (err?.message || String(err)),
+      durationMs: Date.now() - startedAt,
+    };
+  }
+}
+
+function mergeFeatherReadOnlyPayloads(reportJson: any, mainDataJson: any): any {
+  if (!reportJson || typeof reportJson !== "object") {
+    return reportJson;
+  }
+
+  if (!mainDataJson || typeof mainDataJson !== "object") {
+    return reportJson;
+  }
+
+  const merged = { ...reportJson };
+  merged._mainData = mainDataJson;
+
+  const reportThermal = reportJson.thermalData && typeof reportJson.thermalData === "object"
+    ? reportJson.thermalData
+    : {};
+  const mainThermal = mainDataJson.thermal && typeof mainDataJson.thermal === "object"
+    ? mainDataJson.thermal
+    : {};
+
+  merged.thermalData = {
+    ...reportThermal,
+    // Prefer richer consolidated values from /feather/main/data when present.
+    spaceTemperature: mainThermal.spaceTemperature ?? reportThermal.spaceTemperature,
+    spaceHumidity: mainThermal.spaceHumidity ?? reportThermal.spaceHumidity,
+    avgCellTemperature: mainThermal.avgCellTemperature ?? reportThermal.avgCellTemperature,
+    avgCellTemperatureRateOfChange: mainThermal.avgCellTemperatureRateOfChange ?? reportThermal.avgCellTemperatureRateOfChange,
+    supplyAirTemp: mainThermal.supplyAirTemp ?? reportThermal.supplyAirTemp,
+    outsideTemperature: mainThermal.outsideTemperature ?? reportThermal.outsideTemperature,
+    outsideHumidity: mainThermal.outsideHumidity ?? reportThermal.outsideHumidity,
+    hydrogen1PPM: mainThermal.hydrogen1PPM ?? reportThermal.hydrogen1PPM,
+    thermostatStage: mainThermal.thermostatStage ?? reportThermal.thermostatStage,
+    controlTemperature: mainThermal.controlTemperature ?? reportThermal.controlTemperature,
+    coolingSetpoint: reportThermal.coolingSetpoint ?? mainThermal.airCoolingSetpoint,
+    heatingSetpoint: reportThermal.heatingSetpoint ?? mainThermal.airHeatingSetpoint,
+    airCoolingSetpoint: mainThermal.airCoolingSetpoint ?? reportThermal.airCoolingSetpoint,
+    airHeatingSetpoint: mainThermal.airHeatingSetpoint ?? reportThermal.airHeatingSetpoint,
+    cellCoolingSetpoint: mainThermal.cellCoolingSetpoint ?? reportThermal.cellCoolingSetpoint,
+    cellHeatingSetpoint: mainThermal.cellHeatingSetpoint ?? reportThermal.cellHeatingSetpoint,
+    running: mainThermal.running ?? reportThermal.running,
+    enabled: mainThermal.enabled ?? reportThermal.enabled,
+    HVAC1Controls: mainThermal.HVAC1Controls ?? reportThermal.HVAC1Controls,
+    HVAC1Data: mainThermal.HVAC1Data ?? reportThermal.HVAC1Data,
+    HVAC2Controls: mainThermal.HVAC2Controls ?? reportThermal.HVAC2Controls,
+    HVAC2Data: mainThermal.HVAC2Data ?? reportThermal.HVAC2Data,
+    fssSignals: mainThermal.fssSignals ?? reportThermal.fssSignals,
+    doors: mainThermal.doors ?? reportThermal.doors,
+  };
+
+  merged.doors = mainDataJson.doors ?? reportJson.doors;
+  merged.modbusPollerMode = mainDataJson.modbusPollerMode ?? reportJson.modbusPollerMode;
+  merged.hvacType = mainDataJson.hvacType ?? reportJson.hvacType;
+  merged.segmentType = mainDataJson.segmentType ?? reportJson.segmentType;
+
+  return merged;
+}
+
 /**
  * Gets the Feather cache entry matching the active profile.
  * If there is a profile mismatch or missing cache, we return a stale-flagged empty placeholder.
@@ -87,6 +202,7 @@ export async function queryFeatherDevice(
 
   const startTime = Date.now();
   const endpointUrl = `http://${deviceIp}:8080/feather/status/report.json`;
+  const mainDataUrl = `http://${deviceIp}:8080/feather/main/data`;
 
   const isDemo = isDemoActive();
 
@@ -127,29 +243,21 @@ export async function queryFeatherDevice(
     return normalized;
   }
 
-  // Real LAN request with AbortController timeout protection
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const res = await fetch(endpointUrl, {
-      method: "GET",
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "curl/feather-check",
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
+    // Baseline endpoint must remain /feather/status/report.json
+    const reportResult = await fetchJsonWithTimeout(endpointUrl, timeoutMs);
     const duration = Date.now() - startTime;
 
-    if (!res.ok) {
-      throw new Error(`HTTP Error Status: ${res.status} ${res.statusText}`);
+    if (!reportResult.ok || !reportResult.data) {
+      throw new Error(reportResult.error || "Failed to fetch /feather/status/report.json");
     }
 
-    const rawJson = await res.json();
+    // Optional read-only enrichment from /feather/main/data. Failure here must not fail baseline polling.
+    const mainResult = await fetchJsonWithTimeout(mainDataUrl, timeoutMs);
+    const rawJson = mergeFeatherReadOnlyPayloads(reportResult.data, mainResult.ok ? mainResult.data : null);
+    if (!mainResult.ok) {
+      rawJson._mainDataError = mainResult.error;
+    }
     
     const looksLikeFeather = rawJson && (
         rawJson.turtleVersion || 
@@ -206,7 +314,6 @@ export async function queryFeatherDevice(
     return normalized;
 
   } catch (err: any) {
-    clearTimeout(timeoutId);
     const duration = Date.now() - startTime;
     const errMsg = err.name === "AbortError" ? "Fetch Aborted: timeout exceeded" : err.message || String(err);
 
@@ -235,6 +342,29 @@ export async function queryFeatherDevice(
     saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
     return normalized;
   }
+}
+
+export async function queryFeatherInternalDiagnostics(
+  deviceIp: string,
+  timeoutMs: number = 3000
+): Promise<{
+  success: boolean;
+  deviceIp: string;
+  endpoint: string;
+  responseDurationMs: number;
+  diagnostics: any | null;
+  error: string | null;
+}> {
+  const endpoint = `http://${deviceIp}:8080/feather/status/internal.json`;
+  const result = await fetchJsonWithTimeout(endpoint, timeoutMs);
+  return {
+    success: result.ok,
+    deviceIp,
+    endpoint,
+    responseDurationMs: result.durationMs,
+    diagnostics: result.ok ? result.data : null,
+    error: result.ok ? null : (result.error || "Failed to fetch diagnostics"),
+  };
 }
 
 interface FeatherHistoryEntry {

@@ -52,7 +52,8 @@ import {
 import { ProfileStore, getDefaultTopologyModel } from "./src/server/profiles/profileStore";
 import { ProfileManager, validateTopologyModel, generateTopologyPreview } from "./src/server/profiles/profileManager";
 import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
-import { getFeatherCache, clearFeatherCache, queryFeatherDevice } from "./src/server/feather/featherClient";
+import { getFeatherCache, clearFeatherCache, queryFeatherDevice, queryFeatherInternalDiagnostics } from "./src/server/feather/featherClient";
+import { buildFeatherDeviceStatusResponse } from "./src/server/feather/featherStatusResponse";
 import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTopology";
 import { resolveScanCandidates, executeFeatherScan } from "./src/server/feather/featherScanner";
 import { executeDataDiscovery } from "./src/server/telemetry/discovery";
@@ -1358,9 +1359,13 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
     const { deviceIp } = req.params;
     const { source } = req.query;
     const sourceMethod = (source && typeof source === "string") ? (source as any) : "manual";
+    const includeDiagnostics = req.query.includeDiagnostics === "true";
 
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
     const direct = (await queryFeatherDevice(deviceIp, sourceMethod, timeout)) as any;
+    const diagnostics = includeDiagnostics
+      ? await queryFeatherInternalDiagnostics(deviceIp, timeout)
+      : null;
     const snapshot: any = prizmDataCoordinator.getLatestSnapshot();
 
     const existing: any =
@@ -1371,58 +1376,16 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
         d.ip === deviceIp || d.deviceIp === deviceIp
       );
 
-    const merged = {
-      ...(existing || {}),
-      ...(direct || {}),
-
-      ip: direct?.ip || existing?.ip || deviceIp,
-      deviceIp: direct?.deviceIp || existing?.deviceIp || deviceIp,
-
-      arrayIndex: direct?.arrayIndex !== undefined && direct?.arrayIndex !== null ? direct.arrayIndex : existing?.arrayIndex,
-      stringIndex: direct?.stringIndex !== undefined && direct?.stringIndex !== null ? direct.stringIndex : existing?.stringIndex,
-      segmentLabel: direct?.segmentLabel !== undefined && direct?.segmentLabel !== null ? direct.segmentLabel : existing?.segmentLabel,
-      entityDescription: direct?.entityDescription !== undefined && direct?.entityDescription !== null ? direct.entityDescription : existing?.entityDescription,
-      entityKey: direct?.entityKey !== undefined && direct?.entityKey !== null ? direct.entityKey : existing?.entityKey,
-      entityKeyToken: direct?.entityKeyToken !== undefined && direct?.entityKeyToken !== null ? direct.entityKeyToken : existing?.entityKeyToken,
-      displayKey: direct?.displayKey !== undefined && direct?.displayKey !== null ? direct.displayKey : existing?.displayKey,
-
-      firmwareVersion: direct?.firmwareVersion !== undefined && direct?.firmwareVersion !== null ? direct.firmwareVersion : existing?.firmwareVersion,
-      softwareVersion: direct?.softwareVersion !== undefined && direct?.softwareVersion !== null ? direct.softwareVersion : existing?.softwareVersion,
-
-      thermostatStage: direct?.thermostatStage !== undefined && direct?.thermostatStage !== null ? direct.thermostatStage : existing?.thermostatStage,
-      hvacRuntimeState: direct?.hvacRuntimeState !== undefined && direct?.hvacRuntimeState !== null ? direct.hvacRuntimeState : existing?.hvacRuntimeState,
-      hvacMode: direct?.hvacMode !== undefined && direct?.hvacMode !== null ? direct.hvacMode : existing?.hvacMode,
-      hvacStatus: direct?.hvacStatus !== undefined && direct?.hvacStatus !== null ? direct.hvacStatus : existing?.hvacStatus,
-
-      hvac1: (direct?.hvac1 !== undefined && direct?.hvac1 !== null) ? direct.hvac1 : existing?.hvac1,
-      hvac2: (direct?.hvac2 !== undefined && direct?.hvac2 !== null) ? direct.hvac2 : existing?.hvac2,
-      doors: (direct?.doors !== undefined && direct?.doors !== null) ? direct.doors : existing?.doors,
-      fssSignals: (direct?.fssSignals !== undefined && direct?.fssSignals !== null) ? direct.fssSignals : existing?.fssSignals,
-
-      sourceCoverage: {
-        ...(existing?.sourceCoverage || {}),
-        ...(direct?.sourceCoverage || {}),
-        directFeather: true
-      },
-
-      doorApplicability: {
-        ...(existing?.doorApplicability || {}),
-        ...(direct?.doorApplicability || {})
-      },
-
-      raw: {
-        ...(existing?.raw || {}),
-        directPoll: direct?.raw || direct
-      }
-    };
-
-    res.json({
-      success: true,
-      device: merged,
-      directStatusMerged: !!existing,
+    const response = buildFeatherDeviceStatusResponse({
+      deviceIp,
+      direct,
+      existing,
+      includeDiagnostics,
+      diagnostics,
       mergedFromSnapshot: !!snapshot?.normalized?.feather,
-      source: "direct-feather-status"
     });
+
+    res.json(response);
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to query device status" });
   }

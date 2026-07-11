@@ -46,7 +46,14 @@ export interface FeatherHvacDevice {
   controlTemperatureC?: number;
   coolingSetpointC?: number;
   heatingSetpointC?: number;
+  airCoolingSetpointC?: number;
+  airHeatingSetpointC?: number;
+  cellCoolingSetpointC?: number;
+  cellHeatingSetpointC?: number;
   thermostatStage?: string;
+  modbusPollerMode?: string;
+  hvacType?: string;
+  segmentTypeCode?: number;
   running?: boolean;
   thermalControlRunning?: boolean;
   hvacEnabled?: boolean;
@@ -228,6 +235,11 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
   }
 
   partial.deviceState = raw.operationalState || "NORMAL";
+  partial.modbusPollerMode = raw.modbusPollerMode;
+  partial.hvacType = raw.hvacType;
+  if (raw.segmentType !== undefined && raw.segmentType !== null && !isNaN(Number(raw.segmentType))) {
+    partial.segmentTypeCode = Number(raw.segmentType);
+  }
   
   if (raw.healthy === true && partial.deviceState === "NORMAL") {
     partial.deviceState = "NORMAL";
@@ -252,6 +264,10 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
   partial.controlTemperatureC = thermal.controlTemperature !== undefined ? thermal.controlTemperature : undefined;
   partial.coolingSetpointC = thermal.coolingSetpoint !== undefined ? thermal.coolingSetpoint : undefined;
   partial.heatingSetpointC = thermal.heatingSetpoint !== undefined ? thermal.heatingSetpoint : undefined;
+  partial.airCoolingSetpointC = thermal.airCoolingSetpoint !== undefined ? thermal.airCoolingSetpoint : undefined;
+  partial.airHeatingSetpointC = thermal.airHeatingSetpoint !== undefined ? thermal.airHeatingSetpoint : undefined;
+  partial.cellCoolingSetpointC = thermal.cellCoolingSetpoint !== undefined ? thermal.cellCoolingSetpoint : undefined;
+  partial.cellHeatingSetpointC = thermal.cellHeatingSetpoint !== undefined ? thermal.cellHeatingSetpoint : undefined;
   
   partial.running = thermal.running;
   partial.thermalControlRunning = thermal.running;
