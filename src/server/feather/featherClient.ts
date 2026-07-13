@@ -3,6 +3,9 @@ import { normalizeFeatherStatus } from "./featherNormalizer";
 import { discoverTopologyCandidates } from "./featherDiscovery";
 import { ProfileStore } from "../profiles/profileStore";
 import { isDemoActive } from "../emsTurtleClient";
+import { telemetryMetrics } from "../telemetry/metrics";
+import { getTelemetryCycleId } from "../telemetry/TelemetryCycleContext";
+import { coordinatorPhaseNameForEndpoint, coordinatorProfiler } from "../telemetry/profiler";
 
 // Segmented memory cache of Feather profiles
 // Key is activeProfileId
@@ -17,9 +20,12 @@ type JsonFetchResult = {
 };
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<JsonFetchResult> {
+  return coordinatorProfiler.withPhase(coordinatorPhaseNameForEndpoint("feather", url), { waitState: "NETWORK", blocking: true }, async () => {
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const logicalEndpoint = (() => { try { const parsed = new URL(url); return `${parsed.hostname}${parsed.pathname}`; } catch { return url; } })();
+  const metric = telemetryMetrics.registry.beginEndpoint("feather", logicalEndpoint);
 
   try {
     const res = await fetch(url, {
@@ -34,6 +40,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
 
     const durationMs = Date.now() - startedAt;
     if (!res.ok) {
+      metric.finish({ success: false, responseBytes: Number(res.headers.get("content-length")) || null, acquisitionTimestamp: new Date(), stale: true });
       return {
         ok: false,
         status: res.status,
@@ -44,9 +51,12 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
     }
 
     try {
-      const data = await res.json();
+      const parseStartedAt = performance.now();
+      const data = await coordinatorProfiler.withPhase("Parse Response", { waitState: "PARSE", blocking: true }, () => res.json());
+      metric.finish({ success: true, responseBytes: Number(res.headers.get("content-length")) || null, parseDurationMs: performance.now() - parseStartedAt, sourceObservationTimestamp: data?.timestamp ?? data?.timeStamp ?? data?.capturedAt ?? null, acquisitionTimestamp: new Date(), stale: false });
       return { ok: true, status: res.status, data, error: null, durationMs };
     } catch (err: any) {
+      metric.finish({ success: false, responseBytes: Number(res.headers.get("content-length")) || null, acquisitionTimestamp: new Date(), stale: true });
       return {
         ok: false,
         status: res.status,
@@ -57,6 +67,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
     }
   } catch (err: any) {
     clearTimeout(timeoutId);
+    metric.finish({ success: false, timeout: err?.name === "AbortError" || /timeout/i.test(err?.message || ""), acquisitionTimestamp: new Date(), stale: true });
     return {
       ok: false,
       status: 0,
@@ -65,6 +76,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
       durationMs: Date.now() - startedAt,
     };
   }
+  }, (result) => ({ success: result.ok }));
 }
 
 function mergeFeatherReadOnlyPayloads(reportJson: any, mainDataJson: any): any {
@@ -128,6 +140,7 @@ function mergeFeatherReadOnlyPayloads(reportJson: any, mainDataJson: any): any {
  * If there is a profile mismatch or missing cache, we return a stale-flagged empty placeholder.
  */
 export function getFeatherCache(): {
+  cycleId: number | null;
   success: boolean;
   isStale: boolean;
   activeProfileId: string;
@@ -147,6 +160,7 @@ export function getFeatherCache(): {
 
   if (cacheMatches && cached) {
     return {
+      cycleId: cached.cycleId,
       success: true,
       isStale: false,
       activeProfileId: activeId,
@@ -160,6 +174,7 @@ export function getFeatherCache(): {
 
   // Fallback if cache is missing or belongs to another profile
   return {
+    cycleId: null,
     success: false,
     isStale: true,
     activeProfileId: activeId,
@@ -193,7 +208,8 @@ export async function queryFeatherDevice(
   deviceIp: string,
   sourceDiscoveryMethod: "string-ip-map" | "ip-map" | "blockviewer" | "manual" | "topology-profile",
   timeoutMs: number = 3000,
-  candidateInfo?: DiscoveryCandidate
+  candidateInfo?: DiscoveryCandidate,
+  onNetworkCall?: () => void
 ): Promise<FeatherNormalizedStatus> {
   const activeProfile = ProfileStore.getActiveProfile();
   const activeId = activeProfile ? activeProfile.id : "default-local-ems";
@@ -205,6 +221,18 @@ export async function queryFeatherDevice(
   const mainDataUrl = `http://${deviceIp}:8080/feather/main/data`;
 
   const isDemo = isDemoActive();
+  const metricEndpoint = `${deviceIp}/feather/status/report.json`;
+  const normalizeWithMetrics = (...args: Parameters<typeof normalizeFeatherStatus>): FeatherNormalizedStatus => {
+    const startedAt = performance.now();
+    const normalized = normalizeFeatherStatus(...args);
+    telemetryMetrics.registry.recordEndpointProcessing("feather", metricEndpoint, { normalizationDurationMs: performance.now() - startedAt });
+    return normalized;
+  };
+  const saveWithMetrics = (normalized: FeatherNormalizedStatus): void => {
+    const startedAt = performance.now();
+    saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+    telemetryMetrics.registry.recordEndpointProcessing("feather", metricEndpoint, { cacheWriteDurationMs: performance.now() - startedAt });
+  };
 
   if (isDemo) {
     // Generate realistic simulated response
@@ -215,7 +243,7 @@ export async function queryFeatherDevice(
     const mockRaw = isReachable ? generateMockFeatherRaw(deviceIp) : null;
     const duration = Date.now() - startTime;
 
-    const normalized = normalizeFeatherStatus(
+    const normalized = normalizeWithMetrics(
       deviceIp,
       isReachable,
       duration,
@@ -238,13 +266,14 @@ export async function queryFeatherDevice(
        (normalized as any).rejectedReason = candidateInfo?.excludeReason || "Demo Mode: Node Simulated Offline";
     }
 
-    saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+    saveWithMetrics(normalized);
 
     return normalized;
   }
 
   try {
     // Baseline endpoint must remain /feather/status/report.json
+    onNetworkCall?.();
     const reportResult = await fetchJsonWithTimeout(endpointUrl, timeoutMs);
     const duration = Date.now() - startTime;
 
@@ -253,6 +282,7 @@ export async function queryFeatherDevice(
     }
 
     // Optional read-only enrichment from /feather/main/data. Failure here must not fail baseline polling.
+    onNetworkCall?.();
     const mainResult = await fetchJsonWithTimeout(mainDataUrl, timeoutMs);
     const rawJson = mergeFeatherReadOnlyPayloads(reportResult.data, mainResult.ok ? mainResult.data : null);
     if (!mainResult.ok) {
@@ -274,7 +304,7 @@ export async function queryFeatherDevice(
 
     if (!looksLikeFeather) {
         const errMsg = "Payload is missing expected Feather identifiers";
-        const normalized = normalizeFeatherStatus(
+        const normalized = normalizeWithMetrics(
           deviceIp,
           false,
           duration,
@@ -292,11 +322,11 @@ export async function queryFeatherDevice(
             (normalized as any).rejectedReason = candidateInfo?.excludeReason || errMsg;
         }
         
-        saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+        saveWithMetrics(normalized);
         return normalized;
     }
 
-    const normalized = normalizeFeatherStatus(
+    const normalized = normalizeWithMetrics(
       deviceIp,
       true,
       duration,
@@ -310,7 +340,7 @@ export async function queryFeatherDevice(
     );
 
     // If it successfully replied as a Feather, it is never rejected, even if originally excluded
-    saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+    saveWithMetrics(normalized);
     return normalized;
 
   } catch (err: any) {
@@ -321,7 +351,7 @@ export async function queryFeatherDevice(
     const tempCache = featherProfilesCache.get(activeId);
     const previouslyValidated = tempCache && tempCache.devices.some(d => d.deviceIp === deviceIp && !(d as any).rejected);
 
-    const normalized = normalizeFeatherStatus(
+    const normalized = normalizeWithMetrics(
       deviceIp,
       false,
       duration,
@@ -339,7 +369,7 @@ export async function queryFeatherDevice(
         (normalized as any).rejectedReason = candidateInfo?.excludeReason || errMsg;
     }
     
-    saveNormalizedToCache(activeId, activeName, activeUrl, normalized);
+    saveWithMetrics(normalized);
     return normalized;
   }
 }
@@ -431,6 +461,7 @@ function saveNormalizedToCache(
   // If cache is staled or missing, initialize fresh structure
   if (!existing || existing.activeEmsBaseUrl !== emsBaseUrl) {
     existing = {
+      cycleId: getTelemetryCycleId(),
       activeProfileId: profileId,
       activeProfileName: profileName,
       activeEmsBaseUrl: emsBaseUrl,
@@ -440,6 +471,7 @@ function saveNormalizedToCache(
     };
     featherProfilesCache.set(profileId, existing);
   }
+  existing.cycleId = getTelemetryCycleId();
 
   // Stabilization Pass
   if (deviceStatus.deviceIp) {
@@ -587,10 +619,12 @@ export async function refreshFeatherCache(opts: { timeoutMs?: number, force?: bo
         if (candidates.length > 0) {
             // increased limit to 2000 to cleanly support multi-block site topologies without truncation
             const limit = 2000; 
-            const batches = candidates.slice(0, limit).map(c => 
-                queryFeatherDevice(c.deviceIp, c.sourceDiscoveryMethod, opts.timeoutMs ?? 3000, c)
-            );
-            await Promise.allSettled(batches);
+            await coordinatorProfiler.withParallelGroup("Feather Device Acquisition", Math.min(candidates.length, limit), async () => {
+                const batches = candidates.slice(0, limit).map(c =>
+                    queryFeatherDevice(c.deviceIp, c.sourceDiscoveryMethod, opts.timeoutMs ?? 3000, c)
+                );
+                await Promise.allSettled(batches);
+            });
         }
     } catch(e) {}
 }
@@ -620,4 +654,3 @@ export async function bootstrapFeatherDiscoveryAndSeedCache(options?: {
       });
   }
 }
-

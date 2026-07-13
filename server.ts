@@ -21,7 +21,7 @@ import { initLocalStorageMaintenance } from "./src/server/storage/storageMainten
 import { siteDataRouter } from "./src/server/siteDataRoutes";
 import { reportRoutes } from "./src/server/reports/reportRoutes";
 
-import { emsCache, bootstrapEmsAndSeedCache, getExtendedConnectionStatus, DEMO_TEMPLATES, OFFLINE_TEMPLATES } from "./src/server/emsTurtleClient";
+import { emsCache, bootstrapEmsAndSeedCache, cacheSeedState, getExtendedConnectionStatus, DEMO_TEMPLATES, OFFLINE_TEMPLATES } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
 import express from "express";
 import { recordTelemetrySample, getSiteTelemetryHistory, getLatestSiteMetrics } from "./src/server/telemetry/siteTelemetryAggregator";
@@ -31,7 +31,6 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { BessDevice, ReportConfig, SmartDiagnosticResponse } from "./src/types";
 import {
-  pollEmsTurtle,
   getEmsConnectionStatus,
   getEmsCachedStatus,
   getEmsCachedBlock,
@@ -76,6 +75,9 @@ import { resolveCorrectiveAction } from "./src/server/correctiveActions/correcti
 import { STACK750_FAULT_MATRIX, MATRIX_METADATA } from "./src/server/correctiveActions/correctiveActionMatrix";
 import { buildLocalStringsResponse } from "./src/server/localStringsBrokerRoute";
 import { buildFeatherDeviceStatusRouteResponse } from "./src/server/feather/featherStatusBrokerRoute";
+import { telemetryMetrics } from "./src/server/telemetry/metrics";
+import { telemetryMetricsRouter } from "./src/server/telemetry/metrics/TelemetryMetricsRoutes";
+import { coordinatorProfiler } from "./src/server/telemetry/profiler";
 
 
 
@@ -84,9 +86,25 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '50mb' }));
+app.use((_req, res, next) => {
+  res.setHeader("X-PRIZM-Cycle-Id", "none");
+  const sendJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    const candidates = [
+      body?.cycleId,
+      body?.cache?.cycleId,
+      body?.snapshot?.cycleId,
+      body?.brokerSnapshot?.cycleId,
+      body?.data?.cycleId,
+    ];
+    const cycleId = candidates.find((value) => Number.isSafeInteger(value) && value > 0);
+    if (cycleId !== undefined) res.setHeader("X-PRIZM-Cycle-Id", String(cycleId));
+    return sendJson(body);
+  }) as typeof res.json;
+  next();
+});
 
 import lightbarRouter from "./src/server/lightbar/lightbarRoutes";
-import { triggerContactorRefresh } from "./src/server/contactorStateEngine";
 
 app.use("/api/local/lightbar", lightbarRouter);
 app.use("/api/local/safety-fault-clear", safetyFaultClearRouter);
@@ -119,14 +137,23 @@ app.use("/api/local/fan-control", fanControlRouter);
 app.use("/api/local/troubleshooting", troubleshootingRouter);
 
 app.use("/api/local", debugSourceScanRouter);
+app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
+
+app.get("/api/local/debug/coordinator", (_req, res) => {
+  res.json(prizmDataCoordinator.getCoordinatorDebugState());
+});
+
+app.get("/api/local/debug/coordinator/profile", (_req, res) => {
+  res.json(coordinatorProfiler.getReport());
+});
+
+app.get("/api/local/debug/coordinator/timeline", (_req, res) => {
+  res.json({ generatedAt: new Date().toISOString(), cycles: coordinatorProfiler.getHistory() });
+});
 
 app.get("/api/local/snapshot", async (req, res) => {
   if (req.query.refresh === "true") {
-    try {
-      await prizmDataCoordinator.triggerImmediatePoll();
-    } catch (err: any) {
-      console.error("[Snapshot Route] Synchronous refresh failed", err);
-    }
+    prizmDataCoordinator.requestRefresh("route:/api/local/snapshot");
   }
   const snapshot = prizmDataCoordinator.getLatestSnapshot();
   if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
@@ -159,7 +186,7 @@ app.get("/api/local/pcs/dashboard", (req, res) => {
 app.get("/api/local/feather/devices", async (req, res) => {
   const snapshot = prizmDataCoordinator.getLatestSnapshot();
   if (!snapshot) return res.status(503).json({ error: "Snapshot not yet built" });
-  res.json({ devices: snapshot.normalized.feather || [] });
+  res.json({ cycleId: snapshot.cycleId, devices: snapshot.normalized.feather || [] });
 });
 
 app.get("/api/local/corrective-actions", (req, res) => {
@@ -201,12 +228,8 @@ app.post("/api/local/system/reinitialize", (req, res) => {
 });
 
 app.post("/api/local/system/refresh-live", async (req, res) => {
-  try {
-    await prizmDataCoordinator.triggerImmediatePoll();
-    res.json({ success: true, message: "Live EMS refresh completed" });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Live EMS refresh failed" });
-  }
+  prizmDataCoordinator.requestRefresh("route:/api/local/system/refresh-live");
+  res.json({ success: true, message: "Live EMS refresh completed" });
 });
 
 
@@ -295,13 +318,7 @@ import {
 // Setup background interval polling for EMS Turtle from configure interval
 // background polling is now handled by prizmBootOrchestrator
 // Kick off initial bootstrap cache seed
-bootstrapEmsAndSeedCache().then(() => {
-    bootstrapFeatherDiscoveryAndSeedCache();
-    startModbusScheduler();
-}).catch(err => {
-  console.log("[EMS LAN Info] Initial offline scan or bootstrap failed or finished.");
-  startModbusScheduler();
-});
+startModbusScheduler();
 
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry
 app.get("/api/local/connection", (req, res) => {
@@ -331,15 +348,22 @@ app.get("/api/local/ems/sources", (req, res) => {
 
 // POST /api/local/ems/retry-connection
 app.post("/api/local/ems/retry-connection", async (req, res) => {
-  await bootstrapEmsAndSeedCache();
-  bootstrapFeatherDiscoveryAndSeedCache({ force: true });
+  if (process.env.PRIZM_SINGLE_OWNER_ACQUISITION === "false") {
+    await bootstrapEmsAndSeedCache();
+    bootstrapFeatherDiscoveryAndSeedCache({ force: true });
+  } else {
+    prizmDataCoordinator.requestRefresh("route:/api/local/ems/retry-connection");
+  }
   res.json(getExtendedConnectionStatus());
 });
 
 // POST /api/local/cache/seed
 app.post("/api/local/cache/seed", async (req, res) => {
-  const result = await bootstrapEmsAndSeedCache();
-  bootstrapFeatherDiscoveryAndSeedCache({ force: true });
+  const result = process.env.PRIZM_SINGLE_OWNER_ACQUISITION === "false"
+    ? await bootstrapEmsAndSeedCache()
+    : { success: true, cacheSeedState };
+  if (process.env.PRIZM_SINGLE_OWNER_ACQUISITION === "false") bootstrapFeatherDiscoveryAndSeedCache({ force: true });
+  else prizmDataCoordinator.requestRefresh("route:/api/local/cache/seed");
   res.json(result);
 });
 
@@ -413,6 +437,7 @@ app.get("/api/local/arrays", (req, res) => {
 
 // 5. GET /api/local/strings: Derived from tools/report/ems/strings.csv or fallback to blockviewer
 app.get("/api/local/strings", async (req, res) => {
+  const routeMetric = telemetryMetrics.registry.beginRoute("GET /api/local/strings");
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
   const ipMapWrapper = getEmsStringIpMap();
@@ -420,16 +445,24 @@ app.get("/api/local/strings", async (req, res) => {
   const forceLegacy = req.query.legacy === "true" || process.env.PRIZM_STRINGS_ROUTE_FORCE_LEGACY === "true";
   const disableBroker = process.env.PRIZM_STRINGS_ROUTE_DISABLE_BROKER === "true";
 
-  const { response } = await buildLocalStringsResponse({
-    rawStringsWrapper,
-    blockWrapper,
-    ipMapWrapper,
-    snapshot,
-    forceLegacy,
-    disableBroker,
-  });
-
-  res.json(response);
+  try {
+    const normalizationStartedAt = performance.now();
+    const { response, usingBroker } = await buildLocalStringsResponse({
+      rawStringsWrapper,
+      blockWrapper,
+      ipMapWrapper,
+      snapshot,
+      forceLegacy,
+      disableBroker,
+    });
+    telemetryMetrics.registry.recordEndpointProcessing("route", "/api/local/strings", { normalizationDurationMs: performance.now() - normalizationStartedAt });
+    const cycleId = snapshot?.cycleId ?? null;
+    routeMetric.finish({ brokerSelected: usingBroker, legacyFallback: !usingBroker, cacheOnly: true, routeTriggeredNetworkCalls: 0, cycleId });
+    res.json({ ...response, cycleId });
+  } catch (error) {
+    routeMetric.finish({ failed: true, cacheOnly: true });
+    throw error;
+  }
 });
 
 
@@ -702,7 +735,7 @@ app.post("/api/settings/profiles", (req, res) => {
 
     if (activate) {
       clearEmsTelemetryCache();
-      pollEmsTurtle().catch(() => {});
+      prizmDataCoordinator.requestRefresh("profile:create-and-activate");
     }
 
     res.status(201).json(newProfile);
@@ -835,18 +868,7 @@ app.put("/api/settings/profiles/:id", (req, res) => {
       // 4. clear central PRIZM snapshot
       prizmDataCoordinator.clearSnapshot();
       
-      // 5. trigger EMS poll
-      pollEmsTurtle().catch(err => console.error("Poll EMS failed after PUT update:", err));
-      
-      // 6. trigger Feather discovery using new active topology in background
-      bootstrapFeatherDiscoveryAndSeedCache({ force: true }).catch(err => {
-           console.error("Bootstrap feather failed after PUT update:", err);
-      });
-      
-      // 7. trigger Data Coordinator refresh
-      prizmDataCoordinator.triggerImmediatePoll().catch(err => {
-           console.error("Data coordinator trigger immediate poll failed after PUT update:", err);
-      });
+      prizmDataCoordinator.requestRefresh("profile:update-active");
     }
 
     res.json(updated);
@@ -864,7 +886,7 @@ app.delete("/api/settings/profiles/:id", (req, res) => {
 
     if (activeBefore.id === id || activeBefore.id !== activeAfter.id) {
       clearEmsTelemetryCache();
-      pollEmsTurtle().catch(() => {});
+      prizmDataCoordinator.requestRefresh("profile:delete-active");
     }
 
     res.json({ success: true, profiles: list });
@@ -894,18 +916,7 @@ app.post("/api/settings/profiles/:id/activate", (req, res) => {
     // 4. clear central PRIZM snapshot
     prizmDataCoordinator.clearSnapshot();
     
-    // 5. trigger EMS poll
-    pollEmsTurtle().catch(err => console.error("Poll EMS failed during activation:", err));
-    
-    // 6. trigger Feather discovery using new active topology in background
-    bootstrapFeatherDiscoveryAndSeedCache({ force: true }).catch(err => {
-         console.error("Bootstrap feather failed during activation:", err);
-    });
-    
-    // 7. trigger Data Coordinator refresh
-    prizmDataCoordinator.triggerImmediatePoll().catch(err => {
-         console.error("Data coordinator trigger immediate poll failed during activation:", err);
-    });
+    prizmDataCoordinator.requestRefresh("profile:activate");
 
     res.json({ success: true, activatedProfile: activated });
   } catch (err: any) {
@@ -1114,6 +1125,24 @@ app.get("/api/feather/devices", async (req, res) => {
     const maxAgeMs = req.query.maxAgeMs ? parseInt(req.query.maxAgeMs as string, 10) : 5000;
 
     const currentFeatherCache = getFeatherCache();
+    if (process.env.PRIZM_SINGLE_OWNER_ACQUISITION !== "false") {
+      if (forceRefresh) prizmDataCoordinator.requestRefresh("route:/api/feather/devices");
+      const cached = await fetchEnrichedDevices().catch(() => ({ devices: currentFeatherCache.devices || [], total: currentFeatherCache.devices?.length || 0 }));
+      lastEnrichedCache = { ...cached, generatedAt: new Date().toISOString(), lastUpdatedAt: currentFeatherCache.lastUpdatedAt };
+      return res.json({
+        ...lastEnrichedCache,
+        source: "cache",
+        dataClass: "live-telemetry",
+        diskCacheUsed: false,
+        memoryCacheUsed: true,
+        cacheUsed: true,
+        liveAttempted: forceRefresh,
+        liveSucceeded: false,
+        stale: currentFeatherCache.isStale,
+        cachePolicy: policy,
+        isDiscovering: false,
+      });
+    }
     const hasKnownFeatherIps = !currentFeatherCache.isStale && currentFeatherCache.devices && currentFeatherCache.devices.some(d => !(d as any).rejected);
 
     let wasLiveAttempted = forceRefresh;
@@ -1300,6 +1329,7 @@ app.get("/api/feather/devices", async (req, res) => {
 
 // 5. GET /api/feather/devices/:deviceIp/status
 app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
+  const routeMetric = telemetryMetrics.registry.beginRoute("GET /api/feather/devices/:deviceIp/status");
   try {
     const { deviceIp } = req.params;
     const { source } = req.query;
@@ -1311,7 +1341,7 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
     const snapshot: any = prizmDataCoordinator.getLatestSnapshot();
 
-    const { response } = await buildFeatherDeviceStatusRouteResponse({
+    const { response, usingBroker, fallbackUsed, routeTriggeredNetworkCalls } = await buildFeatherDeviceStatusRouteResponse({
       deviceIp,
       sourceMethod,
       includeDiagnostics,
@@ -1320,10 +1350,19 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
       lastEnrichedCache,
       forceLegacy,
       disableBroker,
+      cacheOnly: process.env.PRIZM_SINGLE_OWNER_ACQUISITION !== "false",
     });
 
-    res.json(response);
+    routeMetric.finish({
+      brokerSelected: usingBroker,
+      legacyFallback: fallbackUsed || !usingBroker,
+      cacheOnly: routeTriggeredNetworkCalls === 0,
+      routeTriggeredNetworkCalls,
+      cycleId: snapshot?.cycleId ?? null,
+    });
+    res.json({ ...response, cycleId: snapshot?.cycleId ?? null });
   } catch (err: any) {
+    routeMetric.finish({ failed: true });
     res.status(500).json({ error: err.message || "Failed to query device status" });
   }
 });
@@ -3418,23 +3457,6 @@ if (process.env.PRIZM_FORCE_DEV === "true") {
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 
-  // Warm the contactor snapshot shortly after server start so the String List
-  // can render from a latest-known normalized snapshot instead of waiting for
-  // the first browser request to trigger a sweep.
-  setTimeout(() => {
-    console.log("[Contactor Engine] Startup warm refresh beginning...");
-    triggerContactorRefresh({
-      ttlMs: 5000,
-      timeoutMs: 5000,
-      concurrency: 12
-    })
-      .then((result) => {
-        console.log("[Contactor Engine] Startup warm refresh complete:", result.summary);
-      })
-      .catch((err: any) => {
-        console.warn("[Contactor Engine] Startup warm refresh failed:", err?.message || err);
-      });
-  }, 3000);
   try {
     initLocalStorageMaintenance();
   } catch (err) {

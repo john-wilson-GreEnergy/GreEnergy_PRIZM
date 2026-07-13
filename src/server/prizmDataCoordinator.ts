@@ -14,6 +14,11 @@ import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { normalizeStringRow } from "./normalizers/stringNormalizer";
 import { normalizePcsRow } from "./normalizers/pcsNormalizer";
 import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionResolver";
+import { telemetryMetrics } from "./telemetry/metrics";
+import { CoordinatorCycleOutcome, CoordinatorRuntime } from "./telemetry/CoordinatorRuntime";
+import { collectTelemetrySnapshot } from "./telemetry/TelemetryRuntime";
+import { triggerContactorRefresh } from "./contactorStateEngine";
+import { coordinatorProfiler } from "./telemetry/profiler";
 
 
 
@@ -66,6 +71,7 @@ export type NormalizedFeatherDevice = any;
 export type CorrectiveAction = any;
 
 export type PrizmSiteSnapshot = {
+  cycleId: number;
   siteIdentity: {
     activeProfileId: string | null;
     activeProfileName: string | null;
@@ -1935,27 +1941,43 @@ let lastPollStartedAt: string | null = null;
 let lastPollFinishedAt: string | null = null;
 let lastPollDurationMs: number | null = null;
 
-let isPolling = false;
-let pollingInterval: NodeJS.Timeout | null = null;
 let featherInterval: NodeJS.Timeout | null = null;
 
-async function doBackgroundPoll() {
-  if (isPolling) return;
-  isPolling = true;
+async function executeCoordinatorCycle(context: { cycleId: number; reasons: string[] }): Promise<CoordinatorCycleOutcome<PrizmSiteSnapshot>> {
+  let cycleSucceeded = true;
   lastPollStartedAt = new Date().toISOString();
   const startTime = Date.now();
   let latestError = null;
   try {
-      await pollEmsTurtle();
+      await coordinatorProfiler.withPhase("EMS Acquisition", { waitState: "NETWORK", blocking: true }, () => pollEmsTurtle(), (result) => ({ success: result.success }));
   } catch (err: any) {
       latestError = err;
+      cycleSucceeded = false;
       console.error("[Data Coordinator] EMS Turtle poll failed", err.message);
   }
+
+  if (context.reasons.some((reason) => reason === "coordinator-start" || reason === "feather-15s-schedule")) {
+      try {
+          await coordinatorProfiler.withPhase("Feather Acquisition", { waitState: "NETWORK", blocking: true }, () => refreshFeatherCache({ force: false }));
+      } catch (err: any) {
+          cycleSucceeded = false;
+          console.error("[Data Coordinator] Feather refresh failed", err.message);
+      }
+  }
+  if (context.reasons.includes("coordinator-start")) {
+      await coordinatorProfiler.withPhase("Contactor Startup Acquisition", { waitState: "NETWORK", blocking: true }, () => triggerContactorRefresh({ ttlMs: 5000, timeoutMs: 5000, concurrency: 12 })).catch((err: any) => {
+          console.warn("[Data Coordinator] Initial contactor snapshot refresh failed:", err?.message || err);
+      });
+  }
   
+  const normalizationPhase = coordinatorProfiler.beginPhase("Normalization", { waitState: "NORMALIZATION", blocking: true });
   try {
       console.time("buildSiteOperationsSummaryFromCache");
       // 2. We use the existing siteOperations logic to build everything
-      const parsed = await buildSiteOperationsSummaryFromCache();
+      const siteNormalizationStartedAt = performance.now();
+      const parsed = await coordinatorProfiler.withPhase("Site Operations", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildSiteOperationsSummaryFromCache());
+      prizmCache.set('site-operations-summary', { ...parsed, cycleId: context.cycleId }, { ttlMs: 15000 });
+      telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "site-operations-normalization", { normalizationDurationMs: performance.now() - siteNormalizationStartedAt });
       console.timeEnd("buildSiteOperationsSummaryFromCache");
       
       const connStatus = getEmsConnectionStatus();
@@ -2004,7 +2026,7 @@ async function doBackgroundPoll() {
       });
 
       // 2. Poll and parse enriched HVAC segment device models
-      const enrichedFeatherResult = await fetchEnrichedDevices().catch((err: any) => {
+      const enrichedFeatherResult = await coordinatorProfiler.withPhase("Feather Normalization", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => fetchEnrichedDevices()).catch((err: any) => {
          console.warn("[Data Coordinator] Enriched feather device query failed, utilizing base cache:", err.message);
          return { devices: getFeatherCache().devices || [] };
       });
@@ -2025,16 +2047,20 @@ async function doBackgroundPoll() {
       });
 
       // 3. Query safety firstresponder telemetry structure
-      const sensorsData = await buildNormalizedResponderSummary(false).catch((err: any) => {
+      const sensorsData = await coordinatorProfiler.withPhase("First Responder Normalization", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildNormalizedResponderSummary(false)).catch((err: any) => {
          console.error("[Data Coordinator] Site safety analysis execution failed:", err.message);
          return { rows: [], totalCentipedeLineups: 8, totalHealthyLineups: 8, totalFaultyLineups: 0 };
       });
 
       // Fetch UI-ready normalized string details
-      const stringsResult = await buildNormalizedStringsData(true).catch((err: any) => {
+      const stringNormalizationStartedAt = performance.now();
+      const stringsResult = await coordinatorProfiler.withPhase("String Normalization", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildNormalizedStringsData(true)).catch((err: any) => {
          console.error("[Data Coordinator] Strings normalization fell back due to error:", err.message);
          return null;
       });
+      telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "strings-normalization", { normalizationDurationMs: performance.now() - stringNormalizationStartedAt });
+      normalizationPhase.finish({ success: true });
+      const snapshotGenerationPhase = coordinatorProfiler.beginPhase("Snapshot Generation", { waitState: "NORMALIZATION", blocking: true });
 
       // Normalization Stage 2 additions
       const rawPcsReports = getEmsCachedArrayPcsReports() || {};
@@ -2443,6 +2469,7 @@ async function doBackgroundPoll() {
       }
 
       const newSnap: PrizmSiteSnapshot = {
+          cycleId: context.cycleId,
           siteIdentity: {
               activeProfileId: rawConn.activeProfileId,
               activeProfileName: rawConn.activeProfileName,
@@ -2652,6 +2679,7 @@ async function doBackgroundPoll() {
       (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
 
       // Part 1 & 4 & 5: Repair array summary
+      const siteDistributionPhase = coordinatorProfiler.beginPhase("Site Distribution", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
       const repairSuccess = repairFinalArraySummary(newSnap, centralSnapshot);
       if (repairSuccess) {
           if (newSnap.debug) {
@@ -2666,6 +2694,7 @@ async function doBackgroundPoll() {
       }
 
       repairFinalFleetRollupsFromStringsAndArrays(newSnap);
+      siteDistributionPhase.finish({ success: true });
 
       // Final authority: the String Dashboard builder has already bucketed rows from
       // lastCall stringConnectionState and rebuilt per-bucket metrics from final strings[].
@@ -2715,7 +2744,7 @@ async function doBackgroundPoll() {
               finalStringDashboardBuckets: newSnap.rollups.stringSummary.buckets
           };
       }
-      repairFinalCorrectiveActionsFromSnapshot(newSnap);
+      coordinatorProfiler.withSyncPhase("Route Notifications", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId }, () => repairFinalCorrectiveActionsFromSnapshot(newSnap));
 
       let acceptSnapshot = true;
       let rejectionReason = "";
@@ -2729,9 +2758,12 @@ async function doBackgroundPoll() {
 
       if (acceptSnapshot) {
           centralSnapshot = newSnap;
+          const cacheWriteStartedAt = performance.now();
           prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
+          telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "snapshot-cache", { cacheWriteDurationMs: performance.now() - cacheWriteStartedAt });
           if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('prizm-site-snapshot', centralSnapshot);
       } else {
+          telemetryMetrics.registry.recordRetainedLastKnownGood();
           console.warn(`[Data Coordinator] Rejected degraded snapshot. Reason: ${rejectionReason}`);
           if (centralSnapshot) {
               if (!centralSnapshot.liveStatus) {
@@ -2775,43 +2807,42 @@ async function doBackgroundPoll() {
               prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
           }
       }
+      snapshotGenerationPhase.finish({ success: true });
       
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();
-      recordTelemetrySample(emsCacheRaw || {}, featherCacheRaw);
+      coordinatorProfiler.withSyncPhase("Route Notifications", { waitState: "NORMALIZATION", blocking: true }, () => recordTelemetrySample(emsCacheRaw || {}, featherCacheRaw));
+      await coordinatorProfiler.withPhase("Broker Snapshot", { waitState: "NORMALIZATION", blocking: true }, () => collectTelemetrySnapshot());
 
   } catch (err: any) {
+      cycleSucceeded = false;
       console.error("[Data Coordinator] Dashboard aggregation failed", err.message);
   } finally {
       lastPollFinishedAt = new Date().toISOString();
       lastPollDurationMs = Date.now() - startTime;
-      isPolling = false;
   }
+  return { snapshot: centralSnapshot, successful: cycleSucceeded && !!centralSnapshot, acquisitionTimestamp: lastPollFinishedAt };
 }
+
+const coordinatorRuntime = new CoordinatorRuntime<PrizmSiteSnapshot>(executeCoordinatorCycle);
 
 export function startCoordinator() {
     console.log("[Prizm Data Coordinator] Starting central data coordinator...");
-    
-    doBackgroundPoll(); // initial background poll
-    
-    if (pollingInterval) clearInterval(pollingInterval);
-    pollingInterval = setInterval(() => {
-        doBackgroundPoll();
-    }, 2000);
+    coordinatorRuntime.start(2000);
 
     if (featherInterval) clearInterval(featherInterval);
     featherInterval = setInterval(() => {
-        refreshFeatherCache({ force: true }).catch(console.error);
+        coordinatorRuntime.requestRefresh("feather-15s-schedule");
     }, 15000); // 15 seconds feather refresh
 }
 
 export function stopCoordinator() {
-    if (pollingInterval) clearInterval(pollingInterval);
+    coordinatorRuntime.stop();
     if (featherInterval) clearInterval(featherInterval);
 }
 
 export function getLatestSnapshot(): PrizmSiteSnapshot | null {
-    return centralSnapshot;
+    return coordinatorRuntime.getCurrentSnapshot() || centralSnapshot;
 }
 
 export function getSnapshotOrNull(): PrizmSiteSnapshot | null {
@@ -3368,12 +3399,20 @@ export function getSensorsView(): any {
 
 export function clearSnapshot() {
     centralSnapshot = null;
+    coordinatorRuntime.setCurrentSnapshot(null);
     prizmCache.set('prizm-site-snapshot', null, { ttlMs: 0 });
 }
 
-export async function triggerImmediatePoll(): Promise<void> {
-    isPolling = false; // Break any locks to force immediate poll
-    await doBackgroundPoll();
+export function requestRefresh(reason = "unspecified"): void {
+    coordinatorRuntime.requestRefresh(reason);
+}
+
+export async function triggerImmediatePoll(reason = "legacy-triggerImmediatePoll"): Promise<void> {
+    requestRefresh(reason);
+}
+
+export function getCoordinatorDebugState() {
+    return coordinatorRuntime.getDebugState();
 }
 
 function isCollectionSegmentDevice(device: any) {

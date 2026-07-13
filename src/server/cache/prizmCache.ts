@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import { getEmsConnectionStatus } from "../emsTurtleClient";
 import { isHistoricalSnapshotAllowed, runStorageCleanup } from "../storage/storageMaintenance";
+import { getTelemetryCycleId } from "../telemetry/TelemetryCycleContext";
+import { coordinatorProfiler } from "../telemetry/profiler";
 
 export const CACHE_ROOT = process.env.PRIZM_CACHE_DIR || path.resolve(process.cwd(), ".prizm-cache");
 export const HISTORY_ROOT = process.env.PRIZM_HISTORY_DIR || path.resolve(process.cwd(), ".prizm-history");
@@ -109,6 +111,8 @@ export type PrizmDataClass =
   | "last-known";
 
 export interface PrizmCacheEntry<T = unknown> {
+  cycleId: number | null;
+  cacheWriteCycleId: number | null;
   key: string;
   data: T;
   sourceUrl?: string;
@@ -128,6 +132,7 @@ export interface PrizmCacheEntry<T = unknown> {
 }
 
 export interface SetCacheOptions {
+  cycleId?: number | null;
   ttlMs?: number;
   sourceUrl?: string;
   profileId?: string | null;
@@ -190,6 +195,8 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
           return existing;
         }
         const failedEntry: PrizmCacheEntry<T> = {
+          cycleId: options?.cycleId ?? getTelemetryCycleId(),
+          cacheWriteCycleId: getTelemetryCycleId(),
           key,
           data: null as any,
           fetchedAt: new Date().toISOString(),
@@ -211,6 +218,8 @@ export async function getOrFetch<T>(key: string, fetcher: () => Promise<T>, opti
   } else {
      // Not allowed to fetch live, and either no cache or allowCache is false.
      return {
+        cycleId: options?.cycleId ?? getTelemetryCycleId(),
+        cacheWriteCycleId: getTelemetryCycleId(),
         key,
         data: null as any,
         fetchedAt: new Date().toISOString(),
@@ -379,6 +388,8 @@ export function get<T>(key: string): PrizmCacheEntry<T> | null {
           const stationMatches = (meta.stationCode || meta.discoveredStationCode) && cacheMeta.stationCode === (meta.stationCode || meta.discoveredStationCode);
           if (urlMatches || stationMatches) {
                const entry: PrizmCacheEntry<T> = {
+                  cycleId: typeof cacheMeta.cycleId === "number" ? cacheMeta.cycleId : null,
+                  cacheWriteCycleId: typeof cacheMeta.cacheWriteCycleId === "number" ? cacheMeta.cacheWriteCycleId : null,
                   key,
                   data: content.data,
                   fetchedAt: cacheMeta.fetchedAt,
@@ -417,11 +428,16 @@ export function get<T>(key: string): PrizmCacheEntry<T> | null {
 
 
 export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCacheEntry<T> {
+  const profilerPhase = coordinatorProfiler.beginPhase("Cache Write", { waitState: "CACHE", blocking: true, metadata: { key } });
   const now = new Date().toISOString();
   const meta = getActiveSiteMetadata();
   const ttlMs = options?.ttlMs ?? 5000;
   
   const entry: PrizmCacheEntry<T> = {
+    cycleId: (data && typeof data === "object" && Number.isSafeInteger((data as any).cycleId))
+      ? (data as any).cycleId
+      : options?.cycleId ?? getTelemetryCycleId(),
+    cacheWriteCycleId: getTelemetryCycleId(),
     key,
     data,
     sourceUrl: options?.sourceUrl,
@@ -451,6 +467,8 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
           stationCode: meta.stationCode,
           emsBaseUrl: meta.emsBaseUrl,
           sourceKey: key,
+          cycleId: entry.cycleId,
+          cacheWriteCycleId: entry.cacheWriteCycleId,
           sourceUrl: options?.sourceUrl || '',
           fetchedAt: now,
           ttlMs,
@@ -473,6 +491,7 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
       updateManifest(key, true, options?.sourceUrl || '', ttlMs);
   } catch(e) {}
   
+  profilerPhase.finish({ success: true });
   return entry;
 }
 

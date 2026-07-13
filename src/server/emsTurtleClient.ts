@@ -4,7 +4,10 @@ import { AcquisitionManager } from "../acquisition/AcquisitionManager";
 import { CsvProvider } from "../acquisition/providers/CsvProvider";
 import { RestProvider } from "../acquisition/providers/RestProvider";
 import { ProfileStore } from "./profiles/profileStore";
+import { telemetryMetrics } from "./telemetry/metrics";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
+import { getTelemetryCycleId } from "./telemetry/TelemetryCycleContext";
+import { coordinatorPhaseNameForEndpoint, coordinatorProfiler } from "./telemetry/profiler";
 
 const DEFAULT_EMS_BASE_URL = "http://10.0.0.3:8080/turtle";
 
@@ -51,6 +54,7 @@ export function setDemoMode(active: boolean) {}
 
 
 interface EmsCache {
+  cycleId: number | null;
   status: any;
   block: any;
   lastCall: any;
@@ -73,6 +77,7 @@ interface EmsCache {
 
 // Strict Real-Time Cache for Actual LAN Ethernet Polling
 export const emsCache: EmsCache = {
+  cycleId: null,
   status: null,
   block: null,
   lastCall: null,
@@ -459,6 +464,16 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
   const timeoutMs = customTimeoutMs || Math.max(REQUEST_TIMEOUT_MS, 30000); 
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startTime = Date.now();
+  const metric = telemetryMetrics.registry.beginEndpoint("ems-turtle", endpoint);
+  const profilerPhase = coordinatorProfiler.beginPhase(coordinatorPhaseNameForEndpoint("ems-turtle", endpoint), { waitState: "NETWORK", blocking: true });
+  let metricFinished = false;
+  let fallbackUsedForMetric = false;
+  const finishMetric = (success: boolean, details: Record<string, any> = {}) => {
+    if (metricFinished) return;
+    metricFinished = true;
+    metric.finish({ success, fallback: fallbackUsedForMetric, acquisitionTimestamp: new Date(), stale: fallbackUsedForMetric, ...details });
+    profilerPhase.finish({ success, retries: fallbackUsedForMetric ? 1 : 0, bytes: details.responseBytes ?? null });
+  };
 
   if (!endpointDebugMap[endpoint]) {
     endpointDebugMap[endpoint] = {
@@ -485,6 +500,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
           isEmsOffline = true;
         }
         fallbackAttempted = true;
+        fallbackUsedForMetric = true;
         const urlObj = new URL(url);
         const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
         console.log(`[emsTurtleClient] Endpoint ${endpoint} returned status ${response.status}. Using local mock.`);
@@ -497,6 +513,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
         }
         const urlObj = new URL(url);
         const fallbackUrl = `http://127.0.0.1:3000${urlObj.pathname}`;
+        fallbackUsedForMetric = true;
         console.log(`[emsTurtleClient] Endpoint ${endpoint} offline or slow (${e.message}). Using local mock.`);
         response = await fetch(fallbackUrl);
       } else {
@@ -521,27 +538,42 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
     debugItem.lastError = null;
 
     if (returnType === 'json') {
-      const data = await response.json();
+      const parseStartedAt = performance.now();
+      const data = await coordinatorProfiler.withPhase<any>("Parse Response", { waitState: "PARSE", blocking: true, parentPhaseId: profilerPhase.phaseId }, () => response.json() as Promise<any>);
+      const parseDurationMs = performance.now() - parseStartedAt;
       const ext = endpoint.endsWith('.csv') ? '.csv' : (endpoint.endsWith('.txt') ? '.txt' : '.json');
       const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+      const cacheStartedAt = performance.now();
       try {
         const prizmCache = require('./cache/prizmCache');
         prizmCache.set('raw_' + safeKey, data, { sourceUrl: url, isRaw: true, rawExt: ext, ttlMs: 15000 });
       } catch(e) {}
+      finishMetric(true, {
+        responseBytes: Number(response.headers.get("content-length")) || null,
+        parseDurationMs,
+        cacheWriteDurationMs: performance.now() - cacheStartedAt,
+        sourceObservationTimestamp: data?.timestamp ?? data?.timeStamp ?? data?.capturedAt ?? null,
+        cacheTimestamp: new Date(),
+      });
       return data;
     }
 
     if (returnType === 'text') {
-      const data = await response.text();
+      const parseStartedAt = performance.now();
+      const data = await coordinatorProfiler.withPhase<string>("Parse Response", { waitState: "PARSE", blocking: true, parentPhaseId: profilerPhase.phaseId }, () => response.text());
+      const parseDurationMs = performance.now() - parseStartedAt;
       const ext = endpoint.endsWith('.csv') ? '.csv' : (endpoint.endsWith('.txt') ? '.txt' : '.json');
       const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+      const cacheStartedAt = performance.now();
       try {
         const prizmCache = require('./cache/prizmCache');
         prizmCache.set('raw_' + safeKey, data, { sourceUrl: url, isRaw: true, rawExt: ext, ttlMs: 15000 });
       } catch(e) {}
+      finishMetric(true, { responseBytes: Buffer.byteLength(data), parseDurationMs, cacheWriteDurationMs: performance.now() - cacheStartedAt, cacheTimestamp: new Date() });
       return data;
     }
 
+    finishMetric(true, { responseBytes: Number(response.headers.get("content-length")) || null });
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);
@@ -553,6 +585,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
     if (!debugItem.statusCode && error.name === "AbortError") {
       debugItem.statusCode = 408;
     }
+    finishMetric(false, { timeout: error?.name === "AbortError" || /timeout|aborted/i.test(error?.message || "") });
     throw error;
   }
 }
@@ -750,6 +783,7 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
   }
 
   return {
+    cycleId: emsCache.cycleId,
     source,
     staleData: isStale,
     lastUpdated: isDemo ? new Date().toISOString() : (cacheMatches ? emsCache.lastUpdated : null),
@@ -1026,6 +1060,9 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
   const baseUrl = getNormalizedBaseUrl();
   let url = `${baseUrl}${endpoint}`;
   const startedAt = Date.now();
+  const metric = telemetryMetrics.registry.beginEndpoint("ems-turtle", endpoint);
+  const profilerPhase = coordinatorProfiler.beginPhase(coordinatorPhaseNameForEndpoint("ems-turtle", endpoint), { waitState: "NETWORK", blocking: true });
+  let parseDurationMs = 0;
   const debugItem = getOrInitEndpointDebug(endpoint);
   debugItem.lastAttemptAt = new Date().toISOString();
   debugItem.lastPollTime = debugItem.lastAttemptAt;
@@ -1058,9 +1095,12 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
     const payload = result.payload as { body?: string; bodyIsJson?: boolean } | undefined;
     if (typeof payload?.body === "string" && payload.bodyIsJson) {
       try {
+        const parseStartedAt = performance.now();
+        const data = coordinatorProfiler.withSyncPhase("Parse Response", { waitState: "PARSE", blocking: true, parentPhaseId: profilerPhase.phaseId }, () => JSON.parse(payload.body as string));
+        parseDurationMs += performance.now() - parseStartedAt;
         return {
           success: true,
-          data: JSON.parse(payload.body),
+          data,
           payload,
           source: result.source,
           kind: result.kind,
@@ -1126,6 +1166,20 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
       }
     }
 
+    const responseBytes = typeof (finalAttempt.payload as any)?.body === "string" ? Buffer.byteLength((finalAttempt.payload as any).body) : null;
+    const observation = finalAttempt.data?.timestamp ?? finalAttempt.data?.timeStamp ?? finalAttempt.data?.capturedAt ?? null;
+    metric.finish({
+      success: finalAttempt.success,
+      timeout: finalAttempt.statusCode === 408 || /timeout|abort/i.test(finalAttempt.error || ""),
+      fallback: !!debugItem.fallbackUsed,
+      responseBytes,
+      parseDurationMs,
+      sourceObservationTimestamp: observation,
+      acquisitionTimestamp: new Date(),
+      stale: !finalAttempt.success || !!debugItem.fallbackUsed,
+    });
+    profilerPhase.finish({ success: finalAttempt.success, retries: debugItem.fallbackUsed ? 1 : 0, bytes: responseBytes });
+
     return {
       ...finalAttempt,
       responseDurationMs: debugItem.durationMs,
@@ -1143,6 +1197,8 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
     if (debugItem.statusCode === null && debugItem.lastError?.toLowerCase().includes("abort")) {
       debugItem.statusCode = 408;
     }
+    metric.finish({ success: false, timeout: debugItem.statusCode === 408 || /timeout|abort/i.test(debugItem.lastError || ""), fallback: !!debugItem.fallbackUsed, acquisitionTimestamp: new Date(), stale: true });
+    profilerPhase.finish({ success: false, retries: debugItem.fallbackUsed ? 1 : 0, error: debugItem.lastError });
     return {
       success: false,
       data: null,
@@ -1161,6 +1217,8 @@ export async function acquireEmsCsvEndpointWithCsvProvider(endpoint: string, tim
   const baseUrl = getNormalizedBaseUrl();
   const url = `${baseUrl}${endpoint}`;
   const startedAt = Date.now();
+  const metric = telemetryMetrics.registry.beginEndpoint("ems-turtle", endpoint);
+  const profilerPhase = coordinatorProfiler.beginPhase(coordinatorPhaseNameForEndpoint("ems-turtle", endpoint), { waitState: "NETWORK", blocking: true });
   const debugItem = getOrInitEndpointDebug(endpoint);
   debugItem.lastAttemptAt = new Date().toISOString();
   debugItem.lastPollTime = debugItem.lastAttemptAt;
@@ -1212,6 +1270,9 @@ export async function acquireEmsCsvEndpointWithCsvProvider(endpoint: string, tim
       debugItem.statusCode = 408;
     }
 
+    const responseBytes = payload?.rawContent ? Buffer.byteLength(payload.rawContent) : null;
+    metric.finish({ success: false, timeout: debugItem.statusCode === 408 || /timeout|abort/i.test(debugItem.lastError || ""), fallback: !!payload?.fallbackUsed, responseBytes, parseDurationMs: (payload as any)?.parseDurationMs, acquisitionTimestamp: new Date(), stale: true });
+    profilerPhase.finish({ success: false, retries: payload?.fallbackUsed ? 1 : 0, bytes: responseBytes, error: debugItem.lastError });
     return {
       success: false,
       rawContent: null,
@@ -1229,6 +1290,7 @@ export async function acquireEmsCsvEndpointWithCsvProvider(endpoint: string, tim
   debugItem.lastError = null;
 
   const safeKey = endpoint.replace(/\//gi, '_').replace(/[^a-zA-Z0-9-]/gi, '_');
+  const cacheStartedAt = performance.now();
   try {
     const prizmCache = require('./cache/prizmCache');
     prizmCache.set('raw_' + safeKey, payload?.rawContent ?? '', {
@@ -1238,6 +1300,19 @@ export async function acquireEmsCsvEndpointWithCsvProvider(endpoint: string, tim
       ttlMs: 15000
     });
   } catch {}
+
+  metric.finish({
+    success: true,
+    fallback: !!payload?.fallbackUsed,
+    responseBytes: Buffer.byteLength(payload?.rawContent ?? ''),
+    parseDurationMs: (payload as any)?.parseDurationMs,
+    cacheWriteDurationMs: performance.now() - cacheStartedAt,
+    sourceObservationTimestamp: (payload?.rows?.[0] as any)?.timestamp ?? (payload?.rows?.[0] as any)?.Timestamp ?? null,
+    acquisitionTimestamp: new Date(),
+    cacheTimestamp: new Date(),
+    stale: !!payload?.fallbackUsed,
+  });
+  profilerPhase.finish({ success: true, retries: payload?.fallbackUsed ? 1 : 0, bytes: Buffer.byteLength(payload?.rawContent ?? '') });
 
   return {
     success: true,
@@ -1332,6 +1407,8 @@ function getSimulatedPcsReport(arrayNum: number, pcsNum: number) {
 }
 
 export async function pollEmsTurtle(): Promise<{ success: boolean; error: string | null }> {
+  emsCache.cycleId = getTelemetryCycleId();
+  const pollMetric = telemetryMetrics.registry.beginEndpoint("ems-turtle", "poll-cycle");
   emsCache.hasAttemptedPoll = true;
   let overallError: string | null = null;
   let criticalEndpointsFailed = 0;
@@ -1353,7 +1430,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     }
   }
 
-  const criticalFetches = Promise.allSettled([
+  const criticalFetches = coordinatorProfiler.withParallelGroup("EMS Critical Acquisition", 5, () => Promise.allSettled([
     fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 
       const statusText = String(text || '').trim();
       if (!statusText || !statusText.toUpperCase().startsWith('OK')) {
@@ -1397,10 +1474,12 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
         if (!result.success) {
           throw new Error(result.error || 'strings.csv acquisition failed');
         }
-        emsCache.strings = parseCsv(result.rawContent || '');
+        const parseStartedAt = performance.now();
+        emsCache.strings = coordinatorProfiler.withSyncPhase("Parse strings.csv", { waitState: "PARSE", blocking: true }, () => parseCsv(result.rawContent || ''));
+        telemetryMetrics.registry.recordEndpointProcessing("ems-turtle", "/tools/report/ems/strings.csv", { parseDurationMs: performance.now() - parseStartedAt });
         return result.rawContent;
       })
-  ]);
+  ]));
 
   const criticalResults = await criticalFetches;
   criticalResults.forEach(res => {
@@ -1408,7 +1487,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     else { const r = (res as PromiseRejectedResult).reason; overallError = r?.message || String(r); criticalEndpointsFailed++; }
   });
 
-  const optionalFetches = Promise.allSettled([
+  const optionalFetches = coordinatorProfiler.withParallelGroup("EMS Optional Acquisition", 6, () => Promise.allSettled([
     acquireEmsEndpointWithRestProvider('/tools/report/ems/controllerStatistics.json', EMS_NORMAL_TIMEOUT_MS)
       .then(result => {
         if (!result.success) {
@@ -1421,7 +1500,7 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     fetchAndRecord('/tools/report/ems/stringIPMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').then(t => { try { emsCache.stringIPMap = JSON.parse(t); } catch { emsCache.stringIPMap = t; } }).catch(async () => { const csv = await fetchAndRecord('/tools/report/ems/stringIPMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text'); try { emsCache.stringIPMap = JSON.parse(csv); } catch { emsCache.stringIPMap = csv; } }),
     fetchAndRecord('/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.firstResponder = { ...emsCache.firstResponder, v1: d }; }),
     fetchAndRecord('/v2/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.firstResponder = { ...emsCache.firstResponder, v2: d }; })
-  ]);
+  ]));
   optionalFetches.catch(() => {});
 
   const now = Date.now();
@@ -1443,8 +1522,10 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   const pcsMin = Number(process.env.PRIZM_POLL_PCS_MIN) || 1;
   const pcsMax = Number(process.env.PRIZM_POLL_PCS_MAX) || 1;
 
-  const arrayReportPromises: Promise<any>[] = [];
-  const pcsReportPromises: Promise<any>[] = [];
+  const arrayReportTaskCount = Math.max(0, arrayMax - arrayMin + 1) * (1 + Math.max(0, pcsMax - pcsMin + 1));
+  await coordinatorProfiler.withParallelGroup("EMS Array and PCS Reports", arrayReportTaskCount, async () => {
+    const arrayReportPromises: Promise<any>[] = [];
+    const pcsReportPromises: Promise<any>[] = [];
 
   for (let a = arrayMin; a <= arrayMax; a++) {
     const ep = `/tools/report/ems/array/${a}/report.json`;
@@ -1503,8 +1584,9 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     }
   }
 
-  await Promise.allSettled([...arrayReportPromises, ...pcsReportPromises]);
-  await pollEmsArrayNotifications().catch(() => {});
+    await Promise.allSettled([...arrayReportPromises, ...pcsReportPromises]);
+  });
+  await coordinatorProfiler.withPhase("Array Notifications", { waitState: "NETWORK", blocking: true }, () => pollEmsArrayNotifications()).catch(() => {});
 
   const rawUrl = getNormalizedBaseUrl();
   const activeRef = ProfileStore.getActiveProfile();
@@ -1542,10 +1624,12 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
   if (coreEndpointsSucceeded > 0 || criticalEndpointsFailed < 3) {
     emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = overallError ? 'partial: ' + overallError : null;
+    pollMetric.finish({ success: true, acquisitionTimestamp: cacheLastUpdatedAt, cacheTimestamp: cacheLastUpdatedAt, stale: !!emsCache.lastError });
     return { success: true, error: emsCache.lastError };
   } else {
     emsCache.lastUpdated = cacheLastUpdatedAt;
     emsCache.lastError = overallError || 'Multiple critical EMS endpoints are unreachable';
+    pollMetric.finish({ success: false, acquisitionTimestamp: cacheLastUpdatedAt, cacheTimestamp: cacheLastUpdatedAt, stale: true });
     return { success: false, error: emsCache.lastError };
   }
 }
@@ -2044,7 +2128,8 @@ function getSimulatedArrayNotifications(arrayNumber: number): any {
 }
 
 export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6, 7, 8]): Promise<void> {
-  const promises = arrayNumbers.map(async (a) => {
+  await coordinatorProfiler.withParallelGroup("EMS Array Notifications", arrayNumbers.length, async () => {
+    const promises = arrayNumbers.map(async (a) => {
     const ep = `/tools/report/ems/array/${a}/notifications.json`;
     const baseUrl = getNormalizedBaseUrl();
     const targetUrl = `${baseUrl}${ep}`;
@@ -2091,8 +2176,9 @@ export async function pollEmsArrayNotifications(arrayNumbers = [1, 2, 3, 4, 5, 6
         sample: []
       };
     }
+    });
+    await Promise.allSettled(promises);
   });
-  await Promise.allSettled(promises);
 }
 
 export async function pollEmsStringNotifications(
@@ -2499,5 +2585,3 @@ export function getFirstResponderEndpointDebugInfo() {
     }
   };
 }
-
-
