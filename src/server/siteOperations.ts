@@ -12,7 +12,7 @@ import {
     getEmsConnectionStatus, 
     getEmsSourcesDebugInfo 
 } from "./emsTurtleClient";
-import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
+import { getFeatherCache } from "./feather/featherClient";
 import { BESS_STATUS_CODE_MAP, describeBessStatusCode } from "../lib/bessStatusCodes";
 import { getNormalizedStringFaults, getCorrectiveActionsFromNormalizedFaults, classifyStringAvailability } from "./faults/normalizedFaultSource";
 import { classifyStringOperationalState } from "../lib/stringClassifier";
@@ -863,7 +863,6 @@ function extractCodes(value: any): string[] {
 
 
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
-import { pollEmsTurtle } from "./emsTurtleClient";
 
 function getEntityOrHostFromEndpoint(endpoint: string): string {
     if (!endpoint) return "Unknown Entity";
@@ -2065,16 +2064,8 @@ export async function refreshSiteOperationsSources() {
     if (siteOpsInFlight) return siteOpsInFlight;
     siteOpsInFlight = (async () => {
         try {
-            await pollEmsTurtle();
-            refreshFeatherCache({ timeoutMs: 2500 }).catch(() => {});
-            
-            const data = await buildSiteOperationsSummaryFromCache();
-            if (data) {
-                prizmCache.set('site-operations-summary', data, { ttlMs: 15000 });
-                if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('site-operations', data);
-                lastSummaryCache = data;
-                lastSummaryTime = Date.now();
-            }
+            const { requestRefresh } = await import("./prizmDataCoordinator");
+            requestRefresh("route:/api/local/site-operations/summary");
         } finally {
             siteOpsInFlight = null;
         }
@@ -2137,6 +2128,10 @@ router.get("/summary", async (req, res) => {
         }
 
         if (!responseData) responseData = {};
+        const producingCycleId = prizmCache.get('site-operations-summary')?.cycleId
+          ?? getEmsCachedBlock().cycleId
+          ?? null;
+        responseData = { ...responseData, cycleId: producingCycleId };
 
         const cacheEntry = prizmCache.get('site-operations-summary') || {
             key: 'site-operations-summary', fetchedAt: new Date().toISOString(),

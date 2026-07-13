@@ -1,4 +1,4 @@
-import { collectTelemetrySnapshot, getTelemetryBroker } from "./telemetry/TelemetryRuntime";
+import { getLatestTelemetrySnapshot, getTelemetryBroker } from "./telemetry/TelemetryRuntime";
 
 type LocalStringsMetaWrapper = {
   source: string;
@@ -248,7 +248,8 @@ export async function buildLocalStringsResponse(args: BuildLocalStringsResponseA
 
   if (!forceLegacy && !disableBroker) {
     try {
-      const bSnapshot = brokerSnapshot ?? await collectTelemetrySnapshot();
+      const bSnapshot = brokerSnapshot ?? getLatestTelemetrySnapshot();
+      if (!bSnapshot) throw new Error("Telemetry broker snapshot is warming");
       const { rawData: brokerRawRows, authority } = getBrokerRawRowsFromSnapshot(bSnapshot);
       const brokerRows = normalizeRows(brokerRawRows, ipMap, rawStringsWrapper);
       parity = computeBrokerParitySummary(brokerRows, legacyRows);

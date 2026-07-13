@@ -1,4 +1,5 @@
-import { bootstrapEmsAndSeedCache, cacheSeedState } from "../emsTurtleClient";
+import { cacheSeedState } from "../emsTurtleClient";
+import { requestRefresh } from "../prizmDataCoordinator";
 import { Router } from "express";
 import * as prizmCache from "./prizmCache";
 import * as fs from "fs";
@@ -70,7 +71,7 @@ router.post("/seed", (req, res) => {
     if (cacheSeedState.running) {
         return res.json({ started: false, alreadyRunning: true, cacheState: cacheSeedState });
     }
-    bootstrapEmsAndSeedCache().catch(() => {});
+    requestRefresh("route:/api/local/cache/seed");
     res.json({ started: true, alreadyRunning: false, cacheState: cacheSeedState });
 });
 

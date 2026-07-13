@@ -67,6 +67,7 @@ export interface FeatherNormalizedStatus {
 }
 
 export interface FeatherCacheEntry {
+  cycleId: number | null;
   activeProfileId: string;
   activeProfileName: string;
   activeEmsBaseUrl: string;

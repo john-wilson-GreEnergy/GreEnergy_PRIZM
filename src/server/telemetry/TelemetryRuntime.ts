@@ -5,6 +5,8 @@ import { UnifiedTelemetrySnapshot } from "./TelemetryProvider";
 import { FeatherTelemetryProvider } from "./providers/FeatherTelemetryProvider";
 import { FirstResponderTelemetryProvider } from "./providers/FirstResponderTelemetryProvider";
 import { TurtleTelemetryProvider } from "./providers/TurtleTelemetryProvider";
+import { telemetryMetrics } from "./metrics";
+import { getTelemetryCycleId } from "./TelemetryCycleContext";
 
 const DOMAINS: TelemetryDomain[] = [
   "controller-health",
@@ -46,9 +48,20 @@ export class TelemetryRuntime {
   constructor(private readonly broker: SnapshotCollector) {}
 
   collectSnapshot(): Promise<UnifiedTelemetrySnapshot> {
-    if (this.collectionInFlight) return this.collectionInFlight;
+    if (this.collectionInFlight) {
+      telemetryMetrics.registry.brokerCollectionReused();
+      telemetryMetrics.registry.recordEndpointCoalesced("telemetry-runtime", "collectSnapshot");
+      return this.collectionInFlight;
+    }
 
-    this.collectionInFlight = this.collectAndRetain().finally(() => {
+    const metric = telemetryMetrics.registry.beginEndpoint("telemetry-runtime", "collectSnapshot");
+    this.collectionInFlight = this.collectAndRetain().then((snapshot) => {
+      metric.finish({ success: true, acquisitionTimestamp: snapshot.capturedAt, stale: Object.values(snapshot.authorities).some((authority: any) => !!authority?.stale) });
+      return snapshot;
+    }, (error) => {
+      metric.finish({ success: false, acquisitionTimestamp: new Date(), stale: true });
+      throw error;
+    }).finally(() => {
       this.collectionInFlight = null;
     });
     return this.collectionInFlight;
@@ -64,6 +77,7 @@ export class TelemetryRuntime {
 
   private async collectAndRetain(): Promise<UnifiedTelemetrySnapshot> {
     const current = cloneValue(await this.broker.collectSnapshot());
+    current.cycleId = current.cycleId ?? getTelemetryCycleId();
     const previous = this.latestSnapshot;
 
     current.health = mergeHealth(current.health, previous?.health);
@@ -78,6 +92,8 @@ export class TelemetryRuntime {
 
         if (!currentUsable && previousData !== null) {
           (current.unified as Record<keyof TelemetryUnifiedData, TelemetryUnifiedData[keyof TelemetryUnifiedData]>)[unifiedKey] = cloneValue(previousData);
+          telemetryMetrics.registry.recordRetainedLastKnownGood();
+          telemetryMetrics.registry.recordStaleDomainRetention();
         }
       }
     }

@@ -1,4 +1,3 @@
-import { pollEmsTurtle } from "./emsTurtleClient";
 import { getLatestSnapshot, triggerImmediatePoll } from "./prizmDataCoordinator";
 import { appendEvent } from "./history/prizmHistory";
 

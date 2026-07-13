@@ -2,6 +2,8 @@ import { TelemetryAuthorityRegistry } from "./TelemetryAuthority";
 import { cloneValue } from "./TelemetryHealth";
 import { TelemetryDomain, TelemetrySourceMetadata, TelemetryUnifiedData } from "./TelemetryModels";
 import { TelemetryProvider, TelemetryProviderSnapshot, UnifiedTelemetrySnapshot } from "./TelemetryProvider";
+import { telemetryMetrics } from "./metrics";
+import { getTelemetryCycleId } from "./TelemetryCycleContext";
 
 function toUnifiedKey(domain: TelemetryDomain): keyof TelemetryUnifiedData {
   switch (domain) {
@@ -37,6 +39,8 @@ export class TelemetryBroker {
   }
 
   async collectSnapshot(): Promise<UnifiedTelemetrySnapshot> {
+    const cycleId = getTelemetryCycleId();
+    const brokerMetric = telemetryMetrics.registry.beginBrokerCollection();
     const capturedAt = new Date().toISOString();
     const providerSnapshots: Record<string, TelemetryProviderSnapshot> = {};
     const providerHealth: Record<string, any> = {};
@@ -44,10 +48,12 @@ export class TelemetryBroker {
     const jobs = [...this.providers.values()].map(async (provider) => {
       let snapshot: TelemetryProviderSnapshot;
       const startedAt = Date.now();
+      const providerMetric = telemetryMetrics.registry.beginProvider(provider.id);
       try {
         snapshot = await provider.captureSnapshot();
       } catch (error: unknown) {
         snapshot = {
+          cycleId,
           providerId: provider.id,
           capturedAt: new Date().toISOString(),
           domains: {},
@@ -66,8 +72,10 @@ export class TelemetryBroker {
           },
         };
       }
+      snapshot.cycleId = snapshot.cycleId ?? cycleId;
       providerSnapshots[provider.id] = cloneValue(snapshot);
       providerHealth[provider.id] = cloneValue(snapshot.health);
+      providerMetric.finish(!!snapshot.health?.healthy, !!snapshot.health?.stale);
     });
 
     await Promise.all(jobs);
@@ -91,6 +99,7 @@ export class TelemetryBroker {
     (Object.keys(authorities) as TelemetryDomain[]).forEach((domain) => {
       const resolution = this.authority.resolve(domain, providerHealth);
       authorities[domain] = resolution;
+      telemetryMetrics.registry.recordAuthority(domain, resolution.chosenProviderId);
 
       const chosen = resolution.chosenProviderId ? providerSnapshots[resolution.chosenProviderId] : null;
       const unifiedKey = toUnifiedKey(domain);
@@ -99,13 +108,16 @@ export class TelemetryBroker {
       }
     });
 
-    return {
+    const result = {
+      cycleId,
       capturedAt,
       authorities,
       health: cloneValue(providerHealth),
       providers: cloneValue(providerSnapshots),
       unified: cloneValue(unified),
     };
+    brokerMetric.finish(true);
+    return result;
   }
 
   getAuthorityRegistry(): TelemetryAuthorityRegistry {

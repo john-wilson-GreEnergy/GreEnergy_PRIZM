@@ -24,6 +24,7 @@ interface CsvPayload {
   readonly statusCode?: number;
   readonly sourceUrl?: string;
   readonly fallbackUsed?: boolean;
+  readonly parseDurationMs?: number;
 }
 
 interface CsvContentResult {
@@ -50,7 +51,9 @@ export class CsvProvider implements AcquisitionProvider<CsvPayload> {
     try {
       const contentResult = await this.readContent(source);
       const rawContent = contentResult.content;
+      const parseStartedAt = performance.now();
       const normalized = this.parseCsv(rawContent);
+      const parseDurationMs = performance.now() - parseStartedAt;
 
       return {
         source: sourceLabel,
@@ -66,6 +69,7 @@ export class CsvProvider implements AcquisitionProvider<CsvPayload> {
           statusCode: contentResult.statusCode,
           sourceUrl: contentResult.sourceUrl,
           fallbackUsed: contentResult.fallbackUsed,
+          parseDurationMs,
         },
         timestamp: new Date().toISOString(),
       };
@@ -225,7 +229,7 @@ export class CsvProvider implements AcquisitionProvider<CsvPayload> {
   }
 
   private createRow(headers: readonly string[], values: readonly string[]): CsvRow {
-    const row: CsvRow = {};
+    const row: Record<string, string> = {};
     headers.forEach((header, index) => {
       row[header] = values[index] ?? '';
     });

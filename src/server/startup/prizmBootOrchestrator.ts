@@ -1,6 +1,6 @@
-import { pollEmsTurtle, emsCache, getEmsConnectionStatus } from "../emsTurtleClient";
+import { emsCache, getEmsConnectionStatus } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
-import { refreshFeatherCache, getFeatherCache } from "../feather/featherClient";
+import { getFeatherCache } from "../feather/featherClient";
 import * as prizmCache from "../cache/prizmCache";
 import { recordTelemetrySample } from "../telemetry/siteTelemetryAggregator";
 import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
@@ -155,15 +155,11 @@ export async function initializePrizmBootFlow() {
       phase: "probing-ems"
     });
 
-    // initial poll
-    let reachable = false;
-    try {
-      await pollEmsTurtle();
-      applyDiscoveredStation();
-      reachable = true;
-    } catch (e) {
-      updateStatus({ errors: ["EMS initially unreachable"] });
-    }
+    // The coordinator is the sole acquisition owner. Boot observes existing
+    // cache state and starts the unchanged coordinator cadence below.
+    const connection = getEmsConnectionStatus();
+    const reachable = connection.source === "live" || connection.source === "partial";
+    if (reachable) applyDiscoveredStation();
 
     updateStatus({
       emsReachable: reachable,
@@ -216,15 +212,8 @@ async function hydrateCache() {
      bootStatus.preloadStatus.siteOperations = true;
      updateStatus({});
      
-     // Trigger feather discovery NON-BLOCKING
-     refreshFeatherCache({ force: false })
-       .then(() => {
-           bootStatus.preloadStatus.featherDevices = true;
-           updateStatus({});
-       })
-       .catch(e => {
-           console.error("Background Feather Cache refresh failed:", e.message);
-       });
+     bootStatus.preloadStatus.featherDevices = getFeatherCache().devices.length > 0;
+     updateStatus({});
   }
 
   updateStatus({ phase: bootStatus.emsReachable ? "ready" : "offline", ready: true });

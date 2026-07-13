@@ -2,7 +2,7 @@ import { Router } from "express";
 import { fetchLiveEmsApps } from "./emsAppsService";
 import { setEmsApplicationEnabledStatus, SetAppStatusInput } from "./dragonAppControl";
 import { getEffectiveCachePolicy, shouldFetchLive, buildCacheMetadata } from "../cache/prizmCache";
-import { pollEmsTurtle } from "../emsTurtleClient";
+import { requestRefresh } from "../prizmDataCoordinator";
 
 const router = Router();
 
@@ -14,7 +14,7 @@ router.get("/control-capabilities", async (req, res) => {
   let liveAttempted = false;
   if (forceLive || req.query.refresh === 'true') {
       liveAttempted = true;
-      await pollEmsTurtle().catch(() => {});
+      requestRefresh("route:/api/local/ems-apps/control-capabilities");
   }
 
   const result = await fetchLiveEmsApps(true); // fast mode

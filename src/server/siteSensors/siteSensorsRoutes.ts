@@ -7,8 +7,6 @@ import {
   getNormalizedBaseUrl,
   emsCache,
   isDemoActive,
-  fetchAndRecord,
-  setEmsCachedBlock
 } from "../emsTurtleClient";
 import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
@@ -1920,49 +1918,11 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
   const baseUrl = getNormalizedBaseUrl();
   const endpoint = "/tools/monitor/ems/blockviewer/data";
 
-  let shouldFetch = refresh;
-  if (!shouldFetch && maxAgeMs !== undefined && maxAgeMs !== null) {
-    if (!emsCache.block || !emsCache.lastUpdated) {
-      shouldFetch = true;
-    } else {
-      const age = Date.now() - new Date(emsCache.lastUpdated).getTime();
-      if (age > maxAgeMs) {
-        shouldFetch = true;
-      }
-    }
+  if (refresh) {
+    const { requestRefresh } = await import("../prizmDataCoordinator");
+    requestRefresh("route:/api/local/site-sensors/blockviewer");
   }
-
-  if (shouldFetch) {
-    try {
-      const data = await fetchAndRecord(endpoint, 4000, "json");
-      if (data) {
-        blockData = data;
-        setEmsCachedBlock(data);
-        emsCache.lastUpdated = new Date().toISOString();
-        sourceHealth.push({
-          endpoint,
-          success: true,
-          statusCode: 200,
-          bytes: JSON.stringify(data).length,
-          timestamp: new Date().toISOString(),
-          parseSuccess: true
-        });
-      } else {
-        throw new Error("No data returned from blockviewer fetch.");
-      }
-    } catch (err: any) {
-      fetchError = err.message || String(err);
-      sourceHealth.push({
-        endpoint,
-        success: false,
-        statusCode: err.name === "AbortError" ? 408 : 500,
-        bytes: 0,
-        timestamp: new Date().toISOString(),
-        parseSuccess: false,
-        error: fetchError
-      });
-    }
-  }
+  blockData = emsCache.block;
 
   if (!blockData) {
     blockData = emsCache.block;
@@ -2968,30 +2928,10 @@ router.get("/topology", async (req, res) => {
 
   try {
     let blockData = emsCache.block;
-    let shouldFetch = refresh || !blockData;
-    
-    if (!shouldFetch && maxAgeMs > 0 && emsCache.lastUpdated) {
-      const age = Date.now() - new Date(emsCache.lastUpdated).getTime();
-      if (age > maxAgeMs) {
-        shouldFetch = true;
-      }
-    }
-    
     let fetchError: string | null = null;
-    if (shouldFetch) {
-      const endpoint = "/tools/monitor/ems/blockviewer/data";
-      try {
-        const data = await fetchAndRecord(endpoint, 4000, "json");
-        if (data) {
-          blockData = data;
-          setEmsCachedBlock(data);
-          emsCache.lastUpdated = new Date().toISOString();
-        } else {
-          fetchError = "fetchAndRecord returned null or empty data";
-        }
-      } catch (err: any) {
-        fetchError = err.message || String(err);
-      }
+    if (refresh) {
+      const { requestRefresh } = await import("../prizmDataCoordinator");
+      requestRefresh("route:/api/local/site-sensors/topology");
     }
     
     if (!blockData) {

@@ -1,27 +1,4 @@
 
-let lastGoodDirectLastCallForDashboard: any | null = null;
-
-async function fetchDirectLastCallForDashboard(baseUrl: string): Promise<any | null> {
-    try {
-        const cleanBase = String(baseUrl || "").replace(/\/$/, "");
-        const url = cleanBase.endsWith("/turtle")
-            ? `${cleanBase}/tools/report/ems/lastCall.json`
-            : `${cleanBase}/turtle/tools/report/ems/lastCall.json`;
-
-        const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-        if (!res.ok) return lastGoodDirectLastCallForDashboard;
-        const data = await res.json();
-        const arrayReport = data?.blockReport?.arrayReport;
-        if (arrayReport && typeof arrayReport === "object") {
-            lastGoodDirectLastCallForDashboard = data;
-        }
-        return lastGoodDirectLastCallForDashboard;
-    } catch (err: any) {
-        console.warn("[String Dashboard] direct lastCall fetch failed; using last good direct sample:", err?.message || err);
-        return lastGoodDirectLastCallForDashboard;
-    }
-}
-
 import { Router } from "express";
 import {
   getEmsCachedStatus,
@@ -900,7 +877,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
     }
 
     const arrayReports = getEmsCachedArrayReports() || {};
-    const directLastCallForDashboard = await fetchDirectLastCallForDashboard(baseUrl);
+    const directLastCallForDashboard = lastCallWrapper.data || null;
 
     const strings: any[] = [];
     
@@ -2503,7 +2480,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
 
     startStringDetailWarmup(strings);
 
-    return {
+    const result = {
         profileId: profile?.id,
         emsBaseUrl: baseUrl,
         generatedAt: new Date().toISOString(),
@@ -2590,6 +2567,9 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         arrays: [],
         strings
     };
+    prizmCache.set("string_dashboard_enriched_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
+    prizmCache.set("string_dashboard_base_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
+    return result;
 }
 
 router.get("/detail-cache/status", (req, res) => {
@@ -2616,7 +2596,8 @@ router.get("/detail-cache/status", (req, res) => {
 router.get("/", async (req, res) => {
     try {
         if (req.query.refresh === 'true') {
-            await (await import('./emsTurtleClient')).pollEmsTurtle();
+            const { requestRefresh } = await import('./prizmDataCoordinator');
+            requestRefresh("route:/api/local/strings/dashboard");
         }
 
         const profile = ProfileStore.getActiveProfile();
@@ -2630,7 +2611,14 @@ router.get("/", async (req, res) => {
         };
         
         const policy = prizmCache.getEffectiveCachePolicy(req.query.cache, req.query.noCache, req.query.refresh);
-        const cacheEntry = await prizmCache.getOrFetch(cacheKey, fetcher, {
+        const singleOwner = process.env.PRIZM_SINGLE_OWNER_ACQUISITION !== "false";
+        const ownedCache = singleOwner
+            ? (prizmCache.get(cacheKey) || prizmCache.get(req.query.enrich === 'stringviewer' ? "string_dashboard_enriched_ALL" : "string_dashboard_base_ALL"))
+            : null;
+        if (singleOwner && !ownedCache) {
+            return res.status(503).json({ error: "String dashboard snapshot not yet built", warming: true });
+        }
+        const cacheEntry = ownedCache || await prizmCache.getOrFetch(cacheKey, fetcher, {
             ttlMs: maxAgeMs,
             sourceUrl: '/api/local/strings/dashboard',
             profileId: profile?.id,
@@ -2639,6 +2627,10 @@ router.get("/", async (req, res) => {
             persist: true,
             policy
         });
+        if (singleOwner) {
+            cacheEntry.data = structuredClone(cacheEntry.data);
+            cacheEntry.wasFetched = false;
+        }
 
         const wasLiveSucceeded = cacheEntry.wasFetched && cacheEntry.sourceOk;
         const wasCacheUsed = !cacheEntry.wasFetched && (!cacheEntry.error || cacheEntry.data);
@@ -2726,7 +2718,7 @@ router.get("/", async (req, res) => {
             const snapshotStale = snapshotAgeMs === null || snapshotAgeMs > 5000;
             const refreshRequested = req.query.refresh === "true";
 
-            if ((snapshotMissing || snapshotStale || refreshRequested) && !snapshot.inFlight) {
+            if (!singleOwner && (snapshotMissing || snapshotStale || refreshRequested) && !snapshot.inFlight) {
                 triggerContactorRefresh({
                     ttlMs: 5000,
                     timeoutMs: 5000,
@@ -2764,9 +2756,11 @@ router.get("/", async (req, res) => {
 
         res.json({ 
             ...outputData, 
+            cycleId: cacheEntry.cycleId,
             ...cacheMetadata,
             cache: {
                 key: cacheEntry.key,
+                cycleId: cacheEntry.cycleId,
                 fetchedAt: cacheEntry.fetchedAt,
                 updatedAt: cacheEntry.updatedAt,
                 ageMs: cacheEntry.ageMs,

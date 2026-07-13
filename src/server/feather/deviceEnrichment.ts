@@ -1,9 +1,9 @@
 import { ProfileStore } from "../profiles/profileStore";
-import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { getFeatherCache } from "./featherClient";
 import { formatLostCommsEntry, formatFeatherDiagnosticValue } from "../../lib/featherErrorFormatter";
 import { formatPrizmUtcTimestamp } from "../../lib/timeFormat";
 import { getActiveTopologyProfile, mergeLiveDiscoveryIntoTopology } from "../topology/siteTopologyEngine";
+import { getEmsCachedBlock, getEmsCachedControllerStatistics, getEmsCachedFirstResponder, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatus, getEmsCachedStatusCodes, getEmsIpMap, getEmsStringIpMap } from "../emsTurtleClient";
 
 export interface FeatherHvacDevice {
   ip: string;
@@ -409,8 +409,8 @@ export async function fetchEnrichedDevices() {
      throw new Error("No active profile");
   }
 
-  const baseUrl = buildEmsBaseUrl(profile);
   const cache = getFeatherCache();
+  const baseUrl = `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}`;
   
   const sources = {
     blockviewer: null as any,
@@ -425,40 +425,17 @@ export async function fetchEnrichedDevices() {
     v2FirstResponder: null as any
   };
 
-  const fetchSource = async (path: string, parseJson = true) => {
-    try {
-      const res = await fetch(baseUrl + path);
-      if (res.ok) {
-        return parseJson ? await res.json() : await res.text();
-      }
-    } catch(e) {}
-    return null;
-  };
-
-  // Fetch all in parallel
-  [
-    sources.blockviewer,
-    sources.ipMap,
-    sources.stringIpMap,
-    sources.stringsCsv,
-    sources.lastCall,
-    sources.status,
-    sources.controllerStatistics,
-    sources.bessStatusCodes,
-    sources.firstResponder,
-    sources.v2FirstResponder
-  ] = await Promise.all([
-    fetchSource("/tools/monitor/ems/blockviewer/data"),
-    fetchSource("/tools/report/ems/ipMap.json"),
-    fetchSource("/tools/report/ems/stringIPMap.json"),
-    fetchSource("/tools/report/ems/strings.csv", false),
-    fetchSource("/tools/report/ems/lastCall.json"),
-    fetchSource("/tools/report/ems/status.json"),
-    fetchSource("/tools/report/ems/controllerStatistics.json"),
-    fetchSource("/tools/report/ems/bessStatusCodes.json"),
-    fetchSource("/firstresponder/data"),
-    fetchSource("/v2/firstresponder/data")
-  ]);
+  const firstResponder = getEmsCachedFirstResponder().data || {};
+  sources.blockviewer = getEmsCachedBlock().data;
+  sources.ipMap = getEmsIpMap().data;
+  sources.stringIpMap = getEmsStringIpMap().data;
+  sources.stringsCsv = getEmsCachedRawStrings().data;
+  sources.lastCall = getEmsCachedLastCall().data;
+  sources.status = getEmsCachedStatus().data;
+  sources.controllerStatistics = getEmsCachedControllerStatistics().data;
+  sources.bessStatusCodes = getEmsCachedStatusCodes().data;
+  sources.firstResponder = firstResponder.v1;
+  sources.v2FirstResponder = firstResponder.v2;
 
   const devicesMap = new Map<string, FeatherHvacDevice>();
 

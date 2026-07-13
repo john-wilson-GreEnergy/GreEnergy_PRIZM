@@ -10,7 +10,7 @@ getLatestSnapshot,
   getCorrectiveActionsView,
   getSourceHealthView,
   getSensorsView,
-  triggerImmediatePoll
+  requestRefresh
 } from "./prizmDataCoordinator";
 import {
   getSiteNotificationEngineView,
@@ -24,7 +24,7 @@ siteDataRouter.use(async (req, res, next) => {
   if (req.query.refresh === "true") {
     console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data...`);
     try {
-      await triggerImmediatePoll();
+      requestRefresh(`site-data:${req.path}:explicit-refresh`);
     } catch (err: any) {
       console.error("[Site Data Routes] Immediate poll failed on refresh request", err.message);
     }
@@ -37,9 +37,7 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     let snap = getLatestSnapshot();
     if (!snap) {
       console.log("[Site Data Routes] Snapshot not found, triggering immediate background poll...");
-      triggerImmediatePoll().catch((err: any) => {
-        console.error("[Site Data Routes] Immediate background poll failed", err.message);
-      });
+      requestRefresh("site-data:snapshot-warming");
       snap = getLatestSnapshot();
     }
     if (!snap) {

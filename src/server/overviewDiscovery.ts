@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { 
-    pollEmsTurtle, 
     getEmsCachedBlock, 
     getEmsCachedStatus, 
     getEmsCachedLastCall, 
@@ -13,6 +12,7 @@ import {
     getEmsSourcesDebugInfo,
     getEmsConnectionStatus
 } from "./emsTurtleClient";
+import { requestRefresh } from "./prizmDataCoordinator";
 
 const router = Router();
 
@@ -104,7 +104,7 @@ function processSource(data: any, collected: any) {
 router.get("/discovery", async (req, res) => {
     try {
         if (req.query.refresh === 'true') {
-            await pollEmsTurtle();
+            requestRefresh("route:/api/local/overview/discovery");
         }
 
         const debugInfo = getEmsSourcesDebugInfo();

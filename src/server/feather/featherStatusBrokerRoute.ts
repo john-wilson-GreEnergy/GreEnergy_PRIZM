@@ -1,6 +1,6 @@
-import { queryFeatherDevice, queryFeatherInternalDiagnostics } from "./featherClient";
+import { getFeatherCache, queryFeatherDevice, queryFeatherInternalDiagnostics } from "./featherClient";
 import { buildFeatherDeviceStatusResponse } from "./featherStatusResponse";
-import { collectTelemetrySnapshot, getTelemetryBroker } from "../telemetry/TelemetryRuntime";
+import { getLatestTelemetrySnapshot, getTelemetryBroker } from "../telemetry/TelemetryRuntime";
 
 type FeatherStatusRouteArgs = {
   deviceIp: string;
@@ -15,6 +15,7 @@ type FeatherStatusRouteArgs = {
   collectBrokerSnapshotFn?: () => Promise<any>;
   queryDeviceFn?: typeof queryFeatherDevice;
   queryDiagnosticsFn?: typeof queryFeatherInternalDiagnostics;
+  cacheOnly?: boolean;
 };
 
 type FeatherStatusParity = {
@@ -86,6 +87,7 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
   parity: FeatherStatusParity;
   usingBroker: boolean;
   fallbackUsed: boolean;
+  routeTriggeredNetworkCalls: number;
 }> {
   const {
     deviceIp,
@@ -100,12 +102,17 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
     collectBrokerSnapshotFn,
     queryDeviceFn = queryFeatherDevice,
     queryDiagnosticsFn = queryFeatherInternalDiagnostics,
+    cacheOnly = false,
   } = args;
 
-  const direct = (await queryDeviceFn(deviceIp, sourceMethod, timeoutMs)) as any;
-  const diagnostics = includeDiagnostics ? await queryDiagnosticsFn(deviceIp, timeoutMs) : null;
-
+  let routeTriggeredNetworkCalls = 0;
   const legacyExisting = findLegacyExisting(snapshot, lastEnrichedCache, deviceIp);
+  const cachedDevice = getFeatherCache().devices.find((device) => device.deviceIp === deviceIp) || null;
+  const direct = cacheOnly
+    ? (legacyExisting || cachedDevice || { deviceIp, ip: deviceIp, reachable: false, lastError: "Cached Feather status unavailable" })
+    : (await queryDeviceFn(deviceIp, sourceMethod, timeoutMs, undefined, () => { routeTriggeredNetworkCalls += 1; })) as any;
+  if (!cacheOnly && includeDiagnostics) routeTriggeredNetworkCalls += 1;
+  const diagnostics = !cacheOnly && includeDiagnostics ? await queryDiagnosticsFn(deviceIp, timeoutMs) : null;
 
   const legacyResponse = buildFeatherDeviceStatusResponse({
     deviceIp,
@@ -122,11 +129,13 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
       parity: computeFeatherParity(legacyResponse, legacyResponse, includeDiagnostics),
       usingBroker: false,
       fallbackUsed: false,
+      routeTriggeredNetworkCalls,
     };
   }
 
   try {
-    const bSnapshot = brokerSnapshot ?? await (collectBrokerSnapshotFn ? collectBrokerSnapshotFn() : collectTelemetrySnapshot());
+    const bSnapshot = brokerSnapshot ?? (collectBrokerSnapshotFn ? await collectBrokerSnapshotFn() : getLatestTelemetrySnapshot());
+    if (!bSnapshot) throw new Error("Telemetry broker snapshot is warming");
     const authority = bSnapshot?.authorities?.["feather-hvac-telemetry"];
     const providerId = authority?.chosenProviderId;
     const providerHealth = providerId ? bSnapshot?.health?.[providerId] : null;
@@ -139,6 +148,7 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
         parity: computeFeatherParity(legacyResponse, legacyResponse, includeDiagnostics),
         usingBroker: false,
         fallbackUsed: true,
+        routeTriggeredNetworkCalls,
       };
     }
 
@@ -157,6 +167,7 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
       parity: computeFeatherParity(brokerResponse, legacyResponse, includeDiagnostics),
       usingBroker: true,
       fallbackUsed: false,
+      routeTriggeredNetworkCalls,
     };
   } catch {
     return {
@@ -164,6 +175,7 @@ export async function buildFeatherDeviceStatusRouteResponse(args: FeatherStatusR
       parity: computeFeatherParity(legacyResponse, legacyResponse, includeDiagnostics),
       usingBroker: false,
       fallbackUsed: true,
+      routeTriggeredNetworkCalls,
     };
   }
 }
