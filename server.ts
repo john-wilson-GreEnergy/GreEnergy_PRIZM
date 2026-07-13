@@ -78,6 +78,7 @@ import { buildFeatherDeviceStatusRouteResponse } from "./src/server/feather/feat
 import { telemetryMetrics } from "./src/server/telemetry/metrics";
 import { telemetryMetricsRouter } from "./src/server/telemetry/metrics/TelemetryMetricsRoutes";
 import { coordinatorProfiler } from "./src/server/telemetry/profiler";
+import { stringViewerRouter } from "./src/server/telemetry/stringviewer";
 
 
 
@@ -138,6 +139,7 @@ app.use("/api/local/troubleshooting", troubleshootingRouter);
 
 app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
+app.use("/api/local/debug/stringviewer", stringViewerRouter);
 
 app.get("/api/local/debug/coordinator", (_req, res) => {
   res.json(prizmDataCoordinator.getCoordinatorDebugState());

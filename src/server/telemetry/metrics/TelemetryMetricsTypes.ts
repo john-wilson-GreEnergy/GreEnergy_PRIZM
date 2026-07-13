@@ -120,6 +120,7 @@ export interface TelemetryPerformanceReport {
   coordinator: TelemetryCoordinatorMetrics;
   coordinatorPhases: TelemetryCoordinatorPhaseMetric[];
   normalization: import("../normalization").ReturnTypeOfNormalizationMetricsReport;
+  stringViewer: ReturnType<import("../stringviewer/StringViewerScheduler").StringViewerScheduler["getDebugState"]>;
   broker: TelemetryBrokerMetrics;
   routes: TelemetryRouteMetric[];
   suspectedDuplicatePolls: TelemetryEndpointMetric[];

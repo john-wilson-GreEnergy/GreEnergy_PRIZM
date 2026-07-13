@@ -1,6 +1,7 @@
 import { TelemetryMetricsRegistry } from "./TelemetryMetricsRegistry";
 import { TelemetryPerformanceReport } from "./TelemetryMetricsTypes";
 import { normalizationMetrics } from "../normalization";
+import { stringViewerScheduler } from "../stringviewer/StringViewerScheduler";
 
 export class TelemetryMetrics {
   constructor(readonly registry = new TelemetryMetricsRegistry()) {}
@@ -33,6 +34,7 @@ export class TelemetryMetrics {
       coordinator: this.registry.getCoordinator(),
       coordinatorPhases: this.registry.getCoordinatorPhases(),
       normalization: normalizationMetrics.report(),
+      stringViewer: stringViewerScheduler.getDebugState(),
       broker: this.registry.getBroker(),
       routes: this.registry.getRoutes(),
       suspectedDuplicatePolls,
@@ -43,7 +45,7 @@ export class TelemetryMetrics {
     };
   }
 
-  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); return this.report(); }
+  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); stringViewerScheduler.metrics.reset(); return this.report(); }
 }
 
 export const telemetryMetrics = new TelemetryMetrics();

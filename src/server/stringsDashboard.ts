@@ -32,8 +32,22 @@ import {
   normalizationMetrics,
   registerCanonicalStringIndexes,
 } from "./telemetry/normalization";
+import { stringViewerScheduler, StringViewerCacheEntry } from "./telemetry/stringviewer";
+import { telemetryMetrics } from "./telemetry/metrics";
 
 const router = Router();
+const stringViewerProvenance = new WeakMap<object, {
+    baselineSource: "strings.csv";
+    enrichmentSource: string | null;
+    enrichmentAgeMs: number | null;
+    enrichmentStale: boolean;
+    enrichmentCycleId: number | null;
+}>();
+
+export function getStringViewerProvenance(row: object) {
+    const value = stringViewerProvenance.get(row);
+    return value ? { ...value } : null;
+}
 
 type LatchedCorrectiveFinding = {
   finding: any;
@@ -826,6 +840,91 @@ function startStringDetailWarmup(rows: any[]) {
   }).finally(() => {
     detailWarmupInFlight = null;
   });
+}
+
+export function mergeStringViewerMonitorFields(row: any, payload: any, entry?: StringViewerCacheEntry): void {
+    const sv = payload?.stringViewerDataModel;
+    if (!sv) return;
+    row.busVoltage = sv.dcBusVoltage ?? row.busVoltage;
+    row.outRotation = sv.outRotation ?? row.outRotation;
+    row.positiveContactorClosed = sv.positiveContactorClosed ?? row.positiveContactorClosed;
+    row.negativeContactorClosed = sv.negativeContactorClosed ?? row.negativeContactorClosed;
+    row.contactorsCloseExpected = sv.contactorsCloseExpected ?? row.contactorsCloseExpected;
+    row.recloseCount = sv.recloseCount ?? row.recloseCount;
+    row.badReport = sv.badReport ?? row.badReport;
+    row.fanRequested = sv.lastFanCommand ?? sv.fanCommand ?? sv.requestedFanCommand ?? sv.stringFanRequested ?? row.fanRequested;
+    row.fanActual = sv.fanActual ?? sv.fanState ?? sv.fanStatus ?? sv.fanSpeed ?? sv.fanSpeedRpm ?? sv.stringFanActual ?? row.fanActual;
+    row.socPct = sv.soc ?? row.socPct;
+    row.measuredVoltage = sv.measuredStringVoltage ?? row.measuredVoltage;
+    row.calculatedVoltage = sv.calculatedStringVoltage ?? row.calculatedVoltage;
+    row.minCellVoltage = sv.minCellGroupVoltage ?? row.minCellVoltage;
+    row.maxCellVoltage = sv.maxCellGroupVoltage ?? row.maxCellVoltage;
+    row.avgCellVoltage = sv.avgCellGroupVoltage ?? row.avgCellVoltage;
+    row.minCellTemperature = sv.minCellGroupTemp ?? row.minCellTemperature;
+    row.maxCellTemperature = sv.maxCellGroupTemp ?? row.maxCellTemperature;
+    row.avgCellTemperature = sv.avgCellGroupTemp ?? row.avgCellTemperature;
+    row.amps = sv.stringCurrent ?? row.amps;
+    row.bpcCount = sv.batteryPackCount ?? row.bpcCount;
+    row.cellGroupCount = sv.cellGroupCount ?? row.cellGroupCount;
+    row.timestampUtc = sv.reportTimestamp ?? row.timestampUtc;
+    row.operationalState = sv.stringConnectionState ?? row.operationalState;
+    stringViewerProvenance.set(row, {
+        baselineSource: "strings.csv",
+        enrichmentSource: entry?.sourceUrl ?? "legacy-stringviewer-monitor",
+        enrichmentAgeMs: entry?.ageMs ?? 0,
+        enrichmentStale: entry?.stale ?? false,
+        enrichmentCycleId: entry?.cycleId ?? getTelemetryCycleId(),
+    });
+}
+
+async function runLegacyStringViewerFanout(rows: any[], baseUrl: string): Promise<void> {
+    stringViewerScheduler.metrics.startCycle(getTelemetryCycleId());
+    await Promise.allSettled(rows.map(async (row) => {
+        const endpoint = `/tools/monitor/ems/stringviewer/array/${row.arrayNumber}/${row.stringNumber}/data`;
+        const svUrl = `${baseUrl}${endpoint}`;
+        const startedAt = performance.now();
+        const endpointMetric = telemetryMetrics.registry.beginEndpoint("ems-turtle", endpoint);
+        stringViewerScheduler.metrics.attempted("WARM", 0);
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const response = await fetch(svUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (response.ok) {
+                mergeStringViewerMonitorFields(row, await response.json());
+                endpointMetric.finish({ success: true, acquisitionTimestamp: new Date(), stale: false });
+                stringViewerScheduler.metrics.completed(row.stringKey, "WARM", performance.now() - startedAt, true, false);
+            } else {
+                endpointMetric.finish({ success: false, acquisitionTimestamp: new Date(), stale: true });
+                stringViewerScheduler.metrics.completed(row.stringKey, "WARM", performance.now() - startedAt, false, false);
+            }
+        } catch (error: any) {
+            const timeout = error?.name === "AbortError";
+            endpointMetric.finish({ success: false, timeout, acquisitionTimestamp: new Date(), stale: true });
+            stringViewerScheduler.metrics.completed(row.stringKey, "WARM", performance.now() - startedAt, false, timeout);
+            // Preserve the legacy best-effort behavior and baseline value fallback.
+        }
+    }));
+}
+
+async function runScheduledStringViewerEnrichment(rows: any[], baseUrl: string, cycleId: number | null): Promise<void> {
+    const result = await stringViewerScheduler.runCycle(rows, cycleId, baseUrl);
+    const mergeStartedAt = performance.now();
+    for (const row of rows) {
+        const arrayIndex = Number(row?.arrayNumber ?? row?.arrayIndex);
+        const stringIndex = Number(row?.stringNumber ?? row?.stringIndex);
+        const key = String(row?.stringKey || row?.canonicalKey || `A${arrayIndex}-S${stringIndex}`);
+        const entry = result.entries.get(key);
+        if (entry?.value != null) mergeStringViewerMonitorFields(row, entry.value, entry);
+        else stringViewerProvenance.set(row, {
+            baselineSource: "strings.csv",
+            enrichmentSource: null,
+            enrichmentAgeMs: null,
+            enrichmentStale: true,
+            enrichmentCycleId: null,
+        });
+    }
+    stringViewerScheduler.metrics.merged(performance.now() - mergeStartedAt);
 }
 
 async function normalizeStringsDataUncached(enrich = false, targetArray: number | null = null): Promise<any> {
@@ -1800,44 +1899,11 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
     if (enrich) {
         const arrayFilter = targetArray;
         const targetStrings = arrayFilter ? strings.filter(s => s.arrayNumber === arrayFilter) : strings;
-        await Promise.allSettled(targetStrings.map(async (s) => {
-            const svUrl = `${baseUrl}/tools/monitor/ems/stringviewer/array/${s.arrayNumber}/${s.stringNumber}/data`;
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
-                const r = await fetch(svUrl, { signal: controller.signal });
-                clearTimeout(timeoutId);
-                if (r.ok) {
-                    const svData = await r.json();
-                    if (svData && svData.stringViewerDataModel) {
-                        const sv = svData.stringViewerDataModel;
-                        s.busVoltage = sv.dcBusVoltage ?? s.busVoltage;
-                        s.outRotation = sv.outRotation ?? s.outRotation;
-                        s.positiveContactorClosed = sv.positiveContactorClosed ?? s.positiveContactorClosed;
-                        s.negativeContactorClosed = sv.negativeContactorClosed ?? s.negativeContactorClosed;
-                        s.contactorsCloseExpected = sv.contactorsCloseExpected ?? s.contactorsCloseExpected;
-                        s.recloseCount = sv.recloseCount ?? s.recloseCount;
-                        s.badReport = sv.badReport ?? s.badReport;
-                        s.fanRequested = sv.lastFanCommand ?? sv.fanCommand ?? sv.requestedFanCommand ?? sv.stringFanRequested ?? s.fanRequested;
-                        s.fanActual = sv.fanActual ?? sv.fanState ?? sv.fanStatus ?? sv.fanSpeed ?? sv.fanSpeedRpm ?? sv.stringFanActual ?? s.fanActual;
-                        s.socPct = sv.soc ?? s.socPct;
-                        s.measuredVoltage = sv.measuredStringVoltage ?? s.measuredVoltage;
-                        s.calculatedVoltage = sv.calculatedStringVoltage ?? s.calculatedVoltage;
-                        s.minCellVoltage = sv.minCellGroupVoltage ?? s.minCellVoltage;
-                        s.maxCellVoltage = sv.maxCellGroupVoltage ?? s.maxCellVoltage;
-                        s.avgCellVoltage = sv.avgCellGroupVoltage ?? s.avgCellVoltage;
-                        s.minCellTemperature = sv.minCellGroupTemp ?? s.minCellTemperature;
-                        s.maxCellTemperature = sv.maxCellGroupTemp ?? s.maxCellTemperature;
-                        s.avgCellTemperature = sv.avgCellGroupTemp ?? s.avgCellTemperature;
-                        s.amps = sv.stringCurrent ?? s.amps;
-                        s.bpcCount = sv.batteryPackCount ?? s.bpcCount;
-                        s.cellGroupCount = sv.cellGroupCount ?? s.cellGroupCount;
-                        s.timestampUtc = sv.reportTimestamp ?? s.timestampUtc;
-                        s.operationalState = sv.stringConnectionState ?? s.operationalState;
-                    }
-                }
-            } catch(e) {}
-        }));
+        if (stringViewerScheduler.config.mode === "scheduled") {
+            await runScheduledStringViewerEnrichment(targetStrings, baseUrl, cycleId);
+        } else {
+            await runLegacyStringViewerFanout(targetStrings, baseUrl);
+        }
     }
     if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "Feather enrichment", performance.now() - featherEnrichmentStartedAt);
 
@@ -3101,6 +3167,8 @@ router.get("/:arrayNumber/:stringNumber/detail/raw", async (req, res) => {
     try {
         const arrayNumber = Number(req.params.arrayNumber);
         const stringNumber = Number(req.params.stringNumber);
+        const requestedStringKey = `A${arrayNumber}-S${stringNumber}`;
+        stringViewerScheduler.requestRefresh(requestedStringKey, "active-detail-route");
         const profile = ProfileStore.getActiveProfile();
         
         if (!profile) return res.status(400).json({ error: "No active profile" });
@@ -3251,6 +3319,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
     try {
         const arrayNumber = Number(req.params.arrayNumber);
         const stringNumber = Number(req.params.stringNumber);
+        const requestedStringKey = `A${arrayNumber}-S${stringNumber}`;
+        stringViewerScheduler.requestRefresh(requestedStringKey, "active-detail-route");
         const profile = ProfileStore.getActiveProfile();
         
         if (!profile) return res.status(400).json({ error: "No active profile" });
