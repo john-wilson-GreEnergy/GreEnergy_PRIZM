@@ -2,6 +2,7 @@ import { cloneValue } from "./TelemetryHealth";
 import { telemetryMetrics } from "./metrics";
 import { runInTelemetryCycle } from "./TelemetryCycleContext";
 import { coordinatorProfiler } from "./profiler";
+import { cycleNormalizationCache } from "./normalization";
 
 export type CoordinatorRuntimeState = "IDLE" | "RUNNING" | "REFRESH_PENDING" | "STOPPING" | "FAILED";
 
@@ -249,6 +250,7 @@ export class CoordinatorRuntime<TSnapshot> {
         this.currentCycleId = null;
         this.cycleStartedAt = null;
         coordinatorProfiler.completeCycle(cycleId, successful);
+        cycleNormalizationCache.clearCycle(cycleId);
         cycleMetric.finish(successful);
       }
     })();

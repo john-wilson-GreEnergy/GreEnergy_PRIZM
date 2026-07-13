@@ -119,6 +119,7 @@ export interface TelemetryPerformanceReport {
   providers: TelemetryProviderMetric[];
   coordinator: TelemetryCoordinatorMetrics;
   coordinatorPhases: TelemetryCoordinatorPhaseMetric[];
+  normalization: import("../normalization").ReturnTypeOfNormalizationMetricsReport;
   broker: TelemetryBrokerMetrics;
   routes: TelemetryRouteMetric[];
   suspectedDuplicatePolls: TelemetryEndpointMetric[];

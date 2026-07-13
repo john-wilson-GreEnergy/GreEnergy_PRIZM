@@ -10,7 +10,8 @@ import {
   getEmsIpMap,
   getEmsStringIpMap,
   getEmsSourcesDebugInfo,
-  getEmsCachedArrayReports
+  getEmsCachedArrayReports,
+  emsCache,
 } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
 
@@ -23,6 +24,14 @@ import { applyCanonicalStringSnapshot } from "./normalizers/canonicalStringSnaps
 import { getLatestContactorSnapshot, triggerContactorRefresh, mergeContactorStateIntoStringRow } from "./contactorStateEngine";
 import { analyzeContactorStates, analyzeHvacDevices, summarizeCorrectiveActions } from "./correctiveActionsEngine";
 import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
+import { getTelemetryCycleId } from "./telemetry/TelemetryCycleContext";
+import {
+  buildCanonicalStringIndexes,
+  createNormalizationFingerprint,
+  cycleNormalizationCache,
+  normalizationMetrics,
+  registerCanonicalStringIndexes,
+} from "./telemetry/normalization";
 
 const router = Router();
 
@@ -819,23 +828,33 @@ function startStringDetailWarmup(rows: any[]) {
   });
 }
 
-export async function buildNormalizedStringsData(enrich = false, targetArray: number | null = null): Promise<any> {
+async function normalizeStringsDataUncached(enrich = false, targetArray: number | null = null): Promise<any> {
+    const cycleId = getTelemetryCycleId();
+    const measure = <T>(name: string, operation: () => T): T => cycleId == null ? operation() : normalizationMetrics.measure(cycleId, "strings", name, operation);
+    const counters: Record<string, number> = {};
+    const count = (name: string, amount = 1) => { counters[name] = (counters[name] ?? 0) + amount; };
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "repeated deep cloning", 0);
     const finiteVal = (v: any): number | null => {
+        count("numeric conversion");
         const num = Number(v);
         return Number.isFinite(num) ? num : null;
     };
     const profile = ProfileStore.getActiveProfile();
     const baseUrl = profile ? `http://${profile.emsHost}:${profile.emsPort}${profile.turtlePath}` : "unknown";
 
-    const rawStringsWrapper = getEmsCachedRawStrings();
-    const blockWrapper = getEmsCachedBlock();
-    const stringIpMapWrapper = getEmsStringIpMap();
-    const ipMapWrapper = getEmsIpMap();
-    const lastCallWrapper = getEmsCachedLastCall();
-    const statusWrapper = getEmsCachedStatus();
-    const controllerStatsWrapper = getEmsCachedControllerStatistics();
-    const bessStatusCodesWrapper = getEmsCachedStatusCodes();
-    const debugInfo = getEmsSourcesDebugInfo() || {};
+    const sources = measure("raw source selection", () => ({
+        rawStringsWrapper: getEmsCachedRawStrings(),
+        blockWrapper: getEmsCachedBlock(),
+        stringIpMapWrapper: getEmsStringIpMap(),
+        ipMapWrapper: getEmsIpMap(),
+        lastCallWrapper: getEmsCachedLastCall(),
+        statusWrapper: getEmsCachedStatus(),
+        controllerStatsWrapper: getEmsCachedControllerStatistics(),
+        bessStatusCodesWrapper: getEmsCachedStatusCodes(),
+        debugInfo: getEmsSourcesDebugInfo() || {},
+    }));
+    const { rawStringsWrapper, blockWrapper, stringIpMapWrapper, ipMapWrapper, lastCallWrapper, statusWrapper, controllerStatsWrapper, bessStatusCodesWrapper, debugInfo } = sources;
+    count("cache reads", 9);
 
     const debugInfoArray = Array.isArray(debugInfo) ? debugInfo : [];
     const debugInfoMap: Record<string, any> = {};
@@ -878,6 +897,50 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
 
     const arrayReports = getEmsCachedArrayReports() || {};
     const directLastCallForDashboard = lastCallWrapper.data || null;
+
+    const sourceIndexStartedAt = performance.now();
+    const rowKey = (arrayNumber: unknown, stringNumber: unknown) => `${pN(arrayNumber)}:${pN(stringNumber)}`;
+    const blockStringsByKey = new Map<string, any>();
+    for (const row of Array.isArray(blockWrapper.data?.strings) ? blockWrapper.data.strings : []) {
+        const key = rowKey(row.array, row.string);
+        if (!blockStringsByKey.has(key)) blockStringsByKey.set(key, row);
+    }
+    const lastCallStringsByKey = new Map<string, any>();
+    for (const row of lastCallStrings) {
+        const key = rowKey(row.array, row.string);
+        if (!lastCallStringsByKey.has(key)) lastCallStringsByKey.set(key, row);
+    }
+    for (const arrayRow of lastCallArrays) {
+        const arrayNumber = pN(arrayRow.index || arrayRow.arrayIndex);
+        for (const row of Array.isArray(arrayRow.strings) ? arrayRow.strings : []) {
+            const key = rowKey(arrayNumber, row.index || row.stringIndex);
+            if (!lastCallStringsByKey.has(key)) lastCallStringsByKey.set(key, row);
+        }
+    }
+    const csvRowsByKey = new Map<string, { row: any; aliases: Record<string, any> }>();
+    for (const row of Array.isArray(rawStringsWrapper.data) ? rawStringsWrapper.data : []) {
+        const aliases: Record<string, any> = {};
+        for (const [key, value] of Object.entries(row)) aliases[normalizeHeader(key)] = value;
+        const key = rowKey(tryGetField(row, aliases, ["array", "arrayindex", "arr"]), tryGetField(row, aliases, ["string", "stringindex", "str"]));
+        if (!csvRowsByKey.has(key)) csvRowsByKey.set(key, { row, aliases });
+    }
+    const stringIpByKey = new Map<string, any>();
+    for (const row of stringIpMap) {
+        const key = rowKey(row.array, row.string);
+        if (!stringIpByKey.has(key)) stringIpByKey.set(key, row);
+    }
+    const ipByStringKey = new Map<string, any>();
+    const ipByPackKey = new Map<string, any>();
+    for (const row of ipMap) {
+        const key = rowKey(row.array, row.string);
+        if (!ipByStringKey.has(key)) ipByStringKey.set(key, row);
+        const pack = pN(row.pack || row.bpc);
+        if (pack != null) {
+            const packKey = `${key}:${pack}`;
+            if (!ipByPackKey.has(packKey)) ipByPackKey.set(packKey, row);
+        }
+    }
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "rollup/index construction", performance.now() - sourceIndexStartedAt);
 
     const strings: any[] = [];
     
@@ -936,6 +999,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         return findBatteryPackList(stringsCsvRow, arrayNumber, stringNumber, lcStrBase, blockStrBase, lastCallWrapper, blockWrapper);
     }
 
+    const rowNormalizationStartedAt = performance.now();
     for (let a = 1; a <= 8; a++) {
         const arrayRep = arrayReports[a]?.data;
         for (let s = 1; s <= 40; s++) {
@@ -944,47 +1008,37 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
 
             // 1. Existing string detail cache/report data, if already available and fresh
             const detail = getCachedStringDetail(a, s);
+            count("cache reads");
             const detailStringData = detail?.data?.stringData ?? detail?.data ?? null;
 
             // 2. Block Viewer string data
-            const blockStrBase = blockWrapper.data?.strings?.find((str: any) => pN(str.array) === a && pN(str.string) === s) || null;
+            const key = `${a}:${s}`;
+            const blockStrBase = blockStringsByKey.get(key) || null;
 
             // 3. lastCall string data
-            let lcStrBase = lastCallStrings?.find(str => pN(str.array) === a && pN(str.string) === s) || null;
-            if (!lcStrBase && lastCallArrays) {
-                const lcA = lastCallArrays.find(arr => pN(arr.index || arr.arrayIndex) === a);
-                if (lcA && Array.isArray(lcA.strings)) {
-                    lcStrBase = lcA.strings.find((str: any) => pN(str.index || str.stringIndex) === s) || null;
-                }
-            }
+            const lcStrBase = lastCallStringsByKey.get(key) || null;
 
             // 4. strings.csv fallbacks
-            const stringsCsvRow = (rawStringsWrapper.data && Array.isArray(rawStringsWrapper.data)) ? rawStringsWrapper.data.find((r: any) => {
-                const normObj: Record<string, any> = {};
-                for (const [k, v] of Object.entries(r)) { normObj[normalizeHeader(k)] = v; }
-                const arrNum = pN(tryGetField(r, normObj, ["array", "arrayindex", "arr"]));
-                const strNum = pN(tryGetField(r, normObj, ["string", "stringindex", "str"]));
-                return arrNum === a && strNum === s;
-            }) : null;
+            const csvEntry = csvRowsByKey.get(key);
+            const stringsCsvRow = csvEntry?.row ?? null;
 
             // 5. Topology/IP Map
-            const sIpInfo = stringIpMap.find(m => pN(m.array) === a && pN(m.string) === s);
+            const sIpInfo = stringIpByKey.get(key);
+
+            const aliasCandidates = [detailStringData, blockStrBase, lcStrBase, stringsCsvRow, sIpInfo]
+                .filter((candidate) => candidate != null)
+                .map((candidate) => {
+                    if (candidate === stringsCsvRow && csvEntry) return { raw: candidate, aliases: csvEntry.aliases };
+                    const aliases: Record<string, any> = {};
+                    for (const [aliasKey, value] of Object.entries(candidate)) { aliases[normalizeHeader(aliasKey)] = value; count("field alias normalization"); }
+                    return { raw: candidate, aliases };
+                });
 
             // Helper to fetch the first non-null, non-undefined, non-empty value in priority order
             const getMetricValue = (keys: string[], parser?: (v: any) => any) => {
-                const candidates = [];
-                if (detailStringData) candidates.push(detailStringData);
-                if (blockStrBase) candidates.push(blockStrBase);
-                if (lcStrBase) candidates.push(lcStrBase);
-                if (stringsCsvRow) candidates.push(stringsCsvRow);
-                if (sIpInfo) candidates.push(sIpInfo);
-
-                for (const cand of candidates) {
-                    const normCand: Record<string, any> = {};
-                    for (const [k, v] of Object.entries(cand)) {
-                        normCand[normalizeHeader(k)] = v;
-                    }
-                    const val = tryGetField(cand, normCand, keys);
+                count("field alias resolution");
+                for (const candidate of aliasCandidates) {
+                    const val = tryGetField(candidate.raw, candidate.aliases, keys);
                     if (val !== undefined && val !== null && val !== "") {
                         return parser ? parser(val) : val;
                     }
@@ -1469,7 +1523,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 const bpcNum = pN(bpcBase.index || bpcBase.bpcIndex, bpcIdx + 1) || (bpcIdx + 1);
                 
                 let bpcIp = null;
-                const bpcIpMatch = ipMap.find(m => pN(m.array) === a && pN(m.string) === s && pN(m.pack || m.bpc) === bpcNum);
+                const bpcIpMatch = ipByPackKey.get(`${key}:${bpcNum}`);
                 if (bpcIpMatch) bpcIp = bpcIpMatch.ip;
 
                 const cgs: any[] = [];
@@ -1593,6 +1647,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
 
             const stringNumValue = pN(s);
             const energySegmentNumber = stringNumberToEnergySegment(stringNumValue);
+            count("string-to-Energy-Segment mapping");
             const containerNumber = energySegmentNumber;
             const containerLabel = energySegmentNumber !== null ? `ES ${energySegmentNumber}` : "--";
 
@@ -1645,7 +1700,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 stringContactorState: rawStringContactorState,
                 stringContactorStateCause: rawStringContactorStateCause,
                 communicating,
-                stringControllerIp: ipMap.find(m => pN(m.array) === a && pN(m.string) === s)?.ip || sIpInfo?.ip || tryGetField(stringsCsvRow || {}, {}, ["ip", "ipaddress"]),
+                stringControllerIp: ipByStringKey.get(key)?.ip || sIpInfo?.ip || tryGetField(stringsCsvRow || {}, csvEntry?.aliases || {}, ["ip", "ipaddress"]),
                 stringControllerEntityKey: sIpInfo?.entityKey,
                 stringControllerEntityKeyToken: sIpInfo?.entityKeyToken,
                 contactorStatus,
@@ -1735,9 +1790,13 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
                 },
                 raw: rawSources
             });
+            count("string-key construction");
+            count("string-to-array mapping");
         }
     }
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "CSV/object normalization", performance.now() - rowNormalizationStartedAt);
 
+    const featherEnrichmentStartedAt = performance.now();
     if (enrich) {
         const arrayFilter = targetArray;
         const targetStrings = arrayFilter ? strings.filter(s => s.arrayNumber === arrayFilter) : strings;
@@ -1780,13 +1839,15 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
             } catch(e) {}
         }));
     }
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "Feather enrichment", performance.now() - featherEnrichmentStartedAt);
 
-    const canonicalStringSnapshot = applyCanonicalStringSnapshot(strings, {
+    const canonicalStringSnapshot = measure("sorting/deduplication", () => applyCanonicalStringSnapshot(strings, {
         lastCall: directLastCallForDashboard || lastCallWrapper.data,
         blockviewer: blockWrapper.data
-    });
+    }));
     strings.length = 0;
     strings.push(...canonicalStringSnapshot.strings);
+    const rollupStartedAt = performance.now();
 
     // Recompute all summary counters from final canonical strings!
     let finalNormalStrings = 0;
@@ -2154,6 +2215,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         return row;
     };
 
+    const notificationEnrichmentStartedAt = performance.now();
     strings.forEach((row: any) => normalizeStringAlerts(row));
 
     const applyAggregateContactorState = (row: any) => {
@@ -2216,7 +2278,9 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         return row;
     };
 
+    const contactorEnrichmentStartedAt = performance.now();
     strings.forEach((row: any) => applyAggregateContactorState(row));
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "contactor enrichment", performance.now() - contactorEnrichmentStartedAt);
 
     // Normalize alert detail aliases for the string detail drawer/panels.
     const applyRotationStateFromAlerts = (row: any) => {
@@ -2285,6 +2349,7 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         row.faults = row.notificationList;
         row.notificationCount = row.notificationList.length;
     });
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "notification enrichment", performance.now() - notificationEnrichmentStartedAt);
 
     // Prevent global/rollup alarm counts from appearing as string-level alarms when no actual
     // alarm details are attached to the affected row.
@@ -2567,9 +2632,33 @@ export async function buildNormalizedStringsData(enrich = false, targetArray: nu
         arrays: [],
         strings
     };
-    prizmCache.set("string_dashboard_enriched_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
-    prizmCache.set("string_dashboard_base_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
+    if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "rollup/index construction", performance.now() - rollupStartedAt);
+    measure("cache writes", () => {
+        prizmCache.set("string_dashboard_enriched_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
+        prizmCache.set("string_dashboard_base_ALL", result, { ttlMs: 15000, sourceUrl: "/api/local/strings/dashboard", profileId: profile?.id, emsBaseUrl: baseUrl });
+    });
+    if (cycleId != null) for (const [name, value] of Object.entries(counters)) normalizationMetrics.increment(cycleId, "strings", name, value);
     return result;
+}
+
+function freezeStringsResult<T extends { strings?: any[] }>(result: T): T {
+    const strings = Array.isArray(result.strings) ? result.strings : [];
+    registerCanonicalStringIndexes(result, buildCanonicalStringIndexes(strings));
+    if (!Object.isFrozen(strings)) Object.freeze(strings);
+    return Object.freeze(result);
+}
+
+export async function buildNormalizedStringsData(enrich = false, targetArray: number | null = null): Promise<any> {
+    const cycleId = getTelemetryCycleId();
+    const fingerprint = createNormalizationFingerprint(emsCache.cycleId, emsCache.strings, emsCache.block, emsCache.lastCall, stringDetailCache, enrich, targetArray);
+    return cycleNormalizationCache.getOrCompute({
+        cycleId,
+        domain: "strings",
+        variant: `${enrich ? "enriched" : "base"}:${targetArray ?? "all"}`,
+        fingerprint,
+        operation: () => normalizeStringsDataUncached(enrich, targetArray),
+        freeze: freezeStringsResult,
+    });
 }
 
 router.get("/detail-cache/status", (req, res) => {

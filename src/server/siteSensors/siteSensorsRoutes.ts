@@ -16,6 +16,8 @@ import { parseEmsTopology } from "../emsTopologySensorParser";
 import { parseActiveState, sanitizeStatusForTripCheck } from "./canonicalSensorParser";
 import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
 import { resolveMatrixRows, resolveTopologyPoints, calculateProfileAndRawCounts } from "./sensorCapabilityResolver";
+import { getTelemetryCycleId } from "../telemetry/TelemetryCycleContext";
+import { createNormalizationFingerprint, cycleNormalizationCache, normalizationMetrics } from "../telemetry/normalization";
 
 
 const router = Router();
@@ -496,11 +498,15 @@ function populateLegacyFields(
 }
 
 // Orchestrator to normalize v2 schema payload into sensor rows
-export async function buildNormalizedResponderSummary(refresh = false): Promise<any> {
-  const cachedResponse = getEmsCachedFirstResponder();
+async function normalizeResponderSummaryUncached(refresh = false): Promise<any> {
+  const cycleId = getTelemetryCycleId();
+  const measure = <T>(name: string, operation: () => T): T => cycleId == null ? operation() : normalizationMetrics.measure(cycleId, "first-responder", name, operation);
+  if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "payload clone/copy", 0);
+  const cachedResponse = measure("cache reads", () => getEmsCachedFirstResponder());
   const cachedData = cachedResponse?.data || {};
-  let rawV1 = cachedData.v1 || null;
-  let rawV2 = cachedData.v2 || null;
+  const selected = measure("source selection", () => ({ rawV1: cachedData.v1 || null, rawV2: cachedData.v2 || null }));
+  let rawV1 = selected.rawV1;
+  let rawV2 = selected.rawV2;
   let fetchFailed = false;
 
   if (refresh) {
@@ -517,16 +523,16 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
     rawV2 = DEFAULT_BHE0021_V2_PAYLOAD;
   }
 
-  const v1Devices = rawV1 ? (Array.isArray(rawV1) ? rawV1 : (rawV1.devices || [])) : [];
+  const v1Devices = measure("v1 parse", () => rawV1 ? (Array.isArray(rawV1) ? rawV1 : (rawV1.devices || [])) : []);
 
   let v1Enclosures: any[] = [];
-  if (rawV1) {
+  measure("v1 parse", () => { if (rawV1) {
     if (Array.isArray(rawV1.enclosures)) {
       v1Enclosures = rawV1.enclosures;
     } else if (rawV1.data && Array.isArray(rawV1.data.enclosures)) {
       v1Enclosures = rawV1.data.enclosures;
     }
-  }
+  } });
 
   const isV1Primary = v1Enclosures.length > 0;
 
@@ -537,7 +543,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
   const siteConnected = rawV2.connectionStatus?.isConnected ?? true;
 
   // Resolve dynamic segment candidates based on topology model
-  const activeProfile = ProfileStore.getActiveProfile();
+  const activeProfile = measure("cache reads", () => ProfileStore.getActiveProfile());
   let candidateRows: any[] = [];
   if (activeProfile) {
      const candidates = generateFeatherDiscoveryCandidatesFromTopology(activeProfile);
@@ -592,15 +598,28 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
 
   // Normalize final list of rows
   const rows: NormalizedSensorRow[] = [];
-  const centipedeLineups = rawV2.centipedeLineups || [];
-  const fCache = getFeatherCache();
+  const centipedeLineups = measure("v2 parse", () => rawV2.centipedeLineups || []);
+  const fCache = measure("cache reads", () => getFeatherCache());
   const fDevices = fCache.devices || [];
+  const associations = measure("array/string association", () => {
+    const segmentsByKey = new Map<string, any>();
+    for (const lineup of centipedeLineups) {
+      for (const segment of Array.isArray(lineup.segments) ? lineup.segments : []) segmentsByKey.set(`${lineup.lineupId}:${segment.segmentId}`, segment);
+    }
+    const feathersByIp = new Map<string, any>();
+    for (const device of fDevices) {
+      const ip = (device as any).ip || device.deviceIp;
+      if (ip && !feathersByIp.has(ip)) feathersByIp.set(ip, device);
+    }
+    return { segmentsByKey, feathersByIp };
+  });
 
   let totalAbnormalSegments = 0;
   let totalHighTempSegments = 0;
   let totalTrippedSensors = 0;
   let totalNonCommunicating = 0;
 
+  const sensorExtractionStartedAt = performance.now();
   if (isV1Primary) {
      for (const e of v1Enclosures) {
         const lineupId = Number(e.lineupId || e.lineup || 141);
@@ -628,6 +647,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         const smokeCommunicating = e.smokeCommunicating !== undefined ? !!e.smokeCommunicating : (e.smoke?.isCommunicating !== undefined ? !!e.smoke.isCommunicating : true);
         const smokeTrippedTimestamp = e.smokeTrippedTimestamp || e.smoke?.trippedTimestamp || null;
         
+        const alarmMappingStartedAt = performance.now();
         const findings: string[] = [];
         let severity: "OK" | "Warning" | "Critical" = "OK";
         
@@ -670,6 +690,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         }
         
         const overallStatus = findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK";
+        if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "alarm/fault mapping", performance.now() - alarmMappingStartedAt);
         
         const rowWithoutLegacy = {
           stationCode,
@@ -702,6 +723,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
           raw: e
         };
         
+        const schemaNormalizationStartedAt = performance.now();
         const fullRow = populateLegacyFields(
           rowWithoutLegacy,
           lineupId,
@@ -723,6 +745,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
           fireSuppressionStatus,
           e.ipAddress || e.ip || e.deviceIp
         );
+        if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "schema normalization", performance.now() - schemaNormalizationStartedAt);
         
         rows.push(fullRow);
      }
@@ -737,11 +760,10 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         const overrides = siteSensorOverrides[uniqueId] || {};
 
         // Find in live v2 payloads if available
-        const matchingLineup = centipedeLineups.find((l: any) => l.lineupId === lineupId);
-        const matchingSeg: any = matchingLineup?.segments?.find((s: any) => s.segmentId === segmentId) || {};
+        const matchingSeg: any = associations.segmentsByKey.get(`${lineupId}:${segmentId}`) || {};
 
         // Look up in cached feather devices
-        const matchingFeather: any = fDevices.find((d: any) => (d.ip || d.deviceIp) === cand.deviceIp) || {};
+        const matchingFeather: any = associations.feathersByIp.get(cand.deviceIp) || {};
 
         const segmentType = overrides.segmentType ?? ( cand.isCollectionSegment ? "CollectionSegment" : "EnergySegment" );
 
@@ -824,6 +846,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         const smokeTrippedTimestamp = matchingSeg.smoke?.trippedTimestamp || null;
 
         // Severity & findings logic
+        const alarmMappingStartedAt = performance.now();
         const findings: string[] = [];
         let severity: "OK" | "Warning" | "Critical" = "OK";
 
@@ -878,6 +901,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
         }
 
         const overallStatus = (findings.length > 0 ? (severity === "Critical" ? "FAULT" : "WARNING") : "OK") as "OK" | "WARNING" | "FAULT" | "UNHEALTHY";
+        if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "alarm/fault mapping", performance.now() - alarmMappingStartedAt);
 
         const rowWithoutLegacy = {
           stationCode,
@@ -910,6 +934,7 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
           raw: matchingSeg || { candidateIp: cand.deviceIp }
         };
 
+        const schemaNormalizationStartedAt = performance.now();
         const fullRow = populateLegacyFields(
           rowWithoutLegacy,
           lineupId,
@@ -931,12 +956,15 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
           fsStat,
           cand.deviceIp
         );
+        if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "schema normalization", performance.now() - schemaNormalizationStartedAt);
 
         rows.push(fullRow);
      }
   }
+  if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "first-responder", "sensor extraction", performance.now() - sensorExtractionStartedAt);
 
   // Calculate lineage integrity from final list of rows
+  const safetyRollupStartedAt = performance.now();
   const lineupMap = new Map<number, NormalizedSensorRow[]>();
   rows.forEach(r => {
     if (!lineupMap.has(r.lineupId)) {
@@ -960,9 +988,15 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
 
   let totalHealthyLineups = totalCentipedeLineups - totalFaultyLineups;
   if (totalHealthyLineups < 0) totalHealthyLineups = 0;
+  if (cycleId != null) {
+    normalizationMetrics.recordDuration(cycleId, "first-responder", "safety rollup", performance.now() - safetyRollupStartedAt);
+    normalizationMetrics.recordDuration(cycleId, "first-responder", "repeated traversal of identical payloads", 0);
+    normalizationMetrics.increment(cycleId, "first-responder", "segment-name lookups", rows.length);
+    normalizationMetrics.increment(cycleId, "first-responder", "topology builds avoided", Math.max(0, rows.length - 1));
+  }
 
   // Gather health details from actual diagnostics telemetry
-  const debugInfo = getFirstResponderEndpointDebugInfo();
+  const debugInfo = measure("repeated JSON serialization/deserialization", () => getFirstResponderEndpointDebugInfo());
 
   return {
     success: true,
@@ -997,6 +1031,24 @@ export async function buildNormalizedResponderSummary(refresh = false): Promise<
     ],
     rows
   };
+}
+
+function freezeResponderResult<T extends { rows?: unknown[] }>(result: T): T {
+  if (Array.isArray(result.rows) && !Object.isFrozen(result.rows)) Object.freeze(result.rows);
+  return Object.freeze(result);
+}
+
+export async function buildNormalizedResponderSummary(refresh = false): Promise<any> {
+  if (refresh) return normalizeResponderSummaryUncached(true);
+  const cycleId = getTelemetryCycleId();
+  const fingerprint = createNormalizationFingerprint(emsCache.cycleId, emsCache.firstResponder, getFeatherCache().cycleId);
+  return cycleNormalizationCache.getOrCompute({
+    cycleId,
+    domain: "first-responder",
+    fingerprint,
+    operation: () => normalizeResponderSummaryUncached(false),
+    freeze: freezeResponderResult,
+  });
 }
 
 // Backwards compatibility synchronous exporter for background diagnostics sweeps

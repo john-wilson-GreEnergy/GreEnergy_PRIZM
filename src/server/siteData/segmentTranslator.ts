@@ -1,5 +1,19 @@
 import { buildSiteTopologyFromCachedSources } from "../topology/siteTopology";
 import { getFeatherCache } from "../feather/featherClient";
+import { getTelemetryCycleId } from "../telemetry/TelemetryCycleContext";
+
+let topologyCycleId: number | null = null;
+let topologyForCycle: ReturnType<typeof buildSiteTopologyFromCachedSources> | null = null;
+
+function getTopologyForCurrentCycle(): ReturnType<typeof buildSiteTopologyFromCachedSources> {
+  const cycleId = getTelemetryCycleId();
+  if (cycleId == null) return buildSiteTopologyFromCachedSources();
+  if (topologyCycleId !== cycleId || !topologyForCycle) {
+    topologyCycleId = cycleId;
+    topologyForCycle = buildSiteTopologyFromCachedSources();
+  }
+  return topologyForCycle;
+}
 
 export function getSegmentName(opts: {
   lineupId?: number | null;
@@ -27,7 +41,7 @@ export function getSegmentName(opts: {
   // 2. Try looking up the display label in Cached site topology
   if (arrIdx !== null && arrIdx !== undefined && segId !== null && segId !== undefined) {
     try {
-      const topology = buildSiteTopologyFromCachedSources();
+      const topology = getTopologyForCurrentCycle();
       if (isCS) {
         // Collect block Name if mapped in topology arrays
         const blockName = topology.arrays?.find(a => a.arrayIndex === arrIdx)?.displayKey || `Array ${arrIdx}`;
