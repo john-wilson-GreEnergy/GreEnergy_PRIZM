@@ -4,6 +4,7 @@ import { formatLostCommsEntry, formatFeatherDiagnosticValue } from "../../lib/fe
 import { formatPrizmUtcTimestamp } from "../../lib/timeFormat";
 import { getActiveTopologyProfile, mergeLiveDiscoveryIntoTopology } from "../topology/siteTopologyEngine";
 import { getEmsCachedBlock, getEmsCachedControllerStatistics, getEmsCachedFirstResponder, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatus, getEmsCachedStatusCodes, getEmsIpMap, getEmsStringIpMap } from "../emsTurtleClient";
+import { getRegisteredFeatherParsedEnrichment } from "../telemetry/feather/FeatherParsedEnrichmentRegistry";
 
 export interface FeatherHvacDevice {
   ip: string;
@@ -637,7 +638,7 @@ export async function fetchEnrichedDevices() {
              d.raw!.directFeather = dev;
              if (dev.reachable && dev.rawResponse) {
                  sourceCounts.directFeatherSuccess++;
-                 const normalized = normalizeDirectFeatherStatus(dev.deviceIp, dev.rawResponse);
+                 const normalized = getRegisteredFeatherParsedEnrichment(dev.rawResponse) ?? normalizeDirectFeatherStatus(dev.deviceIp, dev.rawResponse);
                  Object.assign(d, normalized);
 
                  d.reachable = true;

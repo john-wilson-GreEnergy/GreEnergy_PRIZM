@@ -11,15 +11,16 @@ import { coordinatorPhaseNameForEndpoint, coordinatorProfiler } from "../telemet
 // Key is activeProfileId
 const featherProfilesCache = new Map<string, FeatherCacheEntry>();
 
-type JsonFetchResult = {
+export type JsonFetchResult = {
   ok: boolean;
   status: number;
   data: any | null;
   error: string | null;
   durationMs: number;
+  responseBytes?: number | null;
 };
 
-async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<JsonFetchResult> {
+export async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<JsonFetchResult> {
   return coordinatorProfiler.withPhase(coordinatorPhaseNameForEndpoint("feather", url), { waitState: "NETWORK", blocking: true }, async () => {
   const startedAt = Date.now();
   const controller = new AbortController();
@@ -47,6 +48,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
         data: null,
         error: `HTTP Error Status: ${res.status} ${res.statusText}`,
         durationMs,
+        responseBytes: Number(res.headers.get("content-length")) || null,
       };
     }
 
@@ -54,7 +56,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
       const parseStartedAt = performance.now();
       const data = await coordinatorProfiler.withPhase("Parse Response", { waitState: "PARSE", blocking: true }, () => res.json());
       metric.finish({ success: true, responseBytes: Number(res.headers.get("content-length")) || null, parseDurationMs: performance.now() - parseStartedAt, sourceObservationTimestamp: data?.timestamp ?? data?.timeStamp ?? data?.capturedAt ?? null, acquisitionTimestamp: new Date(), stale: false });
-      return { ok: true, status: res.status, data, error: null, durationMs };
+      return { ok: true, status: res.status, data, error: null, durationMs, responseBytes: Number(res.headers.get("content-length")) || null };
     } catch (err: any) {
       metric.finish({ success: false, responseBytes: Number(res.headers.get("content-length")) || null, acquisitionTimestamp: new Date(), stale: true });
       return {
@@ -63,6 +65,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
         data: null,
         error: `JSON parse error: ${err?.message || String(err)}`,
         durationMs,
+        responseBytes: Number(res.headers.get("content-length")) || null,
       };
     }
   } catch (err: any) {
@@ -74,18 +77,19 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Jso
       data: null,
       error: err?.name === "AbortError" ? "Fetch Aborted: timeout exceeded" : (err?.message || String(err)),
       durationMs: Date.now() - startedAt,
+      responseBytes: null,
     };
   }
   }, (result) => ({ success: result.ok }));
 }
 
-function mergeFeatherReadOnlyPayloads(reportJson: any, mainDataJson: any): any {
+export function mergeFeatherReadOnlyPayloads(reportJson: any, mainDataJson: any): any {
   if (!reportJson || typeof reportJson !== "object") {
     return reportJson;
   }
 
   if (!mainDataJson || typeof mainDataJson !== "object") {
-    return reportJson;
+    return { ...reportJson };
   }
 
   const merged = { ...reportJson };
@@ -520,6 +524,14 @@ function saveNormalizedToCache(
     existing.devices.push(deviceStatus);
   }
   existing.lastUpdatedAt = new Date().toISOString();
+}
+
+export function publishFeatherNormalizedStatus(deviceStatus: FeatherNormalizedStatus): void {
+  const activeProfile = ProfileStore.getActiveProfile();
+  const activeId = activeProfile ? activeProfile.id : "default-local-ems";
+  const activeName = activeProfile ? activeProfile.profileName : "PRIZM Core Hardware Bess Profile";
+  const activeUrl = activeProfile ? `${activeProfile.emsHost}:${activeProfile.emsPort}` : "10.0.0.3:8080";
+  saveNormalizedToCache(activeId, activeName, activeUrl, deviceStatus);
 }
 
 /**

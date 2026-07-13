@@ -2,6 +2,7 @@ import { getFeatherCache } from "../../feather/featherClient";
 import { cloneValue } from "../TelemetryHealth";
 import { FeatherTelemetry, FeatherTelemetryDevice, TelemetryDomain } from "../TelemetryModels";
 import { TelemetryProvider, TelemetryProviderSnapshot } from "../TelemetryProvider";
+import { featherScheduler } from "../feather/FeatherScheduler";
 
 export class FeatherTelemetryProvider implements TelemetryProvider {
   readonly id = "feather";
@@ -11,7 +12,11 @@ export class FeatherTelemetryProvider implements TelemetryProvider {
     const startedAt = Date.now();
     try {
       const cache = getFeatherCache();
-      const devices: FeatherTelemetryDevice[] = (cache.devices || []).map((d: any) => ({
+      const scheduled = featherScheduler.config.mode === "scheduled";
+      const schedulerSnapshots = scheduled ? featherScheduler.getAllControllerSnapshots() : [];
+      const sourceDevices = scheduled ? schedulerSnapshots.map((snapshot) => snapshot.normalized) : (cache.devices || []);
+      const schedulerState = scheduled ? featherScheduler.getSchedulerState() : null;
+      const devices: FeatherTelemetryDevice[] = sourceDevices.map((d: any) => ({
         deviceIp: d.deviceIp || d.ip || "unknown",
         reachable: !!d.reachable,
         arrayIndex: Number.isFinite(Number(d.arrayIndex)) ? Number(d.arrayIndex) : null,
@@ -23,12 +28,18 @@ export class FeatherTelemetryProvider implements TelemetryProvider {
         raw: cloneValue(d),
       }));
 
+      const expectedUnavailable = schedulerState?.topologyClassification["expected-but-unavailable"].length ?? 0;
+      const expectedSnapshotStale = scheduled && schedulerSnapshots.some((snapshot) => {
+        const classification = schedulerState?.topologyClassification["expected-and-reachable"] ?? [];
+        return classification.includes(snapshot.deviceIp) && snapshot.stale;
+      });
+      const schedulerStale = scheduled && Boolean(schedulerState && (expectedUnavailable > 0 || expectedSnapshotStale));
       const featherTelemetry: FeatherTelemetry = {
         devices,
         totalDevices: devices.length,
         reachableDevices: devices.filter((d) => d.reachable).length,
-        stale: !!cache.isStale,
-        raw: cloneValue(cache),
+        stale: scheduled ? schedulerStale : !!cache.isStale,
+        raw: scheduled ? cloneValue({ mode: "scheduled", scheduler: schedulerState }) : cloneValue(cache),
       };
 
       return {
@@ -39,21 +50,22 @@ export class FeatherTelemetryProvider implements TelemetryProvider {
         },
         health: {
           providerId: this.id,
-          healthy: !cache.isStale,
-          stale: !!cache.isStale,
+          healthy: scheduled ? schedulerSnapshots.length > 0 && !schedulerStale : !cache.isStale,
+          stale: scheduled ? schedulerStale : !!cache.isStale,
           latencyMs: Date.now() - startedAt,
-          lastSuccessAt: cache.lastUpdatedAt || null,
-          lastError: cache.isStale ? "Feather cache stale or unavailable" : null,
-          consecutiveFailures: cache.isStale ? 1 : 0,
+          lastSuccessAt: scheduled ? (schedulerSnapshots.map((snapshot) => snapshot.parsedAt).sort().at(-1) ?? null) : (cache.lastUpdatedAt || null),
+          lastError: (scheduled ? schedulerStale : cache.isStale) ? "Feather cache stale or unavailable" : null,
+          consecutiveFailures: (scheduled ? schedulerStale : cache.isStale) ? 1 : 0,
           details: {
             activeProfileId: cache.activeProfileId,
             activeEmsBaseUrl: cache.activeEmsBaseUrl,
+            mode: scheduled ? "scheduled" : "legacy",
           },
         },
         provenance: {
-          source: "feather-cache",
+          source: scheduled ? "feather-scheduler" : "feather-cache",
           metadata: {
-            wrappedClients: ["getFeatherCache"],
+            wrappedClients: scheduled ? ["FeatherScheduler"] : ["getFeatherCache"],
           },
         },
       };

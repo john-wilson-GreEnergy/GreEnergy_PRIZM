@@ -79,6 +79,7 @@ import { telemetryMetrics } from "./src/server/telemetry/metrics";
 import { telemetryMetricsRouter } from "./src/server/telemetry/metrics/TelemetryMetricsRoutes";
 import { coordinatorProfiler } from "./src/server/telemetry/profiler";
 import { stringViewerRouter } from "./src/server/telemetry/stringviewer";
+import { featherScheduler, featherSchedulerRouter } from "./src/server/telemetry/feather";
 
 
 
@@ -140,6 +141,7 @@ app.use("/api/local/troubleshooting", troubleshootingRouter);
 app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
 app.use("/api/local/debug/stringviewer", stringViewerRouter);
+app.use("/api/local/debug/feather", featherSchedulerRouter);
 
 app.get("/api/local/debug/coordinator", (_req, res) => {
   res.json(prizmDataCoordinator.getCoordinatorDebugState());
@@ -1343,7 +1345,11 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
     const timeout = Number(process.env.FEATHER_REQUEST_TIMEOUT_MS) || 3000;
     const snapshot: any = prizmDataCoordinator.getLatestSnapshot();
 
-    const { response, usingBroker, fallbackUsed, routeTriggeredNetworkCalls } = await buildFeatherDeviceStatusRouteResponse({
+    const scheduledMode = featherScheduler.config.mode === "scheduled";
+    const explicitRefresh = req.query.refresh === "true";
+    const refreshedSnapshot = scheduledMode && explicitRefresh ? await featherScheduler.refreshController(deviceIp, "status-route-refresh", snapshot?.cycleId ?? null) : null;
+    const schedulerSnapshot = refreshedSnapshot ?? (scheduledMode ? featherScheduler.getControllerSnapshot(deviceIp) : null);
+    const { response, parity, usingBroker, fallbackUsed, routeTriggeredNetworkCalls } = await buildFeatherDeviceStatusRouteResponse({
       deviceIp,
       sourceMethod,
       includeDiagnostics,
@@ -1353,16 +1359,22 @@ app.get("/api/feather/devices/:deviceIp/status", async (req, res) => {
       forceLegacy,
       disableBroker,
       cacheOnly: process.env.PRIZM_SINGLE_OWNER_ACQUISITION !== "false",
+      scheduledDevice: schedulerSnapshot?.normalized ?? null,
+      queryDiagnosticsFn: scheduledMode ? ((ip) => featherScheduler.requestDiagnostics(ip, "status-route-diagnostics")) as any : undefined,
     });
 
+    if (scheduledMode) featherScheduler.metrics.recordParity(deviceIp, parity as any);
+    const responseCycleId = schedulerSnapshot?.cycleId ?? snapshot?.cycleId ?? null;
+
+    const totalRouteNetworkCalls = routeTriggeredNetworkCalls + (scheduledMode && explicitRefresh ? 2 : 0);
     routeMetric.finish({
       brokerSelected: usingBroker,
       legacyFallback: fallbackUsed || !usingBroker,
-      cacheOnly: routeTriggeredNetworkCalls === 0,
-      routeTriggeredNetworkCalls,
-      cycleId: snapshot?.cycleId ?? null,
+      cacheOnly: totalRouteNetworkCalls === 0,
+      routeTriggeredNetworkCalls: totalRouteNetworkCalls,
+      cycleId: responseCycleId,
     });
-    res.json({ ...response, cycleId: snapshot?.cycleId ?? null });
+    res.json({ ...response, cycleId: responseCycleId });
   } catch (err: any) {
     routeMetric.finish({ failed: true });
     res.status(500).json({ error: err.message || "Failed to query device status" });

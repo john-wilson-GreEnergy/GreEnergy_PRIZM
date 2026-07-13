@@ -19,6 +19,7 @@ import { CoordinatorCycleOutcome, CoordinatorRuntime } from "./telemetry/Coordin
 import { collectTelemetrySnapshot } from "./telemetry/TelemetryRuntime";
 import { triggerContactorRefresh } from "./contactorStateEngine";
 import { coordinatorProfiler } from "./telemetry/profiler";
+import { featherScheduler } from "./telemetry/feather";
 
 
 
@@ -1958,7 +1959,10 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
 
   if (context.reasons.some((reason) => reason === "coordinator-start" || reason === "feather-15s-schedule")) {
       try {
-          await coordinatorProfiler.withPhase("Feather Acquisition", { waitState: "NETWORK", blocking: true }, () => refreshFeatherCache({ force: false }));
+          await coordinatorProfiler.withPhase("Feather Acquisition", { waitState: "NETWORK", blocking: true }, async () => {
+            if (featherScheduler.config.mode === "scheduled") await featherScheduler.runCycle(undefined, context.cycleId);
+            else await refreshFeatherCache({ force: false });
+          });
       } catch (err: any) {
           cycleSucceeded = false;
           console.error("[Data Coordinator] Feather refresh failed", err.message);
