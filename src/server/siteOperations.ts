@@ -20,6 +20,7 @@ import { normalizeStringRow } from "./normalizers/stringNormalizer";
 import { formatStringEsLabel } from "../lib/stringToEsMapper";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
+import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 
 const router = Router();
 
@@ -2158,7 +2159,7 @@ router.get("/summary", async (req, res) => {
 
         if (totalMs > 500) console.log('[SiteOps] Slow summary response: ' + totalMs + 'ms');
 
-        res.json(responseData);
+        res.json(await graphIdentityResolver.applyRouteIdentity("GET /api/local/site-operations/summary", responseData));
     } catch (err: any) {
         res.status(500).json({ error: err.message, source: "unavailable", cacheUsed: false, liveAttempted: forceLive, liveSucceeded: false });
     }

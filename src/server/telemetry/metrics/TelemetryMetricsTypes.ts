@@ -122,6 +122,7 @@ export interface TelemetryPerformanceReport {
   normalization: import("../normalization").ReturnTypeOfNormalizationMetricsReport;
   stringViewer: ReturnType<import("../stringviewer/StringViewerScheduler").StringViewerScheduler["getDebugState"]>;
   featherScheduler: ReturnType<import("../feather/FeatherScheduler").FeatherScheduler["getSchedulerState"]>;
+  graphIdentity: unknown | null;
   broker: TelemetryBrokerMetrics;
   routes: TelemetryRouteMetric[];
   suspectedDuplicatePolls: TelemetryEndpointMetric[];

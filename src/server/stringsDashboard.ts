@@ -34,6 +34,7 @@ import {
 } from "./telemetry/normalization";
 import { stringViewerScheduler, StringViewerCacheEntry } from "./telemetry/stringviewer";
 import { telemetryMetrics } from "./telemetry/metrics";
+import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 
 const router = Router();
 const stringViewerProvenance = new WeakMap<object, {
@@ -2909,7 +2910,7 @@ router.get("/", async (req, res) => {
             };
         }
 
-        res.json({ 
+        const responsePayload = {
             ...outputData, 
             cycleId: cacheEntry.cycleId,
             ...cacheMetadata,
@@ -2933,7 +2934,8 @@ router.get("/", async (req, res) => {
             sourceOk: cacheEntry.sourceOk,
             isLive: cacheEntry.isLive,
             isStale: cacheEntry.isStale
-        });
+        };
+        res.json(await graphIdentityResolver.applyRouteIdentity("GET /api/local/strings/dashboard", responsePayload));
 
     } catch (e: any) {
         res.status(500).json({ error: e.message || "Failed to process strings dashboard" });
