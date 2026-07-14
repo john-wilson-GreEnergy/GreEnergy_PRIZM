@@ -8,3 +8,4 @@ export * from "./TelemetryRuntime";
 export * from "./providers/TurtleTelemetryProvider";
 export * from "./providers/FeatherTelemetryProvider";
 export * from "./providers/FirstResponderTelemetryProvider";
+export * from "./binding";

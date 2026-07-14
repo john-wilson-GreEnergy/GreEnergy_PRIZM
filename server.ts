@@ -82,6 +82,7 @@ import { stringViewerRouter } from "./src/server/telemetry/stringviewer";
 import { featherScheduler, featherSchedulerRouter } from "./src/server/telemetry/feather";
 import { topologyGraphRouter } from "./src/server/topology/TopologyGraphRoutes";
 import { graphIdentityResolver, graphIdentityRouter } from "./src/server/topology";
+import { telemetryBindingRouter, telemetryBindingRuntime } from "./src/server/telemetry/binding";
 
 
 
@@ -144,6 +145,7 @@ app.use("/api/local/troubleshooting", troubleshootingRouter);
 
 app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
+app.use("/api/local/debug/telemetry", telemetryBindingRouter);
 app.use("/api/local/debug/stringviewer", stringViewerRouter);
 app.use("/api/local/debug/feather", featherSchedulerRouter);
 app.use("/api/local/debug/topology", topologyGraphRouter);
@@ -331,8 +333,12 @@ import {
 startModbusScheduler();
 
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry
-app.get("/api/local/connection", (req, res) => {
-  res.json(getEmsConnectionStatus());
+app.get("/api/local/connection", async (req, res) => {
+  const payload = getEmsConnectionStatus();
+  const response = await telemetryBindingRuntime.observeRoute("GET /api/local/connection", payload);
+  const cycleId = telemetryBindingRuntime.getLatestBindingSnapshot()?.cycleId;
+  if (cycleId != null) res.setHeader("X-PRIZM-Cycle-Id", String(cycleId));
+  res.json(response);
 });
 
 // GET /api/local/ems/connection-status
@@ -469,7 +475,8 @@ app.get("/api/local/strings", async (req, res) => {
     const cycleId = snapshot?.cycleId ?? null;
     routeMetric.finish({ brokerSelected: usingBroker, legacyFallback: !usingBroker, cacheOnly: true, routeTriggeredNetworkCalls: 0, cycleId });
     const routeResponse = { ...response, cycleId };
-    res.json(await graphIdentityResolver.applyRouteIdentity("GET /api/local/strings", routeResponse));
+    const identityResponse = await graphIdentityResolver.applyRouteIdentity("GET /api/local/strings", routeResponse);
+    res.json(await telemetryBindingRuntime.observeRoute("GET /api/local/strings", identityResponse));
   } catch (error) {
     routeMetric.finish({ failed: true, cacheOnly: true });
     throw error;

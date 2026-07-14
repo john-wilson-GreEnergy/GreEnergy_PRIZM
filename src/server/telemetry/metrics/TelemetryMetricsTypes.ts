@@ -123,6 +123,7 @@ export interface TelemetryPerformanceReport {
   stringViewer: ReturnType<import("../stringviewer/StringViewerScheduler").StringViewerScheduler["getDebugState"]>;
   featherScheduler: ReturnType<import("../feather/FeatherScheduler").FeatherScheduler["getSchedulerState"]>;
   graphIdentity: unknown | null;
+  telemetryBindings: unknown | null;
   broker: TelemetryBrokerMetrics;
   routes: TelemetryRouteMetric[];
   suspectedDuplicatePolls: TelemetryEndpointMetric[];

@@ -21,6 +21,7 @@ import { formatStringEsLabel } from "../lib/stringToEsMapper";
 import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
+import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
 
 const router = Router();
 
@@ -2159,7 +2160,11 @@ router.get("/summary", async (req, res) => {
 
         if (totalMs > 500) console.log('[SiteOps] Slow summary response: ' + totalMs + 'ms');
 
-        res.json(await graphIdentityResolver.applyRouteIdentity("GET /api/local/site-operations/summary", responseData));
+        const identityResponse = await graphIdentityResolver.applyRouteIdentity("GET /api/local/site-operations/summary", responseData);
+        const bindingResponse = await telemetryBindingRuntime.observeRoute("GET /api/local/site-operations/summary", identityResponse);
+        const bindingCycleId = telemetryBindingRuntime.getLatestBindingSnapshot()?.cycleId;
+        if (bindingCycleId != null) res.setHeader("X-PRIZM-Cycle-Id", String(bindingCycleId));
+        res.json(bindingResponse);
     } catch (err: any) {
         res.status(500).json({ error: err.message, source: "unavailable", cacheUsed: false, liveAttempted: forceLive, liveSucceeded: false });
     }

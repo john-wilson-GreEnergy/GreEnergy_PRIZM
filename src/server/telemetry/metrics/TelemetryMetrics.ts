@@ -7,9 +7,12 @@ import { featherScheduler } from "../feather/FeatherScheduler";
 export class TelemetryMetrics {
   private graphIdentityReporter: (() => unknown) | null = null;
   private graphIdentityResetter: (() => unknown) | null = null;
+  private telemetryBindingReporter: (() => unknown) | null = null;
+  private telemetryBindingResetter: (() => unknown) | null = null;
   constructor(readonly registry = new TelemetryMetricsRegistry()) {}
 
   setGraphIdentityMetrics(reporter: () => unknown, resetter: () => unknown): void { this.graphIdentityReporter = reporter; this.graphIdentityResetter = resetter; }
+  setTelemetryBindingMetrics(reporter: () => unknown, resetter: () => unknown): void { this.telemetryBindingReporter = reporter; this.telemetryBindingResetter = resetter; }
 
   report(): TelemetryPerformanceReport {
     const generatedAt = new Date();
@@ -42,6 +45,7 @@ export class TelemetryMetrics {
       stringViewer: stringViewerScheduler.getDebugState(),
       featherScheduler: featherScheduler.getSchedulerState(),
       graphIdentity: this.graphIdentityReporter?.() ?? null,
+      telemetryBindings: this.telemetryBindingReporter?.() ?? null,
       broker: this.registry.getBroker(),
       routes: this.registry.getRoutes(),
       suspectedDuplicatePolls,
@@ -52,7 +56,7 @@ export class TelemetryMetrics {
     };
   }
 
-  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); stringViewerScheduler.metrics.reset(); featherScheduler.metrics.reset(); this.graphIdentityResetter?.(); return this.report(); }
+  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); stringViewerScheduler.metrics.reset(); featherScheduler.metrics.reset(); this.graphIdentityResetter?.(); this.telemetryBindingResetter?.(); return this.report(); }
 }
 
 export const telemetryMetrics = new TelemetryMetrics();
