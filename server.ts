@@ -80,12 +80,16 @@ import { telemetryMetricsRouter } from "./src/server/telemetry/metrics/Telemetry
 import { coordinatorProfiler } from "./src/server/telemetry/profiler";
 import { stringViewerRouter } from "./src/server/telemetry/stringviewer";
 import { featherScheduler, featherSchedulerRouter } from "./src/server/telemetry/feather";
+import { topologyGraphRouter } from "./src/server/topology/TopologyGraphRoutes";
+import { graphIdentityResolver, graphIdentityRouter } from "./src/server/topology";
 
 
 
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+telemetryMetrics.setGraphIdentityMetrics(() => graphIdentityResolver.report(), () => graphIdentityResolver.resetMetrics());
 
 app.use(express.json({ limit: '50mb' }));
 app.use((_req, res, next) => {
@@ -142,6 +146,8 @@ app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
 app.use("/api/local/debug/stringviewer", stringViewerRouter);
 app.use("/api/local/debug/feather", featherSchedulerRouter);
+app.use("/api/local/debug/topology", topologyGraphRouter);
+app.use("/api/local/debug/graph", graphIdentityRouter);
 
 app.get("/api/local/debug/coordinator", (_req, res) => {
   res.json(prizmDataCoordinator.getCoordinatorDebugState());
@@ -462,7 +468,8 @@ app.get("/api/local/strings", async (req, res) => {
     telemetryMetrics.registry.recordEndpointProcessing("route", "/api/local/strings", { normalizationDurationMs: performance.now() - normalizationStartedAt });
     const cycleId = snapshot?.cycleId ?? null;
     routeMetric.finish({ brokerSelected: usingBroker, legacyFallback: !usingBroker, cacheOnly: true, routeTriggeredNetworkCalls: 0, cycleId });
-    res.json({ ...response, cycleId });
+    const routeResponse = { ...response, cycleId };
+    res.json(await graphIdentityResolver.applyRouteIdentity("GET /api/local/strings", routeResponse));
   } catch (error) {
     routeMetric.finish({ failed: true, cacheOnly: true });
     throw error;
