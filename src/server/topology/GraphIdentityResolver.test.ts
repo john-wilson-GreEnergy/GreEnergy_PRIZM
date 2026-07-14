@@ -52,7 +52,7 @@ async function run(): Promise<void> {
   });
   await withMode('graph', async () => {
     const graphOnly = new GraphIdentityResolver(access()); const result = await graphOnly.applyRouteIdentity('GET /api/local/strings', routePayload);
-    assert.deepEqual(result, routePayload); assert.equal(graphOnly.report().legacyLookups, 0); assert.equal(graphOnly.report().graphUsageCount, 1);
+    assert.deepEqual(result, routePayload); assert.ok(graphOnly.report().legacyLookups > 0, 'guarded graph mode keeps parity comparison active'); assert.equal(graphOnly.report().graphUsageCount, 1); assert.equal(graphOnly.report().effectiveMode, 'hybrid');
   });
   await withMode('legacy', async () => {
     let ensured = 0; const legacy = new GraphIdentityResolver({ ...access(), getSnapshot: () => null, ensure: async () => { ensured += 1; } }); const result = await legacy.applyRouteIdentity('GET /api/local/strings', routePayload);

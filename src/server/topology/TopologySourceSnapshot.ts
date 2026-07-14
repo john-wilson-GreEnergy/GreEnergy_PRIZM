@@ -48,6 +48,8 @@ export interface TopologySourceSnapshot {
   readonly generatedAt: string;
   readonly cycleId: number | null;
   readonly fingerprint: string;
+  readonly profileFingerprint: string;
+  readonly profileIdentity: TopologyProfileIdentity;
   readonly site: { readonly siteId: string; readonly name: string; readonly customer: string | null };
   readonly ems: { readonly deviceIp: string; readonly port: number; readonly turtlePath: string };
   readonly arrays: readonly { readonly arrayIndex: number }[];
@@ -62,6 +64,21 @@ export interface TopologySourceSnapshot {
     readonly ambiguous: readonly TopologyIdentityDiagnostic[];
     readonly duplicates: readonly TopologyIdentityDiagnostic[];
   };
+}
+
+export interface TopologyProfileIdentity {
+  readonly connectionProfileId: string;
+  readonly topologyProfileId: string;
+  readonly siteId: string;
+  readonly ems: { readonly host: string; readonly port: number; readonly turtlePath: string };
+  readonly layout: {
+    readonly arrayCount: number;
+    readonly stringsPerArray: number;
+    readonly energySegmentsPerArray: number;
+    readonly stringsPerEnergySegment: number;
+  };
+  readonly featherExpectations: readonly string[];
+  readonly pcsExpectations: readonly string[];
 }
 
 export type TopologySourceSnapshotInput = Omit<TopologySourceSnapshot, 'fingerprint'> & { readonly fingerprint?: string };

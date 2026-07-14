@@ -1,5 +1,6 @@
 import { immutableValue, type ArrayObject, type CanonicalObject, type EmsControllerObject, type EnergySegmentObject, type FeatherControllerObject, type ObjectGraphSnapshot, type PcsObject, type StringObject } from '../../core/objectGraph';
-import { getLatestTopologyGraphSnapshot, getLatestTopologySourceSnapshot, getTopologyGraphFingerprint, requestTopologyGraphRebuild } from './TopologyGraphRuntime';
+import { ensureTopologyGraphCurrent, getLatestTopologyGraphSnapshot, getLatestTopologySourceSnapshot, getTopologyGraphFingerprint, getTopologyGraphHealth, topologyGraphRuntime } from './TopologyGraphRuntime';
+import { GraphIdentityReadinessTracker, graphIdentityReadinessPolicy } from './GraphIdentityReadiness';
 
 export type GraphIdentityMode = 'legacy' | 'hybrid' | 'graph';
 export type GraphIdentityRoute = 'GET /api/local/strings' | 'GET /api/local/strings/dashboard' | 'GET /api/local/site-operations/summary';
@@ -20,6 +21,10 @@ interface MutableTimingMetric { latestMs: number | null; minimumMs: number | nul
 
 export interface GraphIdentityMetricsReport {
   readonly mode: GraphIdentityMode;
+  readonly configuredMode: GraphIdentityMode;
+  readonly effectiveMode: GraphIdentityMode;
+  readonly forceLegacy: boolean;
+  readonly graphDisabled: boolean;
   readonly graphFingerprint: string | null;
   readonly graphCycleId: number | null;
   readonly graphLookups: number;
@@ -29,7 +34,10 @@ export interface GraphIdentityMetricsReport {
   readonly graphMisses: number;
   readonly fallbackCount: number;
   readonly graphUsageCount: number;
+  readonly graphOnlyUsageCount: number;
+  readonly hybridUsageCount: number;
   readonly legacyUsageCount: number;
+  readonly graphOnlyEligible: boolean;
   readonly identityMatches: number;
   readonly identityMismatches: number;
   readonly duplicateIdentities: number;
@@ -45,6 +53,7 @@ export interface GraphIdentityMetricsReport {
 
 interface IdentityIndexes {
   fingerprint: string;
+  duplicateCount: number;
   byId: Map<string, CanonicalObject>;
   arrays: Map<number, ArrayObject>;
   strings: Map<string, StringObject>;
@@ -59,13 +68,25 @@ export interface GraphIdentityRuntimeAccess {
   getFingerprint(): string | null;
   getCycleId(): number | null;
   ensure(): Promise<void>;
+  getSourceFingerprint?(): string | null;
+  getRuntimeState?(): string;
+  getRuntimeHealthy?(): boolean;
+  getDiagnostics?(): { duplicates: number; missing: number; dangling: number };
+  updateReadiness?(parityReady: boolean, graphOnlyReady: boolean): void;
+  getLifecycle?(): unknown;
 }
 
 const defaultRuntimeAccess: GraphIdentityRuntimeAccess = {
   getSnapshot: getLatestTopologyGraphSnapshot,
   getFingerprint: getTopologyGraphFingerprint,
   getCycleId: () => getLatestTopologySourceSnapshot()?.cycleId ?? null,
-  ensure: async () => { await requestTopologyGraphRebuild('graph-identity:first-use'); },
+  ensure: async () => { await ensureTopologyGraphCurrent('graph-identity:route-use'); },
+  getSourceFingerprint: () => getLatestTopologySourceSnapshot()?.fingerprint ?? null,
+  getRuntimeState: () => getTopologyGraphHealth().state,
+  getRuntimeHealthy: () => ['READY_HYBRID', 'READY_GRAPH'].includes(getTopologyGraphHealth().state),
+  getDiagnostics: () => { const source = getLatestTopologySourceSnapshot(); const parity = topologyGraphRuntime.getParity(); return { duplicates: source?.diagnostics.duplicates.length ?? 0, missing: source?.diagnostics.missing.length ?? 0, dangling: (parity?.mismatchedRelationships.length ?? 0) + (parity?.danglingRelationships.length ?? 0) }; },
+  updateReadiness: (parityReady, graphOnlyReady) => topologyGraphRuntime.updateReadiness(parityReady, graphOnlyReady),
+  getLifecycle: getTopologyGraphHealth,
 };
 
 const timing = (): MutableTimingMetric => ({ latestMs: null, minimumMs: null, maximumMs: null, sampleCount: 0, totalMs: 0 });
@@ -91,13 +112,17 @@ export class GraphIdentityResolver {
   private lookupLatency = timing(); private graphLookupLatency = timing(); private legacyLookupLatency = timing(); private hybridComparisonLatency = timing(); private routeIdentityLatency = timing();
   private routeMetrics = new Map<string, { requests: number; matches: number; mismatches: number; graphUses: number; legacyUses: number; fallbacks: number }>();
   private mismatchSamples: { route: string; kind: string; identity: string; reason: string }[] = [];
+  private readiness = new GraphIdentityReadinessTracker();
+  private hybridUsageCount = 0; private graphOnlyUsageCount = 0; private automaticRollbacks = 0; private fallbackReasons = new Map<string, number>();
 
   constructor(private readonly runtime: GraphIdentityRuntimeAccess = defaultRuntimeAccess) {}
 
   get mode(): GraphIdentityMode { const value = process.env.PRIZM_GRAPH_IDENTITY_MODE?.trim().toLowerCase(); return value === 'legacy' || value === 'graph' ? value : 'hybrid'; }
+  get forceLegacy(): boolean { return process.env.PRIZM_GRAPH_IDENTITY_FORCE_LEGACY?.trim().toLowerCase() === 'true'; }
+  get graphDisabled(): boolean { return process.env.PRIZM_GRAPH_IDENTITY_DISABLE_GRAPH?.trim().toLowerCase() === 'true'; }
 
   async prepare(): Promise<void> {
-    if (!this.runtime.getSnapshot()) await this.runtime.ensure();
+    await this.runtime.ensure();
     const snapshot = this.runtime.getSnapshot(); const fingerprint = this.runtime.getFingerprint();
     if (!snapshot || !fingerprint) throw new Error('Canonical topology graph is unavailable');
     if (!this.indexes || this.indexes.fingerprint !== fingerprint) this.indexes = this.buildIndexes(snapshot, fingerprint);
@@ -116,31 +141,38 @@ export class GraphIdentityResolver {
 
   async applyRouteIdentity<T>(route: GraphIdentityRoute, payload: T): Promise<T> {
     const started = performance.now(); const metrics = this.route(route); metrics.requests += 1;
-    if (this.mode === 'legacy') { this.measure(this.legacyLookupLatency, () => this.scanLegacy(payload)); this.legacyUsageCount += 1; metrics.legacyUses += 1; this.record(this.routeIdentityLatency, performance.now() - started); return payload; }
+    if (this.forceLegacy || this.graphDisabled || this.mode === 'legacy') { this.measure(this.legacyLookupLatency, () => this.scanLegacy(payload)); this.legacyUsageCount += 1; metrics.legacyUses += 1; this.record(this.routeIdentityLatency, performance.now() - started); return payload; }
     try { await this.prepare(); } catch (error) {
-      if (this.mode === 'graph') throw error;
-      this.fallbackCount += 1; this.legacyUsageCount += 1; metrics.fallbacks += 1; metrics.legacyUses += 1; this.sample(route, 'graph', 'unavailable', error instanceof Error ? error.message : String(error)); this.record(this.routeIdentityLatency, performance.now() - started); return payload;
+      const reason = `graph-unavailable:${error instanceof Error ? error.message : String(error)}`; this.rollback(reason);
+      this.fallbackCount += 1; this.legacyUsageCount += 1; metrics.fallbacks += 1; metrics.legacyUses += 1; this.sample(route, 'graph', 'unavailable', reason); this.record(this.routeIdentityLatency, performance.now() - started); return payload;
     }
-    const legacyStarted = performance.now(); const entities = this.scanLegacy(payload, this.mode !== 'graph'); if (this.mode !== 'graph') this.record(this.legacyLookupLatency, performance.now() - legacyStarted);
+    const legacyStarted = performance.now(); const entities = this.scanLegacy(payload, true); this.record(this.legacyLookupLatency, performance.now() - legacyStarted);
     const comparisonStarted = performance.now(); const result = this.compareAndApply(route, payload, entities); this.record(this.hybridComparisonLatency, performance.now() - comparisonStarted);
-    if (this.mode === 'hybrid') this.hybridComparisons += entities.length;
+    const comparisonLatencyMs = performance.now() - comparisonStarted; this.hybridComparisons += entities.length;
     if (result.matches) { this.identityMatches += result.matches; metrics.matches += result.matches; }
     if (result.mismatches) { this.identityMismatches += result.mismatches; metrics.mismatches += result.mismatches; }
-    const useGraph = this.mode === 'graph' || result.mismatches === 0;
-    if (useGraph) { this.graphUsageCount += 1; metrics.graphUses += 1; }
+    const graphFingerprint = this.runtime.getFingerprint()!; const sourceFingerprint = this.runtime.getSourceFingerprint?.() ?? graphFingerprint; const diagnostics = this.runtime.getDiagnostics?.() ?? { duplicates: this.indexes?.duplicateCount ?? 0, missing: 0, dangling: 0 };
+    this.readiness.record({ route, cycleId: numberOrNull((payload as any)?.cycleId), graphFingerprint, sourceFingerprint, matches: result.matches, mismatches: result.mismatches, missing: result.mismatches, duplicates: diagnostics.duplicates, fallback: result.mismatches > 0, graphUsed: false, legacyUsed: result.mismatches > 0, latencyMs: comparisonLatencyMs, mismatchSample: result.mismatches ? this.mismatchSamples.at(-1)?.reason ?? null : null });
+    const eligibility = this.graphOnlyEligibility(); const policy = graphIdentityReadinessPolicy(); const effectiveMode: GraphIdentityMode = this.mode === 'graph' ? (eligibility.eligible ? 'graph' : 'hybrid') : (policy.promotionEnabled && eligibility.eligible ? 'graph' : 'hybrid');
+    this.runtime.updateReadiness?.(eligibility.parityReady, eligibility.eligible);
+    const useGraph = result.mismatches === 0;
+    if (useGraph) { this.graphUsageCount += 1; metrics.graphUses += 1; if (effectiveMode === 'graph') this.graphOnlyUsageCount += 1; else this.hybridUsageCount += 1; }
     else { this.fallbackCount += 1; this.legacyUsageCount += 1; metrics.fallbacks += 1; metrics.legacyUses += 1; }
+    if (this.mode === 'graph' && effectiveMode !== 'graph') this.rollback(`graph-only-blocked:${eligibility.blockers.join(',')}`);
     this.record(this.routeIdentityLatency, performance.now() - started);
     return useGraph ? result.payload as T : payload;
   }
 
   report(): GraphIdentityMetricsReport {
-    return immutableValue({ mode: this.mode, graphFingerprint: this.runtime.getFingerprint(), graphCycleId: this.runtime.getCycleId(), graphLookups: this.graphLookups, legacyLookups: this.legacyLookups, hybridComparisons: this.hybridComparisons, graphHits: this.graphHits, graphMisses: this.graphMisses, fallbackCount: this.fallbackCount, graphUsageCount: this.graphUsageCount, legacyUsageCount: this.legacyUsageCount, identityMatches: this.identityMatches, identityMismatches: this.identityMismatches, duplicateIdentities: this.duplicateIdentities, missingIdentities: this.missingIdentities, lookupLatency: this.timingReport(this.lookupLatency), graphLookupLatency: this.timingReport(this.graphLookupLatency), legacyLookupLatency: this.timingReport(this.legacyLookupLatency), hybridComparisonLatency: this.timingReport(this.hybridComparisonLatency), routeIdentityLatency: this.timingReport(this.routeIdentityLatency), routes: Object.fromEntries(this.routeMetrics), mismatchSamples: [...this.mismatchSamples] });
+    const lifecycle = this.runtime.getLifecycle?.() as any; const tracked = { ...this.readiness.report(), previousGraphFingerprint: lifecycle?.previousGraphFingerprint ?? null, invalidationReason: lifecycle?.invalidationReason ?? null, lastInvalidatedAt: lifecycle?.lastInvalidatedAt ?? null, lastRebuildAt: lifecycle?.lastSuccessAt ?? null, lastRebuildFailure: lifecycle?.lastError ?? null, profileIdentity: lifecycle?.profileIdentity ?? null }; const eligibility = this.graphOnlyEligibility(); const policy = graphIdentityReadinessPolicy(); const effectiveMode: GraphIdentityMode = this.forceLegacy || this.graphDisabled ? 'legacy' : (this.mode === 'graph' || (this.mode === 'hybrid' && policy.promotionEnabled)) && eligibility.eligible ? 'graph' : 'hybrid';
+    return immutableValue({ mode: this.mode, configuredMode: this.mode, effectiveMode, forceLegacy: this.forceLegacy, graphDisabled: this.graphDisabled, runtimeState: this.runtime.getRuntimeState?.() ?? 'READY_HYBRID', graphFingerprint: this.runtime.getFingerprint(), sourceFingerprint: this.runtime.getSourceFingerprint?.() ?? null, graphCycleId: this.runtime.getCycleId(), graphLookups: this.graphLookups, legacyLookups: this.legacyLookups, hybridComparisons: this.hybridComparisons, graphHits: this.graphHits, graphMisses: this.graphMisses, fallbackCount: this.fallbackCount, graphUsageCount: this.graphUsageCount, graphOnlyUsageCount: this.graphOnlyUsageCount, hybridUsageCount: this.hybridUsageCount, legacyUsageCount: this.legacyUsageCount, identityMatches: this.identityMatches, identityMismatches: this.identityMismatches, duplicateIdentities: this.duplicateIdentities, missingIdentities: this.missingIdentities, lookupLatency: this.timingReport(this.lookupLatency), graphLookupLatency: this.timingReport(this.graphLookupLatency), legacyLookupLatency: this.timingReport(this.legacyLookupLatency), hybridComparisonLatency: this.timingReport(this.hybridComparisonLatency), routeIdentityLatency: this.timingReport(this.routeIdentityLatency), routes: Object.fromEntries([...this.routeMetrics].map(([route, value]) => [route, { ...value }])), mismatchSamples: [...this.mismatchSamples], ...tracked, graphOnlyEligible: eligibility.eligible, graphOnlyBlockers: eligibility.blockers, automaticRollbacks: this.automaticRollbacks, fallbackReasons: Object.fromEntries(this.fallbackReasons), lifecycle: this.runtime.getLifecycle?.() ?? null });
   }
-  resetMetrics(): GraphIdentityMetricsReport { this.graphLookups = this.legacyLookups = this.hybridComparisons = this.graphHits = this.graphMisses = this.fallbackCount = this.graphUsageCount = this.legacyUsageCount = this.identityMatches = this.identityMismatches = this.duplicateIdentities = this.missingIdentities = 0; this.lookupLatency = timing(); this.graphLookupLatency = timing(); this.legacyLookupLatency = timing(); this.hybridComparisonLatency = timing(); this.routeIdentityLatency = timing(); this.routeMetrics.clear(); this.mismatchSamples = []; return this.report(); }
+  resetParity(): GraphIdentityMetricsReport { this.readiness.reset(); this.runtime.updateReadiness?.(false, false); return this.report(); }
+  resetMetrics(): GraphIdentityMetricsReport { this.graphLookups = this.legacyLookups = this.hybridComparisons = this.graphHits = this.graphMisses = this.fallbackCount = this.graphUsageCount = this.graphOnlyUsageCount = this.hybridUsageCount = this.legacyUsageCount = this.identityMatches = this.identityMismatches = this.duplicateIdentities = this.missingIdentities = this.automaticRollbacks = 0; this.lookupLatency = timing(); this.graphLookupLatency = timing(); this.legacyLookupLatency = timing(); this.hybridComparisonLatency = timing(); this.routeIdentityLatency = timing(); this.routeMetrics.clear(); this.mismatchSamples = []; this.fallbackReasons.clear(); this.readiness.reset(); return this.report(); }
 
   private buildIndexes(snapshot: ObjectGraphSnapshot, fingerprint: string): IdentityIndexes {
-    const indexes: IdentityIndexes = { fingerprint, byId: new Map(), arrays: new Map(), strings: new Map(), energySegments: new Map(), feathers: new Map(), pcs: new Map(), ems: new Map() };
-    const add = <T>(map: Map<string | number, T>, key: string | number, value: T) => { if (map.has(key)) this.duplicateIdentities += 1; else map.set(key, value); };
+    const indexes: IdentityIndexes = { fingerprint, duplicateCount: 0, byId: new Map(), arrays: new Map(), strings: new Map(), energySegments: new Map(), feathers: new Map(), pcs: new Map(), ems: new Map() };
+    const add = <T>(map: Map<string | number, T>, key: string | number, value: T) => { if (map.has(key)) { this.duplicateIdentities += 1; indexes.duplicateCount += 1; } else map.set(key, value); };
     for (const object of snapshot.objects) {
       add(indexes.byId, object.id, object);
       if (object.kind === 'array') add(indexes.arrays, (object as ArrayObject).arrayIndex, object as ArrayObject);
@@ -198,6 +230,13 @@ export class GraphIdentityResolver {
   private record(metric: MutableTimingMetric, value: number): void { metric.latestMs = value; metric.minimumMs = metric.minimumMs == null ? value : Math.min(metric.minimumMs, value); metric.maximumMs = metric.maximumMs == null ? value : Math.max(metric.maximumMs, value); metric.sampleCount += 1; metric.totalMs += value; }
   private measure<T>(metric: MutableTimingMetric, operation: () => T): T { const started = performance.now(); const value = operation(); this.record(metric, performance.now() - started); return value; }
   private timingReport(metric: MutableTimingMetric): TimingMetric { return { ...metric, averageMs: metric.sampleCount ? metric.totalMs / metric.sampleCount : null }; }
+  private graphOnlyEligibility(): { eligible: boolean; parityReady: boolean; blockers: string[] } {
+    const tracked = this.readiness.readiness(); const blockers = [...tracked.blockers]; const state = this.runtime.getRuntimeState?.();
+    if (this.runtime.getRuntimeHealthy && !this.runtime.getRuntimeHealthy()) blockers.push(`runtime-state:${state ?? 'unhealthy'}`);
+    const diagnostics = this.runtime.getDiagnostics?.(); if (diagnostics?.duplicates) blockers.push(`topology-duplicates:${diagnostics.duplicates}`); if (diagnostics?.missing) blockers.push(`topology-missing:${diagnostics.missing}`); if (diagnostics?.dangling) blockers.push(`dangling-relationships:${diagnostics.dangling}`);
+    return { eligible: blockers.length === 0, parityReady: tracked.ready, blockers: [...new Set(blockers)] };
+  }
+  private rollback(reason: string): void { this.automaticRollbacks += 1; this.fallbackReasons.set(reason, (this.fallbackReasons.get(reason) ?? 0) + 1); }
 }
 
 export const graphIdentityResolver = new GraphIdentityResolver();

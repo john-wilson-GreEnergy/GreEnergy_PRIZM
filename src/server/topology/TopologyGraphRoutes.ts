@@ -1,6 +1,6 @@
 import express from 'express';
 import { isLoopbackRequest } from '../telemetry/metrics/TelemetryMetricsRoutes';
-import { getLatestTopologySourceSnapshot, getTopologyGraphHealth, requestTopologyGraphRebuild } from './TopologyGraphRuntime';
+import { getLatestTopologySourceSnapshot, getTopologyGraphHealth, invalidateTopologyGraph, requestTopologyGraphRebuild } from './TopologyGraphRuntime';
 
 export const topologyGraphRouter = express.Router();
 const SAMPLE_LIMIT = 20;
@@ -22,5 +22,12 @@ topologyGraphRouter.get('/parity', async (_req, res) => {
 topologyGraphRouter.post('/rebuild', async (req, res) => {
   if (!isLoopbackRequest(req) && process.env.PRIZM_ALLOW_REMOTE_DEBUG_RESET !== 'true') return res.status(403).json({ success: false, error: 'Topology graph rebuild is restricted to loopback requests.' });
   try { const result = await requestTopologyGraphRebuild('debug-route:forced-rebuild', true); res.json({ success: true, rebuilt: result.rebuilt, retainedLastKnownGood: result.retainedLastKnownGood, fingerprint: result.graphFingerprint, sourceFingerprint: result.sourceFingerprint, cycleId: getLatestTopologySourceSnapshot()?.cycleId ?? null, health: getTopologyGraphHealth() }); }
+  catch (error) { res.status(500).json({ success: false, error: error instanceof Error ? error.message : String(error), health: getTopologyGraphHealth() }); }
+});
+
+topologyGraphRouter.post('/invalidate', async (req, res) => {
+  if (!isLoopbackRequest(req) && process.env.PRIZM_ALLOW_REMOTE_DEBUG_RESET !== 'true') return res.status(403).json({ success: false, error: 'Topology graph invalidation is restricted to loopback requests.' });
+  invalidateTopologyGraph('debug-route:simulated-invalidation');
+  try { const result = await requestTopologyGraphRebuild('debug-route:invalidation-rebuild', true); res.json({ success: true, rebuilt: result.rebuilt, retainedLastKnownGood: result.retainedLastKnownGood, health: getTopologyGraphHealth() }); }
   catch (error) { res.status(500).json({ success: false, error: error instanceof Error ? error.message : String(error), health: getTopologyGraphHealth() }); }
 });

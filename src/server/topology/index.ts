@@ -5,4 +5,5 @@ export * from './TopologyGraphMetrics';
 export * from './TopologyGraphRuntime';
 export * from './TopologyGraphRoutes';
 export * from './GraphIdentityResolver';
+export * from './GraphIdentityReadiness';
 export * from './GraphIdentityRoutes';

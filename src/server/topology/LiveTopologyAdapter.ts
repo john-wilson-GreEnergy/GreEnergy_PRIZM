@@ -7,9 +7,9 @@ import { getFeatherCache } from '../feather/featherClient';
 import { ProfileStore } from '../profiles/profileStore';
 import { generateExpectedDevices, getActiveTopologyProfile, type SiteTopologyDevice, type SiteTopologyProfile } from './siteTopologyEngine';
 import { parseTurtleJsonOrLabeledSections } from './turtleParsers';
-import { immutableTopologySourceSnapshot, type TopologyBatteryPackSource, type TopologyFeatherSource, type TopologyIdentityDiagnostic, type TopologyPcsSource, type TopologySourceMetadata, type TopologySourceSnapshot, type TopologyStringSource } from './TopologySourceSnapshot';
+import { immutableTopologySourceSnapshot, type TopologyBatteryPackSource, type TopologyFeatherSource, type TopologyIdentityDiagnostic, type TopologyPcsSource, type TopologyProfileIdentity, type TopologySourceMetadata, type TopologySourceSnapshot, type TopologyStringSource } from './TopologySourceSnapshot';
 
-interface ConnectionTopologyInput {
+export interface ConnectionTopologyInput {
   readonly id: string;
   readonly profileName: string;
   readonly siteName: string;
@@ -20,6 +20,11 @@ interface ConnectionTopologyInput {
   readonly arrayCount: number;
   readonly stringsPerArray: number;
   readonly updatedAt: string;
+}
+
+export interface CurrentTopologyProfileIdentity {
+  readonly fingerprint: string;
+  readonly identity: TopologyProfileIdentity;
 }
 
 export interface LiveTopologyInputs {
@@ -42,6 +47,27 @@ function stableJson(value: unknown): string {
 
 export function topologyFingerprint(value: unknown): string {
   return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+export function createTopologyProfileIdentity(connectionProfile: ConnectionTopologyInput, topologyProfile: SiteTopologyProfile, expectedDevices: readonly SiteTopologyDevice[]): CurrentTopologyProfileIdentity {
+  const stringsPerEnergySegment = topologyProfile.assumptions.stringsPerEnergySegment ?? 2;
+  const energySegmentsPerArray = topologyProfile.assumptions.energySegmentsPerArray ?? Math.ceil(connectionProfile.stringsPerArray / stringsPerEnergySegment);
+  const identity: TopologyProfileIdentity = {
+    connectionProfileId: connectionProfile.id,
+    topologyProfileId: topologyProfile.id,
+    siteId: topologyProfile.stationCode || connectionProfile.stationCode,
+    ems: { host: connectionProfile.emsHost.toLowerCase(), port: connectionProfile.emsPort, turtlePath: connectionProfile.turtlePath },
+    layout: { arrayCount: topologyProfile.assumptions.arrayCount || connectionProfile.arrayCount, stringsPerArray: energySegmentsPerArray * stringsPerEnergySegment, energySegmentsPerArray, stringsPerEnergySegment },
+    featherExpectations: expectedDevices.filter((device) => device.deviceType.includes('feather')).map((device) => `${device.id}:${device.ip.toLowerCase()}:${device.arrayIndex ?? ''}:${device.energySegmentIndex ?? ''}:${device.segmentType}`).sort(),
+    pcsExpectations: expectedDevices.filter((device) => device.deviceType === 'pcs').map((device) => `${device.id}:${device.ip.toLowerCase()}:${device.arrayIndex ?? ''}`).sort(),
+  };
+  return { fingerprint: topologyFingerprint(identity), identity };
+}
+
+export function collectCurrentTopologyProfileIdentity(): CurrentTopologyProfileIdentity {
+  const connectionProfile = ProfileStore.getActiveProfile();
+  const topologyProfile = getActiveTopologyProfile();
+  return createTopologyProfileIdentity(connectionProfile, topologyProfile, generateExpectedDevices(topologyProfile));
 }
 
 function finitePositive(value: unknown): number | null {
@@ -74,6 +100,7 @@ function duplicateDiagnostics(keys: readonly string[], kind: string): TopologyId
 
 export function createTopologySourceSnapshot(input: LiveTopologyInputs): TopologySourceSnapshot {
   const generatedAt = input.collectedAt ?? new Date().toISOString();
+  const profile = createTopologyProfileIdentity(input.connectionProfile, input.topologyProfile, input.expectedDevices);
   const assumptions = input.topologyProfile.assumptions;
   const arrayCount = assumptions.arrayCount || input.connectionProfile.arrayCount;
   const stringsPerEnergySegment = assumptions.stringsPerEnergySegment ?? 2;
@@ -140,7 +167,7 @@ export function createTopologySourceSnapshot(input: LiveTopologyInputs): Topolog
     diagnostics: { missing, ambiguous, duplicates: duplicate },
   };
   const fingerprint = topologyFingerprint({ site: identity.site, ems: identity.ems, arrays, energySegments, strings, batteryPacks, feathers, pcs, diagnostics: identity.diagnostics });
-  return immutableTopologySourceSnapshot({ generatedAt, cycleId: input.cycleId ?? null, ...identity }, fingerprint);
+  return immutableTopologySourceSnapshot({ generatedAt, cycleId: input.cycleId ?? null, profileFingerprint: profile.fingerprint, profileIdentity: profile.identity, ...identity }, fingerprint);
 }
 
 function flattenedMap(value: unknown): Record<string, unknown>[] {
