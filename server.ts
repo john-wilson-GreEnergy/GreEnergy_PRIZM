@@ -83,6 +83,9 @@ import { featherScheduler, featherSchedulerRouter } from "./src/server/telemetry
 import { topologyGraphRouter } from "./src/server/topology/TopologyGraphRoutes";
 import { graphIdentityResolver, graphIdentityRouter } from "./src/server/topology";
 import { telemetryBindingRouter, telemetryBindingRuntime } from "./src/server/telemetry/binding";
+import { observationRouter, observationRuntime } from "./src/server/observations";
+import { workspaceProjectionDebugRouter, workspaceProjectionRouter } from "./src/server/workspaceProjections";
+import { canonicalPublicationRouter } from "./src/server/telemetry/publication";
 
 
 
@@ -91,6 +94,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 telemetryMetrics.setGraphIdentityMetrics(() => graphIdentityResolver.report(), () => graphIdentityResolver.resetMetrics());
+telemetryMetrics.setObservationMetrics(() => observationRuntime.report(), () => observationRuntime.resetMetrics());
 
 app.use(express.json({ limit: '50mb' }));
 app.use((_req, res, next) => {
@@ -146,10 +150,14 @@ app.use("/api/local/troubleshooting", troubleshootingRouter);
 app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
 app.use("/api/local/debug/telemetry", telemetryBindingRouter);
+app.use("/api/local/debug/observations", observationRouter);
 app.use("/api/local/debug/stringviewer", stringViewerRouter);
 app.use("/api/local/debug/feather", featherSchedulerRouter);
 app.use("/api/local/debug/topology", topologyGraphRouter);
 app.use("/api/local/debug/graph", graphIdentityRouter);
+app.use("/api/local/workspaces", workspaceProjectionRouter);
+app.use("/api/local/debug/workspace-projections", workspaceProjectionDebugRouter);
+app.use("/api/local/debug/canonical-publication", canonicalPublicationRouter);
 
 app.get("/api/local/debug/coordinator", (_req, res) => {
   res.json(prizmDataCoordinator.getCoordinatorDebugState());
@@ -336,9 +344,10 @@ startModbusScheduler();
 app.get("/api/local/connection", async (req, res) => {
   const payload = getEmsConnectionStatus();
   const response = await telemetryBindingRuntime.observeRoute("GET /api/local/connection", payload);
+  const observationResponse = await observationRuntime.observeRoute("GET /api/local/connection", response);
   const cycleId = telemetryBindingRuntime.getLatestBindingSnapshot()?.cycleId;
   if (cycleId != null) res.setHeader("X-PRIZM-Cycle-Id", String(cycleId));
-  res.json(response);
+  res.json(observationResponse);
 });
 
 // GET /api/local/ems/connection-status
@@ -476,7 +485,8 @@ app.get("/api/local/strings", async (req, res) => {
     routeMetric.finish({ brokerSelected: usingBroker, legacyFallback: !usingBroker, cacheOnly: true, routeTriggeredNetworkCalls: 0, cycleId });
     const routeResponse = { ...response, cycleId };
     const identityResponse = await graphIdentityResolver.applyRouteIdentity("GET /api/local/strings", routeResponse);
-    res.json(await telemetryBindingRuntime.observeRoute("GET /api/local/strings", identityResponse));
+    const bindingResponse = await telemetryBindingRuntime.observeRoute("GET /api/local/strings", identityResponse);
+    res.json(await observationRuntime.observeRoute("GET /api/local/strings", bindingResponse));
   } catch (error) {
     routeMetric.finish({ failed: true, cacheOnly: true });
     throw error;

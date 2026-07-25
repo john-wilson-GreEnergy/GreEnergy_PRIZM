@@ -16,7 +16,7 @@ import { normalizePcsRow } from "./normalizers/pcsNormalizer";
 import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionResolver";
 import { telemetryMetrics } from "./telemetry/metrics";
 import { CoordinatorCycleOutcome, CoordinatorRuntime } from "./telemetry/CoordinatorRuntime";
-import { collectTelemetrySnapshot } from "./telemetry/TelemetryRuntime";
+import { canonicalPublicationRuntime } from "./telemetry/publication/CanonicalPublicationRuntime";
 import { triggerContactorRefresh } from "./contactorStateEngine";
 import { coordinatorProfiler } from "./telemetry/profiler";
 import { featherScheduler } from "./telemetry/feather";
@@ -2816,7 +2816,9 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();
       coordinatorProfiler.withSyncPhase("Route Notifications", { waitState: "NORMALIZATION", blocking: true }, () => recordTelemetrySample(emsCacheRaw || {}, featherCacheRaw));
-      await coordinatorProfiler.withPhase("Broker Snapshot", { waitState: "NORMALIZATION", blocking: true }, () => collectTelemetrySnapshot());
+      await canonicalPublicationRuntime.publish(context.cycleId).catch((error: unknown) => {
+          console.error("[Data Coordinator] Canonical publication failed", error instanceof Error ? error.message : String(error));
+      });
 
   } catch (err: any) {
       cycleSucceeded = false;
@@ -2847,6 +2849,11 @@ export function stopCoordinator() {
 
 export function getLatestSnapshot(): PrizmSiteSnapshot | null {
     return coordinatorRuntime.getCurrentSnapshot() || centralSnapshot;
+}
+
+/** Internal read-only source for compact projections; callers must never mutate it. */
+export function getWorkspaceProjectionSource(): Readonly<PrizmSiteSnapshot> | null {
+    return centralSnapshot;
 }
 
 export function getSnapshotOrNull(): PrizmSiteSnapshot | null {

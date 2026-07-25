@@ -75,6 +75,11 @@ export class TelemetryRuntime {
     return cloneValue(this.latestSnapshot?.health ?? {});
   }
 
+  getLatestSummary(): Pick<UnifiedTelemetrySnapshot, "cycleId" | "capturedAt" | "authorities" | "health"> | null {
+    const snapshot = this.latestSnapshot;
+    return snapshot ? cloneValue({ cycleId: snapshot.cycleId, capturedAt: snapshot.capturedAt, authorities: snapshot.authorities, health: snapshot.health }) : null;
+  }
+
   private async collectAndRetain(): Promise<UnifiedTelemetrySnapshot> {
     const current = cloneValue(await this.broker.collectSnapshot());
     current.cycleId = current.cycleId ?? getTelemetryCycleId();
@@ -124,4 +129,8 @@ export function getLatestTelemetrySnapshot(): UnifiedTelemetrySnapshot | null {
 
 export function getTelemetryProviderHealth(): Record<string, ProviderHealthReport> {
   return telemetryRuntime.getProviderHealth();
+}
+
+export function getLatestTelemetrySummary(): Pick<UnifiedTelemetrySnapshot, "cycleId" | "capturedAt" | "authorities" | "health"> | null {
+  return telemetryRuntime.getLatestSummary();
 }

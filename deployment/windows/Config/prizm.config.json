@@ -1,0 +1,16 @@
+{
+  "port": 3000,
+  "launchBrowser": true,
+  "autoBuild": true,
+  "autoUpdate": false,
+  "startupTimeoutSeconds": 120,
+  "healthPollSeconds": 2,
+  "logRetention": 20,
+  "service": {
+    "name": "GreEnergy PRIZM",
+    "displayName": "GreEnergy PRIZM Platform",
+    "description": "GreEnergy Resources Battery Energy Storage Platform",
+    "startupType": "Automatic",
+    "futureWrapperExecutable": ""
+  }
+}

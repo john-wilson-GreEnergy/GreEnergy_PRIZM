@@ -36,6 +36,7 @@ import { stringViewerScheduler, StringViewerCacheEntry } from "./telemetry/strin
 import { telemetryMetrics } from "./telemetry/metrics";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
+import { observationRuntime } from "./observations/ObservationRuntime";
 
 const router = Router();
 const stringViewerProvenance = new WeakMap<object, {
@@ -2940,7 +2941,7 @@ router.get("/", async (req, res) => {
         const bindingResponse = await telemetryBindingRuntime.observeRoute("GET /api/local/strings/dashboard", identityResponse);
         const bindingCycleId = telemetryBindingRuntime.getLatestBindingSnapshot()?.cycleId;
         if (bindingCycleId != null) res.setHeader("X-PRIZM-Cycle-Id", String(bindingCycleId));
-        res.json(bindingResponse);
+        res.json(await observationRuntime.observeRoute("GET /api/local/strings/dashboard", bindingResponse));
 
     } catch (e: any) {
         res.status(500).json({ error: e.message || "Failed to process strings dashboard" });

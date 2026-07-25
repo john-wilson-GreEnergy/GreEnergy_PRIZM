@@ -22,6 +22,7 @@ import { normalizeIpToEquipmentCallout } from "../lib/topologyResolver";
 import { ProfileStore } from "./profiles/profileStore";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
+import { observationRuntime } from "./observations/ObservationRuntime";
 
 const router = Router();
 
@@ -2130,7 +2131,16 @@ router.get("/summary", async (req, res) => {
         }
 
         if (!responseData) responseData = {};
-        const producingCycleId = prizmCache.get('site-operations-summary')?.cycleId
+        const sameCycleSnapshot = (await import('./prizmDataCoordinator')).getLatestSnapshot();
+        if (sameCycleSnapshot?.rawSources?.strings?.length) {
+            responseData = {
+                ...responseData,
+                stringSummary: buildStringBucketSummary(structuredClone(sameCycleSnapshot.rawSources.strings)),
+                cycleId: sameCycleSnapshot.cycleId
+            };
+        }
+        const producingCycleId = sameCycleSnapshot?.cycleId
+          ?? prizmCache.get('site-operations-summary')?.cycleId
           ?? getEmsCachedBlock().cycleId
           ?? null;
         responseData = { ...responseData, cycleId: producingCycleId };
@@ -2164,7 +2174,7 @@ router.get("/summary", async (req, res) => {
         const bindingResponse = await telemetryBindingRuntime.observeRoute("GET /api/local/site-operations/summary", identityResponse);
         const bindingCycleId = telemetryBindingRuntime.getLatestBindingSnapshot()?.cycleId;
         if (bindingCycleId != null) res.setHeader("X-PRIZM-Cycle-Id", String(bindingCycleId));
-        res.json(bindingResponse);
+        res.json(await observationRuntime.observeRoute("GET /api/local/site-operations/summary", bindingResponse));
     } catch (err: any) {
         res.status(500).json({ error: err.message, source: "unavailable", cacheUsed: false, liveAttempted: forceLive, liveSucceeded: false });
     }

@@ -124,6 +124,9 @@ export interface TelemetryPerformanceReport {
   featherScheduler: ReturnType<import("../feather/FeatherScheduler").FeatherScheduler["getSchedulerState"]>;
   graphIdentity: unknown | null;
   telemetryBindings: unknown | null;
+  observations: unknown | null;
+  workspaceProjections: unknown | null;
+  canonicalPublication: unknown | null;
   broker: TelemetryBrokerMetrics;
   routes: TelemetryRouteMetric[];
   suspectedDuplicatePolls: TelemetryEndpointMetric[];

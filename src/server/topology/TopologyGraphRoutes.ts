@@ -1,21 +1,20 @@
 import express from 'express';
 import { isLoopbackRequest } from '../telemetry/metrics/TelemetryMetricsRoutes';
-import { getLatestTopologySourceSnapshot, getTopologyGraphHealth, invalidateTopologyGraph, requestTopologyGraphRebuild } from './TopologyGraphRuntime';
+import { getLatestTopologyGraphSnapshot, getLatestTopologySourceSnapshot, getTopologyGraphFingerprint, getTopologyGraphHealth, getTopologyGraphParity, invalidateTopologyGraph, requestTopologyGraphRebuild } from './TopologyGraphRuntime';
 
 export const topologyGraphRouter = express.Router();
 const SAMPLE_LIMIT = 20;
 
-async function current(reason: string) { return requestTopologyGraphRebuild(reason, false); }
-
 topologyGraphRouter.get('/graph', async (_req, res) => {
   try {
-    const result = await current('debug-route:graph'); const source = getLatestTopologySourceSnapshot(); const health = getTopologyGraphHealth();
-    res.json({ generatedAt: result.snapshot.generatedAt, graphVersion: result.snapshot.graphVersion, fingerprint: result.graphFingerprint, sourceFingerprint: result.sourceFingerprint, cycleId: source?.cycleId ?? null, health, countsByKind: result.snapshot.countsByKind, countsByRelationship: result.snapshot.countsByRelationship, sourceMetadata: source?.sources ?? [], warnings: [...(source?.diagnostics.missing ?? []), ...(source?.diagnostics.ambiguous ?? []), ...(source?.diagnostics.duplicates ?? [])], objectSamples: result.snapshot.objects.slice(0, SAMPLE_LIMIT), relationshipSamples: result.snapshot.relationships.slice(0, SAMPLE_LIMIT) });
+    const snapshot = getLatestTopologyGraphSnapshot(); const source = getLatestTopologySourceSnapshot(); const health = getTopologyGraphHealth();
+    if (!snapshot || !source) return res.status(503).json({ error: 'topology-graph-unavailable', health });
+    res.json({ generatedAt: snapshot.generatedAt, graphVersion: snapshot.graphVersion, fingerprint: getTopologyGraphFingerprint(), sourceFingerprint: source.fingerprint, cycleId: source.cycleId, health, countsByKind: snapshot.countsByKind, countsByRelationship: snapshot.countsByRelationship, sourceMetadata: source.sources ?? [], warnings: [...(source.diagnostics.missing ?? []), ...(source.diagnostics.ambiguous ?? []), ...(source.diagnostics.duplicates ?? [])], objectSamples: snapshot.objects.slice(0, SAMPLE_LIMIT), relationshipSamples: snapshot.relationships.slice(0, SAMPLE_LIMIT) });
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error), health: getTopologyGraphHealth() }); }
 });
 
 topologyGraphRouter.get('/parity', async (_req, res) => {
-  try { const result = await current('debug-route:parity'); res.json(result.parity); }
+  try { const parity = getTopologyGraphParity(); if (!parity) return res.status(503).json({ error: 'topology-parity-unavailable', health: getTopologyGraphHealth() }); res.json(parity); }
   catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error), health: getTopologyGraphHealth() }); }
 });
 

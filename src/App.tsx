@@ -89,7 +89,10 @@ const DEFAULT_TABS_ORDER: string[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<AppTabId>("overview");
+  const [activeTab, setActiveTab] = useState<AppTabId>(() => {
+    const requested = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('legacyTab');
+    return requested && requested in MASTER_TABS_MAP ? requested as AppTabId : "overview";
+  });
   const [visitedTabs, setVisitedTabs] = useState<Set<AppTabId>>(
     () => new Set<AppTabId>(["overview"])
   );

@@ -268,3 +268,14 @@ export const useSiteData = () => {
   }
   return context;
 };
+
+const INERT_SITE_DATA: SiteDataContextType = {
+  snapshot: null, activeTopologyProfile: null, siteIdentity: null, liveStatus: null, sourceHealth: null,
+  sourceHealthSummary: null, isInitialLoading: false, lastUpdated: null, refreshNow: async () => undefined,
+  error: null, dataQualityWarning: null, isPollingEnabled: false, isTerminated: false,
+  pausePolling: () => undefined, resumePolling: () => undefined, terminateConnection: () => undefined,
+  consecutiveFailureCount: 0, consecutiveDegradedCount: 0, lastPollAttemptedAt: null, lastGoodSnapshotAt: null,
+};
+
+/** Preview workspaces use this non-throwing view so the legacy polling provider can remain unmounted. */
+export const useOptionalSiteData = (): SiteDataContextType => useContext(SiteDataContext) ?? INERT_SITE_DATA;

@@ -9,10 +9,19 @@ export class TelemetryMetrics {
   private graphIdentityResetter: (() => unknown) | null = null;
   private telemetryBindingReporter: (() => unknown) | null = null;
   private telemetryBindingResetter: (() => unknown) | null = null;
+  private observationReporter: (() => unknown) | null = null;
+  private observationResetter: (() => unknown) | null = null;
+  private workspaceProjectionReporter: (() => unknown) | null = null;
+  private workspaceProjectionResetter: (() => unknown) | null = null;
+  private canonicalPublicationReporter: (() => unknown) | null = null;
+  private canonicalPublicationResetter: (() => unknown) | null = null;
   constructor(readonly registry = new TelemetryMetricsRegistry()) {}
 
   setGraphIdentityMetrics(reporter: () => unknown, resetter: () => unknown): void { this.graphIdentityReporter = reporter; this.graphIdentityResetter = resetter; }
   setTelemetryBindingMetrics(reporter: () => unknown, resetter: () => unknown): void { this.telemetryBindingReporter = reporter; this.telemetryBindingResetter = resetter; }
+  setObservationMetrics(reporter: () => unknown, resetter: () => unknown): void { this.observationReporter = reporter; this.observationResetter = resetter; }
+  setWorkspaceProjectionMetrics(reporter: () => unknown, resetter: () => unknown): void { this.workspaceProjectionReporter = reporter; this.workspaceProjectionResetter = resetter; }
+  setCanonicalPublicationMetrics(reporter: () => unknown, resetter: () => unknown): void { this.canonicalPublicationReporter = reporter; this.canonicalPublicationResetter = resetter; }
 
   report(): TelemetryPerformanceReport {
     const generatedAt = new Date();
@@ -46,6 +55,9 @@ export class TelemetryMetrics {
       featherScheduler: featherScheduler.getSchedulerState(),
       graphIdentity: this.graphIdentityReporter?.() ?? null,
       telemetryBindings: this.telemetryBindingReporter?.() ?? null,
+      observations: this.observationReporter?.() ?? null,
+      workspaceProjections: this.workspaceProjectionReporter?.() ?? null,
+      canonicalPublication: this.canonicalPublicationReporter?.() ?? null,
       broker: this.registry.getBroker(),
       routes: this.registry.getRoutes(),
       suspectedDuplicatePolls,
@@ -56,7 +68,7 @@ export class TelemetryMetrics {
     };
   }
 
-  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); stringViewerScheduler.metrics.reset(); featherScheduler.metrics.reset(); this.graphIdentityResetter?.(); this.telemetryBindingResetter?.(); return this.report(); }
+  reset(): TelemetryPerformanceReport { this.registry.reset(); normalizationMetrics.reset(); stringViewerScheduler.metrics.reset(); featherScheduler.metrics.reset(); this.graphIdentityResetter?.(); this.telemetryBindingResetter?.(); this.observationResetter?.(); this.workspaceProjectionResetter?.(); this.canonicalPublicationResetter?.(); return this.report(); }
 }
 
 export const telemetryMetrics = new TelemetryMetrics();

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ObjectGraph, ObjectGraphBuilder, type ObjectGraphBuilderInput } from '../../core/objectGraph';
 import { stringNumberToEnergySegment } from '../../lib/stringToEsMapper';
-import { getLatestSnapshot } from '../prizmDataCoordinator';
+import { getWorkspaceProjectionSource } from '../prizmDataCoordinator';
 import { getEmsCachedRawStrings, getEmsStringIpMap } from '../emsTurtleClient';
 import { getFeatherCache } from '../feather/featherClient';
 import { ProfileStore } from '../profiles/profileStore';
@@ -180,7 +180,7 @@ export async function collectLiveTopologySourceSnapshot(): Promise<TopologySourc
   const stringsResponse = getEmsCachedRawStrings();
   const stringIpResponse = getEmsStringIpMap();
   const featherCache = getFeatherCache();
-  const coordinator = getLatestSnapshot();
+  const coordinator = getWorkspaceProjectionSource();
   const rawStrings = Array.isArray(stringsResponse.data) ? stringsResponse.data : [];
   return createTopologySourceSnapshot({
     cycleId: coordinator?.cycleId ?? featherCache.cycleId ?? null,
