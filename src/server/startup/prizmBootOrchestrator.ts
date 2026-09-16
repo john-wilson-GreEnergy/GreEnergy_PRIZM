@@ -6,6 +6,7 @@ import { recordTelemetrySample } from "../telemetry/siteTelemetryAggregator";
 import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "../commissioning/siteCommissioningService";
 import { startOperationalModbusPolling } from "../telemetry/modbusOperationalTelemetry";
+import { startPreparedReportSnapshotCache } from "../reports/siteSnapshotEngine";
 
 export type PrizmBootPhase =
   | "idle"
@@ -281,6 +282,7 @@ export function startBackgroundPolling() {
   // older than 15 seconds, so merely exposing the manual refresh endpoint is
   // not enough for normal operation.
   startOperationalModbusPolling();
+  startPreparedReportSnapshotCache();
   startCoordinator();
 
   slowRefreshInterval = setInterval(async () => {

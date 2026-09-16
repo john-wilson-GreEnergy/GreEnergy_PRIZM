@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { buildSiteDataSnapshot, compareSiteSnapshots } from './siteSnapshotEngine';
+import { buildSiteDataSnapshot, compareSiteSnapshots, getPreparedReportSnapshotStatus } from './siteSnapshotEngine';
 import { buildReportPackageFromSnapshot } from './reportBuilder';
 import { generatePdf } from './pdfRenderer';
 import { getSnapshotsIndex, loadSnapshot, deleteSnapshot as delSnapshot } from './siteSnapshotStorage';
@@ -8,6 +8,10 @@ import { ReportType } from './reportTypes';
 import { parse } from 'json2csv';
 
 const router = Router();
+
+router.get('/prepared-status', (_req, res) => {
+  res.json(getPreparedReportSnapshotStatus());
+});
 
 // Snapshot routes
 router.post('/snapshots/capture', async (req, res) => {

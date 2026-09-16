@@ -22,6 +22,62 @@ import {
 } from './siteSnapshotTypes';
 import { saveSnapshot } from './siteSnapshotStorage';
 
+type InternalBuildSiteSnapshotOptions = BuildSiteSnapshotOptions & { persist?: boolean };
+
+let preparedReportSnapshot: { cycleId: number | null; preparedAt: number; snapshot: SiteDataSnapshot } | null = null;
+let preparedReportInFlight: Promise<void> | null = null;
+let preparedReportTimer: NodeJS.Timeout | null = null;
+const PREPARED_REPORT_MAX_AGE_MS = Math.max(15_000, Number(process.env.PRIZM_PREPARED_REPORT_MAX_AGE_MS) || 45_000);
+const PREPARED_REPORT_INTERVAL_MS = Math.max(15_000, Number(process.env.PRIZM_PREPARED_REPORT_INTERVAL_MS) || 30_000);
+
+function currentCycleId(): number | null {
+  const value = Number((getLatestSnapshot() as any)?.cycleId);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+function canUsePreparedSnapshot(options: BuildSiteSnapshotOptions): boolean {
+  return !options.refresh && !options.includeFirmware && !options.triggerFirmwareCapture && !options.includeRawRefs;
+}
+
+function materializePreparedSnapshot(template: SiteDataSnapshot, options: BuildSiteSnapshotOptions): SiteDataSnapshot {
+  const snapshot = structuredClone(template);
+  snapshot.snapshotId = uuidv4();
+  snapshot.snapshotType = options.snapshotType || "manual";
+  snapshot.label = options.label || "Snapshot";
+  snapshot.notes = options.notes;
+  return snapshot;
+}
+
+export function getPreparedReportSnapshotStatus() {
+  return {
+    ready: preparedReportSnapshot !== null,
+    cycleId: preparedReportSnapshot?.cycleId ?? null,
+    preparedAt: preparedReportSnapshot ? new Date(preparedReportSnapshot.preparedAt).toISOString() : null,
+    ageMs: preparedReportSnapshot ? Date.now() - preparedReportSnapshot.preparedAt : null,
+    inFlight: preparedReportInFlight !== null
+  };
+}
+
+export async function prepareReportSnapshot(force = false): Promise<void> {
+  if (preparedReportInFlight) return preparedReportInFlight;
+  const cycleId = currentCycleId();
+  if (cycleId === null) return;
+  if (!force && preparedReportSnapshot?.cycleId === cycleId) return;
+  preparedReportInFlight = (async () => {
+    const snapshot = await buildSiteDataSnapshotFresh({ snapshotType: "report", label: "Prepared export", persist: false });
+    preparedReportSnapshot = { cycleId, preparedAt: Date.now(), snapshot };
+  })().finally(() => { preparedReportInFlight = null; });
+  return preparedReportInFlight;
+}
+
+export function startPreparedReportSnapshotCache(): void {
+  if (preparedReportTimer) return;
+  const refresh = () => void prepareReportSnapshot().catch((error) => console.warn("[reports] Prepared snapshot refresh failed", error));
+  setTimeout(refresh, 5_000).unref?.();
+  preparedReportTimer = setInterval(refresh, PREPARED_REPORT_INTERVAL_MS);
+  preparedReportTimer.unref?.();
+}
+
 function inferLegacyTopologyFamily(topologyModel: any): string {
   if (!topologyModel) return "unknown";
   if (
@@ -447,6 +503,17 @@ function buildReportCoverage(sections: any, includeFirmware?: boolean): ReportCo
 }
 
 export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): Promise<SiteDataSnapshot> {
+  const preparedIsCurrent = preparedReportSnapshot
+    && Date.now() - preparedReportSnapshot.preparedAt <= PREPARED_REPORT_MAX_AGE_MS;
+  if (canUsePreparedSnapshot(options) && preparedIsCurrent) {
+    const snapshot = materializePreparedSnapshot(preparedReportSnapshot!.snapshot, options);
+    if (["manual", "report", "before", "after", "scheduled"].includes(snapshot.snapshotType)) saveSnapshot(snapshot);
+    return snapshot;
+  }
+  return buildSiteDataSnapshotFresh(options);
+}
+
+async function buildSiteDataSnapshotFresh(options: InternalBuildSiteSnapshotOptions): Promise<SiteDataSnapshot> {
   let refreshError: Error | null = null;
   const warnings: string[] = [];
   if (options.refresh) {
@@ -765,7 +832,7 @@ export async function buildSiteDataSnapshot(options: BuildSiteSnapshotOptions): 
     mockOrFallbackDetected: latest.liveStatus?.source === "offline" || latest.liveStatus?.source === "cache"
   };
 
-  if (["manual", "report", "before", "after", "scheduled"].includes(snapshot.snapshotType)) {
+  if (options.persist !== false && ["manual", "report", "before", "after", "scheduled"].includes(snapshot.snapshotType)) {
     saveSnapshot(snapshot);
   }
 
@@ -827,4 +894,3 @@ export function compareSiteSnapshots(before: SiteDataSnapshot, after: SiteDataSn
     sourceConfidenceDelta
   };
 }
-
