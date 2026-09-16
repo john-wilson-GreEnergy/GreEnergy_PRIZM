@@ -57,6 +57,7 @@ function withoutDiagnosticPayload(row: any, includeStringDiagnostics = false) {
 export function buildBrowserSnapshot(snapshot: any, options: {
   includeArrayDetails?: boolean;
   includeStringDiagnostics?: boolean;
+  includeStrings?: boolean;
 } = {}) {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
 
@@ -66,9 +67,9 @@ export function buildBrowserSnapshot(snapshot: any, options: {
   const featherSummary = rollups.featherSummary || {};
   const { enhanced: _enhanced, tableRows: _tableRows, ...compactStringSummary } = stringSummary;
   const { devices: _devices, ...compactFeatherSummary } = featherSummary;
-  const normalizedStrings = Array.isArray(normalized.strings)
+  const normalizedStrings = options.includeStrings !== false && Array.isArray(normalized.strings)
     ? normalized.strings.map((row: any) => withoutDiagnosticPayload(row, options.includeStringDiagnostics))
-    : normalized.strings;
+    : [];
 
   const arrayDetailsByArray = options.includeArrayDetails
     ? Object.fromEntries(
@@ -131,10 +132,14 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     const view = String(req.query.view || "overview");
     const includeArrayDetails = view === "site-health" || view === "arrays-strings";
     const includeStringDiagnostics = view === "arrays-strings" || view === "balancer-test";
-    const cacheKey = `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}`;
+    // Only views that render individual strings need the full 320-row payload.
+    // PCS, overview, thermal, and Feather pages use dedicated compact endpoints;
+    // repeatedly transferring string rows there can starve the heartbeat request.
+    const includeStrings = view === "arrays-strings" || view === "site-health" || view === "one-line";
+    const cacheKey = `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
     let cached = cachedBrowserSnapshots.get(cacheKey);
     if (!cached || cached.source !== snap) {
-      const browserSnapshot = buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics });
+      const browserSnapshot = buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics, includeStrings });
       const json = JSON.stringify(browserSnapshot);
       cached = { source: snap, json, gzip: gzipSync(json, { level: 1 }) };
       cachedBrowserSnapshots.set(cacheKey, cached);

@@ -43,9 +43,14 @@ function getSnapshotQuality(snapshot: any) {
   };
 }
 
-function isRenderableSnapshot(snapshot: any): boolean {
+const STRING_HEAVY_VIEWS = new Set(["arrays-strings", "site-health", "one-line"]);
+
+function isRenderableSnapshot(snapshot: any, view = "overview"): boolean {
   const q = getSnapshotQuality(snapshot);
-  return q.hasNormalized && q.hasRollups && q.hasStringSummary && q.normalizedStrings > 0;
+  if (!q.hasNormalized || !q.hasRollups) return false;
+  return STRING_HEAVY_VIEWS.has(view)
+    ? q.hasStringSummary && q.normalizedStrings > 0
+    : true;
 }
 
 function hasArrayZeroFallback(snapshot: any): boolean {
@@ -56,7 +61,7 @@ function hasArrayZeroFallback(snapshot: any): boolean {
   return false;
 }
 
-function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
+function isDegradedComparedToPrevious(next: any, previous: any, view = "overview"): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
   const previousQuality = getSnapshotQuality(previous);
   const nextQuality = getSnapshotQuality(next);
 
@@ -64,19 +69,19 @@ function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boo
     return { degraded: true, reason: "Rejected synthesized Array 0 fallback; preserving last-known-good array summary.", previousQuality, nextQuality };
   }
 
-  if (!previous || !isRenderableSnapshot(previous)) {
+  if (!previous || !isRenderableSnapshot(previous, view)) {
     return { degraded: false, reason: "no previous renderable snapshot", previousQuality, nextQuality };
   }
 
-  if (!isRenderableSnapshot(next)) {
+  if (!isRenderableSnapshot(next, view)) {
     return { degraded: true, reason: "next snapshot is not renderable", previousQuality, nextQuality };
   }
 
-  if (previousQuality.normalizedStrings >= 100 && nextQuality.normalizedStrings < previousQuality.normalizedStrings * 0.5) {
+  if (STRING_HEAVY_VIEWS.has(view) && previousQuality.normalizedStrings >= 100 && nextQuality.normalizedStrings < previousQuality.normalizedStrings * 0.5) {
     return { degraded: true, reason: "normalized string count collapsed", previousQuality, nextQuality };
   }
 
-  if (previousQuality.stringSummaryRows >= 100 && nextQuality.stringSummaryRows < previousQuality.stringSummaryRows * 0.5) {
+  if (STRING_HEAVY_VIEWS.has(view) && previousQuality.stringSummaryRows >= 100 && nextQuality.stringSummaryRows < previousQuality.stringSummaryRows * 0.5) {
     return { degraded: true, reason: "string summary rows collapsed", previousQuality, nextQuality };
   }
 
@@ -157,9 +162,9 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
       const previous = snapshotRef.current;
-      const { degraded, reason } = isDegradedComparedToPrevious(data, previous);
+      const { degraded, reason } = isDegradedComparedToPrevious(data, previous, activeView);
 
-      if (degraded && previous && isRenderableSnapshot(previous)) {
+      if (degraded && previous && isRenderableSnapshot(previous, activeView)) {
         setDataQualityWarning("Latest poll degraded; displaying last known good data.");
         setConsecutiveDegradedCount(prev => prev + 1);
         setError(null); // Clear error since we have a good renderable snapshot
