@@ -34,7 +34,7 @@ function countArrayDetailStrings(snapshot: any): number {
 function getSnapshotQuality(snapshot: any) {
   return {
     normalizedStrings: snapshot?.normalized?.strings?.length || 0,
-    stringSummaryRows: snapshot?.rollups?.stringSummary?.tableRows?.length || 0,
+    stringSummaryRows: snapshot?.rollups?.stringSummary?.tableRows?.length || snapshot?.normalized?.strings?.length || 0,
     arraySummaryRows: snapshot?.rollups?.arraySummary?.length || 0,
     arrayDetailStringTotal: countArrayDetailStrings(snapshot),
     hasNormalized: !!snapshot?.normalized,
@@ -78,10 +78,6 @@ function isDegradedComparedToPrevious(next: any, previous: any): { degraded: boo
 
   if (previousQuality.stringSummaryRows >= 100 && nextQuality.stringSummaryRows < previousQuality.stringSummaryRows * 0.5) {
     return { degraded: true, reason: "string summary rows collapsed", previousQuality, nextQuality };
-  }
-
-  if (previousQuality.arrayDetailStringTotal > 0 && nextQuality.arrayDetailStringTotal === 0) {
-    return { degraded: true, reason: "array detail strings collapsed to zero", previousQuality, nextQuality };
   }
 
   if (previousQuality.arraySummaryRows > 0 && nextQuality.arraySummaryRows === 0) {
@@ -134,10 +130,11 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
     }, 10000); // 10 second timeout
 
     try {
-      const qs = force ? '?refresh=true' : '';
+      const qs = new URLSearchParams({ view: activeView });
+      if (force) qs.set('refresh', 'true');
       const shouldFetchTopology = force || !topologyLoadedRef.current;
       const [response, topoResponse] = await Promise.all([
-        fetch(`/api/local/site-data/snapshot${qs}`, { signal: controller.signal }),
+        fetch(`/api/local/site-data/snapshot?${qs.toString()}`, { signal: controller.signal }),
         shouldFetchTopology ? fetch('/api/local/topology/active', { signal: controller.signal }) : Promise.resolve(null)
       ]);
       clearTimeout(timeoutId);
@@ -185,7 +182,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       isFetchingRef.current = false;
       setIsInitialLoading(false);
     }
-  }, [isTerminated]);
+  }, [isTerminated, activeView]);
 
   const pausePolling = useCallback(() => {
     setIsPollingEnabled(false);

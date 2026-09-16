@@ -26,13 +26,25 @@ import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBr
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
 
-let cachedBrowserSnapshotSource: any = null;
-let cachedBrowserSnapshotJson = "";
-let cachedBrowserSnapshotGzip: Buffer | null = null;
+const cachedBrowserSnapshots = new Map<string, {
+  source: any;
+  json: string;
+  gzip: Buffer;
+}>();
 
-function withoutDiagnosticPayload(row: any) {
+function withoutDiagnosticPayload(row: any, includeStringDiagnostics = false) {
   if (!row || typeof row !== "object" || Array.isArray(row)) return row;
-  const { raw: _raw, sourceDebug: _sourceDebug, ...clientRow } = row;
+  const {
+    raw: _raw,
+    sourceDebug: _sourceDebug,
+    balancing: _balancing,
+    balanceDetails: _balanceDetails,
+    ...clientRow
+  } = row;
+  if (includeStringDiagnostics) {
+    if (_balancing !== undefined) clientRow.balancing = _balancing;
+    if (_balanceDetails !== undefined) clientRow.balanceDetails = _balanceDetails;
+  }
   return clientRow;
 }
 
@@ -42,7 +54,10 @@ function withoutDiagnosticPayload(row: any) {
  * Keeping those concerns separate prevents a full site poll from transferring
  * tens of megabytes every few seconds.
  */
-export function buildBrowserSnapshot(snapshot: any) {
+export function buildBrowserSnapshot(snapshot: any, options: {
+  includeArrayDetails?: boolean;
+  includeStringDiagnostics?: boolean;
+} = {}) {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
 
   const normalized = snapshot.normalized || {};
@@ -52,20 +67,22 @@ export function buildBrowserSnapshot(snapshot: any) {
   const { enhanced: _enhanced, tableRows: _tableRows, ...compactStringSummary } = stringSummary;
   const { devices: _devices, ...compactFeatherSummary } = featherSummary;
   const normalizedStrings = Array.isArray(normalized.strings)
-    ? normalized.strings.map(withoutDiagnosticPayload)
+    ? normalized.strings.map((row: any) => withoutDiagnosticPayload(row, options.includeStringDiagnostics))
     : normalized.strings;
 
-  const arrayDetailsByArray = Object.fromEntries(
-    Object.entries(normalized.arrayDetailsByArray || {}).map(([key, value]: [string, any]) => {
-      const { raw: _raw, ...arrayDetail } = value || {};
-      return [key, {
-        ...arrayDetail,
-        strings: Array.isArray(arrayDetail.strings)
-          ? arrayDetail.strings.map(withoutDiagnosticPayload)
-          : arrayDetail.strings
-      }];
-    })
-  );
+  const arrayDetailsByArray = options.includeArrayDetails
+    ? Object.fromEntries(
+        Object.entries(normalized.arrayDetailsByArray || {}).map(([key, value]: [string, any]) => {
+          const { raw: _raw, ...arrayDetail } = value || {};
+          return [key, {
+            ...arrayDetail,
+            strings: Array.isArray(arrayDetail.strings)
+              ? arrayDetail.strings.map((row: any) => withoutDiagnosticPayload(row, options.includeStringDiagnostics))
+              : arrayDetail.strings
+          }];
+        })
+      )
+    : {};
 
   return {
     ...snapshot,
@@ -81,10 +98,7 @@ export function buildBrowserSnapshot(snapshot: any) {
     },
     rollups: {
       ...rollups,
-      // Keep the legacy tableRows alias for already-open browser sessions. It
-      // serializes compact normalized rows and avoids a false "degraded poll"
-      // while clients transition to normalized.strings.
-      stringSummary: { ...compactStringSummary, tableRows: normalizedStrings },
+      stringSummary: compactStringSummary,
       featherSummary: compactFeatherSummary,
       arraySummary: Array.isArray(rollups.arraySummary) ? rollups.arraySummary.map(withoutDiagnosticPayload) : rollups.arraySummary
     }
@@ -114,24 +128,30 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     if (!snap) {
       return res.json({ warming: true, message: "Site snapshot is currently warming or offline." });
     }
-    if (cachedBrowserSnapshotSource !== snap) {
-      const browserSnapshot = buildBrowserSnapshot(snap);
-      cachedBrowserSnapshotJson = JSON.stringify(browserSnapshot);
-      cachedBrowserSnapshotGzip = gzipSync(cachedBrowserSnapshotJson, { level: 1 });
-      cachedBrowserSnapshotSource = snap;
+    const view = String(req.query.view || "overview");
+    const includeArrayDetails = view === "site-health" || view === "arrays-strings";
+    const includeStringDiagnostics = view === "arrays-strings" || view === "balancer-test";
+    const cacheKey = `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}`;
+    let cached = cachedBrowserSnapshots.get(cacheKey);
+    if (!cached || cached.source !== snap) {
+      const browserSnapshot = buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics });
+      const json = JSON.stringify(browserSnapshot);
+      cached = { source: snap, json, gzip: gzipSync(json, { level: 1 }) };
+      cachedBrowserSnapshots.set(cacheKey, cached);
     }
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Vary", "Accept-Encoding");
-    res.setHeader("X-PRIZM-Snapshot-Bytes", String(Buffer.byteLength(cachedBrowserSnapshotJson)));
-    if (/\bgzip\b/i.test(String(req.headers["accept-encoding"] || "")) && cachedBrowserSnapshotGzip) {
+    res.setHeader("X-PRIZM-Snapshot-Bytes", String(Buffer.byteLength(cached.json)));
+    res.setHeader("X-PRIZM-Snapshot-View", view);
+    if (/\bgzip\b/i.test(String(req.headers["accept-encoding"] || ""))) {
       res.setHeader("Content-Encoding", "gzip");
-      res.setHeader("Content-Length", String(cachedBrowserSnapshotGzip.length));
-      return res.end(cachedBrowserSnapshotGzip);
+      res.setHeader("Content-Length", String(cached.gzip.length));
+      return res.end(cached.gzip);
     }
-    res.setHeader("Content-Length", String(Buffer.byteLength(cachedBrowserSnapshotJson)));
-    return res.end(cachedBrowserSnapshotJson);
+    res.setHeader("Content-Length", String(Buffer.byteLength(cached.json)));
+    return res.end(cached.json);
   } catch (err: any) {
     res.json({ warming: true, error: err.message || "Failed to retrieve site snapshot" });
   }
