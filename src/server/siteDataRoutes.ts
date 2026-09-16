@@ -106,6 +106,43 @@ export function buildBrowserSnapshot(snapshot: any, options: {
   };
 }
 
+/**
+ * Overview, PCS, and thermal pages acquire their operational data from compact
+ * page-specific endpoints. Their shared provider only needs enough state for
+ * the connection header and polling heartbeat; serializing the full central
+ * snapshot here duplicates work and can block the Node event loop on small
+ * deployments.
+ */
+export function buildHeartbeatSnapshot(snapshot: any) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  const stringSummary = snapshot.rollups?.stringSummary || {};
+  const {
+    tableRows: _tableRows,
+    rawStrings: _rawStrings,
+    strings: _strings,
+    enhanced: _enhanced,
+    ...compactStringSummary
+  } = stringSummary;
+  return {
+    cycleId: snapshot.cycleId,
+    siteIdentity: snapshot.siteIdentity,
+    liveStatus: snapshot.liveStatus,
+    debug: {
+      coordinatorStartedAt: snapshot.debug?.coordinatorStartedAt,
+      lastPollStartedAt: snapshot.debug?.lastPollStartedAt,
+      lastPollFinishedAt: snapshot.debug?.lastPollFinishedAt,
+      lastPollDurationMs: snapshot.debug?.lastPollDurationMs,
+      errors: snapshot.debug?.errors || []
+    },
+    normalized: { strings: [], arrays: [], pcs: [], feather: [], sensors: [], arrayDetailsByArray: {} },
+    rollups: {
+      stringSummary: compactStringSummary,
+      sourceHealth: snapshot.rollups?.sourceHealth || [],
+      sourceHealthSummary: snapshot.rollups?.sourceHealthSummary || null
+    }
+  };
+}
+
 siteDataRouter.use(async (req, res, next) => {
   if (req.query.refresh === "true") {
     console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data...`);
@@ -136,10 +173,15 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     // PCS, overview, thermal, and Feather pages use dedicated compact endpoints;
     // repeatedly transferring string rows there can starve the heartbeat request.
     const includeStrings = view === "arrays-strings" || view === "site-health" || view === "one-line";
-    const cacheKey = `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
+    const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls";
+    const cacheKey = heartbeatOnly
+      ? "heartbeat"
+      : `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
     let cached = cachedBrowserSnapshots.get(cacheKey);
     if (!cached || cached.source !== snap) {
-      const browserSnapshot = buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics, includeStrings });
+      const browserSnapshot = heartbeatOnly
+        ? buildHeartbeatSnapshot(snap)
+        : buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics, includeStrings });
       const json = JSON.stringify(browserSnapshot);
       cached = { source: snap, json, gzip: gzipSync(json, { level: 1 }) };
       cachedBrowserSnapshots.set(cacheKey, cached);
