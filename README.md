@@ -111,6 +111,24 @@ procedure for an existing installation.
 Do not run the terminal launcher and the boot service simultaneously; both use
 port 3000. The desktop launcher detects and reuses an already-running PRIZM.
 
+### Complete headless removal
+
+To decommission a Linux installation and permanently remove PRIZM plus its saved
+application data, run this from the installed repository as the non-root
+deployment account:
+
+```bash
+./uninstall-headless.sh --purge
+```
+
+The script prints every deletion target and requires the exact confirmation
+`PURGE PRIZM`. For managed, non-interactive decommissioning, add `--yes`. It
+stops and disables `prizm.service`, removes its unit and backups, deletes the
+repository and all data stored beneath it, and also deletes external cache,
+history, or thermal directories explicitly configured in `.env`. It refuses
+unsafe system paths. Shared packages such as Node.js and Ubuntu system journal
+history are retained because other applications may use them.
+
 Once installed, there are two easy ways to start the dashboard:
 
 1. **Desktop Shortcut**: Double-click your new desktop icon!
