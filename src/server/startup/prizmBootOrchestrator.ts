@@ -5,6 +5,7 @@ import * as prizmCache from "../cache/prizmCache";
 import { recordTelemetrySample } from "../telemetry/siteTelemetryAggregator";
 import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "../commissioning/siteCommissioningService";
+import { startOperationalModbusPolling } from "../telemetry/modbusOperationalTelemetry";
 
 export type PrizmBootPhase =
   | "idle"
@@ -275,6 +276,11 @@ export function startBackgroundPolling() {
   stopCoordinator();
   if (slowRefreshInterval) clearInterval(slowRefreshInterval);
 
+  // Keep the fast EMS register snapshot alive independently of the heavier
+  // coordinator cycle. Summary and PCS views intentionally reject Modbus data
+  // older than 15 seconds, so merely exposing the manual refresh endpoint is
+  // not enough for normal operation.
+  startOperationalModbusPolling();
   startCoordinator();
 
   slowRefreshInterval = setInterval(async () => {
