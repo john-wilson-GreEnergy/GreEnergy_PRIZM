@@ -1,6 +1,8 @@
 import { Router } from "express";
+import { thermalRouter } from "./thermal/thermalRoutes";
 import {
 getLatestSnapshot,
+  getFastStringsView,
   getSiteDataStatusView,
   getBlockSummaryView,
   getStringsView,
@@ -17,8 +19,11 @@ import {
   getStringNotificationView,
   getNotificationRollupsView
 } from "./notifications/siteNotificationEngine";
+import { stringDomainBroker } from "./domainBrokers/stringDomainBroker";
+import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBrokers/operationalDomainBrokers";
 
 export const siteDataRouter = Router();
+siteDataRouter.use("/thermal", thermalRouter);
 
 siteDataRouter.use(async (req, res, next) => {
   if (req.query.refresh === "true") {
@@ -76,9 +81,68 @@ siteDataRouter.get("/strings", (req, res) => {
   }
 });
 
+siteDataRouter.get("/strings-fast", (_req, res) => {
+  const view = getFastStringsView();
+  if (view?.warming) return res.status(503).json(view);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(view);
+});
+
+siteDataRouter.get("/strings-stream", (req, res) => {
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  res.write(`event: ready\ndata: ${JSON.stringify({ version: stringDomainBroker.snapshot().version })}\n\n`);
+
+  const unsubscribe = stringDomainBroker.subscribe((publication) => {
+    res.write(`event: strings\ndata: ${JSON.stringify(publication)}\n\n`);
+  });
+  const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15_000);
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
+siteDataRouter.get("/domains", (_req, res) => {
+  res.json(Object.entries(operationalDomainBrokers).map(([name, broker]) => {
+    const snapshot = broker.snapshot();
+    return { name, version: snapshot.version, rowCount: snapshot.rows.length, capturedAt: snapshot.capturedAt };
+  }));
+});
+
+siteDataRouter.get("/domains/:domain/snapshot", (req, res) => {
+  const broker = getOperationalDomainBroker(req.params.domain);
+  if (!broker) return res.status(404).json({ error: "Unknown operational domain" });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(broker.snapshot());
+});
+
+siteDataRouter.get("/domains/:domain/stream", (req, res) => {
+  const broker = getOperationalDomainBroker(req.params.domain);
+  if (!broker) return res.status(404).json({ error: "Unknown operational domain" });
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  res.write(`event: ready\ndata: ${JSON.stringify({ domain: req.params.domain, version: broker.snapshot().version })}\n\n`);
+  const unsubscribe = broker.subscribe((publication) => {
+    res.write(`event: changes\ndata: ${JSON.stringify(publication)}\n\n`);
+  });
+  const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15_000);
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
 siteDataRouter.get("/pcs", (req, res) => {
   try {
     const view = getPcsView();
+    res.setHeader("Cache-Control", "no-store");
     res.json(view);
   } catch (err: any) {
     res.json({ warming: true, error: err.message });

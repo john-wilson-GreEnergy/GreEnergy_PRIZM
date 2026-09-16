@@ -11,6 +11,7 @@ import {
 import { getSegmentName } from "../siteData/segmentTranslator";
 import { generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
 import { ProfileStore } from "../profiles/profileStore";
+import { getActiveSiteDimensions } from "../profiles/siteDimensions";
 import { getFeatherCache } from "../feather/featherClient";
 import { parseEmsTopology } from "../emsTopologySensorParser";
 import { parseActiveState, sanitizeStatusForTripCheck } from "./canonicalSensorParser";
@@ -105,6 +106,7 @@ export interface NormalizedSensorRow {
 // Generates a fully populated, highly realistic block topology data structure for BESS sub-cabinets
 export function generateSimulatedTopology(demo: boolean = false) {
   const topology: any[] = [];
+  const dimensions = getActiveSiteDimensions();
   
   // 1. Add global block readiness point (numericId = 1)
   topology.push({
@@ -120,12 +122,10 @@ export function generateSimulatedTopology(demo: boolean = false) {
     tripped: false
   });
 
-  // 2. Add 8 arrays
-  for (let arrayIndex = 1; arrayIndex <= 8; arrayIndex++) {
-    // 21 enclosures per array
-    for (let posInArray = 1; posInArray <= 21; posInArray++) {
-      const enclosureIndex = (arrayIndex - 1) * 21 + posInArray;
-      const isCS = posInArray === 1;
+  for (const arrayIndex of dimensions.arrayIndices) {
+    for (let posInArray = 1; posInArray <= dimensions.positionsPerArray; posInArray++) {
+      const enclosureIndex = (arrayIndex - dimensions.arrayStart) * dimensions.positionsPerArray + posInArray;
+      const isCS = dimensions.includeCollectionSegment && posInArray === 1;
 
       // Add temperature environmental sensors (HTS) for every enclosure
       // Code 1 = internal environment
@@ -555,18 +555,24 @@ async function normalizeResponderSummaryUncached(refresh = false): Promise<any> 
   // Hardcode 168 rows generation for BHE0021 if candidateRows is empty
   if (candidateRows.length === 0) {
      if (stationCode === "BHE0021") {
-        for (let array = 1; array <= 8; array++) {
+        const dimensions = getActiveSiteDimensions();
+        const profileTopology = activeProfile?.topologyModel;
+        const prefix = profileTopology?.basePrefix || activeProfile?.emsHost?.split('.').slice(0, 2).join('.') || "10.0";
+        const csHost = Number(profileTopology?.csSegment || 3);
+        const esStart = Number(profileTopology?.esSegmentStart || 10);
+        const esStep = Number(profileTopology?.esSegmentStep || 5);
+        for (const array of dimensions.arrayIndices) {
           candidateRows.push({
-            deviceIp: `10.0.${array}.3`,
+            deviceIp: `${prefix}.${array}.${csHost}`,
             arrayIndex: array,
             segment: 3,
             isCollectionSegment: true,
             entityName: `Array ${array} Collection Segment (CS) Device Node`
           });
-          for (let stringIdx = 1; stringIdx <= 20; stringIdx++) {
-            const seg = 10 + (stringIdx - 1) * 5;
+          for (let stringIdx = 1; stringIdx <= dimensions.energySegmentsPerArray; stringIdx++) {
+            const seg = esStart + (stringIdx - 1) * esStep;
             candidateRows.push({
-              deviceIp: `10.0.${array}.${seg}`,
+              deviceIp: `${prefix}.${array}.${seg}`,
               arrayIndex: array,
               segment: seg,
               isCollectionSegment: false,
@@ -1521,6 +1527,7 @@ function parseSensorCell(rawSensor: any, parentEnclosureIndex: number): Normaliz
 
 // 3. Normalize Location info for elements
 function normalizeElementLocation(element: any): NormalizedContainerLocation & { locationDerivedFromFallback?: boolean } {
+  const dimensions = getActiveSiteDimensions();
   const loc = element.locationInfo || {};
   let arrayIndex: number | null = null;
   if (loc.arrays && loc.arrays[0]) {
@@ -1539,10 +1546,10 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
 
   const globalSegmentNumber = element.enclosureIndex !== undefined && element.enclosureIndex !== null ? Number(element.enclosureIndex) : null;
   if (globalSegmentNumber !== null) {
-    const arrIdx = Math.floor((globalSegmentNumber - 1) / 21) + 1;
-    const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
+    const arrIdx = Math.floor((globalSegmentNumber - 1) / dimensions.positionsPerArray) + dimensions.arrayStart;
+    const positionInArray = ((globalSegmentNumber - 1) % dimensions.positionsPerArray) + 1;
     arrayIndex = arrIdx;
-    if (positionInArray === 1) {
+    if (dimensions.includeCollectionSegment && positionInArray === 1) {
       segmentKind = "CS";
       segmentNumber = null;
       segmentLabel = "CS";
@@ -1551,7 +1558,7 @@ function normalizeElementLocation(element: any): NormalizedContainerLocation & {
       sortKey = `A${arrPad}-CS`;
     } else {
       segmentKind = "ES";
-      segmentNumber = positionInArray - 1;
+      segmentNumber = positionInArray - (dimensions.includeCollectionSegment ? 1 : 0);
       segmentLabel = `ES${segmentNumber}`;
       displayName = `Array ${arrayIndex} Energy Segment ${segmentNumber}`;
       const arrPad = String(arrayIndex).padStart(2, "0");
@@ -2059,15 +2066,16 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       const enclosureIndex = Math.floor(numericId / 100);
       const sensorCode = numericId % 100;
       
-      const arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
-      const positionInArray = ((enclosureIndex - 1) % 21) + 1;
+      const dimensions = getActiveSiteDimensions();
+      const arrayIndex = Math.floor((enclosureIndex - 1) / dimensions.positionsPerArray) + dimensions.arrayStart;
+      const positionInArray = ((enclosureIndex - 1) % dimensions.positionsPerArray) + 1;
       
       discoveredArrays.add(arrayIndex);
-      if (positionInArray === 1) {
+      if (dimensions.includeCollectionSegment && positionInArray === 1) {
         collectionSegmentCount++;
       } else {
         energySegmentCount++;
-        const esNumber = positionInArray - 1;
+        const esNumber = positionInArray - (dimensions.includeCollectionSegment ? 1 : 0);
         if (!energySegmentsByArray[`A${arrayIndex}`]) {
           energySegmentsByArray[`A${arrayIndex}`] = [];
         }
@@ -2305,15 +2313,16 @@ export async function buildBlockviewerSensorMatrix(refresh = false, maxAgeMs = 0
       totalElements++;
       const entitiesForThisEnclosure = topologyEntitiesByEnclosure[enclosureIndex];
       
-      const arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
-      const positionInArray = ((enclosureIndex - 1) % 21) + 1;
-      const isCS = positionInArray === 1;
-      const esNumber = isCS ? null : (positionInArray - 1);
+      const dimensions = getActiveSiteDimensions();
+      const arrayIndex = Math.floor((enclosureIndex - 1) / dimensions.positionsPerArray) + dimensions.arrayStart;
+      const positionInArray = ((enclosureIndex - 1) % dimensions.positionsPerArray) + 1;
+      const isCS = dimensions.includeCollectionSegment && positionInArray === 1;
+      const esNumber = isCS ? null : (positionInArray - (dimensions.includeCollectionSegment ? 1 : 0));
       
-      const strings = isCS ? [] : [
-        { arrayIndex, stringIndex: 2 * esNumber! - 1 },
-        { arrayIndex, stringIndex: 2 * esNumber! }
-      ];
+      const strings = isCS ? [] : Array.from({ length: dimensions.stringsPerEnergySegment }, (_, index) => ({
+        arrayIndex,
+        stringIndex: ((esNumber! - 1) * dimensions.stringsPerEnergySegment) + index + 1,
+      }));
       
       const virtualElement = {
         enclosureIndex,

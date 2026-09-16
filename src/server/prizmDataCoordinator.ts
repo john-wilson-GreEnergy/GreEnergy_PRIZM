@@ -1,3 +1,4 @@
+import { thermalService } from "./thermal/thermalService";
 import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports, getEmsCachedArrayNotifications, updateNotificationHybridTelemetry } from "./emsTurtleClient";
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
@@ -5,6 +6,7 @@ import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./site
 import { recordTelemetrySample } from "./telemetry/siteTelemetryAggregator";
 import * as prizmCache from "./cache/prizmCache";
 import { ProfileStore } from "./profiles/profileStore";
+import { getActiveSiteDimensions } from "./profiles/siteDimensions";
 import { buildNormalizedResponderSummary } from "./siteSensors/siteSensorsRoutes";
 import { fetchEnrichedDevices } from "./feather/deviceEnrichment";
 import { getSegmentName } from "./siteData/segmentTranslator";
@@ -20,6 +22,9 @@ import { canonicalPublicationRuntime } from "./telemetry/publication/CanonicalPu
 import { triggerContactorRefresh } from "./contactorStateEngine";
 import { coordinatorProfiler } from "./telemetry/profiler";
 import { featherScheduler } from "./telemetry/feather";
+import { publishBulkStringRows, stringDomainBroker } from "./domainBrokers/stringDomainBroker";
+import { publishOperationalDomains } from "./domainBrokers/operationalDomainBrokers";
+import { getOperationalModbusSnapshot } from "./telemetry/modbusOperationalTelemetry";
 
 
 
@@ -164,18 +169,16 @@ function isRenderableSnapshot(snapshot: any): boolean {
 }
 
 export function deriveArrayNumberFromRow(row: any): number | null {
-  if (typeof row.arrayNumber === 'number' && row.arrayNumber >= 1 && row.arrayNumber <= 8) {
-    return row.arrayNumber;
-  }
-  if (typeof row.arrayIndex === 'number' && row.arrayIndex >= 1 && row.arrayIndex <= 8) {
-    return row.arrayIndex;
-  }
+  const allowed = new Set(getActiveSiteDimensions().arrayIndices);
+  const arrayNumber = Number(row.arrayNumber);
+  if (Number.isInteger(arrayNumber) && allowed.has(arrayNumber)) return arrayNumber;
+  const arrayIndex = Number(row.arrayIndex);
+  if (Number.isInteger(arrayIndex) && allowed.has(arrayIndex)) return arrayIndex;
   const idStr = row.id || row.stringKey || "";
   if (typeof idStr === 'string' && idStr.length > 0) {
-    const match = idStr.match(/^A([1-8])[-_]/i) || idStr.match(/Array[-_ ]*([1-8])/i);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
+    const match = idStr.match(/^A(\d+)[-_]/i) || idStr.match(/Array[-_ ]*(\d+)/i);
+    const parsed = match ? parseInt(match[1], 10) : NaN;
+    if (Number.isInteger(parsed) && allowed.has(parsed)) return parsed;
   }
   return null;
 }
@@ -194,11 +197,12 @@ export function hasArrayZeroFallback(snapshot: any): boolean {
 }
 
 export function isValidArraySummary(rows: any[]): boolean {
+  const allowed = new Set(getActiveSiteDimensions().arrayIndices);
   return Array.isArray(rows)
     && rows.length > 0
     && rows.some(row => {
       const n = Number(row.arrayNumber ?? row.arrayIndex);
-      return n >= 1 && n <= 8;
+      return allowed.has(n);
     })
     && !(
       rows.length === 1 &&
@@ -244,7 +248,8 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
     : "rollups.arraySummary was empty or invalid; rebuilt from normalized.strings";
   
   const stringsByArray: Record<number, any[]> = {};
-  for (let i = 1; i <= 8; i++) {
+  const configuredArrayIndices = getActiveSiteDimensions().arrayIndices;
+  for (const i of configuredArrayIndices) {
     stringsByArray[i] = [];
   }
   
@@ -253,7 +258,7 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
   
   for (const str of strings) {
     const arrNum = deriveArrayNumberFromRow(str);
-    if (arrNum !== null && arrNum >= 1 && arrNum <= 8) {
+    if (arrNum !== null && configuredArrayIndices.includes(arrNum)) {
       stringsByArray[arrNum].push(str);
       derivedArrayCounts[arrNum] = (derivedArrayCounts[arrNum] || 0) + 1;
       str.arrayNumber = arrNum;
@@ -292,7 +297,7 @@ export function repairArraySummaryFromNormalizedStrings(snapshot: any): boolean 
     return isNaN(numVal) ? null : numVal;
   };
   
-  for (let arrNum = 1; arrNum <= 8; arrNum++) {
+  for (const arrNum of configuredArrayIndices) {
     const arrStrings = stringsByArray[arrNum];
     if (arrStrings.length === 0) {
       continue;
@@ -1330,6 +1335,44 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
   snapshot.rollups.fleetCapacity.notCommunicatingStoredKWh = notCommunicatingStoredKWh;
   snapshot.rollups.fleetCapacity.unknownStoredKWh = unknownStoredKWh;
   snapshot.rollups.fleetCapacity.availableStoredKWh = availableStoredKWh;
+
+  // Turtle publishes authoritative per-array capacity/energy totals in the
+  // lastCall DC-battery report and AC power limits in the AC-battery report.
+  // Prefer those complete native sets over string-derived estimates.
+  const lastCallBlockReport = snapshot.rawSources?.lastCall?.blockReport || {};
+  const dcBatteryReports = Object.values(lastCallBlockReport.dcBatteryReport || {}) as any[];
+  const acBatteryReports = Object.values(lastCallBlockReport.acBatteryReport || {}) as any[];
+  const sumComplete = (rows: any[], getter: (row: any) => any): number | null => {
+    if (!rows.length) return null;
+    const values = rows.map(getter).map((value) => {
+      if (value === null || value === undefined || value === "") return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    });
+    return values.every((value) => value !== null)
+      ? (values as number[]).reduce((total, value) => total + value, 0)
+      : null;
+  };
+  const nativeOnlineCapacityKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.onlineCapacityKWh);
+  const nativeNearlineCapacityKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.nearlineCapacityKWh);
+  const nativeOfflineCapacityKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.offlineCapacityKWh);
+  const nativeOnlineStoredKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.onlineAvailableKWh);
+  const nativeNearlineStoredKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.nearlineAvailableKWh);
+  const nativeOfflineStoredKWh = sumComplete(dcBatteryReports, (row) => row?.dcBatteryData?.socData?.offlineAvailableKWh);
+  const nativeChargeLimitKW = sumComplete(acBatteryReports, (row) => row?.acBatteryData?.onlineAvailableAcPowerChargekW);
+  const nativeDischargeLimitKW = sumComplete(acBatteryReports, (row) => row?.acBatteryData?.onlineAvailableAcPowerDischargekW);
+
+  if (nativeOnlineCapacityKWh !== null) snapshot.rollups.fleetCapacity.onlineInstalledKWh = nativeOnlineCapacityKWh;
+  if (nativeNearlineCapacityKWh !== null) snapshot.rollups.fleetCapacity.nearlineInstalledKWh = nativeNearlineCapacityKWh;
+  if (nativeOfflineCapacityKWh !== null) snapshot.rollups.fleetCapacity.offlineInstalledKWh = nativeOfflineCapacityKWh;
+  if (nativeOnlineStoredKWh !== null) snapshot.rollups.fleetCapacity.onlineStoredKWh = nativeOnlineStoredKWh;
+  if (nativeNearlineStoredKWh !== null) snapshot.rollups.fleetCapacity.nearlineStoredKWh = nativeNearlineStoredKWh;
+  if (nativeOfflineStoredKWh !== null) snapshot.rollups.fleetCapacity.offlineStoredKWh = nativeOfflineStoredKWh;
+  if (nativeOnlineStoredKWh !== null && nativeNearlineStoredKWh !== null) {
+    snapshot.rollups.fleetCapacity.availableStoredKWh = nativeOnlineStoredKWh + nativeNearlineStoredKWh;
+  }
+  if (nativeChargeLimitKW !== null) snapshot.rollups.fleetCapacity.availableChargeKW = nativeChargeLimitKW;
+  if (nativeDischargeLimitKW !== null) snapshot.rollups.fleetCapacity.availableDischargeKW = nativeDischargeLimitKW;
   
   // Calculate installed capacity based on profile
   const activeProfile = ProfileStore.getActiveProfile();
@@ -1359,12 +1402,9 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
 
   snapshot.rollups.stringSummary.rollups.fleetCapacity = {
     ...snapshot.rollups.stringSummary.rollups.fleetCapacity,
-    onlineStoredKWh,
-    nearlineStoredKWh,
-    offlineStoredKWh,
+    ...snapshot.rollups.fleetCapacity,
     notCommunicatingStoredKWh,
     unknownStoredKWh,
-    availableStoredKWh,
     installedCapacityKWh: snapshot.rollups.fleetCapacity.installedCapacityKWh
   };
   
@@ -1372,6 +1412,9 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     ...(snapshot.rollups.fleetCapacity.source || {}),
     storedEnergy: "normalized.strings.kwh",
     fleetSoc: "normalized.strings.socPct",
+    nativeCapacity: nativeOnlineCapacityKWh !== null ? "lastCall.blockReport.dcBatteryReport.*.dcBatteryData.socData" : null,
+    chargeLimit: nativeChargeLimitKW !== null ? "lastCall.blockReport.acBatteryReport.*.acBatteryData.onlineAvailableAcPowerChargekW" : null,
+    dischargeLimit: nativeDischargeLimitKW !== null ? "lastCall.blockReport.acBatteryReport.*.acBatteryData.onlineAvailableAcPowerDischargekW" : null,
     canonicalRollup: "prizmDataCoordinator.finalFleetRollupRepair"
   };
 
@@ -1834,7 +1877,7 @@ export function repairFinalFleetRollupsFromStringsAndArrays(snapshot: any): bool
     };
 
     const perArrayNearlineKWh: Record<string, number> = {};
-    for (let a = 1; a <= 8; a++) {
+    for (const a of getActiveSiteDimensions().arrayIndices) {
       const arrStrings = strings.filter((s: any) => deriveArrayNumberFromRow(s) === a && resolveStringBucket(s) === "nearline");
       const arrKwhs = arrStrings.map((s: any) => readStoredKWh(s)).filter((v: any) => v !== null) as number[];
       if (arrKwhs.length > 0) {
@@ -1941,6 +1984,7 @@ const coordinatorStartedAt = new Date().toISOString();
 let lastPollStartedAt: string | null = null;
 let lastPollFinishedAt: string | null = null;
 let lastPollDurationMs: number | null = null;
+let latestFastStringsView: any | null = null;
 
 let featherInterval: NodeJS.Timeout | null = null;
 
@@ -1949,8 +1993,31 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
   lastPollStartedAt = new Date().toISOString();
   const startTime = Date.now();
   let latestError = null;
+  const publishFastStrings = async () => {
+      const fastStringsStartedAt = performance.now();
+      const fastStringsResult = await coordinatorProfiler.withPhase(
+          "Fast String Publication",
+          { waitState: "NORMALIZATION", blocking: true },
+          () => buildNormalizedStringsData(false)
+      );
+      const fastRows = Array.isArray(fastStringsResult?.strings) ? fastStringsResult.strings : [];
+      if (fastRows.length > 0) {
+          const capturedAt = new Date().toISOString();
+          publishBulkStringRows(fastRows, capturedAt);
+          latestFastStringsView = structuredClone({
+              cycleId: context.cycleId,
+              capturedAt,
+              strings: fastRows,
+              summary: fastStringsResult?.summary || {},
+              rollups: fastStringsResult?.rollups || {},
+              buckets: fastStringsResult?.buckets || {},
+              sourceHealth: fastStringsResult?.sourceHealth || [],
+              durationMs: performance.now() - fastStringsStartedAt
+          });
+      }
+  };
   try {
-      await coordinatorProfiler.withPhase("EMS Acquisition", { waitState: "NETWORK", blocking: true }, () => pollEmsTurtle(), (result) => ({ success: result.success }));
+      await coordinatorProfiler.withPhase("EMS Acquisition", { waitState: "NETWORK", blocking: true }, () => pollEmsTurtle(publishFastStrings), (result) => ({ success: result.success }));
   } catch (err: any) {
       latestError = err;
       cycleSucceeded = false;
@@ -2093,20 +2160,33 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
 
           normalizedPcs.push({
             id: normPcs.pcsId,
+            pcsId: normPcs.pcsId,
+            arrayIndex: normPcs.arrayNumber,
             arrayNumber: normPcs.arrayNumber,
+            pcsIndex: normPcs.pcsIndex,
             pcsNumber: normPcs.pcsIndex,
+            communicating: normPcs.communicating,
             state: arrayPcsData?.state !== undefined ? String(arrayPcsData.state) : null,
             isReady: normPcs.communicating,
             dcVoltageVolt: normPcs.dcVoltage,
+            dcVoltage: normPcs.dcVoltage,
             dcCurrentAmp: normPcs.dcCurrent,
+            dcCurrent: normPcs.dcCurrent,
             acCmdRealPowerKW: arrayPcsData?.acCmdRealPowerKW !== undefined ? Number(arrayPcsData.acCmdRealPowerKW) : null,
             acCmdReactivePowerKVAR: arrayPcsData?.acCmdReactivePowerKVAR !== undefined ? Number(arrayPcsData.acCmdReactivePowerKVAR) : null,
             acRealPowerSettingKW: arrayPcsData?.acRealPowerSettingKW !== undefined ? Number(arrayPcsData.acRealPowerSettingKW) : null,
             acReactivePowerSettingKVAR: arrayPcsData?.acReactivePowerSettingKVAR !== undefined ? Number(arrayPcsData.acReactivePowerSettingKVAR) : null,
             acRealPowerKW: normPcs.acRealPowerKw,
+            acRealPowerKw: normPcs.acRealPowerKw,
             acReactivePowerKVAR: normPcs.acReactivePowerKvar,
+            acReactivePowerKvar: normPcs.acReactivePowerKvar,
             acApparentPowerKVA: arrayPcsData?.acApparentPowerKVA !== undefined ? Number(arrayPcsData.acApparentPowerKVA) : null,
             acFrequencyHz: normPcs.frequencyHz,
+            frequencyHz: normPcs.frequencyHz,
+            acVoltageAB: normPcs.acVoltageAB,
+            acVoltageBC: normPcs.acVoltageBC,
+            acVoltageCA: normPcs.acVoltageCA,
+            acCurrent: normPcs.acCurrent,
             phaseData: normPcs.raw?.phaseData || normPcs.raw?.arrayPcsPhaseData || [],
             eventVendor1: arrayPcsData?.eventVendor1 !== undefined ? Number(arrayPcsData.eventVendor1) : null,
             eventVendor2: arrayPcsData?.eventVendor2 !== undefined ? Number(arrayPcsData.eventVendor2) : null,
@@ -2116,6 +2196,11 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
             inRotation: normPcs.inRotation,
             rotationStatus: normPcs.rotationStatus === "IN_ROTATION" ? "IN" : normPcs.rotationStatus === "OUT_OF_ROTATION" ? "OUT" : "UNKNOWN",
             timestamp: response?.timeStamp || null,
+            fetchedAt: item.fetchedAt || null,
+            lastAttemptedAt: item.lastAttemptedAt || item.fetchedAt || null,
+            stale: item.stale === true || item.ok !== true,
+            sourceError: item.error || null,
+            simulated: item.simulated === true,
             sourceOk: item.ok,
             sourceEndpoint: item.endpoint,
             raw: response
@@ -2130,7 +2215,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
         return (val1 !== null && val1 !== undefined) ? val1 : val2;
       };
       
-      for (let arrNum = 1; arrNum <= 8; arrNum++) {
+      for (const arrNum of getActiveSiteDimensions().arrayIndices) {
         const arrKey = String(arrNum);
         const item = rawArrayReports[arrKey];
         const response = item?.data;
@@ -2359,7 +2444,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       };
 
       const flatMergedStrings: any[] = [];
-      for (let arrNum = 1; arrNum <= 8; arrNum++) {
+      for (const arrNum of getActiveSiteDimensions().arrayIndices) {
           const arrD = arrayDetailsByArray[arrNum];
           if (arrD && Array.isArray(arrD.strings)) {
               flatMergedStrings.push(...arrD.strings);
@@ -2762,6 +2847,11 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
 
       if (acceptSnapshot) {
           centralSnapshot = newSnap;
+          publishOperationalDomains(newSnap, newSnap.liveStatus?.lastUpdated || new Date().toISOString());
+          if (process.env.PRIZM_THERMAL_ENABLED !== "false") {
+            try { thermalService().ingest(newSnap.normalized.feather || [], Date.now(), newSnap.siteIdentity.emsBaseUrl ? {id: JSON.stringify([newSnap.siteIdentity.stationCode, newSnap.siteIdentity.blockIndex, newSnap.siteIdentity.emsBaseUrl]), label: `${newSnap.siteIdentity.stationCode || newSnap.siteIdentity.activeProfileName || "Site"} · Block ${newSnap.siteIdentity.blockIndex ?? "unknown"}`} : null); }
+            catch (error) { console.warn("[Thermal] Recording ingestion unavailable", error); }
+          }
           const cacheWriteStartedAt = performance.now();
           prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
           telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "snapshot-cache", { cacheWriteDurationMs: performance.now() - cacheWriteStartedAt });
@@ -2849,6 +2939,19 @@ export function stopCoordinator() {
 
 export function getLatestSnapshot(): PrizmSiteSnapshot | null {
     return coordinatorRuntime.getCurrentSnapshot() || centralSnapshot;
+}
+
+export function getFastStringsView(): any {
+    const brokerSnapshot = stringDomainBroker.snapshot();
+    if (latestFastStringsView && brokerSnapshot.rows.length > 0) {
+        return structuredClone({
+            ...latestFastStringsView,
+            brokerVersion: brokerSnapshot.version,
+            capturedAt: brokerSnapshot.capturedAt || latestFastStringsView.capturedAt,
+            strings: brokerSnapshot.rows
+        });
+    }
+    return latestFastStringsView ? structuredClone(latestFastStringsView) : { warming: true };
 }
 
 /** Internal read-only source for compact projections; callers must never mutate it. */
@@ -3235,14 +3338,83 @@ export function getBlockSummaryView(): any {
         error: "No dragonApps[] returned by live blockviewer endpoint"
     };
 
+    // The summary route is rendered frequently and must stay compact. Full string,
+    // pack, Feather, and raw PCS payloads remain available from their dedicated
+    // detail endpoints; shipping them here made every summary refresh multi-megabyte.
+    const {
+        tableRows: _tableRows,
+        rawStrings: _rawStrings,
+        strings: _strings,
+        enhanced: _enhanced,
+        ...compactStringSummary
+    } = snap.rollups.stringSummary || {};
+    const compactArraySummary = (snap.normalized.arrays || []).map((array: any) => {
+        const rawStrings = Array.isArray(array?.raw?.strings) ? array.raw.strings : [];
+        const storedEnergyKWh = rawStrings.reduce((total: number, row: any) => {
+            const value = Number(row?.kwh);
+            return total + (Number.isFinite(value) ? value : 0);
+        }, 0);
+        const { raw: _raw, strings: _arrayStrings, ...compactArray } = array || {};
+        return { ...compactArray, storedEnergyKWh };
+    });
+    const compactPcsSummary = enrichedPcsRowsInBlockView(snap).map((pcs: any) => {
+        const { raw: _raw, phaseData: _phaseData, ...compactPcs } = pcs || {};
+        return compactPcs;
+    });
+    const { devices: _featherDevices, devicesWithIssues: _featherIssues, ...compactFeatherSummary } = snap.rollups.featherSummary || {};
+    const compactDebug = {
+        coordinatorStartedAt: snap.debug?.coordinatorStartedAt,
+        lastPollStartedAt: snap.debug?.lastPollStartedAt,
+        lastPollFinishedAt: snap.debug?.lastPollFinishedAt,
+        lastPollDurationMs: snap.debug?.lastPollDurationMs,
+        normalizedStringRowCount: snap.debug?.normalizedStringRowCount,
+        arraySummarySource: snap.debug?.arraySummarySource,
+        stringSummarySource: snap.debug?.stringSummarySource,
+        correctiveActionsCount: snap.debug?.correctiveActionsCount,
+        sourceHealthSummary: healthSummary,
+        errors: snap.debug?.errors || []
+    };
+
+    const freshestLastCall = getEmsCachedLastCall().data || snap.rawSources?.lastCall || {};
+    const liveAcBatteryRows = Object.values(freshestLastCall?.blockReport?.acBatteryReport || {}) as any[];
+    const sumLiveAcMetric = (field: string): number | null => {
+        if (!liveAcBatteryRows.length) return null;
+        const values = liveAcBatteryRows.map((row: any) => {
+            const value = row?.acBatteryData?.[field];
+            if (value === null || value === undefined || value === "") return null;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        });
+        return values.every((value) => value !== null)
+            ? (values as number[]).reduce((total, value) => total + value, 0)
+            : null;
+    };
+    const modbusTelemetry = getOperationalModbusSnapshot();
+    const blockModbus = modbusTelemetry.available && !modbusTelemetry.stale ? modbusTelemetry.block : {};
+    const liveModbusArrays = modbusTelemetry.available && !modbusTelemetry.stale ? modbusTelemetry.arrays : [];
+    const blockOperatingSummary = {
+        realMeasured: sumLiveAcMetric("measuredkW"),
+        realCommanded: sumLiveAcMetric("commandedkW"),
+        reactiveMeasured: sumLiveAcMetric("measuredkVAr"),
+        reactiveCommanded: sumLiveAcMetric("commandedkVAr"),
+        sourcePath: "lastCall.blockReport.acBatteryReport.*.acBatteryData",
+        modbus: {
+            measuredKW: blockModbus.BlockW == null ? null : blockModbus.BlockW / 1000,
+            measuredKVAR: blockModbus.BlockVAr == null ? null : blockModbus.BlockVAr / 1000,
+            targetKW: blockModbus.BasicOpTargetPower == null ? null : blockModbus.BasicOpTargetPower / 1000,
+            stateOfChargePct: blockModbus.BlockTotalSOC ?? null,
+            availableChargeKW: blockModbus.AvailableChargePowerCapacity == null ? null : blockModbus.AvailableChargePowerCapacity / 1000,
+            availableDischargeKW: blockModbus.AvailableDischargePowerCapacity == null ? null : blockModbus.AvailableDischargePowerCapacity / 1000,
+            capturedAt: modbusTelemetry.capturedAt,
+            source: "EMS Modbus"
+        }
+    };
+
     return {
         // Uniform unified models
         siteIdentity: snap.siteIdentity,
         liveStatus: snap.liveStatus,
-        debug: {
-            ...snap.debug,
-            sourceHealthSummary: healthSummary
-        },
+        debug: compactDebug,
 
         // Backward compatible legacy structures
         site: siteObj,
@@ -3253,13 +3425,13 @@ export function getBlockSummaryView(): any {
         activeIssueGroups: snap.normalized.correctiveActions, // activeIssueGroups maps directly to correctiveActions array in modern snapshot
         bessFleetSummary: snap.rollups.bessFleetSummary,
         stringSummary: {
-            ...snap.rollups.stringSummary,
+            ...compactStringSummary,
             totalStrings: stringCountVal,
             valid: snap.rollups.stringSummary?.valid ?? true,
         },
-        arraySummary: snap.normalized.arrays,
-        pcsSummary: enrichedPcsRowsInBlockView(snap),
-        featherSummary: snap.rollups.featherSummary,
+        arraySummary: compactArraySummary,
+        pcsSummary: compactPcsSummary,
+        featherSummary: compactFeatherSummary,
         humidityTemperatureSensors: htsSummary,
         safetySummary: (snap.rollups as any).safetySummary || {},
         emsApps,
@@ -3268,6 +3440,9 @@ export function getBlockSummaryView(): any {
         sourceHealthSummary: healthSummary,
         topologyCounts: (snap.rollups as any).topologyCounts || {},
         fleetCapacity: (snap.rollups as any).fleetCapacity || snap.rollups.stringSummary?.rollups?.fleetCapacity || null,
+        blockOperatingSummary,
+        modbusArraySummary: liveModbusArrays,
+        modbusTelemetry: { available: modbusTelemetry.available, stale: modbusTelemetry.stale, capturedAt: modbusTelemetry.capturedAt, durationMs: modbusTelemetry.durationMs, error: modbusTelemetry.error },
         topologyStatus: {
             arrayCount: arrayCountVal,
             stringCount: stringCountVal,
@@ -3288,12 +3463,12 @@ export function getBlockSummaryView(): any {
         cellMetrics: {
             minVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageMin ?? null,
             maxVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageMax ?? null,
-            avgVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageAvg ?? null,
-            deltaVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageDelta ?? null,
+            avgVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageAvg ?? snap.rollups.bessFleetSummary?.avgCellVoltageMv ?? null,
+            deltaVoltage: snap.rollups.stringSummary?.rollups?.cellVoltageDelta ?? snap.rollups.bessFleetSummary?.maxCellVoltageDeltaMv ?? null,
             minTemp: snap.rollups.stringSummary?.rollups?.cellTempMin ?? null,
-            maxTemp: snap.rollups.stringSummary?.rollups?.cellTempMax ?? null,
-            avgTemp: snap.rollups.stringSummary?.rollups?.cellTempAvg ?? null,
-            deltaTemp: snap.rollups.stringSummary?.rollups?.cellTempDelta ?? null
+            maxTemp: snap.rollups.stringSummary?.rollups?.cellTempMax ?? snap.rollups.bessFleetSummary?.maxCellTempC ?? null,
+            avgTemp: snap.rollups.stringSummary?.rollups?.cellTempAvg ?? snap.rollups.bessFleetSummary?.avgCellTempC ?? null,
+            deltaTemp: snap.rollups.stringSummary?.rollups?.cellTempDelta ?? snap.rollups.bessFleetSummary?.maxCellTempDeltaC ?? null
         }
     };
 }
@@ -3333,13 +3508,96 @@ export function getStringsView(): any {
 export function getPcsView(): any {
     const snap = centralSnapshot;
     if (!snap) return { warming: true };
+    const blockReport = snap.rawSources?.lastCall?.blockReport || {};
+    const arrayReports = blockReport.arrayReport || {};
+    const acBatteryReports = blockReport.acBatteryReport || {};
+    const finiteOrNull = (value: any) => {
+        if (value === null || value === undefined || value === "") return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+    const arrayPowerSummary = getActiveSiteDimensions().arrayIndices.map((arrayIndex) => {
+        const detail = (snap.normalized as any).arrayDetailsByArray?.[arrayIndex]
+            || (snap.normalized as any).arrayDetailsByArray?.[String(arrayIndex)];
+        const arrayData = arrayReports?.[arrayIndex]?.arrayData
+            || arrayReports?.[String(arrayIndex)]?.arrayData
+            || detail?.raw?.arrayData
+            || {};
+        const acBatteryData = acBatteryReports?.[arrayIndex]?.acBatteryData
+            || acBatteryReports?.[String(arrayIndex)]?.acBatteryData
+            || {};
+        return {
+            arrayIndex,
+            maxAllowedChargeCurrentDc: finiteOrNull(arrayData.maxAllowedChargeCurrent),
+            maxAllowedDischargeCurrentDc: finiteOrNull(arrayData.maxAllowedDischargeCurrent),
+            availableACChargekW: finiteOrNull(acBatteryData.onlineAvailableAcPowerChargekW),
+            availableACDischargekW: finiteOrNull(acBatteryData.onlineAvailableAcPowerDischargekW),
+            availableACNameplatekW: finiteOrNull(acBatteryData.onlineAvailableAcPowerNameplatekW),
+            sourcePaths: {
+                dc: `lastCall.blockReport.arrayReport.${arrayIndex}.arrayData`,
+                ac: `lastCall.blockReport.acBatteryReport.${arrayIndex}.acBatteryData`
+            }
+        };
+    });
+    const modbusTelemetry = getOperationalModbusSnapshot();
+    const modbusByArray = new Map((modbusTelemetry.pcs || []).map((row: any) => [Number(row.arrayIndex), row]));
+    const switchByArray = new Map((modbusTelemetry.pcsSwitches || []).map((row: any) => [Number(row.arrayIndex), row]));
+    const pcs = (snap.normalized.pcs || []).map((row: any) => {
+        const arrayIndex = Number(row.arrayIndex ?? row.pcsIndex);
+        const live: any = modbusTelemetry.available && !modbusTelemetry.stale ? modbusByArray.get(arrayIndex) : null;
+        const switchTelemetry: any = switchByArray.get(arrayIndex) || null;
+        if (!live && !switchTelemetry) return row;
+        return {
+            ...row,
+            acCurrentA: live?.Amps ?? row.acCurrentA,
+            acCurrent: live?.Amps ?? row.acCurrent,
+            acRealPowerKW: live?.Watts == null ? row.acRealPowerKW : live.Watts / 1000,
+            acRealPowerKw: live?.Watts == null ? row.acRealPowerKw : live.Watts / 1000,
+            acReactivePowerKVAR: live?.VAr == null ? row.acReactivePowerKVAR : live.VAr / 1000,
+            acReactivePowerKvar: live?.VAr == null ? row.acReactivePowerKvar : live.VAr / 1000,
+            acFrequencyHz: live?.Hz ?? row.acFrequencyHz,
+            frequencyHz: live?.Hz ?? row.frequencyHz,
+            acVoltageAB: live?.PhaseVoltageAB ?? row.acVoltageAB,
+            acVoltageBC: live?.PhaseVoltageBC ?? row.acVoltageBC,
+            acVoltageCA: live?.PhaseVoltageCA ?? row.acVoltageCA,
+            dcCurrentAmp: live?.DCAmps ?? row.dcCurrentAmp,
+            dcCurrent: live?.DCAmps ?? row.dcCurrent,
+            dcVoltageVolt: live?.DCVoltage ?? row.dcVoltageVolt,
+            dcVoltage: live?.DCVoltage ?? row.dcVoltage,
+            dcPowerKW: live?.DCWatts == null ? row.dcPowerKW : live.DCWatts / 1000,
+            cabinetTemperatureC: live?.CabinetTemperature ?? row.cabinetTemperatureC,
+            heatSinkTemperatureC: live?.HeatSinkTemperature ?? row.heatSinkTemperatureC,
+            modbusOperatingState: live?.OperatingState,
+            modbusRotationState: live?.RotationState,
+            modbusFaultCode: live?.FaultCode,
+            totalEnergyWh: live?.TotalEnergy,
+            importedEnergyWh: live?.ImportedEnergy,
+            exportedEnergyWh: live?.ExportedEnergy,
+            pcsSwitches: switchTelemetry,
+            telemetrySource: live
+                ? (switchTelemetry?.stale === false ? "EMS Modbus + direct PCS Modbus" : "EMS Modbus")
+                : (switchTelemetry?.stale === false ? "Direct PCS Modbus" : row.telemetrySource),
+            telemetryCapturedAt: modbusTelemetry.capturedAt
+        };
+    });
     return {
-        pcs: snap.normalized.pcs,
+        pcs,
         pcsSummary: snap.rollups.pcsSummary || {},
+        arrayPowerSummary,
+        modbusArraySummary: modbusTelemetry.available && !modbusTelemetry.stale ? modbusTelemetry.arrays : [],
         arrayDetailsByArray: (snap.normalized as any).arrayDetailsByArray || {},
         sourceHealth: snap.rollups.sourceHealth,
         source: "Coordinator Site Data Engine",
-        cache: snap.liveStatus
+        cache: snap.liveStatus,
+        modbusTelemetry: {
+            available: modbusTelemetry.available,
+            stale: modbusTelemetry.stale,
+            capturedAt: modbusTelemetry.capturedAt,
+            durationMs: modbusTelemetry.durationMs,
+            error: modbusTelemetry.error,
+            pcsSwitchesAvailable: (modbusTelemetry.pcsSwitches || []).filter((row: any) => !row.stale).length,
+            pcsSwitchesTotal: (modbusTelemetry.pcsSwitches || []).length
+        }
     };
 }
 

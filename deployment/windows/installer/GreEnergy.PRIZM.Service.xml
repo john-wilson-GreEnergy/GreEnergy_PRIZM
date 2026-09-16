@@ -1,0 +1,32 @@
+<service>
+  <id>GreEnergy PRIZM</id>
+  <name>GreEnergy PRIZM Platform</name>
+  <description>GreEnergy Resources Battery Energy Storage Platform</description>
+  <executable>%BASE%\..\runtime\node.exe</executable>
+  <arguments>"%BASE%\..\app\service-launch.cjs"</arguments>
+  <workingdirectory>%BASE%\..\app</workingdirectory>
+  <env name="NODE_ENV" value="production"/>
+  <env name="PROGRAMDATA" value="%PROGRAMDATA%"/>
+  <logpath>%PROGRAMDATA%\GreEnergy\PRIZM\Logs</logpath>
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <zipOlderThanNumDays>7</zipOlderThanNumDays>
+    <zipDateFormat>yyyyMM</zipDateFormat>
+    <keepFiles>20</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <hidewindow>true</hidewindow>
+  <stoptimeout>120 sec</stoptimeout>
+  <preshutdown>true</preshutdown>
+  <preshutdownTimeout>3 min</preshutdownTimeout>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <serviceaccount>
+    <username>NT AUTHORITY\LocalService</username>
+  </serviceaccount>
+</service>

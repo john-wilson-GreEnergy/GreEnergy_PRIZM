@@ -2,6 +2,8 @@ export interface BalancerTestStatus {
   id: number;
   block: string;
   arrays: string[];
+  strings: Array<{ array: string; stringNumber: string }>;
+  targetScope: "block" | "array" | "string" | "unknown";
   direction: string;
   state: "PENDING" | "RUNNING" | "FINISHED" | "FAILED";
   progress: number;
@@ -103,6 +105,8 @@ export interface BalancerTestAnalysis {
 export interface BalancerTestDeployRequest {
   block?: number;
   arrays: number[];
+  strings?: number[];
+  targetScope?: "array" | "string";
   direction: "charge" | "discharge";
   totalCellGroups?: number;
   operator?: string;
@@ -128,4 +132,5 @@ export interface BalancerTestCapabilities {
   deploySupported: boolean;
   deployEndpointConfigured: boolean;
   message: string;
+  maxStringIndex: number;
 }

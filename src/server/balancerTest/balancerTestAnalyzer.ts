@@ -305,6 +305,27 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
       ].join("|");
 
       if (existingKeys.has(dedupeKey)) continue;
+
+      // The legacy normalized-string source may expose the same active warning
+      // only at string scope. Prefer the notification-engine record when it adds
+      // BPC/cell location instead of counting both as separate warnings.
+      const lessSpecificIndex = correlatedWarnings.findIndex((warning) =>
+        String(warning.code ?? "") === code &&
+        Number(warning.arrayNumber ?? -1) === arrayNumber &&
+        Number(warning.stringNumber ?? -1) === stringNumber &&
+        warning.bpc == null &&
+        warning.cell == null
+      );
+      if (lessSpecificIndex >= 0 && (Number.isFinite(bpc) || Number.isFinite(cell))) {
+        const [lessSpecific] = correlatedWarnings.splice(lessSpecificIndex, 1);
+        existingKeys.delete([
+          String(lessSpecific.code ?? ""),
+          Number(lessSpecific.arrayNumber ?? -1),
+          Number(lessSpecific.stringNumber ?? -1),
+          Number(lessSpecific.bpc ?? -1),
+          Number(lessSpecific.cell ?? -1)
+        ].join("|"));
+      }
       existingKeys.add(dedupeKey);
 
       const block = Number(source.blockIndex ?? source.block ?? n?.raw?.action?.block ?? 1);
@@ -416,7 +437,9 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
     warningRows,
     correlatedWarnings,
     combinedWarningRows,
-    rows
+    // The dashboard does not consume the full normalized report. Omitting it keeps
+    // site-wide analysis responses small; warning rows and aggregates remain above.
+    rows: []
   };
 }
 

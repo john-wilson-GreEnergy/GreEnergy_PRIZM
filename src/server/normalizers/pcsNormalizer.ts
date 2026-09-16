@@ -56,6 +56,10 @@ export function normalizePcsRow(rawRow: any, context?: any): CanonicalPcsRow {
     inRotation = parseNullableBool(rawRow.InRotation);
   } else if (outRotation !== null) {
     inRotation = !outRotation;
+  } else {
+    const status = String(rawRow.rotationStatus ?? rawRow.rotationState ?? rawRow.rotation ?? "").trim().toUpperCase();
+    if (status === "IN" || status === "IN_ROTATION" || status === "IN ROTATION") inRotation = true;
+    if (status === "OUT" || status === "OUT_OF_ROTATION" || status === "OUT OF ROTATION") inRotation = false;
   }
 
   if (outRotation === null && inRotation !== null) {
@@ -89,13 +93,20 @@ export function normalizePcsRow(rawRow: any, context?: any): CanonicalPcsRow {
     
     if (phaseA) {
       if (acVoltageAB === null) acVoltageAB = num(phaseA.acVoltageVolt ?? phaseA.acVoltage);
-      if (acCurrent === null) acCurrent = num(phaseA.acCurrentAmp ?? phaseA.acCurrent);
     }
     if (phaseB) {
       if (acVoltageBC === null) acVoltageBC = num(phaseB.acVoltageVolt ?? phaseB.acVoltage);
     }
     if (phaseC) {
       if (acVoltageCA === null) acVoltageCA = num(phaseC.acVoltageVolt ?? phaseC.acVoltage);
+    }
+    if (acCurrent === null) {
+      const phaseCurrents = phases
+        .map((phase: any) => num(phase.acCurrentAmp ?? phase.acCurrent))
+        .filter((value: number | null): value is number => value !== null);
+      if (phaseCurrents.length > 0) {
+        acCurrent = phaseCurrents.reduce((sum: number, value: number) => sum + value, 0) / phaseCurrents.length;
+      }
     }
   }
 

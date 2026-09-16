@@ -58,6 +58,7 @@ export interface FeatherHvacDevice {
   running?: boolean;
   thermalControlRunning?: boolean;
   hvacEnabled?: boolean;
+  emergencyVentilationOn?: boolean;
   hvac1Active?: boolean;
   hvac2Active?: boolean;
   anyHvacActive?: boolean;
@@ -273,6 +274,7 @@ export function normalizeDirectFeatherStatus(ip: string, raw: any): Partial<Feat
   partial.running = thermal.running;
   partial.thermalControlRunning = thermal.running;
   partial.hvacEnabled = thermal.enabled;
+  partial.emergencyVentilationOn = thermal.EmergencyVentilationOn ?? thermal.emergencyVentilationOn;
 
   const hvac1Ctrls = thermal.HVAC1Controls || {};
   const hvac1Data = thermal.HVAC1Data || {};

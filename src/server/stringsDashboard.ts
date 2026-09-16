@@ -14,6 +14,7 @@ import {
   emsCache,
 } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
+import { getActiveSiteDimensions } from "./profiles/siteDimensions";
 
 import * as prizmCache from "./cache/prizmCache";
 import * as prizmHistory from "./history/prizmHistory";
@@ -37,6 +38,7 @@ import { telemetryMetrics } from "./telemetry/metrics";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
 import { observationRuntime } from "./observations/ObservationRuntime";
+import { getLatestFirmwareSnapshot } from "./firmware/firmwareInventoryService";
 
 const router = Router();
 const stringViewerProvenance = new WeakMap<object, {
@@ -585,11 +587,27 @@ function findBatteryPackList(row: any, arrayNumber: number, stringNumber: number
 
 function extractBpcBalancing(item: any, idx: number) {
     const data = item?.batteryPackData || item;
-    const config = data?.batteryPackBalancingConfiguration || data?.balancingConfiguration || data;
+    const config =
+      data?.batteryPackBalancingConfiguration ||
+      item?.batteryPackBalancingConfiguration ||
+      data?.balancingConfiguration ||
+      item?.balancingConfiguration ||
+      data?.batteryPackConfiguration ||
+      item?.batteryPackConfiguration ||
+      data;
 
     const bpIndex = item?.bpIndex ?? item?.batteryPackIndex ?? item?.packIndex ?? item?.index ?? (idx + 1);
 
-    const modeRaw = config?.balancingMode ?? config?.mode ?? null;
+    const modeRaw =
+      config?.balancingMode ??
+      config?.balanceMode ??
+      config?.batteryPackBalancingMode ??
+      config?.balancerMode ??
+      data?.balancingMode ??
+      data?.balanceMode ??
+      item?.balancingMode ??
+      item?.balanceMode ??
+      null;
     const providedVoltageTarget = config?.providedVoltageTarget ?? config?.voltageTarget ?? config?.targetVoltage ?? null;
     const chargeBalancingPermitted = config?.chargeBalancingPermitted ?? config?.chargePermitted ?? null;
     const dischargeBalancingPermitted = config?.dischargeBalancingPermitted ?? config?.dischargePermitted ?? null;
@@ -613,7 +631,17 @@ function extractBpcBalancing(item: any, idx: number) {
       null;
 
     const formatBalanceMode = (mRaw: any, targetVal: any): string => {
+        const numericMode = typeof mRaw === "number" ? mRaw : (/^[0-2]$/.test(String(mRaw ?? "").trim()) ? Number(mRaw) : null);
+        if (numericMode === 0) return "Off";
+        if (numericMode === 1) return "Average";
+        if (numericMode === 2) {
+            const numericTarget = Number(targetVal);
+            return Number.isFinite(numericTarget) ? `Provided (${numericTarget})` : "Provided";
+        }
         const raw = String(mRaw || "").toUpperCase();
+        if (raw === "NO_BALANCE" || raw === "BALANCING_OFF") return "Off";
+        if (raw === "FORCE_CHARGE_BALANCE") return "Force Charge";
+        if (raw === "FORCE_DISCHARGE_BALANCE") return "Force Discharge";
         const target = Number(targetVal);
         if (raw.includes("PROVIDED")) {
             return Number.isFinite(target) ? `Provided (${target})` : "Provided";
@@ -1042,6 +1070,19 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             if (!ipByPackKey.has(packKey)) ipByPackKey.set(packKey, row);
         }
     }
+    const firmwareSnapshot = getLatestFirmwareSnapshot();
+    const scFirmwareByString = new Map<string, string>();
+    const bpcFirmwareByString = new Map<string, any[]>();
+    for (const row of firmwareSnapshot?.details || []) {
+        if (!row.arrayIndex || !row.stringIndex) continue;
+        const firmwareKey = rowKey(row.arrayIndex, row.stringIndex);
+        if (row.deviceType === "SC" && row.version !== "Unknown") scFirmwareByString.set(firmwareKey, row.version);
+        if (row.deviceType === "BPC") {
+            const entries = bpcFirmwareByString.get(firmwareKey) || [];
+            entries.push(row);
+            bpcFirmwareByString.set(firmwareKey, entries);
+        }
+    }
     if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "rollup/index construction", performance.now() - sourceIndexStartedAt);
 
     const strings: any[] = [];
@@ -1074,6 +1115,17 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
     let gAlarmCount = 0;
 
     function findRichValueForPackList(detailStringData: any, blockStrBase: any, lcStrBase: any, stringsCsvRow: any, arrayNumber: number, stringNumber: number, lastCallWrapper: any, blockWrapper: any): any[] | null {
+        // lastCall is the canonical source for BPC balancing configuration and
+        // state. Its live EMS shape is an object-keyed block/array/string tree,
+        // not the legacy data.arrays[] projection handled below.
+        const lastCallArrayReport = lastCallWrapper?.data?.blockReport?.arrayReport;
+        const lastCallArray = lastCallArrayReport?.[String(arrayNumber)] ?? lastCallArrayReport?.[arrayNumber];
+        const lastCallStringReport = lastCallArray?.stringReport;
+        const lastCallString = lastCallStringReport?.[String(stringNumber)] ?? lastCallStringReport?.[stringNumber];
+        if (Array.isArray(lastCallString?.batteryPackReportList)) {
+            return lastCallString.batteryPackReportList;
+        }
+
         if (detailStringData) {
             if (Array.isArray(detailStringData.batteryPackReportList)) return detailStringData.batteryPackReportList;
             if (Array.isArray(detailStringData.batteryPacks)) return detailStringData.batteryPacks;
@@ -1102,9 +1154,10 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
     }
 
     const rowNormalizationStartedAt = performance.now();
-    for (let a = 1; a <= 8; a++) {
+    const siteDimensions = getActiveSiteDimensions();
+    for (const a of siteDimensions.arrayIndices) {
         const arrayRep = arrayReports[a]?.data;
-        for (let s = 1; s <= 40; s++) {
+        for (let s = 1; s <= siteDimensions.stringsPerArray; s++) {
             const id = `A${a}-S${s}`;
             totalStrings++;
 
@@ -1221,10 +1274,9 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             }
             const isOnline = communicating === true;
 
-            let outRotation = parseNullableBool(getMetricValue(["outrotation", "out_rotation", "rotation"]));
-            if (connectionStateUpper === "OFFLINE") {
-                outRotation = true;
-            }
+            // Rotation is authoritative only when explicitly reported by the
+            // controller. Connection state is a separate signal.
+            const outRotation = parseNullableBool(getMetricValue(["outrotation", "out_rotation", "rotation"]));
             const inRotation = outRotation === false ? true : (outRotation === true ? false : null);
             const rotationStatus = inRotation === true ? "IN" : (outRotation === true ? "OUT" : "UNKNOWN");
             const rotationEnabled = inRotation === true;
@@ -1316,6 +1368,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             let balanceTelemetryAvailable = false;
             let balanceCount: number | null = null;
             let balanceMode = "--";
+            let balanceActivity = "Unknown";
             let balanceModeRaw: string | null = null;
             let balanceProvidedVoltageTarget: number | null = null;
             let balanceDetails: any[] = [];
@@ -1349,7 +1402,10 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                         balanceCount!++;
                     }
                     if (bpcDetail.mode && bpcDetail.mode !== "--") {
-                        modesList.push(bpcDetail.mode);
+                        // Target voltage is configuration detail, not a distinct
+                        // balancing mode. All BALANCE_TO_PROVIDED BPCs remain
+                        // "Provided" even when their targets differ slightly.
+                        modesList.push(bpcDetail.mode.replace(/\s*\([^)]*\)\s*$/, ""));
                         if (!balanceModeRaw && bpcDetail.modeRaw) balanceModeRaw = bpcDetail.modeRaw;
                         if (!balanceProvidedVoltageTarget && bpcDetail.providedVoltageTarget) balanceProvidedVoltageTarget = bpcDetail.providedVoltageTarget;
                     }
@@ -1364,6 +1420,34 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                     }
                 } else {
                     balanceMode = "--";
+                }
+
+                // Some EMS versions publish detailed BPC activity alongside a
+                // single authoritative string-level configured mode. Preserve
+                // that aggregate value when individual BPC mode fields are
+                // absent instead of discarding it merely because pack detail
+                // was available.
+                if (balanceMode === "--") {
+                    const aggregateMode = String(getMetricValue([
+                        "balancemode",
+                        "balancingmode",
+                        "batteryPackBalancingMode",
+                        "battery_pack_balancing_mode"
+                    ]) || "").trim();
+                    const aggregateRaw = String(getMetricValue(["balanceraw", "balancingraw", "balance", "balancing"]) || "").trim();
+                    if (aggregateMode && aggregateMode !== "undefined") {
+                        balanceMode = aggregateMode;
+                        balanceModeRaw = balanceModeRaw || aggregateMode;
+                    } else if (/provided/i.test(aggregateRaw)) {
+                        balanceMode = "Provided";
+                        balanceModeRaw = balanceModeRaw || aggregateRaw;
+                    } else if (/average/i.test(aggregateRaw)) {
+                        balanceMode = "Average";
+                        balanceModeRaw = balanceModeRaw || aggregateRaw;
+                    } else if (/\bmixed\b/i.test(aggregateRaw)) {
+                        balanceMode = "Mixed";
+                        balanceModeRaw = balanceModeRaw || aggregateRaw;
+                    }
                 }
             } else {
                 // Fallback to legacy balance fields
@@ -1396,8 +1480,29 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             balanceTelemetryAvailable = normalizedBalanceDetails.some(d => d.balanceTelemetryPresent === true);
             if (!balanceTelemetryAvailable) {
                 balanceMode = "--";
-            } else if (balanceCount === 0) {
-                balanceMode = "Off";
+            }
+
+            // Configured mode and current activity are independent controller
+            // signals. Never turn a missing Average/Provided mode into "Off".
+            const activeBalanceStates = new Set(
+                normalizedBalanceDetails
+                    .filter(d => d.isActive === true && d.missingFromSource !== true)
+                    .map(d => String(d.state || d.displayState || "").toLowerCase())
+            );
+            const hasCharging = Array.from(activeBalanceStates).some(state => state.includes("charg") && !state.includes("discharg"));
+            const hasDischarging = Array.from(activeBalanceStates).some(state => state.includes("discharg"));
+            if (!balanceTelemetryAvailable) {
+                balanceActivity = "Unknown";
+            } else if ((balanceCount ?? 0) === 0) {
+                balanceActivity = "Off";
+            } else if (hasCharging && hasDischarging) {
+                balanceActivity = "Mixed";
+            } else if (hasCharging) {
+                balanceActivity = "Charging";
+            } else if (hasDischarging) {
+                balanceActivity = "Discharging";
+            } else {
+                balanceActivity = "Active";
             }
 
             const container = String(detailStringData?.enclosureIndex ?? blockStrBase?.enclosureIndex ?? lcStrBase?.enclosureIndex ?? stringsCsvRow?.enclosureIndex ?? sIpInfo?.container ?? tryGetField(stringsCsvRow || {}, {}, ["container", "enclosure"]) ?? "");
@@ -1620,9 +1725,12 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             else if (lcStrBase && Array.isArray(lcStrBase.bpcs)) bpcSourceData = lcStrBase.bpcs;
 
             const bpcFirmwares = new Set<string>();
+            const inventoryBpcs = bpcFirmwareByString.get(key) || [];
 
             bpcSourceData.forEach((bpcBase: any, bpcIdx: number) => {
                 const bpcNum = pN(bpcBase.index || bpcBase.bpcIndex, bpcIdx + 1) || (bpcIdx + 1);
+                const inventoryBpc = inventoryBpcs.find((row: any) => row.deviceIndex === bpcNum);
+                const resolvedBpcFirmware = inventoryBpc?.version !== "Unknown" ? inventoryBpc?.version : bpcBase.firmwareVersion;
                 
                 let bpcIp = null;
                 const bpcIpMatch = ipByPackKey.get(`${key}:${bpcNum}`);
@@ -1637,7 +1745,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                 if (Array.isArray(bpcWarns)) bpcWarns = bpcWarns.map(w => w.match(/^\d+$/) ? `${w} - ${describeBessStatusCode(w)}` : w);
                 if (Array.isArray(bpcAlarms)) bpcAlarms = bpcAlarms.map(a => a.match(/^\d+$/) ? `${a} - ${describeBessStatusCode(a)}` : a);
                 
-                if (bpcBase.firmwareVersion) bpcFirmwares.add(String(bpcBase.firmwareVersion));
+                if (resolvedBpcFirmware) bpcFirmwares.add(String(resolvedBpcFirmware));
 
                 let cellVolts = Array.isArray(bpcBase.cellVoltages) ? bpcBase.cellVoltages : [];
                 let cellTemps = Array.isArray(bpcBase.cellTemperatures) ? bpcBase.cellTemperatures : [];
@@ -1665,7 +1773,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                     id: `A${a}-S${s}-B${bpcNum}`,
                     arrayNumber: a, stringNumber: s, bpcNumber: bpcNum,
                     bpcIp,
-                    firmwareVersion: bpcBase.firmwareVersion,
+                    firmwareVersion: resolvedBpcFirmware,
                     minCellVoltage: pN(bpcBase.minCellVoltage),
                     maxCellVoltage: pN(bpcBase.maxCellVoltage),
                     avgCellVoltage: pN(bpcBase.avgCellVoltage),
@@ -1684,6 +1792,26 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                 if (bpcAlarms.length > 0) alarmBpcs++;
                 else if (bpcWarns.length > 0) warningBpcs++;
             });
+
+            for (const inventoryBpc of inventoryBpcs) {
+                if (bpcs.some(existing => existing.bpcNumber === inventoryBpc.deviceIndex)) continue;
+                bpcs.push({
+                    id: `A${a}-S${s}-B${inventoryBpc.deviceIndex}`,
+                    arrayNumber: a,
+                    stringNumber: s,
+                    bpcNumber: inventoryBpc.deviceIndex,
+                    bpcIp: ipByPackKey.get(`${key}:${inventoryBpc.deviceIndex}`)?.ip || null,
+                    firmwareVersion: inventoryBpc.version,
+                    warningCount: 0,
+                    alarmCount: 0,
+                    warnings: [],
+                    alarms: [],
+                    cellGroups: [],
+                    firmwareInventoryOnly: true
+                });
+                if (inventoryBpc.version !== "Unknown") bpcFirmwares.add(inventoryBpc.version);
+                totalBpcs++;
+            }
 
             let bpcCount = pN(getMetricValue(["bpccount", "packcount"]));
             if (bpcSourceData.length > 0) bpcCount = bpcSourceData.length;
@@ -1843,6 +1971,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                 sourceTimestampUtc,
                 balanceTelemetryAvailable,
                 balanceCount,
+                balanceActivity,
                 balanceMode,
                 balanceModeRaw,
                 balanceProvidedVoltageTarget,
@@ -1871,7 +2000,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
                 rawStringDataFanReport: detailStringData?.stringFanReport ?? null,
                 timestampUtc,
                 lastUpdatedUtc: new Date().toISOString(),
-                stringControllerFirmware: sIpInfo?.firmwareVersion || tryGetField(stringsCsvRow || {}, {}, ["firmware", "firmwareversion"]),
+                stringControllerFirmware: scFirmwareByString.get(key) || sIpInfo?.firmwareVersion || tryGetField(stringsCsvRow || {}, {}, ["firmware", "firmwareversion"]),
                 bpcCount: computedBpcCount,
                 energySegmentNumber,
                 containerNumber,
@@ -2029,9 +2158,10 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
         const bucketsByKey = new Map<string, string>();
         const rawStateByKey = new Map<string, string>();
 
-        for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+        const siteDimensions = getActiveSiteDimensions();
+        for (const arrayNumber of siteDimensions.arrayIndices) {
             const stringReport = arrayReport[String(arrayNumber)]?.stringReport || {};
-            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+            for (let stringNumber = 1; stringNumber <= siteDimensions.stringsPerArray; stringNumber++) {
                 const stringData =
                     stringReport[String(stringNumber)]?.stringData ||
                     stringReport[stringNumber]?.stringData ||
@@ -2055,13 +2185,13 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
         // but do not expose a clean per-string stringConnectionState for the affected row.
         // In that case, preserve explicit ONLINE/NEARLINE/OFFLINE states first, then assign
         // the array-level communication deficit to the most likely string rows in that array.
-        for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+        for (const arrayNumber of siteDimensions.arrayIndices) {
             const arrayPayload = arrayReport[String(arrayNumber)];
             const expectedNotComm = Number(arrayPayload?.arrayData?.notCommunicatingStackCount ?? 0);
             if (!Number.isFinite(expectedNotComm) || expectedNotComm <= 0) continue;
 
             let alreadyNotComm = 0;
-            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+            for (let stringNumber = 1; stringNumber <= siteDimensions.stringsPerArray; stringNumber++) {
                 if (bucketsByKey.get(`${arrayNumber}-${stringNumber}`) === "notCommunicating") {
                     alreadyNotComm++;
                 }
@@ -2073,7 +2203,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             const stringReport = arrayPayload?.stringReport || {};
             const candidates: any[] = [];
 
-            for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+            for (let stringNumber = 1; stringNumber <= siteDimensions.stringsPerArray; stringNumber++) {
                 const key = `${arrayNumber}-${stringNumber}`;
                 const currentBucket = bucketsByKey.get(key);
 
@@ -2151,6 +2281,21 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
             } else if (bucket === "offline") {
                 s.operationalState = "OFFLINE";
                 s.communicating = true;
+                // In the EMS string state model, OFFLINE is the authoritative
+                // out-of-rotation state. Keep the rotation fields synchronized
+                // when LastCall corrects a row after the base normalizer ran.
+                s.outRotation = true;
+                s.inRotation = false;
+                s.rotationEnabled = false;
+                s.rotationStatus = "OUT";
+                s.rotation = {
+                    ...(s.rotation || {}),
+                    normalizedState: "OUT OF ROTATION",
+                    displayState: "OUT",
+                    inRotation: false,
+                    outOfRotation: true,
+                    source: "last-call-string-connection-state"
+                };
             } else if (bucket === "notCommunicating") {
                 s.operationalState = "NOT_COMMUNICATING";
                 s.communicating = false;
@@ -2350,48 +2495,6 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
     const contactorEnrichmentStartedAt = performance.now();
     strings.forEach((row: any) => applyAggregateContactorState(row));
     if (cycleId != null) normalizationMetrics.recordDuration(cycleId, "strings", "contactor enrichment", performance.now() - contactorEnrichmentStartedAt);
-
-    // Normalize alert detail aliases for the string detail drawer/panels.
-    const applyRotationStateFromAlerts = (row: any) => {
-        const alertText = [
-            ...(Array.isArray(row?.warnings) ? row.warnings : []),
-            ...(Array.isArray(row?.alarms) ? row.alarms : []),
-            row?.operationalState,
-            row?.statusLabel,
-            row?.alertSummary ? JSON.stringify(row.alertSummary) : ""
-        ].join(" ").toUpperCase();
-
-        const explicitOutOfRotation =
-            alertText.includes("STRING OOR") ||
-            alertText.includes("OUT OF ROTATION") ||
-            alertText.includes("OUT-OF-ROTATION") ||
-            alertText.includes("OOR WARNING") ||
-            String(row?.balanceMode || row?.balMode || "").trim().toUpperCase() === "OFF";
-
-        if (explicitOutOfRotation) {
-            row.inRotation = false;
-            row.outRotation = true;
-            row.rotationStatus = "OUT";
-            row.rotationState = "OUT";
-            row.stringRotationState = "OUT";
-            row.rotation = {
-                ...(row.rotation || {}),
-                inRotation: false,
-                outOfRotation: true,
-                displayState: "OUT",
-                source: "alert-normalized",
-                sourcePath: "warnings/String OOR"
-            };
-            row.sourceDebug = {
-                ...(row.sourceDebug || {}),
-                rotationForcedFromAlert: true
-            };
-        }
-
-        return row;
-    };
-
-    strings.forEach((row: any) => applyRotationStateFromAlerts(row));
 
     strings.forEach((row: any) => {
         const warnings = Array.isArray(row.warnings) ? row.warnings : [];

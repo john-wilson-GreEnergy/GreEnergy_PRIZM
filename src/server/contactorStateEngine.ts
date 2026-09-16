@@ -9,6 +9,9 @@ export type NormalizedContactorState = {
   positiveContactorClosed: boolean | null;
   negativeContactorClosed: boolean | null;
   contactorsCloseExpected: boolean | null;
+  dcBusVoltage: number | null;
+  stringVoltage: number | null;
+  stringToBusDeltaVoltage: number | null;
   requestedState: "closed" | "open" | "unknown";
   actualState: ActualContactorState;
   source: "stringviewer-live";
@@ -53,6 +56,12 @@ function strictBool(value: any): boolean | null {
   if (["FALSE", "0", "OPEN", "OPENED", "OFF"].includes(text)) return false;
 
   return null;
+}
+
+function finiteNumber(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function stateFromFeedback(pos: boolean | null, neg: boolean | null): ActualContactorState {
@@ -111,6 +120,14 @@ export function normalizeContactorStateFromStringviewer(
   const positiveContactorClosed = strictBool(model?.positiveContactorClosed);
   const negativeContactorClosed = strictBool(model?.negativeContactorClosed);
   const contactorsCloseExpected = strictBool(model?.contactorsCloseExpected);
+  const dcBusVoltage = finiteNumber(model?.dcBusVoltage ?? model?.DcBusVoltage ?? model?.voltageDcBus ?? model?.busVoltage);
+  const measuredStringVoltage = finiteNumber(model?.measuredStringVoltage ?? model?.MeasuredStringVoltage ?? model?.measuredVoltage ?? model?.voltageMeasured);
+  const calculatedStringVoltage = finiteNumber(model?.calculatedStringVoltage ?? model?.CalculatedStringVoltage ?? model?.calculatedVoltage ?? model?.voltageCalculated);
+  const stringVoltage = measuredStringVoltage ?? calculatedStringVoltage;
+  const stringToBusDeltaVoltage =
+    stringVoltage !== null && dcBusVoltage !== null
+      ? Math.abs(stringVoltage - dcBusVoltage)
+      : null;
   const requestedState =
     contactorsCloseExpected === true ? "closed" :
     contactorsCloseExpected === false ? "open" :
@@ -124,6 +141,9 @@ export function normalizeContactorStateFromStringviewer(
     positiveContactorClosed,
     negativeContactorClosed,
     contactorsCloseExpected,
+    dcBusVoltage,
+    stringVoltage,
+    stringToBusDeltaVoltage,
     requestedState,
     actualState,
     source: "stringviewer-live",
@@ -147,6 +167,9 @@ function failedState(
     positiveContactorClosed: null,
     negativeContactorClosed: null,
     contactorsCloseExpected: null,
+    dcBusVoltage: null,
+    stringVoltage: null,
+    stringToBusDeltaVoltage: null,
     requestedState: "unknown",
     actualState: "unknown",
     source: "stringviewer-live",
@@ -199,6 +222,7 @@ export async function getContactorStatesForAllStrings(
     concurrency?: number;
     arrays?: number[];
     stringsPerArray?: number;
+    onState?: (state: NormalizedContactorState) => void;
   } = {}
 ): Promise<{
   states: NormalizedContactorState[];
@@ -233,12 +257,17 @@ export async function getContactorStatesForAllStrings(
   const states = await mapWithConcurrency(
     targets,
     options.concurrency ?? DEFAULT_CONCURRENCY,
-    ({ arrayNumber, stringNumber }) =>
-      getContactorStateForString(arrayNumber, stringNumber, {
+    async ({ arrayNumber, stringNumber }) => {
+      const state = await getContactorStateForString(arrayNumber, stringNumber, {
         refresh: true,
         ttlMs,
         timeoutMs: options.timeoutMs
-      })
+      });
+      // Let latency-sensitive consumers publish each completed device without
+      // waiting for the slowest endpoint in the array.
+      options.onState?.(state);
+      return state;
+    }
   );
 
   contactorCache.all = { fetchedAtMs: Date.now(), data: states };

@@ -1,3 +1,5 @@
+import { DOCUMENTED_FAULT_AUGMENTATIONS } from "./documentedFaultAugmentations";
+
 export interface TroubleshootingEntry {
   id: string;
   sourceDocument: string;
@@ -54,6 +56,7 @@ export interface TroubleshootingEntry {
 }
 
 export const TROUBLESHOOTING_KB: TroubleshootingEntry[] = [
+  ...DOCUMENTED_FAULT_AUGMENTATIONS,
   {
     id: "bpc-not-balancing",
     sourceDocument: "Stack750 Troubleshooting Cheat Sheet V2",
@@ -1013,5 +1016,63 @@ export const TROUBLESHOOTING_KB: TroubleshootingEntry[] = [
     detailView: "site",
     managerSummary: "Hydrogen monitoring probe is reporting diagnostic fault. Calibrate sensor or verify supply loops.",
     technicianDetail: "Measure voltage at sensor terminals. Check if gas cell is expired (sensor lifespan typically 2-3 years)."
+  },
+  {
+    id: "env-hvac-commanded-no-current",
+    sourceDocument: "PRIZM Live HVAC Diagnostics",
+    sourcePage: "Command / feedback mismatch",
+    section: "HVAC Issues",
+    system: "hvac",
+    component: "HVAC",
+    issueName: "HVAC Commanded On Without Current",
+    aliases: [
+      "HVAC — Commanded ON, current/RPM below expected range",
+      "Commanded ON, current/RPM below expected range"
+    ],
+    summaryAction: "Verify the HVAC command reaches the selected unit and confirm its measured current locally.",
+    recommendedActions: [
+      "Confirm the selected HVAC command state and measured current.",
+      "Inspect the HVAC breaker, fuse, relay/contactor, and control wiring.",
+      "Validate Feather output mapping and current-input mapping."
+    ],
+    validationChecks: [
+      "Compare the command bit, physical unit state, and measured current.",
+      "Confirm the paired HVAC unit is mapped to the correct input and output channels."
+    ],
+    clearingCriteria: [
+      "The HVAC command, physical operating state, and measured current agree for consecutive live refreshes."
+    ],
+    detailView: "feather",
+    managerSummary: "An HVAC has an active command but its feedback does not show the expected operating current.",
+    technicianDetail: "Verify power and command delivery at the identified Array, Energy Segment, HVAC unit, and Feather IP."
+  },
+  {
+    id: "env-hvac-current-without-command",
+    sourceDocument: "PRIZM Live HVAC Diagnostics",
+    sourcePage: "Command / feedback mismatch",
+    section: "HVAC Issues",
+    system: "hvac",
+    component: "HVAC",
+    issueName: "HVAC Current Without Command",
+    aliases: [
+      "HVAC — Current/RPM present without HVAC command",
+      "Current/RPM present without HVAC command"
+    ],
+    summaryAction: "Verify the selected HVAC is not manually overridden and inspect its relay/contactor state.",
+    recommendedActions: [
+      "Compare the selected HVAC command bit with physical operation and measured current.",
+      "Check for a manual override, bypass, or stuck relay/contactor.",
+      "Validate Feather command-output and current-input mapping."
+    ],
+    validationChecks: [
+      "Remove any authorized override and confirm the unit follows its command.",
+      "Confirm current returns to the expected idle range when the command is off."
+    ],
+    clearingCriteria: [
+      "Measured HVAC current is absent when command is off and present only while the command is active for consecutive live refreshes."
+    ],
+    detailView: "feather",
+    managerSummary: "An HVAC is drawing current or reporting RPM while no corresponding command is active.",
+    technicianDetail: "Inspect the identified unit for local override, stuck switching hardware, or incorrect telemetry mapping."
   }
 ];

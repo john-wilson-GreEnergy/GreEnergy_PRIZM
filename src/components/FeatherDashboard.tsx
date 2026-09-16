@@ -29,6 +29,8 @@ import { useSiteData } from '../context/SiteDataContext';
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { normalizeVoltage } from "../lib/voltageNormalizer";
 import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
+import { supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
+import { appendSharedFeatherSample, FeatherTrendSample } from "../lib/featherTrendSample";
 import FeatherDetailsView from "./FeatherDetailsView";
 import { 
   ResponsiveContainer, 
@@ -42,7 +44,7 @@ import {
 } from "recharts";
 
 export default function FeatherDashboard({ active = true }: { active?: boolean }) {
-  const { snapshot, activeTopologyProfile, isInitialLoading, refreshNow } = useSiteData();
+  const { snapshot, activeTopologyProfile, isInitialLoading, isPollingEnabled, refreshNow } = useSiteData();
   
   // Extract feather data locally to maintain backwards compatibility
   const featherData = useMemo(() => {
@@ -95,7 +97,6 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
     total: 0
   });
 
-  const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(5);
   const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
 
   // Table Filters
@@ -121,30 +122,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   const [advancedDrawerShowJson, setAdvancedDrawerShowJson] = useState<boolean>(false);
 
   // Manual Polling & Sample states for Selected Device
-  const [selectedDeviceInterval, setSelectedDeviceInterval] = useState<string>("Pause");
-  const [samples, setSamples] = useState<Array<{
-    timestamp: string;
-    timeLabel: string;
-    deviceIp?: string;
-    reachable?: boolean;
-    hvac1Current: number;
-    hvac2Current: number;
-    hvac1Rpm: number;
-    hvac2Rpm: number;
-    spaceTemp: number;
-    cellTemp: number;
-    hvac1?: any;
-    hvac2?: any;
-    temperatures?: {
-      spaceTempC: number | null;
-      cellTempC: number | null;
-      supplyAirTempC: number | null;
-      returnAirTempC: number | null;
-    };
-    sensors?: any;
-    raw?: any;
-  }>>([]);
-  const [isPollingDevice, setIsPollingDevice] = useState<boolean>(false);
+  const [samples, setSamples] = useState<FeatherTrendSample[]>([]);
 
   // Error/Success Toasts or alerts
   const [alertMessage, setAlertMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
@@ -203,261 +181,25 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
     }
   };
 
+  // SiteDataContext owns the only automatic poll. This view only consumes its snapshots.
+
+  // Keep the selected detail record current and add one trend point per shared site snapshot.
   useEffect(() => {
-    // Only fetch if interval is enabled and we are actively on the tab
-    if (!active || refreshIntervalSec <= 0) return;
-    const intervalId = setInterval(() => {
-        refreshNow(false);
-    }, refreshIntervalSec * 1000);
-    return () => clearInterval(intervalId);
-  }, [refreshIntervalSec, active, refreshNow]);
+    if (!selectedDevice || !featherData?.devices?.length) return;
+    const selectedIp = selectedDevice.ip || selectedDevice.deviceIp;
+    const currentDevice = featherData.devices.find(device => (device.ip || device.deviceIp) === selectedIp);
+    if (!currentDevice) return;
 
-// Merges direct poll results into existing enriched device
-function mergeFeatherDeviceForDetails(prev: any, incoming: any, fallbackIp: string) {
-  if (!prev && !incoming) return null;
-
-  return {
-    ...(prev || {}),
-    ...(incoming || {}),
-
-    ip: incoming?.ip || prev?.ip || fallbackIp,
-    deviceIp: incoming?.deviceIp || prev?.deviceIp || fallbackIp,
-    arrayIndex: incoming?.arrayIndex !== undefined && incoming?.arrayIndex !== null ? incoming.arrayIndex : prev?.arrayIndex,
-    stringIndex: incoming?.stringIndex !== undefined && incoming?.stringIndex !== null ? incoming.stringIndex : prev?.stringIndex,
-    segmentLabel: incoming?.segmentLabel !== undefined && incoming?.segmentLabel !== null ? incoming.segmentLabel : prev?.segmentLabel,
-    entityDescription: incoming?.entityDescription !== undefined && incoming?.entityDescription !== null ? incoming.entityDescription : prev?.entityDescription,
-    entityKey: incoming?.entityKey !== undefined && incoming?.entityKey !== null ? incoming.entityKey : prev?.entityKey,
-    entityKeyToken: incoming?.entityKeyToken !== undefined && incoming?.entityKeyToken !== null ? incoming.entityKeyToken : prev?.entityKeyToken,
-    displayKey: incoming?.displayKey !== undefined && incoming?.displayKey !== null ? incoming.displayKey : prev?.displayKey,
-    firmwareVersion: incoming?.firmwareVersion !== undefined && incoming?.firmwareVersion !== null ? incoming.firmwareVersion : prev?.firmwareVersion,
-    softwareVersion: incoming?.softwareVersion !== undefined && incoming?.softwareVersion !== null ? incoming.softwareVersion : prev?.softwareVersion,
-    sourceCoverage: {
-      ...(prev?.sourceCoverage || {}),
-      ...(incoming?.sourceCoverage || {})
-    },
-    doorApplicability: {
-      ...(prev?.doorApplicability || {}),
-      ...(incoming?.doorApplicability || {})
-    },
-    doors: incoming?.doors !== undefined && incoming?.doors !== null ? incoming.doors : prev?.doors,
-    fssSignals: incoming?.fssSignals !== undefined && incoming?.fssSignals !== null ? incoming.fssSignals : prev?.fssSignals,
-    hvac1: incoming?.hvac1 !== undefined && incoming?.hvac1 !== null ? incoming.hvac1 : prev?.hvac1,
-    hvac2: incoming?.hvac2 !== undefined && incoming?.hvac2 !== null ? incoming.hvac2 : prev?.hvac2,
-    raw: {
-      ...(prev?.raw || {}),
-      directPoll: incoming?.raw || incoming
+    setSelectedDevice(currentDevice);
+    const capturedAt = featherData.cache?.lastUpdatedAt;
+    if (capturedAt) {
+      setSamples(previous => appendSharedFeatherSample(previous, currentDevice, capturedAt));
     }
-  };
-}
+  }, [featherData]);
 
-// Extract command vs feedback states for sampling
-function getHvacSampleDetails(hvac: any) {
-  if (!hvac) return {
-    fanLowCommanded: null, fanLowCurrent: null,
-    fanHighCommanded: null, fanHighCurrent: null,
-    compressorCommanded: null, compressorCurrent: null,
-    reversingValveCommanded: null, reversingValveCurrent: null,
-    electricHeatCommanded: null, electricHeatCurrent: null,
-    currentA: null, fanSpeedRpm: null, mode: null, responding: false
-  };
-
-  const hasCmd = !!(hvac.fanLowOn || hvac.fanHighOn || hvac.compressorOn || hvac.electricHeatOn || hvac.reversingValveOn);
-  const hasAct = !!((hvac.currentA && hvac.currentA > 0.2) || (hvac.fanSpeedRpm && hvac.fanSpeedRpm > 0));
-
-  return {
-    fanLowCommanded: hvac.fanLowOn ?? null,
-    fanLowCurrent: hvac.fanLowOn !== undefined && hvac.fanLowOn !== null
-      ? (hvac.fanLowOn ? hasAct : (hasAct && !hasCmd))
-      : null,
-
-    fanHighCommanded: hvac.fanHighOn ?? null,
-    fanHighCurrent: hvac.fanHighOn !== undefined && hvac.fanHighOn !== null
-      ? (hvac.fanHighOn ? hasAct : (hasAct && !hasCmd))
-      : null,
-
-    compressorCommanded: hvac.compressorOn ?? null,
-    compressorCurrent: hvac.compressorOn !== undefined && hvac.compressorOn !== null
-      ? (hvac.compressorOn ? (hvac.currentA > 8.0) : (hasAct && !hasCmd))
-      : null,
-
-    reversingValveCommanded: hvac.reversingValveOn ?? null,
-    reversingValveCurrent: hvac.reversingValveOn !== undefined && hvac.reversingValveOn !== null
-      ? (hvac.reversingValveOn ? hasAct : (hasAct && !hasCmd))
-      : null,
-
-    electricHeatCommanded: hvac.electricHeatOn ?? null,
-    electricHeatCurrent: hvac.electricHeatOn !== undefined && hvac.electricHeatOn !== null
-      ? (hvac.electricHeatOn ? hasAct : (hasAct && !hasCmd))
-      : null,
-
-    currentA: hvac.currentA ?? null,
-    fanSpeedRpm: hvac.fanSpeedRpm ?? null,
-    mode: hvac.mode ?? null,
-    responding: hvac.dataValid ?? false
-  };
-}
-
-  // Trigger single device manual poll
-  const triggerDevicePoll = async () => {
-    if (!selectedDevice || isPollingDevice) return;
-    setIsPollingDevice(true);
-    try {
-      const res = await fetch(`/api/feather/devices/${selectedDevice.ip}/status?source=manual`);
-      if (!res.ok) throw new Error("HTTP error " + res.status);
-      const data = await res.json();
-      if (data.success && data.device) {
-        setSelectedDevice(prev => mergeFeatherDeviceForDetails(prev, data.device, selectedDevice.ip || selectedDevice.deviceIp));
-        
-        const now = new Date();
-        const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        const h1 = data.device.hvac1 || {};
-        const h2 = data.device.hvac2 || {};
-        
-        const tSpace = data.device.spaceTemperatureC !== undefined && data.device.spaceTemperatureC !== null
-          ? data.device.spaceTemperatureC
-          : (data.device.thermal?.spaceTemperature !== undefined && data.device.thermal?.spaceTemperature !== null
-              ? data.device.thermal.spaceTemperature
-              : null);
-
-        const tCell = data.device.avgCellTemperatureC !== undefined && data.device.avgCellTemperatureC !== null
-          ? data.device.avgCellTemperatureC
-          : (data.device.temperatureCellC !== undefined && data.device.temperatureCellC !== null
-              ? data.device.temperatureCellC
-              : (data.device.thermal?.avgCellTemperature !== undefined && data.device.thermal?.avgCellTemperature !== null
-                  ? data.device.thermal.avgCellTemperature
-                  : null));
-
-        const tSupply = data.device.supplyAirTempC !== undefined && data.device.supplyAirTempC !== null
-          ? data.device.supplyAirTempC
-          : (data.device.temperatureSupplyC !== undefined && data.device.temperatureSupplyC !== null
-              ? data.device.temperatureSupplyC
-              : (data.device.thermal?.supplyAirTemp !== undefined && data.device.thermal?.supplyAirTemp !== null
-                  ? data.device.thermal.supplyAirTemp
-                  : null));
-
-        const tReturn = data.device.returnAirTempC !== undefined && data.device.returnAirTempC !== null
-          ? data.device.returnAirTempC
-          : (data.device.temperatureReturnC !== undefined && data.device.temperatureReturnC !== null
-              ? data.device.temperatureReturnC
-              : (data.device.thermal?.returnAirTemp !== undefined && data.device.thermal?.returnAirTemp !== null
-                  ? data.device.thermal.returnAirTemp
-                  : null));
-
-        const tOutside = data.device.outsideTemperatureC !== undefined && data.device.outsideTemperatureC !== null
-          ? data.device.outsideTemperatureC
-          : (data.device.thermal?.outsideTemperature !== undefined && data.device.thermal?.outsideTemperature !== null
-              ? data.device.thermal.outsideTemperature
-              : null);
-
-        const toF = (c: number | null) => {
-          if (c === null || c === undefined) return null;
-          return c * 1.8 + 32;
-        };
-
-        const getSourceDebug = (val: any, fieldName: string) => {
-          if (val !== undefined && val !== null) return fieldName;
-          return null;
-        };
-
-        const spaceSource = getSourceDebug(data.device.spaceTemperatureC, "device.spaceTemperatureC") ||
-                            getSourceDebug(data.device.thermal?.spaceTemperature, "thermal.spaceTemperature") || "missing";
-
-        const cellSource = getSourceDebug(data.device.avgCellTemperatureC, "device.avgCellTemperatureC") ||
-                           getSourceDebug(data.device.temperatureCellC, "device.temperatureCellC") ||
-                           getSourceDebug(data.device.thermal?.avgCellTemperature, "thermal.avgCellTemperature") || "missing";
-
-        const supplySource = getSourceDebug(data.device.supplyAirTempC, "device.supplyAirTempC") ||
-                             getSourceDebug(data.device.temperatureSupplyC, "device.temperatureSupplyC") ||
-                             getSourceDebug(data.device.thermal?.supplyAirTemp, "thermal.supplyAirTemp") || "missing";
-
-        const returnSource = getSourceDebug(data.device.returnAirTempC, "device.returnAirTempC") ||
-                             getSourceDebug(data.device.temperatureReturnC, "device.temperatureReturnC") ||
-                             getSourceDebug(data.device.thermal?.returnAirTemp, "thermal.returnAirTemp") || "missing";
-
-        const outsideSource = getSourceDebug(data.device.outsideTemperatureC, "device.outsideTemperatureC") ||
-                              getSourceDebug(data.device.thermal?.outsideTemperature, "thermal.outsideTemperature") || "missing";
-
-        const rawThermalKeys = data.device.thermal ? Object.keys(data.device.thermal) : [];
-         
-        const newSample = {
-          timestamp: now.toISOString(),
-          timeLabel,
-          deviceIp: data.device.ip || data.device.deviceIp || selectedDevice.ip,
-          reachable: !!data.device.reachable,
-          hvac1Current: h1.currentA ?? 0,
-          hvac2Current: h2.currentA ?? 0,
-          hvac1Rpm: h1.fanSpeedRpm ?? 0,
-          hvac2Rpm: h2.fanSpeedRpm ?? 0,
-          spaceTemp: toF(tSpace),
-          cellTemp: toF(tCell),
-          supplyTemp: toF(tSupply),
-          returnTemp: toF(tReturn),
-          outsideTemp: toF(tOutside),
-          hvac1: getHvacSampleDetails(data.device.hvac1),
-          hvac2: getHvacSampleDetails(data.device.hvac2),
-          temperatures: {
-            spaceTempC: tSpace,
-            cellTempC: tCell,
-            supplyAirTempC: tSupply,
-            returnAirTempC: tReturn,
-            outsideTempC: tOutside,
-            raw: data.device.thermal || null
-          },
-          temperatureSourceDebug: {
-            spaceTempCSource: spaceSource,
-            cellTempCSource: cellSource,
-            supplyAirTempCSource: supplySource,
-            returnAirTempCSource: returnSource,
-            outsideTempCSource: outsideSource,
-            rawThermalKeys
-          },
-          sensors: {
-            doors: data.device.doors ?? null,
-            fssSignals: data.device.fssSignals ?? null
-          },
-          raw: data.device.raw ?? null
-        };
-        
-        setSamples(prev => {
-          const next = [...prev, newSample];
-          if (next.length > 300) return next.slice(-300);
-          return next;
-        });
-      }
-    } catch (err: any) {
-      console.error("Single device poll failed:", err);
-      setAlertMessage({ type: "error", text: `Manual Poll failed for ${selectedDevice.ip}: ${err.message || err}` });
-    } finally {
-      setIsPollingDevice(false);
-    }
-  };
-
-  // Reset samples and interval when device changes
   useEffect(() => {
     setSamples([]);
-    setIsPollingDevice(false);
-    setSelectedDeviceInterval("Pause");
   }, [selectedDevice?.ip]);
-
-  // Polling effect for selected device
-  useEffect(() => {
-    if (!selectedDevice || selectedDeviceInterval === "Pause") return;
-    
-    const intervalMs = parseInt(selectedDeviceInterval, 10);
-    if (isNaN(intervalMs) || intervalMs <= 0) return;
-    
-    // First, do an immediate poll if we have no samples yet
-    if (samples.length === 0) {
-      triggerDevicePoll();
-    }
-    
-    const timer = setInterval(() => {
-      triggerDevicePoll();
-    }, intervalMs);
-    
-    return () => clearInterval(timer);
-  }, [selectedDevice?.ip, selectedDeviceInterval, samples.length]);
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
@@ -473,6 +215,8 @@ function getHvacSampleDetails(hvac: any) {
       displayName: device.displayName ?? device.topology?.displayName,
       ip: device.ip,
       enclosureType: device.enclosureType ?? device.topology?.enclosureType,
+      energySegmentsPerArray: activeTopologyProfile?.assumptions?.energySegmentsPerArray,
+      includeCollectionSegment: activeTopologyProfile?.assumptions?.collectionSegmentsPerArray !== 0,
     });
 
     if (resolvedNumOrCS === "CS") {
@@ -563,19 +307,20 @@ function getHvacSampleDetails(hvac: any) {
   const detectHvacMismatch = (device: any) => {
     const hvac1 = device.hvac1 || {};
     const hvac2 = device.hvac2 || {};
+    const rpmSupported = supportsFanSpeedFeedback(device.hvacType);
     
     const hvac1Cmd = !!(hvac1.fanLowOn || hvac1.fanHighOn || hvac1.compressorOn || hvac1.electricHeatOn);
-    const hvac1Act = !!((hvac1.currentA && hvac1.currentA > 0.2) || (hvac1.fanSpeedRpm && hvac1.fanSpeedRpm > 0));
+    const hvac1Act = !!((hvac1.currentA && hvac1.currentA > 0.2) || (rpmSupported && hvac1.fanSpeedRpm && hvac1.fanSpeedRpm > 0));
     
     const hvac2Cmd = !!(hvac2.fanLowOn || hvac2.fanHighOn || hvac2.compressorOn || hvac2.electricHeatOn);
-    const hvac2Act = !!((hvac2.currentA && hvac2.currentA > 0.2) || (hvac2.fanSpeedRpm && hvac2.fanSpeedRpm > 0));
+    const hvac2Act = !!((hvac2.currentA && hvac2.currentA > 0.2) || (rpmSupported && hvac2.fanSpeedRpm && hvac2.fanSpeedRpm > 0));
     
     let mismatchType: "none" | "commanded_not_active" | "active_not_commanded" = "none";
     let description = "";
     
     if ((hvac1Cmd && !hvac1Act) || (hvac2Cmd && !hvac2Act)) {
       mismatchType = "commanded_not_active";
-      description = "HVAC commanded but no active current/RPM feedback detected.";
+      description = rpmSupported ? "HVAC commanded but no active current/RPM feedback detected." : "HVAC commanded but no active current feedback detected.";
     } else if ((!hvac1Cmd && hvac1Act) || (!hvac2Cmd && hvac2Act)) {
       mismatchType = "active_not_commanded";
       description = "HVAC active feedback detected without any command.";
@@ -588,7 +333,7 @@ function getHvacSampleDetails(hvac: any) {
     };
   };
 
-  const getSingleHvacMismatchState = (hvac: any) => {
+  const getSingleHvacMismatchState = (hvac: any, hvacType: unknown) => {
     const unit = hvac || {};
     const commanded = !!(
       unit.fanLowOn ||
@@ -600,7 +345,7 @@ function getHvacSampleDetails(hvac: any) {
 
     const active = !!(
       (Number(unit.currentA || 0) > 0.2) ||
-      (Number(unit.fanSpeedRpm || 0) > 0)
+      (supportsFanSpeedFeedback(hvacType) && Number(unit.fanSpeedRpm || 0) > 0)
     );
 
     let mismatchType: "none" | "commanded_not_active" | "active_not_commanded" = "none";
@@ -619,8 +364,8 @@ function getHvacSampleDetails(hvac: any) {
   const deviceMatchesHvacFilter = (device: any): boolean => {
     if (hvacFilter === "all") return true;
 
-    const hvac1 = getSingleHvacMismatchState(device?.hvac1);
-    const hvac2 = getSingleHvacMismatchState(device?.hvac2);
+    const hvac1 = getSingleHvacMismatchState(device?.hvac1, device?.hvacType);
+    const hvac2 = getSingleHvacMismatchState(device?.hvac2, device?.hvacType);
 
     if (hvacFilter === "mismatch") {
       return hvac1.isMismatched || hvac2.isMismatched;
@@ -994,7 +739,7 @@ function getHvacSampleDetails(hvac: any) {
   });
 
   // Compact HVAC rendering for Main Table
-  const renderHvacCompact = (hvac: any, hvacId: string) => {
+  const renderHvacCompact = (hvac: any, hvacId: string, hvacType: unknown) => {
     if (!hvac) return <span className="text-prizm-text-muted">--</span>;
     
     const relays = [
@@ -1030,8 +775,7 @@ function getHvacSampleDetails(hvac: any) {
         </div>
         <div className="flex items-center gap-2 text-[9px] text-prizm-text-muted font-medium">
           <span>{(hvac.currentA || 0).toFixed(1)}A</span>
-          <span>•</span>
-          <span>{hvac.fanSpeedRpm || 0} RPM</span>
+          {supportsFanSpeedFeedback(hvacType) && <><span>•</span><span>{hvac.fanSpeedRpm || 0} RPM</span></>}
         </div>
       </div>
     );
@@ -1131,7 +875,7 @@ function getHvacSampleDetails(hvac: any) {
           const state = getSensorBadgeState(d, t);
           if (state === 'hidden') return null;
 
-          let colorClass = "bg-zinc-800/50 text-zinc-500 border border-zinc-700/30";
+          let colorClass = "bg-slate-200 text-slate-700 border border-slate-400";
           if (state === 'normal') {
             colorClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
           } else if (state === 'problem') {
@@ -1171,10 +915,6 @@ function getHvacSampleDetails(hvac: any) {
         selectedDevice={selectedDevice}
         activeTopologyProfile={activeTopologyProfile}
         onBack={() => setSelectedDevice(null)}
-        triggerDevicePoll={triggerDevicePoll}
-        isPollingDevice={isPollingDevice}
-        selectedDeviceInterval={selectedDeviceInterval}
-        setSelectedDeviceInterval={setSelectedDeviceInterval}
         samples={samples}
         setSamples={setSamples}
         pairedStrings={pairedStrings}
@@ -1220,30 +960,15 @@ function getHvacSampleDetails(hvac: any) {
       {/* 2. SUMMARY TELEMETRY CARDS & LIVE REFRESH CONTROLS */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-prizm-surface border border-prizm-border rounded-lg p-3 font-mono text-xs">
         <div className="flex items-center gap-4">
-          <RefreshCw className={`text-prizm-primary ${refreshIntervalSec > 0 ? "animate-spin" : ""}`} size={16} />
+          <RefreshCw className={`text-prizm-primary ${isPollingEnabled ? "animate-spin" : ""}`} size={16} />
           <div>
              <span className="block font-bold">LIVE TELEMETRY POLLING</span>
              <span className="block text-[10px] text-prizm-text-muted">
-                {refreshIntervalSec > 0 ? `Active - Auto Refreshing every ${refreshIntervalSec}s (Targeting Direct Feather nodes)` : "Paused. System idle."}
+                {isPollingEnabled ? "Using the shared site telemetry stream" : "Shared site telemetry is paused"}
              </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 mt-3 md:mt-0">
-          <span className="text-[9px] uppercase tracking-wider text-prizm-text-muted">Interval:</span>
-          <div className="flex bg-prizm-surface-strong p-1 rounded border border-prizm-border text-[10px]">
-             {[0, 2, 5, 10, 30].map(val => (
-               <button
-                  key={val}
-                  onClick={() => setRefreshIntervalSec(val)}
-                  className={`px-2 py-0.5 rounded cursor-pointer ${
-                    refreshIntervalSec === val ? "bg-prizm-warning text-prizm-warning" : "text-prizm-text-muted hover:text-prizm-text"
-                  }`}
-               >
-                 {val === 0 ? "PAUSED" : `${val}s`}
-               </button>
-             ))}
-          </div>
-        </div>
+        <span className="mt-3 md:mt-0 rounded border border-prizm-primary/30 bg-prizm-primary/10 px-3 py-1 text-[9px] font-bold uppercase text-prizm-primary">One shared poll</span>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 font-mono text-[11px]">
@@ -1462,12 +1187,12 @@ function getHvacSampleDetails(hvac: any) {
 
                       {/* HVAC Unit 1 */}
                       <td className="p-3">
-                        {renderHvacCompact(d.hvac1, "hvac1")}
+                        {renderHvacCompact(d.hvac1, "hvac1", d.hvacType)}
                       </td>
 
                       {/* HVAC Unit 2 */}
                       <td className="p-3">
-                        {renderHvacCompact(d.hvac2, "hvac2")}
+                        {renderHvacCompact(d.hvac2, "hvac2", d.hvacType)}
                       </td>
 
                       {/* Sensors Summary */}

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getEmsCachedRawStrings, getEmsCachedBlock, getEmsStringIpMap, getEmsConnectionStatus } from "../emsTurtleClient";
+import { getEmsCachedRawStrings, getEmsCachedBlock, getEmsStringIpMap, getEmsIpMap, getEmsConnectionStatus } from "../emsTurtleClient";
 import { getCommunicating, getOutRotation, getContactorsClosed } from "../../lib/stringClassifier";
 import * as prizmCache from "../cache/prizmCache";
 import { ProfileStore } from "../profiles/profileStore";
@@ -14,6 +14,7 @@ export interface SiteStringDistributionRow {
   blockIndex?: number;
   arrayIndex: number;
   stringIndex: number;
+  energySegmentNumber?: number;
   ip?: string;
   displayLabel: string;
   stackVoltage?: number;
@@ -99,6 +100,63 @@ export async function buildSiteDistributionRows(): Promise<SiteStringDistributio
   const stationCode = conn.discoveredStationCode || conn.stationCode || "BHE0021";
   const blockIndex = conn.blockIndex || 1;
 
+  const stringIpMapWrapper = getEmsStringIpMap();
+  const deviceIpMapWrapper = getEmsIpMap();
+  const normalizeMapRows = (source: any): any[] => {
+    if (Array.isArray(source)) return source;
+    if (source && typeof source === "object") return Object.values(source);
+    if (typeof source !== "string") return [];
+    if (source.includes('"ipAddress"')) {
+      const embeddedRows = (source.match(/\{[\s\S]*?\}/g) || []).flatMap((candidate) => {
+        try {
+          const parsed = JSON.parse(candidate);
+          return parsed && typeof parsed === "object" ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      });
+      if (embeddedRows.length > 0) return embeddedRows;
+    }
+    const lines = source.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const parseCsvLine = (line: string) => {
+      const values: string[] = [];
+      let current = "";
+      let quoted = false;
+      for (let index = 0; index < line.length; index += 1) {
+        const character = line[index];
+        if (character === '"' && line[index + 1] === '"' && quoted) {
+          current += '"';
+          index += 1;
+        } else if (character === '"') {
+          quoted = !quoted;
+        } else if (character === "," && !quoted) {
+          values.push(current.trim());
+          current = "";
+        } else {
+          current += character;
+        }
+      }
+      values.push(current.trim());
+      return values;
+    };
+    const headers = parseCsvLine(lines[0]);
+    return lines.slice(1).map((line) => Object.fromEntries(headers.map((header, index) => [header, parseCsvLine(line)[index] ?? ""])));
+  };
+  const stringIpRows = [
+    ...normalizeMapRows(stringIpMapWrapper?.data),
+    ...normalizeMapRows(deviceIpMapWrapper?.data)
+  ];
+  const stringIpByIdentity = new Map<string, string>();
+  for (const row of stringIpRows as any[]) {
+    const arrayNumber = Number(row?.array ?? row?.arrayIndex ?? row?.ArrayIndex ?? row?.arrayNumber ?? row?.Array);
+    const stringNumber = Number(row?.string ?? row?.stringIndex ?? row?.StringIndex ?? row?.stringNumber ?? row?.String);
+    const ip = row?.ip ?? row?.ipAddress ?? row?.IpAddress ?? row?.IPAddress ?? row?.stringIp ?? row?.stringControllerIp ?? row?.controllerIp ?? row?.address;
+    if (Number.isFinite(arrayNumber) && Number.isFinite(stringNumber) && ip) {
+      stringIpByIdentity.set(`${arrayNumber}:${stringNumber}`, String(ip));
+    }
+  }
+
   return normalizedStrings.map((s: any) => {
     const inRotation = !s.outRotation;
     const explicitDisconnected = (
@@ -133,7 +191,8 @@ export async function buildSiteDistributionRows(): Promise<SiteStringDistributio
       blockIndex: s.blockIndex || blockIndex,
       arrayIndex: s.arrayNumber,
       stringIndex: s.stringNumber,
-      ip: s.stringControllerIp || "Unknown",
+      energySegmentNumber: Number(s.energySegmentNumber ?? s.energySegmentIndex ?? Math.ceil(Number(s.stringNumber ?? s.stringIndex) / 2)),
+      ip: s.stringControllerIp || s.controllerIp || s.ipAddress || s.stringIp || stringIpByIdentity.get(`${Number(s.arrayNumber ?? s.arrayIndex)}:${Number(s.stringNumber ?? s.stringIndex)}`),
       displayLabel: s.stringKey,
       stackVoltage: s.stackVoltageVdc,
       stackVoltageVdc: s.stackVoltageVdc,
@@ -149,6 +208,7 @@ export async function buildSiteDistributionRows(): Promise<SiteStringDistributio
       communicating: s.communicating,
       inRotation,
       outRotation: s.outRotation,
+      bucket: s.bucket,
       contactorsClosed: s.contactorClosed,
       statusColor,
       statusLabel,
@@ -169,7 +229,7 @@ router.get("/strings", async (req, res) => {
   const rawStringsWrapper = getEmsCachedRawStrings();
   const blockWrapper = getEmsCachedBlock();
   
-  let sourceLabel: "site-operations" | "strings.csv" | "blockviewer" | "hybrid" = "hybrid";
+  let sourceLabel: "live" | "partial" | "cached" | "offline" | "site-operations" | "strings.csv" | "blockviewer" | "hybrid" = "hybrid";
 
   if (rawStringsWrapper.data && rawStringsWrapper.data.length > 0) {
     const src = String(rawStringsWrapper.source || "").toLowerCase();
@@ -228,6 +288,9 @@ router.get("/strings", async (req, res) => {
   }
 
   const connStatus = getEmsConnectionStatus();
+  if (["live", "partial", "cached", "offline"].includes(String(connStatus?.source))) {
+    sourceLabel = connStatus.source as typeof sourceLabel;
+  }
   if (!stationCode && connStatus?.stationCode) {
     stationCode = connStatus.stationCode;
   }

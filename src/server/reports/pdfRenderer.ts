@@ -646,7 +646,7 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
 
                  targetsList.forEach((t: any) => {
                    const arrayVal = t.arrayIndex ?? t.arrayNumber ?? t.array;
-                   const arrayStr = arrayVal !== undefined && arrayVal !== null ? `A${arrayVal}` : "-";
+                   const arrayStr = arrayVal !== undefined && arrayVal !== null ? `Array ${arrayVal}` : "-";
 
                    let stackStr = "-";
                    if (t.blockIndex !== undefined && t.blockIndex !== null) {
@@ -833,4 +833,3 @@ export async function generatePdf(payload: SiteReportPayload): Promise<Buffer> {
     }
   });
 }
-

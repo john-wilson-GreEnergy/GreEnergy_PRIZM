@@ -10,6 +10,7 @@ import {
   getEmsCachedRawStrings
 } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
+import { stringDomainBroker } from "../domainBrokers/stringDomainBroker";
 
 // Directory specs
 const PROFILE_CACHE_DIR = path.join(process.cwd(), "data", "modbus-profiles");
@@ -32,6 +33,7 @@ let discoveryStatus: DiscoveryStatus = {
 // Polling intervals / timer refs
 let pollIntervalRef: NodeJS.Timeout | null = null;
 let fastPollCount = 0;
+let discoveredAddressOffset: 0 | -1 | null = null;
 
 // Interfaces
 export interface ModbusProfile {
@@ -172,7 +174,8 @@ export function queryModbusRaw(
   addressOffset: number,
   startAddress: number,
   quantity: number,
-  timeoutMs = 1500
+  timeoutMs = 1500,
+  functionCode: 3 | 4 = 3
 ): Promise<{ registers: number[]; protocolAddressUsed: number; rawBytes: Buffer }> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
@@ -192,7 +195,7 @@ export function queryModbusRaw(
       buffer.writeUInt16BE(0, 2);
       buffer.writeUInt16BE(6, 4);
       buffer.writeUInt8(unitId, 6);
-      buffer.writeUInt8(3, 7); // Function Code 3 (Read Holding Registers)
+      buffer.writeUInt8(functionCode, 7);
       buffer.writeUInt16BE(protocolAddressUsed, 8);
       buffer.writeUInt16BE(quantity, 10);
 
@@ -213,11 +216,11 @@ export function queryModbusRaw(
         return reject(new Error(`Response too short: ${data.length} bytes`));
       }
       const respFuncCode = data.readUInt8(7);
-      if (respFuncCode === 0x83) {
+      if (respFuncCode === (functionCode | 0x80)) {
         const exceptionCode = data.readUInt8(8);
         return reject(new Error(`Modbus Exception: Code ${exceptionCode}`));
       }
-      if (respFuncCode !== 3) {
+      if (respFuncCode !== functionCode) {
         return reject(new Error(`Unexpected Function Code response: ${respFuncCode}`));
       }
       const byteCount = data.readUInt8(8);
@@ -253,7 +256,7 @@ export async function queryModbusReal(
   startAddress: number,
   quantity: number,
   unitId = 1,
-  addressOffset = -1
+  addressOffset = discoveredAddressOffset ?? 0
 ): Promise<{
   registers: number[];
   protocolAddressUsed: number;
@@ -287,6 +290,35 @@ export async function queryModbusReal(
   }
 }
 
+export async function detectMapAddressOffset(host: string, csvContent: string, unitId = 1): Promise<0 | -1> {
+  if (discoveredAddressOffset !== null) return discoveredAddressOffset;
+  const lines = csvContent.split(/\r?\n/).filter(Boolean);
+  const headers = parseCSVRow(lines[0]).map((header) => header.toUpperCase());
+  const fieldTypeColumn = headers.indexOf("FIELDTYPE");
+  const addressColumn = headers.indexOf("MODBUSADDRESS");
+  const valueColumn = headers.indexOf("VALUE");
+  const anchor = lines.slice(1).map(parseCSVRow).find((row) =>
+    row[fieldTypeColumn]?.toUpperCase() === "HEADER" &&
+    Number.isInteger(Number(row[addressColumn])) &&
+    Number.isInteger(Number(row[valueColumn]))
+  );
+  if (!anchor) throw new Error("Modbus map has no fixed-value header for address alignment");
+  const address = Number(anchor[addressColumn]);
+  const expected = Number(anchor[valueColumn]);
+  for (const candidate of [0, -1] as const) {
+    try {
+      const result = await queryModbusReal(host, address, 1, unitId, candidate);
+      if (result.registers[0] === expected) {
+        discoveredAddressOffset = candidate;
+        return candidate;
+      }
+    } catch {
+      // Try the other conventional address alignment.
+    }
+  }
+  throw new Error(`Unable to align Modbus map address ${address} with expected header value ${expected}`);
+}
+
 export function getModbusReader(): (address: number, size: number) => Promise<number[]> {
   if (isModbusMockEnabled()) {
     return emulateModbusRead;
@@ -294,7 +326,7 @@ export function getModbusReader(): (address: number, size: number) => Promise<nu
   return async (address: number, size: number) => {
     const activeProfileProps = ProfileStore.getActiveProfile();
     const host = activeProfileProps.modbusHost || activeProfileProps.emsHost || "10.0.0.3";
-    const res = await queryModbusReal(host, address, size, 1, -1);
+    const res = await queryModbusReal(host, address, size, 1, discoveredAddressOffset ?? 0);
     return res.registers;
   };
 }
@@ -313,6 +345,10 @@ export function parseModbusCSV(csvContent: string): SerializedRegister[] {
   const headers = parseCSVRow(lines[0].toLowerCase());
   
   const getIndex = (keys: string[]) => {
+    for (const key of keys) {
+      const exact = headers.findIndex((header) => header === key);
+      if (exact >= 0) return exact;
+    }
     return headers.findIndex(h => keys.some(k => h.includes(k)));
   };
 
@@ -353,7 +389,7 @@ export function parseModbusCSV(csvContent: string): SerializedRegister[] {
     // Normalizing data type
     let dataType = "uint16";
     const tLower = typeRaw.toLowerCase();
-    if (tLower.includes("sint16") || tLower.includes("int16")) dataType = "sint16";
+    if (tLower.includes("sint16") || (tLower.includes("int16") && !tLower.includes("uint16"))) dataType = "sint16";
     else if (tLower.includes("uint32")) dataType = "uint32";
     else if (tLower.includes("sint32") || tLower.includes("int32")) dataType = "sint32";
     else if (tLower.includes("bitfield")) dataType = "bitfield32";
@@ -1208,11 +1244,12 @@ export async function runLiveDiagnostics(): Promise<any[]> {
   const profileId = profileProps?.id || "default-local-ems";
   const host = profileProps?.modbusHost || profileProps?.emsHost || "10.0.0.3";
   const mockEnabled = isModbusMockEnabled();
+  const cachedMap = getEmsCachedModbusMap()?.data;
 
   // Choose correct set of anchors based on station code
   const isSS4 = stationCode.includes("BHE0021") || stationCode.includes("SS4");
   
-  const anchorsList = isSS4 ? [
+  let anchorsList = isSS4 ? [
     { semanticKey: "site.socPercent", fieldName: "BlockTotalSOC", address: 11622, size: 1, dataType: "uint16" },
     { semanticKey: "site.storedEnergyKwh", fieldName: "BlockTotalStoredWh", address: 11627, size: 2, dataType: "uint32" },
     { semanticKey: "site.agcFeedbackKw", fieldName: "BasicOpTargetPower", address: 11640, size: 1, dataType: "sint16" },
@@ -1258,8 +1295,25 @@ export async function runLiveDiagnostics(): Promise<any[]> {
     { semanticKey: "arrays[7].chargeCurrentLimitA", fieldName: "Array 8 UOLL charge", address: 1142, size: 1, dataType: "uint16" }
   ];
 
+  // Addresses are site/map specific. Never keep using the historical fallback
+  // addresses when the current EMS map supplies an exact field definition.
+  if (!mockEnabled && typeof cachedMap === "string") {
+    const currentRegisters = parseModbusCSV(cachedMap);
+    const mappedSiteFields = [
+      { fieldName: "BlockTotalSOC", semanticKey: "site.socPercent" },
+      { fieldName: "BlockTotalStoredWh", semanticKey: "site.storedEnergyKwh" },
+      { fieldName: "BasicOpTargetPower", semanticKey: "site.agcFeedbackKw" },
+    ];
+    anchorsList = mappedSiteFields.flatMap(({ fieldName, semanticKey }) => {
+      const register = currentRegisters.find((candidate) => candidate.fieldName === fieldName);
+      return register ? [{ semanticKey, fieldName, address: register.registerAddress, size: register.size, dataType: register.dataType }] : [];
+    });
+  }
+
   const results: any[] = [];
-  const addressOffset = -1;
+  const addressOffset = mockEnabled
+    ? 0
+    : await detectMapAddressOffset(host, typeof cachedMap === "string" ? cachedMap : "", 1);
   const unitId = 1;
 
   for (const anchor of anchorsList) {
@@ -1297,7 +1351,7 @@ export async function runLiveDiagnostics(): Promise<any[]> {
 
         decodedValue = decodeRegisterValue(rawRegisters, anchor.dataType, scaleFactor, "custom", anchor.fieldName);
         source = "live-modbus";
-        statusStr = "pass";
+        statusStr = decodedValue === "N/A" || decodedValue === null ? "unknown" : "pass";
       } catch (err1: any) {
         errorMsg = err1.message || String(err1);
         try {
@@ -1364,4 +1418,95 @@ export async function runLiveDiagnostics(): Promise<any[]> {
   }
 
   return results;
+}
+
+// A bounded, read-only probe of the current EMS map. Raw values are deliberately
+// not promoted to dashboard telemetry until their bitfields/scales are validated.
+export async function probeMappedLiveRegisters() {
+  const map = getEmsCachedModbusMap();
+  const csv = map?.data;
+  if (typeof csv !== "string" || !csv.trim()) {
+    throw new Error("Current EMS Modbus map is not cached yet");
+  }
+  const lines = csv.split(/\r?\n/).filter(Boolean);
+  const headers = parseCSVRow(lines[0]).map((header) => header.toUpperCase());
+  const column = (name: string) => headers.indexOf(name);
+  const nameColumn = column("FIELDNAME");
+  const addressColumn = column("MODBUSADDRESS");
+  const sizeColumn = column("FIELDSIZE");
+  const accessColumn = column("R/W");
+  if ([nameColumn, addressColumn, sizeColumn, accessColumn].some((index) => index < 0)) {
+    throw new Error("EMS Modbus map has missing required columns");
+  }
+  const wanted = ["BlockTotalSOC", "StringWithOpenContactorsCount", "StringOutOfRotationCount", "StringStatus[1]", "ContactorStatus[1]"];
+  const rows = lines.slice(1).map(parseCSVRow);
+  const profile = ProfileStore.getActiveProfile();
+  const host = profile?.modbusHost || profile?.emsHost || "10.0.0.3";
+  const addressOffset = await detectMapAddressOffset(host, csv, 1);
+  const samples = [];
+  for (const fieldName of wanted) {
+    const row = rows.find((candidate) => candidate[nameColumn] === fieldName && candidate[accessColumn]?.toUpperCase() === "R");
+    if (!row) {
+      samples.push({ fieldName, status: "not-mapped" });
+      continue;
+    }
+    const address = Number(row[addressColumn]);
+    const size = Number(row[sizeColumn]);
+    if (!Number.isInteger(address) || !Number.isInteger(size) || size < 1 || size > 2) {
+      samples.push({ fieldName, status: "invalid-map-row" });
+      continue;
+    }
+    try {
+      const result = await queryModbusReal(host, address, size, 1, addressOffset);
+      samples.push({ fieldName, address, size, port: result.port, rawRegisters: result.registers, status: "read" });
+    } catch (error: any) {
+      samples.push({ fieldName, address, size, status: "read-failed", error: error?.message || String(error) });
+    }
+  }
+  return { host, unitId: 1, addressOffset, capturedAt: new Date().toISOString(), mapRows: rows.length, samples };
+}
+
+export async function runStringModbusParity() {
+  const cachedMap = getEmsCachedModbusMap()?.data;
+  if (typeof cachedMap !== "string" || !cachedMap.trim()) throw new Error("Current EMS Modbus map is not cached yet");
+  const lines = cachedMap.split(/\r?\n/).filter(Boolean);
+  const headers = parseCSVRow(lines[0]).map((header) => header.toUpperCase());
+  const fieldNameColumn = headers.indexOf("FIELDNAME");
+  const addressColumn = headers.indexOf("MODBUSADDRESS");
+  const rows = lines.slice(1).map(parseCSVRow);
+  const mapped = (fieldName: string) => rows
+    .filter((row) => row[fieldNameColumn] === fieldName)
+    .map((row) => Number(row[addressColumn]))
+    .filter(Number.isInteger);
+  const openAddresses = mapped("StringWithOpenContactorsCount");
+  const closedAddresses = mapped("StringWithClosedContactorsCount");
+  const outRotationAddresses = mapped("StringOutOfRotationCount");
+  const arrayCount = Math.min(openAddresses.length, closedAddresses.length, outRotationAddresses.length);
+  if (!arrayCount) throw new Error("No lineup string-count registers were found in the EMS map");
+
+  const profile = ProfileStore.getActiveProfile();
+  const host = profile?.modbusHost || profile?.emsHost || "10.0.0.3";
+  const addressOffset = await detectMapAddressOffset(host, cachedMap, 1);
+  const brokerRows = stringDomainBroker.snapshot().rows;
+  const arrays = [];
+  for (let index = 0; index < arrayCount; index += 1) {
+    const [open, closed, outRotation] = await Promise.all([
+      queryModbusReal(host, openAddresses[index], 1, 1, addressOffset),
+      queryModbusReal(host, closedAddresses[index], 1, 1, addressOffset),
+      queryModbusReal(host, outRotationAddresses[index], 1, 1, addressOffset),
+    ]);
+    const arrayNumber = index + 1;
+    const current = brokerRows.filter((row) => Number(row.arrayNumber ?? row.arrayIndex) === arrayNumber);
+    const prizmOpen = current.filter((row) => String(row.contactorStatus ?? row.contactorState).toUpperCase() === "OPEN").length;
+    const prizmClosed = current.filter((row) => String(row.contactorStatus ?? row.contactorState).toUpperCase() === "CLOSED").length;
+    const prizmOutRotation = current.filter((row) => row.outRotation === true || String(row.rotationStatus ?? "").toUpperCase() === "OUT").length;
+    const modbus = { open: open.registers[0], closed: closed.registers[0], outRotation: outRotation.registers[0] };
+    const prizm = { open: prizmOpen, closed: prizmClosed, outRotation: prizmOutRotation, rows: current.length };
+    arrays.push({ arrayNumber, modbus, prizm, matches: {
+      contactors: current.length > 0 && modbus.open === prizm.open && modbus.closed === prizm.closed,
+      rotation: current.length > 0 && modbus.outRotation === prizm.outRotation,
+    }});
+  }
+  const eligibleForAggregatePromotion = arrays.every((array) => array.matches.contactors && array.matches.rotation);
+  return { host, port: discoveredPort, unitId: 1, addressOffset, capturedAt: new Date().toISOString(), eligibleForAggregatePromotion, arrays };
 }

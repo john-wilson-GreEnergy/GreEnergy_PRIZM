@@ -1,4 +1,10 @@
-export function parseGlobalSegmentIdentity(input: string | number): {
+export interface EnclosureLayout {
+  energySegmentsPerArray?: number | null;
+  includeCollectionSegment?: boolean | null;
+  arrayStart?: number | null;
+}
+
+export function parseGlobalSegmentIdentity(input: string | number, layout: EnclosureLayout = {}): {
   globalSegmentNumber: number | null;
   arrayIndex: number | null;
   positionInArray: number | null;
@@ -7,6 +13,10 @@ export function parseGlobalSegmentIdentity(input: string | number): {
   displayName: string;
   shortLabel: string;
 } {
+  const energySegmentsPerArray = Number.isInteger(Number(layout.energySegmentsPerArray)) && Number(layout.energySegmentsPerArray) > 0 ? Number(layout.energySegmentsPerArray) : 20;
+  const includeCollectionSegment = layout.includeCollectionSegment !== false;
+  const positionsPerArray = energySegmentsPerArray + (includeCollectionSegment ? 1 : 0);
+  const arrayStart = Number.isInteger(Number(layout.arrayStart)) && Number(layout.arrayStart) > 0 ? Number(layout.arrayStart) : 1;
   let globalSegmentNumber: number | null = null;
   const str = String(input).trim();
   
@@ -18,7 +28,7 @@ export function parseGlobalSegmentIdentity(input: string | number): {
     const esMatch = str.match(/(?:Energy\s*Segment|ES)\s*(\d+)/i);
     
     if (isCS) {
-      const globalSegNum = (arrayIndex - 1) * 21 + 1;
+      const globalSegNum = (arrayIndex - arrayStart) * positionsPerArray + 1;
       return {
         globalSegmentNumber: globalSegNum,
         arrayIndex,
@@ -30,8 +40,8 @@ export function parseGlobalSegmentIdentity(input: string | number): {
       };
     } else if (esMatch) {
       const localEsVal = parseInt(esMatch[1], 10);
-      const positionInArray = localEsVal + 1;
-      const globalSegNum = (arrayIndex - 1) * 21 + positionInArray;
+      const positionInArray = localEsVal + (includeCollectionSegment ? 1 : 0);
+      const globalSegNum = (arrayIndex - arrayStart) * positionsPerArray + positionInArray;
       return {
         globalSegmentNumber: globalSegNum,
         arrayIndex,
@@ -68,22 +78,22 @@ export function parseGlobalSegmentIdentity(input: string | number): {
     };
   }
 
-  const arrayIndex = Math.floor((rawSegNum - 1) / 21) + 1;
-  const positionInArray = ((rawSegNum - 1) % 21) + 1;
+  const arrayIndex = Math.floor((rawSegNum - 1) / positionsPerArray) + arrayStart;
+  const positionInArray = ((rawSegNum - 1) % positionsPerArray) + 1;
 
   let segmentType: "CS" | "ES" | "UNKNOWN" = "UNKNOWN";
   let localEsNumber: number | null = null;
   let displayName = "";
   let shortLabel = "";
 
-  if (positionInArray === 1) {
+  if (includeCollectionSegment && positionInArray === 1) {
     segmentType = "CS";
     localEsNumber = null;
     displayName = `Array ${arrayIndex} Collection Segment`;
     shortLabel = `Array ${arrayIndex} - CS`;
   } else {
     segmentType = "ES";
-    localEsNumber = positionInArray - 1;
+    localEsNumber = positionInArray - (includeCollectionSegment ? 1 : 0);
     displayName = `Array ${arrayIndex} Energy Segment ${localEsNumber}`;
     shortLabel = `Array ${arrayIndex} - ES${localEsNumber}`;
   }
@@ -99,7 +109,7 @@ export function parseGlobalSegmentIdentity(input: string | number): {
   };
 }
 
-export function normalizeSensorEnclosureIdentity(raw: any): {
+export function normalizeSensorEnclosureIdentity(raw: any, layout: EnclosureLayout = {}): {
   arrayIndex: number | null;
   segmentType: "CS" | "ES" | "UNKNOWN";
   localEsNumber: number | null;
@@ -129,7 +139,7 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
   let globalSegmentNumber: number | null = null;
 
   // Try robust label parsing first because it is highly specific!
-  const parsedFromLabel = parseGlobalSegmentIdentity(label);
+  const parsedFromLabel = parseGlobalSegmentIdentity(label, layout);
   if (parsedFromLabel.globalSegmentNumber !== null) {
     globalSegmentNumber = parsedFromLabel.globalSegmentNumber;
     arrayIndex = parsedFromLabel.arrayIndex;
@@ -145,14 +155,18 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
 
     if (numIndex !== null && !isNaN(numIndex) && numIndex >= 1) {
       globalSegmentNumber = numIndex;
-      arrayIndex = Math.floor((globalSegmentNumber - 1) / 21) + 1;
-      const positionInArray = ((globalSegmentNumber - 1) % 21) + 1;
-      if (positionInArray === 1) {
+      const energySegmentsPerArray = Number.isInteger(Number(layout.energySegmentsPerArray)) && Number(layout.energySegmentsPerArray) > 0 ? Number(layout.energySegmentsPerArray) : 20;
+      const includeCollectionSegment = layout.includeCollectionSegment !== false;
+      const positionsPerArray = energySegmentsPerArray + (includeCollectionSegment ? 1 : 0);
+      const arrayStart = Number.isInteger(Number(layout.arrayStart)) && Number(layout.arrayStart) > 0 ? Number(layout.arrayStart) : 1;
+      arrayIndex = Math.floor((globalSegmentNumber - 1) / positionsPerArray) + arrayStart;
+      const positionInArray = ((globalSegmentNumber - 1) % positionsPerArray) + 1;
+      if (includeCollectionSegment && positionInArray === 1) {
         segmentType = "CS";
         localEsNumber = null;
       } else {
         segmentType = "ES";
-        localEsNumber = positionInArray - 1;
+        localEsNumber = positionInArray - (includeCollectionSegment ? 1 : 0);
       }
     }
   }
@@ -168,11 +182,13 @@ export function normalizeSensorEnclosureIdentity(raw: any): {
         if (lastOctet === 3) {
           segmentType = "CS";
           localEsNumber = null;
-          globalSegmentNumber = (arrayIndex - 1) * 21 + 1;
+          const positionsPerArray = (Number(layout.energySegmentsPerArray) || 20) + (layout.includeCollectionSegment === false ? 0 : 1);
+          globalSegmentNumber = (arrayIndex - (Number(layout.arrayStart) || 1)) * positionsPerArray + 1;
         } else if (lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
           segmentType = "ES";
           localEsNumber = Math.floor((lastOctet - 10) / 5) + 1;
-          globalSegmentNumber = (arrayIndex - 1) * 21 + 1 + localEsNumber;
+          const positionsPerArray = (Number(layout.energySegmentsPerArray) || 20) + (layout.includeCollectionSegment === false ? 0 : 1);
+          globalSegmentNumber = (arrayIndex - (Number(layout.arrayStart) || 1)) * positionsPerArray + (layout.includeCollectionSegment === false ? 0 : 1) + localEsNumber;
         }
       }
     }

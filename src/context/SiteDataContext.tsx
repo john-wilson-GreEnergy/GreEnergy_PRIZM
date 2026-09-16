@@ -21,6 +21,7 @@ export interface SiteDataContextType {
   consecutiveDegradedCount: number;
   lastPollAttemptedAt: string | null;
   lastGoodSnapshotAt: string | null;
+  setActiveView: (view: string) => void;
 }
 
 const SiteDataContext = createContext<SiteDataContextType | null>(null);
@@ -107,6 +108,8 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const isFetchingRef = useRef(false);
   const snapshotRef = useRef<any>(null);
+  const topologyLoadedRef = useRef(false);
+  const [activeView, setActiveView] = useState("overview");
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -132,9 +135,10 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     try {
       const qs = force ? '?refresh=true' : '';
+      const shouldFetchTopology = force || !topologyLoadedRef.current;
       const [response, topoResponse] = await Promise.all([
         fetch(`/api/local/site-data/snapshot${qs}`, { signal: controller.signal }),
-        fetch('/api/local/topology/active', { signal: controller.signal })
+        shouldFetchTopology ? fetch('/api/local/topology/active', { signal: controller.signal }) : Promise.resolve(null)
       ]);
       clearTimeout(timeoutId);
 
@@ -148,10 +152,11 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
       
       const data = await response.json();
-      if (topoResponse.ok) {
+      if (topoResponse?.ok) {
         const topoData = await topoResponse.json();
         if (topoData.success && topoData.profile) {
           setActiveTopologyProfile(topoData.profile);
+          topologyLoadedRef.current = true;
         }
       }
       const previous = snapshotRef.current;
@@ -211,12 +216,30 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       return;
     }
 
+    const liveTelemetryViews = new Set(["overview", "one-line", "pcs-dashboard", "thermal-controls"]);
+    const diagnosticViews = new Set(["corrective-actions", "site-health", "feather-hvac", "balancer-test"]);
+    // String rows arrive through the page's dedicated broker stream. Keep the
+    // larger site snapshot as a slower enrichment/recovery path while visible.
+    // ?fastStringRender=off restores the legacy five-second snapshot cadence.
+    const fastStringRender = new URLSearchParams(window.location.search).get("fastStringRender") !== "off";
+    const intervalMs = activeView === "arrays-strings"
+      ? (fastStringRender ? 12000 : 5000)
+      : liveTelemetryViews.has(activeView) ? 5000 : diagnosticViews.has(activeView) ? 12000 : 30000;
     const intervalId = setInterval(() => {
+      if (document.hidden) return;
       fetchSnapshot();
-    }, 2000);
+    }, intervalMs);
 
-    return () => clearInterval(intervalId);
-  }, [fetchSnapshot, isPollingEnabled, isTerminated]);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) fetchSnapshot();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchSnapshot, isPollingEnabled, isTerminated, activeView]);
 
   const liveStatus = useMemo(() => {
     const base = snapshot?.liveStatus || null;
@@ -251,7 +274,8 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
     consecutiveFailureCount,
     consecutiveDegradedCount,
     lastPollAttemptedAt,
-    lastGoodSnapshotAt
+    lastGoodSnapshotAt,
+    setActiveView
   };
 
   return (
@@ -275,6 +299,7 @@ const INERT_SITE_DATA: SiteDataContextType = {
   error: null, dataQualityWarning: null, isPollingEnabled: false, isTerminated: false,
   pausePolling: () => undefined, resumePolling: () => undefined, terminateConnection: () => undefined,
   consecutiveFailureCount: 0, consecutiveDegradedCount: 0, lastPollAttemptedAt: null, lastGoodSnapshotAt: null,
+  setActiveView: () => undefined,
 };
 
 /** Preview workspaces use this non-throwing view so the legacy polling provider can remain unmounted. */

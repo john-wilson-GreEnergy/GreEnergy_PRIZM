@@ -9,7 +9,9 @@ import {
   Info,
   ChevronRight,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  X,
+  Pin
 } from "lucide-react";
 import { BlockSensorMatrixRow, NormalizedSensorCell, isPhysicalSensorEnclosureRow } from "./topologyUtils";
 import { getArrayLocalEnergySegmentNumber } from "../../lib/segmentNumbering";
@@ -67,8 +69,10 @@ export default function SiteOverheadSensorMap({
   onSelectRow
 }: SiteOverheadSensorMapProps) {
   const [hoveredSegment, setHoveredSegment] = useState<SegmentSummary | null>(null);
+  const [pinnedSegment, setPinnedSegment] = useState<SegmentSummary | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
 
   // Helper to extract Array number
   const getArrayNumber = (displayName: string): number => {
@@ -234,30 +238,49 @@ export default function SiteOverheadSensorMap({
   }, [rows]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setTooltipPos({
-        x: e.clientX - rect.left + 15,
-        y: e.clientY - rect.top + 15
-      });
+    if (pinnedSegment) return;
+    const width = Math.min(360, window.innerWidth - 24);
+    const estimatedHeight = Math.min(500, window.innerHeight - 24);
+    const x = e.clientX + width + 18 <= window.innerWidth
+      ? e.clientX + 14
+      : e.clientX - width - 14;
+    setTooltipPos({
+      x: Math.max(12, Math.min(x, window.innerWidth - width - 12)),
+      y: Math.max(12, Math.min(e.clientY + 12, window.innerHeight - estimatedHeight - 12))
+    });
+  };
+
+  const cancelScheduledClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
     }
+  };
+
+  const scheduleHoverClose = () => {
+    cancelScheduledClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      if (!pinnedSegment) setHoveredSegment(null);
+    }, 220);
   };
 
   const handleTileClick = (summary: SegmentSummary) => {
     onSelectRow(summary.row);
-    // Smoothly scroll the corresponding physical matrix row into view
-    setTimeout(() => {
-      const element = document.getElementById(`row-${summary.row.id}`);
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 50);
+    setPinnedSegment((current) => current?.row.id === summary.row.id ? null : summary);
+    setHoveredSegment(summary);
   };
+
+  const scrollToMatrixRow = (summary: SegmentSummary) => {
+    const element = document.getElementById(`row-${summary.row.id}`);
+    if (element) element.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const activeSegment = pinnedSegment || hoveredSegment;
 
   return (
     <div 
       ref={containerRef}
-      className="relative bg-white border border-slate-200 rounded-xl p-4 shadow-2xs mb-5 font-sans"
+      className="relative bg-white border border-slate-200 rounded-xl p-3 shadow-2xs font-sans"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-4">
         <div>
@@ -266,7 +289,7 @@ export default function SiteOverheadSensorMap({
             Site Overhead Sensor Map
           </h3>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            Horizontally scrollable live layout. Green indicates all active profile-monitored sensors are normal. Click tiles to highlight details.
+            Select an enclosure for sensor details. Tiles expand to the available screen width and scroll on smaller displays.
           </p>
         </div>
         <div className="flex flex-wrap gap-2.5 text-[9px] font-mono font-bold uppercase tracking-wider bg-slate-50 border border-slate-200/60 rounded px-2.5 py-1">
@@ -295,19 +318,22 @@ export default function SiteOverheadSensorMap({
         </div>
       ) : (
         <div className="overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-200">
-          <div className="min-w-max space-y-2">
+          <div className="w-full min-w-[1300px] space-y-2">
             {arrayGroups.map((group) => (
               <div 
                 key={group.arrayIndex} 
                 className="flex items-center gap-1 bg-slate-50/50 p-1 rounded-lg border border-slate-100 hover:border-slate-200 transition-all"
               >
                 {/* Sticky Left Label */}
-                <div className="sticky left-0 bg-slate-100 border border-slate-200 text-slate-700 font-mono text-[9px] font-extrabold rounded px-2.5 py-1.5 w-20 text-center uppercase tracking-wider select-none z-10 shadow-xs">
+                <div className="sticky left-0 shrink-0 bg-slate-100 border border-slate-200 text-slate-700 font-mono text-[9px] font-extrabold rounded px-2.5 py-1.5 w-20 text-center uppercase tracking-wider select-none z-10 shadow-xs">
                   Array {group.arrayIndex}
                 </div>
 
                 {/* CS Enclosure Tile */}
-                <div className="flex gap-1 pl-1">
+                <div
+                  className="grid flex-1 gap-1 pl-1"
+                  style={{ gridTemplateColumns: `repeat(${group.segments.length}, minmax(55px, 1fr))` }}
+                >
                   {group.segments.map((summary) => {
                     const isCS = summary.segmentType === "CS";
                     const isSelected = selectedRow?.id === summary.row.id;
@@ -328,8 +354,8 @@ export default function SiteOverheadSensorMap({
 
                     // CS has slightly distinct styling
                     const designClass = isCS 
-                      ? "rounded-md border-2 font-black px-3.5 py-1 text-[11px] min-w-[70px]" 
-                      : "rounded border px-2 py-1 text-[10px] min-w-[55px]";
+                      ? "rounded-md border-2 font-black px-2 py-1 text-[11px]" 
+                      : "rounded border px-2 py-1 text-[10px]";
 
                     return (
                       <button
@@ -337,11 +363,12 @@ export default function SiteOverheadSensorMap({
                         type="button"
                         onClick={() => handleTileClick(summary)}
                         onMouseEnter={(e) => {
+                          cancelScheduledClose();
                           setHoveredSegment(summary);
                           handleMouseMove(e);
                         }}
                         onMouseMove={handleMouseMove}
-                        onMouseLeave={() => setHoveredSegment(null)}
+                        onMouseLeave={scheduleHoverClose}
                         className={`flex flex-col items-center justify-center transition-all cursor-pointer font-mono font-bold text-center uppercase h-10 shadow-3xs ${tileClass} ${designClass}`}
                       >
                         <span className="leading-tight">{summary.segmentType === "CS" ? "CS" : `ES${summary.segmentNumber}`}</span>
@@ -363,62 +390,69 @@ export default function SiteOverheadSensorMap({
       )}
 
       {/* Floating Detailed Hover Popover */}
-      {hoveredSegment && tooltipPos && (
+      {activeSegment && tooltipPos && (
         <div 
           style={{ 
             top: tooltipPos.y, 
             left: tooltipPos.x,
-            maxWidth: "340px",
-            minWidth: "250px"
+            width: "min(360px, calc(100vw - 24px))",
+            maxHeight: "calc(100vh - 24px)"
           }}
-          className="absolute bg-slate-900 text-white rounded-lg p-3.5 shadow-xl border border-slate-800 z-50 text-[11px] font-sans pointer-events-none select-none transition-opacity duration-150"
+          onMouseEnter={cancelScheduledClose}
+          onMouseLeave={scheduleHoverClose}
+          className="fixed bg-slate-900 text-white rounded-lg p-3.5 shadow-2xl border border-slate-700 z-[100] text-[11px] font-sans pointer-events-auto select-text transition-opacity duration-150 overflow-hidden flex flex-col"
         >
           <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 font-mono">
             <span className="font-extrabold text-xs text-indigo-400">
-              Array {hoveredSegment.arrayIndex} - {hoveredSegment.segmentType === "CS" ? "CS" : "ES" + hoveredSegment.segmentNumber}
+              Array {activeSegment.arrayIndex} - {activeSegment.segmentType === "CS" ? "CS" : "ES" + activeSegment.segmentNumber}
             </span>
+            <span className="flex items-center gap-1.5">
+            {pinnedSegment ? <Pin size={11} className="text-indigo-300" aria-label="Pinned" /> : null}
             <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest ${
-              hoveredSegment.operationalState === "healthy" 
+              activeSegment.operationalState === "healthy" 
                 ? "bg-emerald-950 text-emerald-400 border border-emerald-800/40" 
-                : hoveredSegment.operationalState === "warning" 
+                : activeSegment.operationalState === "warning" 
                 ? "bg-amber-950 text-amber-400 border border-amber-800/40" 
                 : "bg-red-950 text-red-400 border border-red-800/40"
             }`}>
-              {hoveredSegment.operationalState}
+              {activeSegment.operationalState}
+            </span>
+            <button type="button" onClick={() => { setPinnedSegment(null); setHoveredSegment(null); }} className="p-1 rounded hover:bg-slate-700 text-slate-300" aria-label="Close sensor details"><X size={12} /></button>
             </span>
           </div>
 
+          <div className="min-h-0 overflow-y-auto overscroll-contain pr-1 scrollbar-thin scrollbar-thumb-slate-600">
           <div className="space-y-1 text-slate-350">
             <div className="flex justify-between">
               <span>Segment Type:</span>
-              <strong className="text-white font-mono">{hoveredSegment.segmentType === "CS" ? "Collection Segment" : "Energy Segment"}</strong>
+              <strong className="text-white font-mono">{activeSegment.segmentType === "CS" ? "Collection Segment" : "Energy Segment"}</strong>
             </div>
             <div className="flex justify-between">
               <span>Monitored Sensors:</span>
-              <strong className="text-white font-mono">{hoveredSegment.monitoredSensorCount}</strong>
+              <strong className="text-white font-mono">{activeSegment.monitoredSensorCount}</strong>
             </div>
             <div className="flex justify-between text-emerald-400">
               <span>Healthy:</span>
-              <strong className="font-mono">{hoveredSegment.healthySensorCount}</strong>
+              <strong className="font-mono">{activeSegment.healthySensorCount}</strong>
             </div>
             <div className="flex justify-between text-red-400">
               <span>Faulted:</span>
-              <strong className="font-mono">{hoveredSegment.faultedSensorCount}</strong>
+              <strong className="font-mono">{activeSegment.faultedSensorCount}</strong>
             </div>
-            {hoveredSegment.unavailableSensorCount > 0 && (
+            {activeSegment.unavailableSensorCount > 0 && (
               <div className="flex justify-between text-amber-400">
                 <span>Unavailable:</span>
-                <strong className="font-mono">{hoveredSegment.unavailableSensorCount}</strong>
+                <strong className="font-mono">{activeSegment.unavailableSensorCount}</strong>
               </div>
             )}
           </div>
 
           {/* Granular list of monitored sensors */}
-          {hoveredSegment.monitoredSensors.length > 0 && (
+          {activeSegment.monitoredSensors.length > 0 && (
             <div className="border-t border-slate-800/60 pt-2 mt-2 space-y-1">
               <span className="text-[9px] uppercase font-bold tracking-wider text-slate-450 block font-mono">Monitored Points Scope:</span>
-              <div className="space-y-0.5 max-h-[160px] overflow-y-auto pr-1">
-                {hoveredSegment.monitoredSensors.map((s) => (
+              <div className="space-y-0.5">
+                {activeSegment.monitoredSensors.map((s) => (
                   <div key={s.key} className="flex items-center justify-between gap-2 py-0.5 border-b border-slate-800/30 text-[10px]">
                     <div className="flex items-center gap-1.5 truncate">
                       {s.tripped ? (
@@ -445,23 +479,29 @@ export default function SiteOverheadSensorMap({
             </div>
           )}
 
-          {hoveredSegment.monitoredSensorCount === 0 && (
+          {activeSegment.monitoredSensorCount === 0 && (
             <p className="text-[9px] italic text-slate-400 mt-2">
               No active sensors monitored under current profile configuration.
             </p>
           )}
 
-          {hoveredSegment.faultedSensorCount === 0 && hoveredSegment.monitoredSensorCount > 0 && (
+          {activeSegment.faultedSensorCount === 0 && activeSegment.monitoredSensorCount > 0 && (
             <div className="text-[9px] text-emerald-400 mt-2 bg-emerald-950/40 p-1.5 rounded border border-emerald-900/30 font-semibold text-center">
               ✓ No monitored sensor faults.
             </div>
           )}
 
-          {hoveredSegment.unmonitoredActiveCount > 0 && (
+          {activeSegment.unmonitoredActiveCount > 0 && (
             <div className="text-[8.5px] text-slate-400 mt-2 bg-slate-800/50 p-1 rounded border border-slate-700/30 text-center">
-              ℹ {hoveredSegment.unmonitoredActiveCount} unmonitored raw signals active. Check Raw EMS View.
+              ℹ {activeSegment.unmonitoredActiveCount} unmonitored raw signals active. Check Raw EMS View.
             </div>
           )}
+          </div>
+
+          <div className="border-t border-slate-700 mt-2 pt-2 flex items-center justify-between gap-2 shrink-0">
+            <span className="text-[8px] text-slate-400">Hover to inspect • click a segment to pin</span>
+            <button type="button" onClick={() => scrollToMatrixRow(activeSegment)} className="rounded bg-indigo-500/20 border border-indigo-400/30 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-indigo-200 hover:bg-indigo-500/30">View table row</button>
+          </div>
         </div>
       )}
     </div>

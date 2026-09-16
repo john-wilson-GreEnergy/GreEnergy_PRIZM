@@ -1,6 +1,7 @@
 import { NormalizedSensorCell, BlockSensorMatrixRow } from "./siteSensors/siteSensorsRoutes";
 import { normalizeSensorEnclosureIdentity, parseGlobalSegmentIdentity } from "../lib/enclosureIdentity";
 import { sanitizeStatusForTripCheck, parseActiveState, getPointMapping } from "./siteSensors/canonicalSensorParser";
+import { getActiveSiteDimensions } from "./profiles/siteDimensions";
 
 export interface NormalizedTopologySensorPoint {
   stationCode: string | null;
@@ -190,6 +191,7 @@ function createEmptyCell(role: string): NormalizedSensorCell {
 }
 
 export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummary {
+  const dimensions = getActiveSiteDimensions();
   const topLevelKeys = blockData ? Object.keys(blockData) : [];
   const timestamp = new Date().toISOString();
 
@@ -361,17 +363,16 @@ export function parseEmsTopology(blockData: any): NormalizedTopologySensorSummar
          enclosureIndex = Math.floor(numericId / 100);
          sensorCode = numericId % 100;
  
-         // enclosuresPerArray = 21
-         arrayIndex = Math.floor((enclosureIndex - 1) / 21) + 1;
-         const positionInArray = ((enclosureIndex - 1) % 21) + 1;
- 
-         if (positionInArray === 1) {
+         arrayIndex = Math.floor((enclosureIndex - 1) / dimensions.positionsPerArray) + dimensions.arrayStart;
+         const positionInArray = ((enclosureIndex - 1) % dimensions.positionsPerArray) + 1;
+
+         if (dimensions.includeCollectionSegment && positionInArray === 1) {
            segmentKind = "CS";
            segmentNumber = null;
            displayName = `Array ${arrayIndex} Collection Segment`;
          } else {
            segmentKind = "ES";
-           segmentNumber = positionInArray - 1;
+           segmentNumber = positionInArray - (dimensions.includeCollectionSegment ? 1 : 0);
            displayName = `Array ${arrayIndex} Energy Segment ${segmentNumber}`;
          }
        }

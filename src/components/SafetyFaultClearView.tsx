@@ -34,16 +34,19 @@ export default function SafetyFaultClearView() {
   const [history, setHistory] = useState<any[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rawEntityDetails, setRawEntityDetails] = useState<any>(null);
+  const [loadError, setLoadError] = useState("");
 
   const fetchCandidates = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await fetch("/api/local/safety-fault-clear/candidates");
-      if (res.ok) {
-        setData(await res.json());
-      }
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload?.error) throw new Error(payload?.error || `Safety data request failed (${res.status})`);
+      setData(payload);
     } catch (err) {
       console.error(err);
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -144,7 +147,13 @@ export default function SafetyFaultClearView() {
       
       <div className="mb-8">
          <h3 className="text-xs font-bold font-mono text-prizm-text uppercase tracking-widest border-b border-prizm-border pb-2 mb-4">Eligible Fault Clear Entities</h3>
-         {data?.eligible && data.eligible.length === 0 ? (
+         {loadError ? (
+             <div className="p-6 text-center border border-prizm-danger/40 rounded bg-prizm-danger/10">
+                <div className="text-prizm-danger font-bold text-xs uppercase">Safety Clear data unavailable</div>
+                <div className="mt-2 text-prizm-text-muted text-xs">{loadError}</div>
+                <button onClick={fetchCandidates} className="mt-4 px-3 py-1.5 border border-prizm-danger/40 rounded text-prizm-danger font-bold uppercase text-[10px]">Try Again</button>
+             </div>
+         ) : Array.isArray(data?.eligible) && data.eligible.length === 0 ? (
              <div className="p-8 text-center text-prizm-text-muted font-mono text-[10px] uppercase border border-prizm-border border-dashed rounded bg-black/10">
                 No active entities currently flagged with allowFaultReset=true.
              </div>
@@ -162,7 +171,7 @@ export default function SafetyFaultClearView() {
                       </tr>
                    </thead>
                    <tbody className="divide-y divide-prizm-border/40">
-                      {data?.eligible.map((item: Candidate) => (
+                      {(Array.isArray(data?.eligible) ? data.eligible : []).map((item: Candidate) => (
                          <tr key={item.id} className="hover:bg-white/5 text-prizm-text">
                             <td className="px-4 py-3">
                                <button onClick={() => { setRawEntityDetails(item); setDrawerOpen(true); }} className="hover:underline font-bold text-prizm-info">

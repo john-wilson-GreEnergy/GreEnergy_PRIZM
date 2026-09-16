@@ -3,6 +3,7 @@ import { fetchLiveEmsApps } from "./emsAppsService";
 import { setEmsApplicationEnabledStatus, SetAppStatusInput } from "./dragonAppControl";
 import { getEffectiveCachePolicy, shouldFetchLive, buildCacheMetadata } from "../cache/prizmCache";
 import { requestRefresh } from "../prizmDataCoordinator";
+import { setPowerControl } from "./powerControl";
 
 const router = Router();
 
@@ -59,16 +60,25 @@ router.get("/control-capabilities", async (req, res) => {
     success: true,
     localControlEndpoint: "/turtle/tools/controls/ems/command",
     targetEndpointType: "BLOCK",
-    confirmedPayloads: ["SetEMSApplicationEnabledStatus"],
-    configWritesImplemented: false,
+    confirmedPayloads: ["SetEMSApplicationEnabledStatus", "SetEMSApplicationConfiguration:PC00001"],
+    configWritesImplemented: true,
     appCount: finalApps.length,
     apps: finalApps,
     warnings: [
-      "Power Control, Basic Op, and Scheduler are mapped from external but local config writes are pending.",
+      "Basic Op and Scheduler are mapped from external but local config writes are pending.",
       "HCP0001 and BS00001 are read-only because no external interaction point was observed."
     ],
     ...cacheMetadata
   });
+});
+
+router.post("/power-control", async (req, res) => {
+  try {
+    const result = await setPowerControl(req.body);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: "INTERNAL_ERROR", message: error.message });
+  }
 });
 
 // POST /api/local/ems-apps/enabled-status

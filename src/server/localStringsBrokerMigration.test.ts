@@ -148,6 +148,54 @@ async function runTests() {
   assert.strictEqual(typeof brokerResult.parity?.representativeFieldEquality.maxCellTemp, "boolean");
   console.log("  -> representative field parity structure test passed");
 
+  const openAggregate = await buildLocalStringsResponse({
+    rawStringsWrapper: mkMeta([mkRow({
+      stringContactorState: "OPEN",
+      positiveContactorClosed: true,
+      negativeContactorClosed: true,
+      warnings: "2534",
+    })]),
+    blockWrapper: blockMeta,
+    ipMapWrapper,
+    snapshot,
+    forceLegacy: true,
+  });
+  assert.strictEqual(openAggregate.response.data[0].positiveContactorClosed, false);
+  assert.strictEqual(openAggregate.response.data[0].negativeContactorClosed, false);
+  assert.strictEqual(openAggregate.response.data[0].contactorMismatch, true);
+  console.log("  -> explicit OPEN aggregate state overrides stale closed feedback passed");
+
+  const closedAggregate = await buildLocalStringsResponse({
+    rawStringsWrapper: mkMeta([mkRow({
+      stringContactorState: "CLOSED",
+      positiveContactorClosed: false,
+      negativeContactorClosed: false,
+    })]),
+    blockWrapper: blockMeta,
+    ipMapWrapper,
+    snapshot,
+    forceLegacy: true,
+  });
+  assert.strictEqual(closedAggregate.response.data[0].positiveContactorClosed, true);
+  assert.strictEqual(closedAggregate.response.data[0].negativeContactorClosed, true);
+  console.log("  -> explicit CLOSED aggregate state overrides stale open feedback passed");
+
+  const warningOpen = await buildLocalStringsResponse({
+    rawStringsWrapper: mkMeta([mkRow({
+      positiveContactorClosed: true,
+      negativeContactorClosed: true,
+      warns: "2534",
+    })]),
+    blockWrapper: blockMeta,
+    ipMapWrapper,
+    snapshot,
+    forceLegacy: true,
+  });
+  assert.strictEqual(warningOpen.response.data[0].positiveContactorClosed, false);
+  assert.strictEqual(warningOpen.response.data[0].negativeContactorClosed, false);
+  assert.strictEqual(warningOpen.response.data[0].contactorMismatch, true);
+  console.log("  -> warning 2534 supplies authoritative OPEN fallback passed");
+
   console.log("Local strings broker migration tests passed!");
 }
 

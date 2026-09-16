@@ -230,7 +230,7 @@ export default function PhysicalStringLayout({
               <span className={`font-bold text-prizm-text tracking-wider uppercase truncate ${
                 isTileMode ? 'text-[8.5px]' : 'text-[10px]'
               }`}>
-                {title || `A${arrayNumber}-S${stringNumber} PHYSICAL LAYOUT`}
+                {title || `ARRAY ${arrayNumber} / STRING ${stringNumber} PHYSICAL LAYOUT`}
               </span>
               <span className="text-prizm-text-muted text-[8.5px] uppercase mt-0.5 truncate font-bold">
                 Mode: {metric === "temperature" ? `Temperature °F` : "Voltage mV"} &nbsp;|&nbsp; {slots.length} cells

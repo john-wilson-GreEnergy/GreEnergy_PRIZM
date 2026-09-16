@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GreEnergy PRIZM Manager",
+  "version": "0.1.0",
+  "identifier": "com.greenergyresources.prizm.manager",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GreEnergy PRIZM Manager",
+        "width": 1240,
+        "height": 820,
+        "minWidth": 1000,
+        "minHeight": 680,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "msi",
+    "publisher": "GreEnergy Resources LLC",
+    "copyright": "Copyright GreEnergy Resources LLC"
+  }
+}

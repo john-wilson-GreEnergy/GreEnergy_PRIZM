@@ -96,9 +96,12 @@ export function normalizeFeatherStatus(
     let fwRev = rawJson.turtleVersion?.fwVersionRevision;
 
     if (fwMaj === undefined && rawJson.fromFeatherControllerStatistcsReport) {
-      fwMaj = rawJson.fromFeatherControllerStatistcsReport.fwVersionMajor;
-      fwMin = rawJson.fromFeatherControllerStatistcsReport.fwVersionMinor;
-      fwRev = rawJson.fromFeatherControllerStatistcsReport.fwVersionRevision;
+      const controllerVersion = rawJson.fromFeatherControllerStatistcsReport?.controllerStatisticsData?.turtleVersion
+        || rawJson.fromFeatherControllerStatistcsReport?.turtleVersion
+        || rawJson.fromFeatherControllerStatistcsReport;
+      fwMaj = controllerVersion?.fwVersionMajor;
+      fwMin = controllerVersion?.fwVersionMinor;
+      fwRev = controllerVersion?.fwVersionRevision;
     }
 
     if (fwMaj !== undefined) {

@@ -22,6 +22,8 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Sliders,
   Compass,
   Database,
@@ -73,6 +75,7 @@ export default function TopologySensorHealthPanel() {
   // Drilldown States (Section 6)
   const [selectedRow, setSelectedRow] = useState<BlockSensorMatrixRow | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<TopologySensorPoint | null>(null);
+  const [showFullDrilldown, setShowFullDrilldown] = useState<boolean>(false);
 
   // Fetch Endpoint
   const fetchTopologyData = async (isManual = false) => {
@@ -222,6 +225,23 @@ export default function TopologySensorHealthPanel() {
       return true;
     });
   }, [sortedPhysicalRows, selectedArray, selectedSegment, selectedFamily, selectedHealth, searchQuery]);
+
+  const selectedRowIndex = selectedRow
+    ? filteredRows.findIndex((row) => row.id === selectedRow.id)
+    : -1;
+
+  const selectMatrixRow = (row: BlockSensorMatrixRow | null) => {
+    setSelectedRow(row);
+    setSelectedPoint(null);
+    setShowFullDrilldown(false);
+  };
+
+  const openFullDrilldown = () => {
+    setShowFullDrilldown(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("drilldown-inspektor-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   // Filtered telemetry points list
   const filteredPoints = useMemo(() => {
@@ -473,10 +493,10 @@ export default function TopologySensorHealthPanel() {
   }
 
   return (
-    <div className="space-y-6 text-slate-850 font-sans animate-fade-in" id="topology-sensor-health-submodule">
+    <div className="space-y-3 text-slate-850 font-sans animate-fade-in" id="topology-sensor-health-submodule">
       
       {/* SECTION 1 — Site Health Header Toolbar */}
-      <div className={`border rounded-xl p-4 shadow-2xs transition-all duration-300 ${severityStyles[globalSeverity]}`}>
+      <div className={`border rounded-xl p-3 shadow-2xs transition-all duration-300 ${severityStyles[globalSeverity]}`}>
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
           <div>
             <div className="flex items-center gap-2.5">
@@ -486,14 +506,14 @@ export default function TopologySensorHealthPanel() {
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-sm sm:text-base font-bold font-sans text-slate-900 leading-none">
-                    EMS Topology Diagnostics Console
+                    Site Sensor Overview
                   </h2>
                   <span className="px-1.5 py-0.5 text-[8px] font-bold rounded bg-white border border-slate-200 text-slate-500 uppercase tracking-widest leading-none">
                     LIVE
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 mt-0.5">
-                  Full schematic scan rendering modular BESS segments across {data?.groupedEnclosureCount || 0} sub-cabinets.
+                  Live environmental and safety coverage across {data?.groupedEnclosureCount || 0} enclosures.
                 </p>
               </div>
             </div>
@@ -557,12 +577,18 @@ export default function TopologySensorHealthPanel() {
 
       {/* SECTION 2 — Global Status Strip */}
       {data && globalPoints.length > 0 && (
-        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col md:flex-row md:items-center justify-between text-xs font-mono gap-2 shadow-2xs">
-          <div className="flex items-center gap-1.5">
+        <details className="group bg-white border border-slate-200 rounded-lg shadow-2xs">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-mono hover:bg-slate-50">
+            <div className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />
-            <span className="font-bold uppercase text-slate-700 tracking-wider text-[10px]">Global Block Readiness Indicators:</span>
-          </div>
-          <div className="flex flex-col gap-1.5 w-full md:w-auto">
+              <span className="font-bold uppercase text-slate-700 tracking-wider text-[10px]">Block readiness</span>
+              <span className="text-[10px] text-slate-500">{globalPoints.length} global indicator{globalPoints.length !== 1 ? "s" : ""}</span>
+            </div>
+            <span className="flex items-center gap-1 text-[9px] font-bold uppercase text-slate-500">
+              Details <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
+          <div className="flex flex-col gap-1.5 border-t border-slate-100 bg-slate-50/60 p-2.5 font-mono">
             {globalPoints.map((point) => {
               const abbrKey = formatEntityKey(point.entityKey);
               const isAlert = point.activeState === true;
@@ -597,17 +623,17 @@ export default function TopologySensorHealthPanel() {
               );
             })}
           </div>
-        </div>
+        </details>
       )}
 
       {/* SECTION 3 — Shared Physical Matrix Filters Bar */}
       {data && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3.5">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-1.5">
               <Sliders size={14} className="text-slate-500" />
               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700 font-mono">
-                Operator Schematic Query Filters
+                Find Enclosures & Sensors
               </h3>
             </div>
             
@@ -759,7 +785,12 @@ export default function TopologySensorHealthPanel() {
           )}
 
           {/* Site Profile Capability Filter & Source Telemetry Toggles */}
-          <div className="border-t border-slate-100 pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
+          <details className="group border-t border-slate-100 pt-2 select-none">
+            <summary className="flex cursor-pointer list-none items-center justify-between rounded px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-50">
+              <span className="flex items-center gap-1.5"><Shield size={11} className="text-indigo-600" /> Advanced display & diagnostics</span>
+              <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+            </summary>
+          <div className="mt-2 flex flex-col sm:flex-row sm:items-end justify-between gap-3 rounded-lg border border-slate-150 bg-slate-50/60 p-3">
             <div className="flex flex-col space-y-1">
               <label className="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider flex items-center gap-1 font-mono">
                 <Shield size={11} className="text-indigo-600" /> Active Site Monitoring View Mode
@@ -821,6 +852,7 @@ export default function TopologySensorHealthPanel() {
               </button>
             </div>
           </div>
+          </details>
         </div>
       )}
 
@@ -829,7 +861,7 @@ export default function TopologySensorHealthPanel() {
         <SiteOverheadSensorMap
           rows={physicalRows}
           selectedRow={selectedRow}
-          onSelectRow={(row) => setSelectedRow(row)}
+          onSelectRow={selectMatrixRow}
         />
       )}
 
@@ -953,7 +985,7 @@ export default function TopologySensorHealthPanel() {
                           <tr
                             id={`row-${row.id}`}
                             onClick={() => {
-                              setSelectedRow(isRowSelected ? null : row);
+                              selectMatrixRow(isRowSelected ? null : row);
                             }}
                             className={`cursor-pointer transition-colors font-mono font-medium text-[11px] text-slate-705 ${
                               isRowSelected ? "bg-indigo-50/50 hover:bg-indigo-50" : "hover:bg-slate-50/75"
@@ -1041,12 +1073,81 @@ export default function TopologySensorHealthPanel() {
               </tbody>
             </table>
           </div>
+
+          <AnimatePresence>
+            {selectedRow && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                className="border-t-2 border-indigo-300 bg-indigo-50/70 px-4 py-3"
+              >
+                <div className="flex flex-col xl:flex-row xl:items-center gap-3">
+                  <div className="min-w-[230px] flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2.5 w-2.5 rounded-full ${selectedRow.severity === "Critical" ? "bg-red-500" : selectedRow.severity === "Warning" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                      <strong className="text-sm text-slate-900">
+                        {formatRowLocationName(selectedRow)}
+                      </strong>
+                      <span className="rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
+                        {selectedRow.location.enclosureType === "CollectionSegment" ? "CS" : "ES"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-slate-600">
+                      {selectedRow.location.siteConnected ? "Site connected" : "Site offline"} · {selectedRow.location.segmentCommunicating ? "Communicating" : "Communication timeout"} · {selectedRow.severity}
+                    </p>
+                  </div>
+
+                  <div className="flex-1 rounded-md border border-slate-200 bg-white/90 px-3 py-2 text-[10px]">
+                    <span className="font-bold uppercase tracking-wide text-slate-500">Findings</span>
+                    <p className={`mt-0.5 font-medium ${selectedRow.findings?.length ? "text-red-700" : "text-emerald-700"}`}>
+                      {selectedRow.findings?.length ? selectedRow.findings.join(" · ") : "No abnormal sensor findings on this enclosure."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
+                    <button
+                      type="button"
+                      disabled={selectedRowIndex <= 0}
+                      onClick={() => selectedRowIndex > 0 && selectMatrixRow(filteredRows[selectedRowIndex - 1])}
+                      className="inline-flex items-center gap-1 rounded border border-slate-250 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <ChevronLeft size={12} /> Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedRowIndex < 0 || selectedRowIndex >= filteredRows.length - 1}
+                      onClick={() => selectedRowIndex >= 0 && selectedRowIndex < filteredRows.length - 1 && selectMatrixRow(filteredRows[selectedRowIndex + 1])}
+                      className="inline-flex items-center gap-1 rounded border border-slate-250 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      Next <ChevronRight size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openFullDrilldown}
+                      className="inline-flex items-center gap-1 rounded bg-indigo-700 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-800"
+                    >
+                      <Database size={12} /> Full telemetry details
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Close enclosure quick view"
+                      onClick={() => selectMatrixRow(null)}
+                      className="rounded border border-slate-250 bg-white p-1.5 text-slate-500 hover:text-slate-900"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 
       {/* SECTION 6 — Drilldown / Detail Panel */}
       <AnimatePresence>
-        {(selectedRow || selectedPoint) && (
+        {((selectedRow && showFullDrilldown) || selectedPoint) && (
           <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1055,7 +1156,7 @@ export default function TopologySensorHealthPanel() {
             id="drilldown-inspektor-details"
           >
             {/* 6.a Enclosure Detail Block */}
-            {selectedRow && (
+            {selectedRow && showFullDrilldown && (
               <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 <div className="bg-slate-900 text-white p-3.5 flex items-center justify-between">
                   <div>

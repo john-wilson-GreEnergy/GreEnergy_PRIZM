@@ -76,7 +76,9 @@ export function parseTurtleJsonOrLabeledSections(raw: any): {
     return { kind: "empty", data: null, sections: [], flattened: [] };
   }
 
-  const trimmed = raw.trim();
+  // Turtle may concatenate labeled JSON arrays without a line break, e.g.
+  // `]Phoenix 2 :\n[`. Restore the structural boundary before line parsing.
+  const trimmed = raw.trim().replace(/\]\s*([^\r\n\[\]{}]{1,80}:)\s*\[/g, "]\n$1\n[");
 
   // 1. Try strict JSON
   if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {

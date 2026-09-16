@@ -45,9 +45,9 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
-            <div className="bg-prizm-background border border-prizm-border rounded-lg shadow-xl max-w-md w-full overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-prizm-border flex items-center justify-between bg-black/40">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-prizm-surface border-2 border-prizm-border rounded-lg shadow-2xl max-w-md w-full overflow-hidden flex flex-col opacity-100">
+                <div className="p-4 border-b border-prizm-border flex items-center justify-between bg-prizm-surface-strong">
                     <h2 className="text-sm font-bold text-prizm-text uppercase tracking-widest flex items-center gap-2">
                         <TriangleAlert size={16} className="text-prizm-warning" /> Confirm Rotation Control
                     </h2>
@@ -56,7 +56,7 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
                     </button>
                 </div>
                 
-                <div className="p-4 flex flex-col gap-4 text-xs font-mono">
+                <div className="p-4 flex flex-col gap-4 text-xs font-mono bg-prizm-surface">
                     <div className={`p-3 rounded border ${action === 'in' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
                         <strong>Action:</strong> Set Rotation: {action === 'in' ? 'IN' : 'OUT'}<br/>
                         <strong>Targets:</strong><br/>
@@ -77,7 +77,7 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
 
                     <div className="flex flex-col gap-1">
                         <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Reason</label>
-                        <select className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={reason} onChange={e => setReason(e.target.value)} disabled={pending}>
+                        <select className="bg-prizm-surface-strong border border-prizm-border text-prizm-text p-2 rounded shadow-sm" value={reason} onChange={e => setReason(e.target.value)} disabled={pending}>
                             <option value="Maintenance">Maintenance</option>
                             <option value="Commissioning">Commissioning</option>
                             <option value="Troubleshooting">Troubleshooting</option>
@@ -89,7 +89,7 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
 
                     <div className="flex flex-col gap-1 mt-1">
                         <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Note (Optional)</label>
-                        <textarea className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded no-scrollbar min-h-[60px]" value={note} onChange={e => setNote(e.target.value)} placeholder="Enter details..." disabled={pending} />
+                        <textarea className="bg-prizm-surface-strong border border-prizm-border text-prizm-text p-2 rounded shadow-sm no-scrollbar min-h-[60px]" value={note} onChange={e => setNote(e.target.value)} placeholder="Enter details..." disabled={pending} />
                     </div>
 
                     <div className="text-prizm-warning font-bold mt-2">
@@ -97,7 +97,7 @@ export default function RotationModal({ isOpen, onClose, onConfirm, targets, act
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-prizm-border bg-black/40 flex justify-end gap-3 text-xs font-mono uppercase tracking-widest font-bold">
+                <div className="p-4 border-t border-prizm-border bg-prizm-surface-strong flex justify-end gap-3 text-xs font-mono uppercase tracking-widest font-bold">
                     <button onClick={onClose} disabled={pending} className="px-4 py-2 text-prizm-text-muted hover:text-white transition-colors">Cancel</button>
                     <button 
                         onClick={handleConfirm} 

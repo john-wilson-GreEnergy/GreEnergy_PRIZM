@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useOptionalSiteData } from "../context/SiteDataContext";
 import { 
   Database, 
   RefreshCw, 
@@ -39,10 +40,15 @@ interface TelemetryFieldRef {
 }
 
 export default function ModbusProfileManagerUI() {
+  const siteData = useOptionalSiteData();
   const [profile, setProfile] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
   const [status, setStatus] = useState<any>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
+  const assumptions = siteData.activeTopologyProfile?.assumptions;
+  const arrayCount = Math.max(1, Number(assumptions?.arrayCount || snapshot?.arrays?.length || snapshot?.pcs?.length || 8));
+  const stringsPerArray = Math.max(1, Number(assumptions?.energySegmentsPerArray || 20) * Number(assumptions?.stringsPerEnergySegment || 2));
+  const expectedStringCount = arrayCount * stringsPerArray;
   const [loading, setLoading] = useState<boolean>(true);
   const [valLoading, setValLoading] = useState<boolean>(false);
   const [rebuildLoading, setRebuildLoading] = useState<boolean>(false);
@@ -404,10 +410,10 @@ export default function ModbusProfileManagerUI() {
             <section className="space-y-2.5">
               <h4 className="text-[11px] font-mono tracking-wide uppercase text-prizm-text-muted flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-prizm-warning rounded-full"></span>
-                Hardware DC Sub-Array Current Bounds (8 Arrays)
+                Hardware DC Sub-Array Current Bounds ({arrayCount} Arrays)
               </h4>
               <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
-                {Array.from({ length: 8 }).map((_, idx) => (
+                {Array.from({ length: arrayCount }).map((_, idx) => (
                   <React.Fragment key={idx}>
                     {renderTelemetryCard(`Arr ${idx + 1} Chg Limit`, `arrays[${idx}].chargeCurrentLimitA`)}
                     {renderTelemetryCard(`Arr ${idx + 1} Dis limit`, `arrays[${idx}].dischargeCurrentLimitA`)}
@@ -419,10 +425,10 @@ export default function ModbusProfileManagerUI() {
             <section className="space-y-2.5">
               <h4 className="text-[11px] font-mono tracking-wide uppercase text-prizm-text-muted flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-prizm-info rounded-full"></span>
-                Power Conversion Systems (8 PCS Columns)
+                Power Conversion Systems ({arrayCount} PCS Columns)
               </h4>
               <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
-                {Array.from({ length: 8 }).map((_, idx) => (
+                {Array.from({ length: arrayCount }).map((_, idx) => (
                   <React.Fragment key={idx}>
                     {renderTelemetryCard(`PCS ${idx + 1} AC Power`, `pcs[${idx}].acPowerKw`)}
                     {renderTelemetryCard(`PCS ${idx + 1} AC Current`, `pcs[${idx}].acCurrentA`)}
@@ -441,7 +447,7 @@ export default function ModbusProfileManagerUI() {
             </h4>
             
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 font-mono">
-              {Array.from({ length: 8 }).map((_, idx) => {
+              {Array.from({ length: expectedStringCount }).map((_, idx) => {
                 const sSoc = getFieldVal(`strings[${idx}].socPercent`);
                 const sSoh = getFieldVal(`strings[${idx}].sohPercent`);
                 const sCurrent = getFieldVal(`strings[${idx}].currentA`);
@@ -457,7 +463,7 @@ export default function ModbusProfileManagerUI() {
                   <div key={idx} className="bg-prizm-surface-strong border border-prizm-border rounded-lg overflow-hidden flex flex-col justify-between">
                     <div className="bg-prizm-surface p-2.5 border-b border-prizm-border flex justify-between items-center text-[10px] uppercase font-extrabold tracking-wider">
                       <span className="text-prizm-primary">STRING {idx + 1}</span>
-                      <span className="text-[8px] bg-black/15 px-1.5 py-0.5 rounded text-prizm-text-muted">ARRAY {idx < 4 ? 1 : 2}</span>
+                      <span className="text-[8px] bg-black/15 px-1.5 py-0.5 rounded text-prizm-text-muted">ARRAY {Math.floor(idx / stringsPerArray) + 1}</span>
                     </div>
 
                     <div className="p-3 text-[11px] space-y-2 flex-1">

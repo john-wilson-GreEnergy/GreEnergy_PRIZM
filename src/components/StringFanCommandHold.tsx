@@ -24,6 +24,7 @@ import {
   Check
 } from "lucide-react";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
+import { useOptionalSiteData } from "../context/SiteDataContext";
 
 interface Capabilities {
   turtleFanEndpointSupported: boolean;
@@ -97,6 +98,12 @@ interface FanCommandVerificationRow {
 }
 
 export default function StringFanCommandHold({ active = true }: { active?: boolean }) {
+  const siteData = useOptionalSiteData();
+  const topologyAssumptions = siteData.activeTopologyProfile?.assumptions;
+  const arrayCount = Math.max(1, Number(topologyAssumptions?.arrayCount || 8));
+  const stringsPerEnergySegment = Math.max(1, Number(topologyAssumptions?.stringsPerEnergySegment || 2));
+  const stringsPerArray = Math.max(1, Number(topologyAssumptions?.energySegmentsPerArray || 20) * stringsPerEnergySegment);
+  const availableArrays = useMemo(() => Array.from({ length: arrayCount }, (_, index) => index + 1), [arrayCount]);
   // Config & Capabilities
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   
@@ -115,7 +122,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   // Selection States
   const [selectedArrays, setSelectedArrays] = useState<number[]>([1]);
   const [stringRangeStart, setStringRangeStart] = useState<number>(1);
-  const [stringRangeEnd, setStringRangeEnd] = useState<number>(40);
+  const [stringRangeEnd, setStringRangeEnd] = useState<number>(stringsPerArray);
   const [individualTargets, setIndividualTargets] = useState<{ controller: "ems" | "bms"; arrayNumber: number; stringNumber: number }[]>([
     { controller: "ems", arrayNumber: 1, stringNumber: 5 }
   ]);
@@ -130,6 +137,13 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const [repeatIntervalSeconds, setRepeatIntervalSeconds] = useState(30);
   const [sendStopAtEnd, setSendStopAtEnd] = useState(true);
   const [confirmationPhrase, setConfirmationPhrase] = useState("HOLD FAN SPEED");
+
+  useEffect(() => {
+    setSelectedArrays(current => current.filter(array => availableArrays.includes(array)));
+    setStringRangeStart(current => Math.min(current, stringsPerArray));
+    setStringRangeEnd(current => Math.min(current, stringsPerArray));
+    setIndividualTargets(current => current.filter(target => availableArrays.includes(target.arrayNumber) && target.stringNumber <= stringsPerArray));
+  }, [availableArrays, stringsPerArray]);
   
   // UI Expandable Holds State
   const [expandedHolds, setExpandedHolds] = useState<Record<string, boolean>>({});
@@ -441,19 +455,19 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
   const resolvedTargets = useMemo((): FanCommandTarget[] => {
     const list: FanCommandTarget[] = [];
     if (targetScope === "site") {
-      for (let a = 1; a <= 8; a++) {
-        for (let s = 1; s <= 40; s++) {
+      for (const a of availableArrays) {
+        for (let s = 1; s <= stringsPerArray; s++) {
           list.push({ controller, arrayNumber: a, stringNumber: s });
         }
       }
     } else if (targetScope === "arrays") {
       for (const a of selectedArrays) {
-        for (let s = 1; s <= 40; s++) {
+        for (let s = 1; s <= stringsPerArray; s++) {
           list.push({ controller, arrayNumber: a, stringNumber: s });
         }
       }
     } else if (targetScope === "strings") {
-      const arrs = selectedArrays.length > 0 ? selectedArrays : [1, 2, 3, 4, 5, 6, 7, 8];
+      const arrs = selectedArrays.length > 0 ? selectedArrays : availableArrays;
       const startS = Math.min(stringRangeStart, stringRangeEnd);
       const endS = Math.max(stringRangeStart, stringRangeEnd);
       for (const a of arrs) {
@@ -465,7 +479,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
       list.push(...individualTargets.map(t => ({ ...t, controller })));
     }
     return list;
-  }, [targetScope, controller, selectedArrays, stringRangeStart, stringRangeEnd, individualTargets]);
+  }, [targetScope, controller, selectedArrays, stringRangeStart, stringRangeEnd, individualTargets, availableArrays, stringsPerArray]);
 
   const getSelectedDuration = (): number => {
     if (durationPreset === "custom") {
@@ -814,7 +828,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                   onChange={(e) => setTargetScope(e.target.value as any)}
                   className="w-full text-xs font-mono p-1.5 rounded border border-prizm-border bg-prizm-surface text-prizm-text focus:outline-none focus:border-prizm-primary"
                 >
-                  <option value="site">Entire Site (320 Strings, A1-A8 S1-S40)</option>
+                  <option value="site">Entire Site ({arrayCount * stringsPerArray} Strings, A1-A{arrayCount} S1-S{stringsPerArray})</option>
                   <option value="arrays">Selected Arrays (All Strings in selected Arrays)</option>
                   <option value="strings">Specific String Range across Selected Arrays</option>
                   <option value="individual">Custom Target Combinations List</option>
@@ -828,7 +842,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                     Select Arrays
                   </label>
                   <div className="grid grid-cols-4 gap-1.5">
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((arrNum) => {
+                    {availableArrays.map((arrNum) => {
                       const isSelected = selectedArrays.includes(arrNum);
                       return (
                         <button
@@ -862,7 +876,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                       <input
                         type="number"
                         min="1"
-                        max="40"
+                        max={stringsPerArray}
                         value={stringRangeStart}
                         onChange={(e) => setStringRangeStart(Math.max(1, Math.min(40, Number(e.target.value))))}
                         className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
@@ -873,7 +887,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                       <input
                         type="number"
                         min="1"
-                        max="40"
+                        max={stringsPerArray}
                         value={stringRangeEnd}
                         onChange={(e) => setStringRangeEnd(Math.max(1, Math.min(40, Number(e.target.value))))}
                         className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
@@ -897,7 +911,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                         onChange={(e) => setIndivArray(Number(e.target.value))}
                         className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
                       >
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map(a => <option key={a} value={a}>Array {a}</option>)}
+                        {availableArrays.map(a => <option key={a} value={a}>Array {a}</option>)}
                       </select>
                     </div>
                     <div className="flex-1">
@@ -907,7 +921,7 @@ export default function StringFanCommandHold({ active = true }: { active?: boole
                         onChange={(e) => setIndivString(Number(e.target.value))}
                         className="w-full text-xs font-mono p-1 rounded border border-prizm-border bg-prizm-surface text-prizm-text"
                       >
-                        {Array.from({ length: 40 }, (_, i) => i + 1).map(s => <option key={s} value={s}>String {s}</option>)}
+                        {Array.from({ length: stringsPerArray }, (_, i) => i + 1).map(s => <option key={s} value={s}>String {s}</option>)}
                       </select>
                     </div>
                     <button

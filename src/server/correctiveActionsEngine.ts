@@ -35,6 +35,26 @@ function finding(input: Omit<CorrectiveActionFinding, "createdAt">): CorrectiveA
   };
 }
 
+const DEFAULT_CONTACTOR_CLOSE_DELTA_LIMIT_VDC = 10;
+
+function contactorCloseDeltaLimitVdc(): number {
+  const configured = Number(process.env.PRIZM_CONTACTOR_CLOSE_DELTA_LIMIT_VDC);
+  return Number.isFinite(configured) && configured >= 0
+    ? configured
+    : DEFAULT_CONTACTOR_CLOSE_DELTA_LIMIT_VDC;
+}
+
+export function isContactorClosePendingVoltageMatch(
+  state: NormalizedContactorState,
+  limitVdc = contactorCloseDeltaLimitVdc()
+): boolean {
+  return state.quality === "live"
+    && state.requestedState === "closed"
+    && state.actualState === "open"
+    && state.stringToBusDeltaVoltage !== null
+    && state.stringToBusDeltaVoltage > limitVdc;
+}
+
 export function analyzeContactorStates(
   states: NormalizedContactorState[]
 ): CorrectiveActionFinding[] {
@@ -91,7 +111,9 @@ export function analyzeContactorStates(
       }));
     }
 
-    if (state.requestedState === "closed" && state.actualState === "open") {
+    const closePendingVoltageMatch = isContactorClosePendingVoltageMatch(state);
+
+    if (state.requestedState === "closed" && state.actualState === "open" && !closePendingVoltageMatch) {
       findings.push(finding({
         ...base,
         id: `requested-closed-actual-open-${state.stringKey}`,
@@ -107,6 +129,10 @@ export function analyzeContactorStates(
           positiveContactorClosed: state.positiveContactorClosed,
           negativeContactorClosed: state.negativeContactorClosed,
           contactorsCloseExpected: state.contactorsCloseExpected,
+          stringVoltage: state.stringVoltage,
+          dcBusVoltage: state.dcBusVoltage,
+          stringToBusDeltaVoltage: state.stringToBusDeltaVoltage,
+          closeDeltaLimitVdc: contactorCloseDeltaLimitVdc(),
           quality: state.quality,
           sourceUrl: state.sourceUrl
         },
@@ -222,11 +248,13 @@ export function analyzeContactorStates(
     const total = arrayStates.length;
 
     const expectedClosedStates = arrayStates.filter((state) => state.requestedState === "closed");
-    const expectedClosedButOpenCount = expectedClosedStates.filter((state) => state.actualState === "open").length;
+    const voltageInterlockedStates = expectedClosedStates.filter(isContactorClosePendingVoltageMatch);
+    const actionableExpectedClosedStates = expectedClosedStates.filter((state) => !isContactorClosePendingVoltageMatch(state));
+    const expectedClosedButOpenCount = actionableExpectedClosedStates.filter((state) => state.actualState === "open").length;
 
     // Do not create a corrective-action fault just because an array is open.
     // This is only actionable when the array/string contactors are expected closed.
-    if (expectedClosedStates.length > 0 && expectedClosedButOpenCount === expectedClosedStates.length) {
+    if (actionableExpectedClosedStates.length > 0 && expectedClosedButOpenCount === actionableExpectedClosedStates.length) {
       findings.push(finding({
         id: `array-wide-open-contactors-A${arrayNumber}`,
         scope: "array",
@@ -236,11 +264,14 @@ export function analyzeContactorStates(
         remediationStrategyId: "array-wide-open-contactors",
         severity: "warning",
         title: "Array expected closed but contactors report open",
-        detectedCondition: `All ${expectedClosedStates.length} string(s) in Array ${arrayNumber} expected closed report open contactors.`,
+        detectedCondition: `All ${actionableExpectedClosedStates.length} actionable string(s) in Array ${arrayNumber} expected closed report open contactors.`,
         evidence: {
           arrayNumber,
           totalStrings: total,
           expectedClosedStringCount: expectedClosedStates.length,
+          voltageInterlockedStringCount: voltageInterlockedStates.length,
+          voltageInterlockedStrings: voltageInterlockedStates.map((state) => state.stringKey),
+          closeDeltaLimitVdc: contactorCloseDeltaLimitVdc(),
           expectedClosedButOpenCount,
           openCount,
           partialCount

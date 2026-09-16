@@ -4,6 +4,7 @@ import { getFeatherCache } from "../feather/featherClient";
 import * as prizmCache from "../cache/prizmCache";
 import { recordTelemetrySample } from "../telemetry/siteTelemetryAggregator";
 import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology } from "../profiles/profileManager";
+import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "../commissioning/siteCommissioningService";
 
 export type PrizmBootPhase =
   | "idle"
@@ -78,6 +79,23 @@ function updateStatus(updates: Partial<PrizmBootStatus>) {
 
 export function getBootStatus() {
   bootStatus.cachePolicy = prizmCache.getEffectiveCachePolicy(null, null, null);
+  const liveConnection = getEmsConnectionStatus();
+  const emsNowReachable = ["live", "partial", "demo"].includes(liveConnection.source);
+  if (emsNowReachable) {
+    bootStatus.emsReachable = true;
+    bootStatus.lastSuccessfulPoll = liveConnection.lastUpdated || bootStatus.lastSuccessfulPoll;
+    if (["offline", "probing-ems", "ems-live", "hydrating-cache"].includes(bootStatus.phase)) {
+      bootStatus.phase = "ready";
+      bootStatus.ready = true;
+    }
+    bootStatus.stationCode = liveConnection.discoveredStationCode || liveConnection.stationCode || bootStatus.stationCode;
+    bootStatus.blockIndex = liveConnection.blockIndex || bootStatus.blockIndex;
+    bootStatus.preloadStatus.siteOperations = true;
+    bootStatus.preloadStatus.topology = true;
+    bootStatus.preloadStatus.stringsDashboard = true;
+  } else if (liveConnection.source === "offline" && !bootStatus.ready) {
+    bootStatus.emsReachable = false;
+  }
   const mockModbus = process.env.PRIZM_MODBUS_MOCK === "true";
   
   if (mockModbus && !bootStatus.warnings.includes("MOCK MODBUS DATA ACTIVE - NOT FIELD DATA")) {
@@ -106,7 +124,11 @@ export function getBootStatus() {
   }
   
   const fCache = getFeatherCache();
-  const featherReachableCount = (fCache?.devices || []).filter(d => d.reachable).length;
+  const expectedFeatherIps = new Set(activeProfile ? generateFeatherDiscoveryCandidatesFromTopology(activeProfile).map(candidate => candidate.deviceIp) : []);
+  const featherReachableCount = new Set((fCache?.devices || [])
+    .filter(device => device.reachable && !(device as any).rejected && (!expectedFeatherIps.size || expectedFeatherIps.has(device.deviceIp)))
+    .map(device => device.deviceIp)).size;
+  bootStatus.preloadStatus.featherDevices = featherReachableCount > 0;
 
   updateStatus({}); // just updates updatedAt
   return { 
@@ -116,7 +138,8 @@ export function getBootStatus() {
     topologyBlocks,
     topologyCandidateCount,
     featherReachableCount,
-    expectedBlocks
+    expectedBlocks,
+    commissioning: getSiteCommissioningStatus()
   };
 }
 
@@ -147,6 +170,12 @@ export async function initializePrizmBootFlow() {
       activeProfile = created;
     }
 
+    if (process.env.PRIZM_AUTO_COMMISSION !== "false") {
+      const commissioning = await runAutomaticSiteCommissioning({ updateProfile: true });
+      if (commissioning.profileUpdated) activeProfile = ProfileStore.getActiveProfile();
+      if (commissioning.state !== "connected") bootStatus.warnings.push(`Site auto-commissioning: ${commissioning.message}`);
+    }
+
     updateStatus({
       activeProfile: activeProfile.id,
       activeEmsBaseUrl: `http://${activeProfile.emsHost}:${activeProfile.emsPort}${activeProfile.turtlePath}`,
@@ -167,6 +196,12 @@ export async function initializePrizmBootFlow() {
     });
 
     startBackgroundPolling();
+    if (process.env.PRIZM_AUTO_COMMISSION !== "false") {
+      setTimeout(() => {
+        try { reconcileCommissionedSiteTopology(); }
+        catch (error: any) { bootStatus.warnings.push(`Topology reconciliation: ${error?.message || String(error)}`); }
+      }, Math.max(5000, Number(process.env.PRIZM_COMMISSION_RECONCILE_DELAY_MS || 15000)));
+    }
     
     // Asynchronously continue hydration without blocking
     hydrateCache().catch(console.error);

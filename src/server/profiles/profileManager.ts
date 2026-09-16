@@ -28,7 +28,7 @@ export function normalizeTopologyModel(profile: any): TopologyModel {
   const arrayStart = tm.arrayStart !== undefined ? Number(tm.arrayStart) : 1;
   const arrayEnd = tm.arrayEnd !== undefined ? Number(tm.arrayEnd) : (profile?.arrayCount !== undefined ? Number(profile.arrayCount) : 8);
   const segmentStart = tm.segmentStart !== undefined ? Number(tm.segmentStart) : 3;
-  const segmentEnd = tm.segmentEnd !== undefined ? Number(tm.segmentEnd) : 75;
+  const segmentEnd = tm.segmentEnd !== undefined ? Number(tm.segmentEnd) : 105;
   const csSegment = tm.csSegment !== undefined ? Number(tm.csSegment) : 3;
   const esSegmentStart = tm.esSegmentStart !== undefined ? Number(tm.esSegmentStart) : 10;
   const esSegmentStep = tm.esSegmentStep !== undefined ? Number(tm.esSegmentStep) : 5;

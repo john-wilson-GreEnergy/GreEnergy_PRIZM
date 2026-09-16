@@ -124,7 +124,7 @@ export function normalizeStringRow(rawRow: any, context?: any): CanonicalStringR
   // Try parsing from stringKey/id if index/number are not available or are 0
   if (arrayNumber === 0 || stringNumber === 0) {
     const keyStr = rawRow.stringKey ?? rawRow.id ?? "";
-    const m = keyStr.match(/^A([1-8])[-_]S([0-9]+)/i);
+    const m = keyStr.match(/^A(\d+)[-_]S(\d+)/i);
     if (m) {
       if (arrayNumber === 0) arrayNumber = parseInt(m[1], 10);
       if (stringNumber === 0) stringNumber = parseInt(m[2], 10);

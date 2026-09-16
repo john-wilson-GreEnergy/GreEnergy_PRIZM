@@ -43,9 +43,12 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
     deploySupported: boolean;
     deployEndpointConfigured: boolean;
     message: string;
+    maxStringIndex: number;
   } | null>(null);
   const [deployBlock, setDeployBlock] = useState(1);
   const [deployArrays, setDeployArrays] = useState<number[]>([]);
+  const [deployScope,setDeployScope]=useState<"array"|"string">("array");
+  const [deployString,setDeployString]=useState(1);
   const [deployDirection, setDeployDirection] = useState<"charge" | "discharge">("charge");
   const [deployTotalCellGroups, setDeployTotalCellGroups] = useState(30);
   const [deployConfirmation, setDeployConfirmation] = useState("START BALANCER TEST");
@@ -115,6 +118,8 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
         body: JSON.stringify({
           block: deployBlock,
           arrays: deployArrays,
+          strings: deployScope==="string"?[deployString]:[],
+          targetScope: deployScope,
           direction: deployDirection,
           totalCellGroups: deployTotalCellGroups,
           confirmationToken: deployConfirmation,
@@ -350,6 +355,14 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
             {/* Column 1: Block & Direction & Total Cell Groups (Left side) */}
             <div className="md:col-span-4 space-y-3">
               <div>
+                <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text mb-1">Target Scope</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" disabled={deploying} onClick={()=>setDeployScope("array")} className={`p-2 rounded border font-mono text-xs ${deployScope==="array"?"border-prizm-primary bg-prizm-primary/25 text-prizm-primary":"border-prizm-border"}`}>Array(s)</button>
+                  <button type="button" disabled={deploying} onClick={()=>{setDeployScope("string");setDeployArrays(current=>current.length?[current[0]]:[1]);}} className={`p-2 rounded border font-mono text-xs ${deployScope==="string"?"border-prizm-primary bg-prizm-primary/25 text-prizm-primary":"border-prizm-border"}`}>Individual string</button>
+                </div>
+              </div>
+
+              <div>
                 <label className="block font-mono text-[10px] uppercase tracking-wider text-prizm-text-muted mb-1">
                   Target Block (Read-only)
                 </label>
@@ -412,7 +425,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-mono text-[10px] uppercase tracking-wider text-prizm-text">
-                    Target Arrays (Select at least one)
+                    {deployScope==="string"?"Target Array (select one)":"Target Arrays (select at least one)"}
                   </label>
                   <span className="font-mono text-[10px] text-prizm-primary font-bold">
                     {deployArrays.length} selected
@@ -430,7 +443,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                         disabled={!capabilities?.deploySupported || deploying}
                         onClick={() => {
                           setDeployArrays(prev =>
-                            prev.includes(arr)
+                            deployScope==="string"?[arr]:prev.includes(arr)
                               ? prev.filter(x => x !== arr)
                               : [...prev, arr].sort()
                           );
@@ -447,8 +460,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                   })}
                 </div>
 
-                {/* Quick actions row */}
-                <div className="grid grid-cols-4 gap-1 mt-1.5">
+                {deployScope==="array"&&<div className="grid grid-cols-4 gap-1 mt-1.5">
                   <button
                     type="button"
                     disabled={!capabilities?.deploySupported || deploying}
@@ -481,7 +493,11 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                   >
                     Clear
                   </button>
-                </div>
+                </div>}
+                {deployScope==="string"&&<label className="mt-3 block font-mono text-[10px] uppercase tracking-wider text-prizm-text">String number
+                  <input aria-label="Target string number" type="number" min={1} max={capabilities?.maxStringIndex||40} value={deployString} onChange={e=>setDeployString(Number(e.target.value))} className="mt-1 w-full rounded border border-prizm-border bg-prizm-surface p-2 text-xs"/>
+                  <span className="mt-1 block normal-case text-prizm-text-muted">Valid range: 1–{capabilities?.maxStringIndex||40}. PRIZM sends the EMS arrayIndexes/stringIndexes pair.</span>
+                </label>}
               </div>
             </div>
 
@@ -612,7 +628,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                 </th>
                 <th className="p-3 w-16">ID</th>
                 <th className="p-3 w-28">Block</th>
-                <th className="p-3">Arrays Targeted</th>
+                <th className="p-3">Target</th>
                 <th className="p-3 w-24">Direction</th>
                 <th className="p-3 w-28">State</th>
                 <th className="p-3 w-40">Progress</th>
@@ -665,12 +681,14 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                       </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1">
-                          {s.arrays.length > 0 ? (
-                            s.arrays.map(arr => (
-                              <span key={arr} className="px-1.5 py-0.5 bg-prizm-bg rounded border border-prizm-border text-[10px] text-prizm-text font-bold">
-                                Array {arr}
+                          {s.targetScope==="string"&&s.strings.length>0 ? (
+                            s.strings.map(target => (
+                              <span key={`${target.array}:${target.stringNumber}`} className="px-1.5 py-0.5 bg-prizm-bg rounded border border-prizm-border text-[10px] text-prizm-text font-bold">
+                                Array {target.array} · String {target.stringNumber}
                               </span>
                             ))
+                          ) : s.arrays.length > 0 ? (
+                            s.arrays.map(arr => <span key={arr} className="px-1.5 py-0.5 bg-prizm-bg rounded border border-prizm-border text-[10px] text-prizm-text font-bold">Array {arr}</span>)
                           ) : (
                             <span className="text-prizm-text-muted italic">Block-Level Test</span>
                           )}
@@ -899,7 +917,7 @@ export default function BalancerTestDashboard({ active }: BalancerTestDashboardP
                       </tr>
                     ) : (
                       combinedHotspots.map((bpcItem, idx) => {
-                        const esLabel = `A${bpcItem.array}/ES${bpcItem.energySegmentNumber}/S${bpcItem.stringNumber}`;
+                        const esLabel = `Array ${bpcItem.array} / ES${bpcItem.energySegmentNumber} / String ${bpcItem.stringNumber}`;
                         return (
                           <tr key={idx} className="hover:bg-black/5">
                             <td className="p-3 font-bold text-prizm-text">

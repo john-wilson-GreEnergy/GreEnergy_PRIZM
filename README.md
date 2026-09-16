@@ -50,6 +50,67 @@ We provide automated setup installers that will detect system environments, inst
 
 ## ⚡ Running the Application
 
+### Desktop or headless deployment
+
+For a macOS or Linux desktop deployment, build PRIZM once (`npm run build`), then run
+`bash scripts/install_prizm_desktop_launcher.sh`. The new desktop icon starts the
+production server if necessary and opens PRIZM in the browser. Subsequent clicks
+reuse the running server. On macOS this is a `PRIZM.app` launcher with the
+GreEnergy logo; on Linux it is
+a `.desktop` launcher. Linux desktop environments may require marking the icon
+as trusted before the first launch. Windows has its own one-click launcher under
+`deployment/windows/`.
+
+The macOS launcher shows a brief checking window, then a status window before
+opening the dashboard. The launcher reports whether PRIZM was already running
+or had to be started.
+It also pings the EMS host (default `10.0.0.3`) and reports reachability without
+blocking PRIZM when EMS is offline. Set `PRIZM_EMS_HOST` in the launcher's
+environment to use a different site address. A successful ping confirms network
+reachability only; the PRIZM telemetry view remains the authority for EMS data
+health and freshness.
+
+For a **CL250 with a fresh Ubuntu Server 22.04 or 24.04 installation**, first copy or
+clone this complete repository onto the CL250, sign in as a non-root account
+with `sudo` access, then run from the repository directory:
+
+```bash
+./install-headless.sh
+```
+
+On Ubuntu 22.04 or 24.04, the installer installs build tools, SSH/sshpass,
+curl, ping, and other shell dependencies, plus Node.js 24 LTS when needed,
+from the signed NodeSource apt repository. It then installs locked npm dependencies,
+builds PRIZM, installs the service, and waits for local HTTP readiness. The first
+run needs internet access to Ubuntu, NodeSource, and npm package repositories.
+Use `--offline` only after Node.js and npm are installed and npm dependencies are
+already present or cached; use `--reinstall-deps` to refresh an existing
+dependency tree. The installer does not pull Git changes, configure a firewall,
+or enable remote authentication. Outside those Ubuntu releases, install Node.js 20+ and
+npm and the required system utilities first. The ioLogik workspace additionally
+requires its separate fleet script and golden configuration to be deployed and
+configured on the CL250; package installation alone does not provide those assets.
+The service installer runs
+PRIZM as the non-root account that invoked `sudo`, enables startup on boot, starts
+it immediately, and restarts it after an unexpected exit. When installing from a
+root shell, specify `PRIZM_RUN_USER=<deployment-account>` explicitly. The service
+uses an absolute Node.js path and the current repository location, so reinstall
+it if either moves. Check it with `systemctl status prizm`; inspect logs with
+`journalctl -u prizm -f`. To stop boot startup, run
+`sudo systemctl disable --now prizm`. A previous service file is timestamp-backed
+up before replacement. Configure access controls separately before deploying on
+a site LAN.
+
+**Network warning:** the current PRIZM server binds to all interfaces. The
+headless installer does not create firewall rules or authentication. Deploy it
+only on an approved, restricted site network and configure the host firewall or
+an authenticated access gateway before granting remote access. The installer
+refuses to rebuild over an already-running PRIZM service; use a planned update
+procedure for an existing installation.
+
+Do not run the terminal launcher and the boot service simultaneously; both use
+port 3000. The desktop launcher detects and reuses an already-running PRIZM.
+
 Once installed, there are two easy ways to start the dashboard:
 
 1. **Desktop Shortcut**: Double-click your new desktop icon!

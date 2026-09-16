@@ -21,7 +21,11 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 
 export function getStringViewerConfig(env: NodeJS.ProcessEnv = process.env): StringViewerSchedulerConfig {
   return {
-    mode: env.PRIZM_STRINGVIEWER_MODE === "scheduled" ? "scheduled" : "legacy",
+    // Scheduled acquisition is the production default. The legacy mode fans
+    // out to every string on every coordinator cycle and can saturate Turtle,
+    // starving command readback. Keep it available only as an explicit
+    // rollback/parity override.
+    mode: env.PRIZM_STRINGVIEWER_MODE === "legacy" ? "legacy" : "scheduled",
     maxConcurrency: positiveInteger(env.PRIZM_STRINGVIEWER_MAX_CONCURRENCY, 6),
     batchBudget: positiveInteger(env.PRIZM_STRINGVIEWER_BATCH_BUDGET, 32),
     // Legacy warmup already uses 60 seconds. Scheduled defaults are deliberately

@@ -455,7 +455,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
   const baseUrl = getNormalizedBaseUrl();
   let url = `${baseUrl}${endpoint}`;
   
-  if (isEmsOffline && (url.includes("10.0.0.3") || url.includes("10.0.0."))) {
+  if (isDemoActive() && isEmsOffline && (url.includes("10.0.0.3") || url.includes("10.0.0."))) {
     const urlObj = new URL(url);
     url = `http://127.0.0.1:3000${urlObj.pathname}`;
   }
@@ -495,7 +495,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
     let fallbackAttempted = false;
     try {
       response = await fetch(url, { signal: controller.signal });
-      if (!response.ok && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+      if (isDemoActive() && !response.ok && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
         if (url.includes("10.0.0.3") || url.includes("10.0.0.")) {
           isEmsOffline = true;
         }
@@ -507,7 +507,7 @@ export async function fetchAndRecord(endpoint: string, customTimeoutMs?: number,
         response = await fetch(fallbackUrl);
       }
     } catch (e: any) {
-      if (!fallbackAttempted && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
+      if (isDemoActive() && !fallbackAttempted && !url.includes("127.0.0.1:3000") && !url.includes("localhost:3000")) {
         if (url.includes("10.0.0.3") || url.includes("10.0.0.")) {
           isEmsOffline = true;
         }
@@ -714,6 +714,7 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
   const activeRef = ProfileStore.getActiveProfile();
   const activeProfileId = activeRef ? activeRef.id : "default-local-ems";
   const activeProfileName = activeRef ? activeRef.profileName : (process.env.EMS_PROFILE_NAME || "PRIZM Core Hardware Bess Profile");
+  const siteName = activeRef?.siteName || activeProfileName;
   const stationCode = emsCache.discoveredStationCode || (activeRef ? activeRef.stationCode : "BHE0020");
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
@@ -789,6 +790,7 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
     lastUpdated: isDemo ? new Date().toISOString() : (cacheMatches ? emsCache.lastUpdated : null),
     activeEmsBaseUrl: rawUrl,
     activeProfileName,
+    siteName,
     activeProfileId,
     stationCode,
     discoveredStationCode: emsCache.discoveredStationCode,
@@ -1406,7 +1408,10 @@ function getSimulatedPcsReport(arrayNum: number, pcsNum: number) {
   };
 }
 
-export async function pollEmsTurtle(): Promise<{ success: boolean; error: string | null }> {
+export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): Promise<{ success: boolean; error: string | null }> {
+  // A transient slow probe must not permanently reroute production telemetry to
+  // localhost mock endpoints. Every live cycle gets a fresh chance to reach EMS.
+  if (process.env.EMS_OFFLINE !== "true" && !isDemoActive()) isEmsOffline = false;
   emsCache.cycleId = getTelemetryCycleId();
   const pollMetric = telemetryMetrics.registry.beginEndpoint("ems-turtle", "poll-cycle");
   emsCache.hasAttemptedPoll = true;
@@ -1422,15 +1427,26 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
       const id = setTimeout(() => controller.abort(), 350);
       const probeRes = await fetch(`${baseUrl}/status`, { signal: controller.signal });
       clearTimeout(id);
-      if (!probeRes.ok) {
-        isEmsOffline = true;
-      }
+      // The probe is advisory; the real endpoint calls below determine health.
     } catch (e) {
-      isEmsOffline = true;
+      // Do not switch production to mock data because a 350ms probe timed out.
     }
   }
 
-  const criticalFetches = coordinatorProfiler.withParallelGroup("EMS Critical Acquisition", 5, () => Promise.allSettled([
+  // lastCall is large (several MB on a full block) and routinely exceeds the
+  // 2.5s fast timeout. Start it concurrently, but do not make basic String
+  // List electrical updates wait for it. Publish again when its authoritative
+  // BPC balancing tree is available.
+  const lastCallFetch = acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_SLOW_TIMEOUT_MS)
+    .then(result => {
+      if (!result.success) {
+        throw new Error(result.error || 'lastCall acquisition failed');
+      }
+      emsCache.lastCall = result.data;
+      return result.data;
+    });
+
+  const criticalFetches = coordinatorProfiler.withParallelGroup("EMS Critical Acquisition", 4, () => Promise.allSettled([
     fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 
       const statusText = String(text || '').trim();
       if (!statusText || !statusText.toUpperCase().startsWith('OK')) {
@@ -1461,14 +1477,6 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
 
         return result.data;
       }),
-    acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_FAST_TIMEOUT_MS)
-      .then(result => {
-        if (!result.success) {
-          throw new Error(result.error || 'lastCall acquisition failed');
-        }
-        emsCache.lastCall = result.data;
-        return result.data;
-      }),
     acquireEmsCsvEndpointWithCsvProvider('/tools/report/ems/strings.csv', EMS_FAST_TIMEOUT_MS)
       .then(result => {
         if (!result.success) {
@@ -1486,6 +1494,29 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
     if (res.status === 'fulfilled' && res.value) coreEndpointsSucceeded++;
     else { const r = (res as PromiseRejectedResult).reason; overallError = r?.message || String(r); criticalEndpointsFailed++; }
   });
+
+  // The String List only depends on the critical block/lastCall/strings
+  // sources. Let its canonical publication proceed before slower array, PCS,
+  // notification, and optional acquisitions complete.
+  if (onCriticalAcquired && coreEndpointsSucceeded > 0) {
+    await onCriticalAcquired().catch((err: any) => {
+      console.warn("[EMS Poll] Critical-data publication callback failed:", err?.message || err);
+    });
+  }
+
+  const lastCallResult = await Promise.allSettled([lastCallFetch]);
+  if (lastCallResult[0].status === 'fulfilled') {
+    coreEndpointsSucceeded++;
+    if (onCriticalAcquired) {
+      await onCriticalAcquired().catch((err: any) => {
+        console.warn("[EMS Poll] lastCall balancing publication callback failed:", err?.message || err);
+      });
+    }
+  } else {
+    criticalEndpointsFailed++;
+    const reason = lastCallResult[0].reason;
+    overallError = reason?.message || String(reason);
+  }
 
   const optionalFetches = coordinatorProfiler.withParallelGroup("EMS Optional Acquisition", 6, () => Promise.allSettled([
     acquireEmsEndpointWithRestProvider('/tools/report/ems/controllerStatistics.json', EMS_NORMAL_TIMEOUT_MS)
@@ -1569,17 +1600,35 @@ export async function pollEmsTurtle(): Promise<{ success: boolean; error: string
             data
           };
         })
-        .catch((err: any) => {
-          const simulated = getSimulatedPcsReport(a, pcsNum);
+      .catch((err: any) => {
+        const previous = emsCache.arrayPcsReports[a][pcsNum];
+        const attemptedAt = new Date().toISOString();
+        // Synthetic PCS values are useful in demo mode only. In a live portal they
+        // make a failed request look like fresh field telemetry, so retain the last
+        // real sample (if any) and mark it stale instead.
+        if (isDemoActive()) {
           emsCache.arrayPcsReports[a][pcsNum] = {
             ok: true,
             endpoint: ep,
-            fetchedAt: new Date().toISOString(),
+            fetchedAt: attemptedAt,
             durationMs: Date.now() - start,
-            data: simulated,
+            data: getSimulatedPcsReport(a, pcsNum),
+            simulated: true,
             error: err.message || String(err)
           };
-        });
+        } else {
+          emsCache.arrayPcsReports[a][pcsNum] = {
+            ok: false,
+            endpoint: ep,
+            fetchedAt: previous?.fetchedAt || null,
+            lastAttemptedAt: attemptedAt,
+            durationMs: Date.now() - start,
+            data: previous?.data || null,
+            stale: Boolean(previous?.data),
+            error: err.message || String(err)
+          };
+        }
+      });
       pcsReportPromises.push(p);
     }
   }
@@ -1639,6 +1688,7 @@ export function getEmsConnectionStatus() {
   const activeRef = ProfileStore.getActiveProfile();
   const activeProfileId = activeRef ? activeRef.id : "default-local-ems";
   const activeProfileName = activeRef ? activeRef.profileName : (process.env.EMS_PROFILE_NAME || "PRIZM Core Hardware Bess Profile");
+  const siteName = activeRef?.siteName || activeProfileName;
   const stationCode = emsCache.discoveredStationCode || (activeRef ? activeRef.stationCode : "BHE0020");
   const blockIndex = activeRef ? activeRef.blockIndex : 1;
 
@@ -1666,6 +1716,7 @@ export function getEmsConnectionStatus() {
     lastUpdated: isDemo ? new Date().toISOString() : (cacheMatches ? emsCache.lastUpdated : null),
     activeEmsBaseUrl: rawUrl,
     activeProfileName,
+    siteName,
     activeProfileId,
     stationCode,
     discoveredStationCode: emsCache.discoveredStationCode,
@@ -1836,7 +1887,11 @@ export function getExtendedConnectionStatus() {
   return {
     profileId: base.activeProfileId,
     profileName: base.activeProfileName,
+    activeProfileId: base.activeProfileId,
+    activeProfileName: base.activeProfileName,
+    siteName: base.siteName,
     emsBaseUrl: base.activeEmsBaseUrl,
+    activeEmsBaseUrl: base.activeEmsBaseUrl,
     reachable,
     status: statusStr,
     firstSuccessfulEndpoint: emsCache.hasAttemptedPoll && (base.source !== 'offline') ? '/tools/report/ems/status.json' : null,
@@ -1846,6 +1901,8 @@ export function getExtendedConnectionStatus() {
     suggestedAction: !reachable ? 'RECONFIGURE_EMS' : null,
     sourceHealth: base.reason || 'OK',
     discoveredStationCode: base.discoveredStationCode,
+    stationCode: base.stationCode,
+    blockIndex: base.blockIndex,
     cacheSeedState
   };
 }

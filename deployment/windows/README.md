@@ -2,6 +2,8 @@
 
 This directory provides technician-facing Windows commands for a cloned PRIZM repository. It keeps process control local, records the exact managed process, and does not change telemetry, authority, polling, or application behavior.
 
+PR-0040 adds the production installer layer alongside that repository toolkit. See [PR-0040-ARCHITECTURE.md](PR-0040-ARCHITECTURE.md) for the WiX MSI, bundled Node runtime, WinSW service, Tauri desktop manager, upgrade/repair/uninstall model, packaging commands, security boundary, and Windows validation matrix. The BAT/PowerShell tools below remain useful for engineering clones; installed field systems use the MSI and manager and require none of those developer tools.
+
 ## Requirements
 
 - Windows 10/11 or Windows Server with Windows PowerShell 5.1

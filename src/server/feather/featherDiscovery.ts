@@ -10,9 +10,10 @@ import { buildSiteTopologyFromCachedSources } from "../topology/siteTopology";
 export function discoverTopologyCandidates(): DiscoveryCandidate[] {
   const candidatesMap = new Map<string, DiscoveryCandidate>();
   let hasActiveProfile = false;
+  let activeProfile: ReturnType<typeof ProfileStore.getActiveProfile> | null = null;
   
   try {
-     const activeProfile = ProfileStore.getActiveProfile();
+     activeProfile = ProfileStore.getActiveProfile();
      if (activeProfile) {
          console.log(`[Feather Bootstrap] Active topology profile: ${activeProfile.profileName}`);
          hasActiveProfile = true;
@@ -110,7 +111,12 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
      for (const sim of topology.stringIpMap) {
           if (sim.ipAddress) {
               const existing = candidatesMap.get(sim.ipAddress);
-              if (!existing) {
+              if (existing) {
+                  existing.excluded = true;
+                  existing.excludeReason = "verified-string-controller-ip";
+                  existing.arrayIndex = sim.arrayIndex ?? existing.arrayIndex;
+                  existing.stringIndex = sim.stringIndex ?? existing.stringIndex;
+              } else {
                   candidatesMap.set(sim.ipAddress, {
                       deviceIp: sim.ipAddress,
                       sourceDiscoveryMethod: "string-ip-map",
@@ -119,7 +125,7 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
                       entityName: `Array ${sim.arrayIndex} String ${sim.stringIndex} Controller`,
                       entityKeyToken: `STR_IP_VAL`,
                       excluded: true,
-                      excludeReason: "string-controller-or-inferred-es-host"
+                      excludeReason: "verified-string-controller-ip"
                   });
               }
           }
@@ -134,11 +140,18 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
      if (!hasActiveProfile) {
          console.log("[Feather Bootstrap] WARNING: Active topology profile missing or invalid. Using legacy fallback topology.");
      }
-     const arrayCount = 8; 
+     const topology = activeProfile?.topologyModel;
+     const arrayStart = Number(topology?.arrayStart || 1);
+     const arrayEnd = Number(topology?.arrayEnd || activeProfile?.arrayCount || 8);
+     const basePrefix = topology?.basePrefix || activeProfile?.emsHost?.split('.').slice(0, 2).join('.') || "10.0";
+     const csHost = Number(topology?.csSegment || activeProfile?.ipLayout?.csHostOctets?.[0] || 3);
+     const esStart = Number(topology?.esSegmentStart || activeProfile?.ipLayout?.esStartHostOctet || 10);
+     const esStep = Number(topology?.esSegmentStep || activeProfile?.ipLayout?.esHostStep || 5);
+     const esCount = Number(topology?.esCountPerArray || activeProfile?.ipLayout?.esCountPerArray || 20);
 
-     for (let a = 1; a <= arrayCount; a++) {
+     for (let a = arrayStart; a <= arrayEnd; a++) {
          // CS Host (array controller)
-         const arrayIp = `10.0.${a}.3`;
+         const arrayIp = `${basePrefix}.${a}.${csHost}`;
          candidatesMap.set(arrayIp, {
              deviceIp: arrayIp,
              sourceDiscoveryMethod: "blockviewer",
@@ -148,10 +161,9 @@ export function discoverTopologyCandidates(): DiscoveryCandidate[] {
              entityKeyToken: `ARR_${a}_CTRL`
          });
 
-         // ES Hosts (.10 to .105 step 5)
-         for (let h = 10; h <= 105; h += 5) {
-             const stringIp = `10.0.${a}.${h}`;
-             const stringIndex = Math.floor((h - 10) / 5) + 1;
+         for (let stringIndex = 1; stringIndex <= esCount; stringIndex++) {
+             const h = esStart + ((stringIndex - 1) * esStep);
+             const stringIp = `${basePrefix}.${a}.${h}`;
              candidatesMap.set(stringIp, {
                  deviceIp: stringIp,
                  sourceDiscoveryMethod: "blockviewer",

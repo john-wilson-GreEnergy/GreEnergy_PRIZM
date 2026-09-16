@@ -108,6 +108,20 @@ export class CoordinatorRuntime<TSnapshot> {
     this.refreshRequestCount += 1;
     this.lastRefreshRequest = { reason: normalizedReason, requestedAt };
 
+    // Scheduled ticks are cadence hints, not work that must be replayed. If a
+    // cycle is already active, queueing every tick creates a permanent backlog.
+    if (normalizedReason === "scheduled-interval" && (this.collectionPromise || this.pendingRefreshRequests > 0)) {
+      this.ignoredDuplicateRefreshCount += 1;
+      this.coalescedRefreshCount += 1;
+      telemetryMetrics.registry.recordCoordinatorRefresh({
+        coalesced: true,
+        duplicate: true,
+        queued: false,
+        queueDepth: this.pendingRefreshRequests > 0 ? 1 : 0,
+      });
+      return;
+    }
+
     const duplicateReason = this.refreshReasons.has(normalizedReason);
     const alreadyQueued = this.pendingRefreshRequests > 0;
     if (duplicateReason) this.ignoredDuplicateRefreshCount += 1;

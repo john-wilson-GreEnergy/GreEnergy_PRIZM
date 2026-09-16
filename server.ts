@@ -16,10 +16,14 @@ import { contactorControlRouter } from "./src/server/contactorControlRoutes";
 import { externalTelemetryRouter } from "./src/server/demo/externalTelemetryMock";
 import emsAppRoutes from "./src/server/ems/emsAppRoutes";
 import { startModbusScheduler } from "./src/server/telemetry/modbusProfileManager";
+import { startOperationalModbusPolling } from "./src/server/telemetry/modbusOperationalTelemetry";
 import storageRouter from "./src/server/storage/storageRoutes";
 import { initLocalStorageMaintenance } from "./src/server/storage/storageMaintenance";
 import { siteDataRouter } from "./src/server/siteDataRoutes";
 import { reportRoutes } from "./src/server/reports/reportRoutes";
+import firmwareInventoryRouter from "./src/server/firmware/firmwareInventoryRoutes";
+import { initializeFirmwareInventoryAutomation } from "./src/server/firmware/firmwareInventoryService";
+import { SITE_HEALTH_THRESHOLDS } from "./src/lib/thresholds";
 
 import { emsCache, bootstrapEmsAndSeedCache, cacheSeedState, getExtendedConnectionStatus, DEMO_TEMPLATES, OFFLINE_TEMPLATES } from "./src/server/emsTurtleClient";
 import { bootstrapFeatherDiscoveryAndSeedCache } from "./src/server/feather/featherClient";
@@ -62,12 +66,15 @@ import siteDistributionRouter from "./src/server/siteDistribution/siteDistributi
 import siteSensorsRouter from "./src/server/siteSensors/siteSensorsRoutes";
 import diagnosticSessionRouter from "./src/server/diagnosticSession/diagnosticSessionRoutes";
 import provisioningRoutes from "./src/server/deviceProvisioning/provisioningRoutes";
+import featherSerialRoutes from "./src/server/featherSerial/featherSerialRoutes";
+import iologikFleetRoutes from "./src/server/iologik/iologikFleetRoutes";
 import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
 import debugSourceScanRouter from "./src/server/debugSourceScan";
 import { troubleshootingRouter } from "./src/server/troubleshooting/troubleshootingRoutes";
 import { formatAffectedTargetForDisplay, shouldShowTargetIp } from "./src/server/troubleshooting/troubleshootingResolver";
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
+import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "./src/server/commissioning/siteCommissioningService";
 import * as prizmDataCoordinator from "./src/server/prizmDataCoordinator";
 import { fetchEnrichedDevices } from "./src/server/feather/deviceEnrichment";
 import { getCommunicating, getOutRotation, getContactorsClosed, classifyStringOperationalState } from "./src/lib/stringClassifier";
@@ -97,6 +104,57 @@ telemetryMetrics.setGraphIdentityMetrics(() => graphIdentityResolver.report(), (
 telemetryMetrics.setObservationMetrics(() => observationRuntime.report(), () => observationRuntime.resetMetrics());
 
 app.use(express.json({ limit: '50mb' }));
+
+const SITE_HEALTH_VISUAL_THRESHOLDS_FILE = path.resolve(process.cwd(), ".prizm-data", "site-health-visual-thresholds.json");
+const DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS = {
+  alarmTemp: SITE_HEALTH_THRESHOLDS.temperatureC.highAlarmMin,
+  warningTemp: SITE_HEALTH_THRESHOLDS.temperatureC.highWarningMin,
+  lowTemp: SITE_HEALTH_THRESHOLDS.temperatureC.lowWarningMax,
+  lowAlarmTemp: SITE_HEALTH_THRESHOLDS.temperatureC.lowAlarmMax,
+  alarmVolt: SITE_HEALTH_THRESHOLDS.voltageVdc.highAlarmMin,
+  warningVolt: SITE_HEALTH_THRESHOLDS.voltageVdc.highWarningMin,
+  lowVolt: SITE_HEALTH_THRESHOLDS.voltageVdc.lowWarningMax,
+  lowAlarmVolt: SITE_HEALTH_THRESHOLDS.voltageVdc.lowAlarmMax
+};
+
+function readSiteHealthVisualThresholds() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SITE_HEALTH_VISUAL_THRESHOLDS_FILE, "utf8"));
+    return { ...DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS, ...saved };
+  } catch {
+    return { ...DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS };
+  }
+}
+
+app.get("/api/settings/site-health-visual-thresholds", (_req, res) => {
+  res.json({ success: true, thresholds: readSiteHealthVisualThresholds() });
+});
+
+app.put("/api/settings/site-health-visual-thresholds", (req, res) => {
+  const keys = Object.keys(DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS) as Array<keyof typeof DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS>;
+  const thresholds = Object.fromEntries(keys.map((key) => [key, Number(req.body?.[key])])) as typeof DEFAULT_SITE_HEALTH_VISUAL_THRESHOLDS;
+  if (keys.some((key) => !Number.isFinite(thresholds[key]))) {
+    return res.status(400).json({ success: false, error: "Every visual threshold must be a finite number." });
+  }
+  if (thresholds.lowAlarmTemp > thresholds.lowTemp || thresholds.lowTemp >= thresholds.warningTemp || thresholds.warningTemp > thresholds.alarmTemp) {
+    return res.status(400).json({ success: false, error: "Temperature levels must increase from low alarm through high alarm." });
+  }
+  if (thresholds.lowAlarmVolt > thresholds.lowVolt || thresholds.lowVolt >= thresholds.warningVolt || thresholds.warningVolt > thresholds.alarmVolt) {
+    return res.status(400).json({ success: false, error: "Voltage levels must increase from low alarm through high alarm." });
+  }
+  if (thresholds.lowAlarmTemp < -50 || thresholds.alarmTemp > 100 || thresholds.lowAlarmVolt < 0 || thresholds.alarmVolt > 2000) {
+    return res.status(400).json({ success: false, error: "One or more visual thresholds are outside the supported display range." });
+  }
+  try {
+    fs.mkdirSync(path.dirname(SITE_HEALTH_VISUAL_THRESHOLDS_FILE), { recursive: true });
+    const tempFile = `${SITE_HEALTH_VISUAL_THRESHOLDS_FILE}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify({ ...thresholds, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+    fs.renameSync(tempFile, SITE_HEALTH_VISUAL_THRESHOLDS_FILE);
+    return res.json({ success: true, thresholds });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || "Unable to save visual thresholds." });
+  }
+});
 app.use((_req, res, next) => {
   res.setHeader("X-PRIZM-Cycle-Id", "none");
   const sendJson = res.json.bind(res);
@@ -139,7 +197,10 @@ app.use("/api/local/site-sensors", siteSensorsRouter);
 app.use("/api/local/diagnostic-session", diagnosticSessionRouter);
 app.use("/api/local/site-data", siteDataRouter);
 app.use("/api/local/reports", reportRoutes);
+app.use("/api/local/firmware", firmwareInventoryRouter);
 app.use("/api/local/provisioning", provisioningRoutes);
+app.use("/api/local/feather-serial", featherSerialRoutes);
+app.use("/api/local/iologik", iologikFleetRoutes);
 
 app.use("/api/local/balancer-test", balancerTestRouter);
 
@@ -242,6 +303,25 @@ app.get("/api/local/system/boot-status", (req, res) => {
   res.json(getBootStatus());
 });
 
+app.get("/api/local/system/commissioning", (_req, res) => {
+  res.json(getSiteCommissioningStatus());
+});
+
+app.post("/api/local/system/commissioning/discover", async (req, res) => {
+  try {
+    const result = await runAutomaticSiteCommissioning({ timeoutMs: Number(req.body?.timeoutMs) || undefined, updateProfile: req.body?.updateProfile !== false });
+    if (result.profileUpdated) handleProfileChange();
+    res.status(result.state === "connected" ? 200 : 409).json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
+
+app.post("/api/local/system/commissioning/reconcile", (_req, res) => {
+  try { res.json(reconcileCommissionedSiteTopology()); }
+  catch (error: any) { res.status(409).json({ error: error?.message || String(error), commissioning: getSiteCommissioningStatus() }); }
+});
+
 app.post("/api/local/system/reinitialize", (req, res) => {
   handleProfileChange();
   res.json(getBootStatus());
@@ -339,6 +419,7 @@ import {
 // background polling is now handled by prizmBootOrchestrator
 // Kick off initial bootstrap cache seed
 startModbusScheduler();
+startOperationalModbusPolling();
 
 // 1. GET /api/local/connection: Reports LAN connectivity telemetry
 app.get("/api/local/connection", async (req, res) => {
@@ -810,8 +891,16 @@ app.put("/api/settings/profiles/:id", (req, res) => {
     }
 
     const updates: any = {};
-    if (body.profileName !== undefined) updates.profileName = body.profileName;
-    if (body.siteName !== undefined) updates.siteName = body.siteName;
+    if (body.profileName !== undefined) {
+      const profileName = String(body.profileName).trim();
+      if (!profileName) return res.status(400).json({ error: "Profile Name is required" });
+      updates.profileName = profileName;
+    }
+    if (body.siteName !== undefined) {
+      const siteName = String(body.siteName).trim();
+      if (!siteName) return res.status(400).json({ error: "Site Name is required" });
+      updates.siteName = siteName;
+    }
     if (body.stationCode !== undefined) updates.stationCode = body.stationCode;
     
     if (body.blockIndex !== undefined) {
@@ -864,22 +953,33 @@ app.put("/api/settings/profiles/:id", (req, res) => {
     if (body.topologyModel !== undefined) updates.topologyModel = body.topologyModel;
     if (body.sensorMonitoringProfile !== undefined) updates.sensorMonitoringProfile = body.sensorMonitoringProfile;
 
-    // Validate merged profile before updating
-    const mergedObj = {
-      ...existing,
-      ...updates
-    };
-
-    const errors = validateTopologyModel(mergedObj);
-    if (errors.length > 0) {
-      return res.status(400).json({ error: errors.join(" / ") });
+    // Metadata-only edits must not be rejected by an unrelated, pre-existing
+    // topology warning. Validate topology when the request can change it.
+    const topologyValidationFields = [
+      "stationCode", "blockIndex", "emsHost", "emsPort", "turtlePath",
+      "modbusHost", "modbusPort", "modbusUnitId", "arrayCount",
+      "stringsPerArray", "topologyModel"
+    ];
+    const affectsTopology = topologyValidationFields.some(field => Object.prototype.hasOwnProperty.call(updates, field));
+    if (affectsTopology) {
+      const errors = validateTopologyModel({ ...existing, ...updates });
+      if (errors.length > 0) {
+        return res.status(400).json({ error: errors.join(" / ") });
+      }
     }
 
     const updated = ProfileStore.updateProfile(id, updates);
 
-    // If active profile updated, clear cache & trigger poll of new settings
+    // Only connection or topology changes require telemetry invalidation. Display
+    // metadata such as the site name should update without creating a new poll.
     const active = ProfileStore.getActiveProfile();
-    if (active.id === id) {
+    const telemetryAffectingFields = [
+      "stationCode", "blockIndex", "emsHost", "emsPort", "turtlePath",
+      "modbusHost", "modbusPort", "modbusUnitId", "arrayCount",
+      "stringsPerArray", "topologyModel", "sensorMonitoringProfile"
+    ];
+    const affectsTelemetry = telemetryAffectingFields.some(field => Object.prototype.hasOwnProperty.call(updates, field));
+    if (active.id === id && affectsTelemetry) {
       // 1. clear EMS telemetry cache
       clearEmsTelemetryCache();
       
@@ -3501,6 +3601,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     console.error("[Storage] Failed to initialize storage maintenance:", err);
   }
   initializePrizmBootFlow().catch(console.error);
+  initializeFirmwareInventoryAutomation();
 });
 
 server.on('error', (e: any) => {

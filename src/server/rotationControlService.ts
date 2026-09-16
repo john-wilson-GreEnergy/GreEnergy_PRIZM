@@ -1,6 +1,8 @@
 import { getEmsConnectionStatus } from './emsTurtleClient';
 import { appendEvent } from "./history/prizmHistory";
-import { getEmsCachedRawStrings, getEmsCachedBlock } from './emsTurtleClient';
+import { getEmsCachedBlock } from './emsTurtleClient';
+import { ProfileStore } from './profiles/profileStore';
+import { compactFullArrayStringTargets } from './controlTargetOptimizer';
 
 async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<{ ok: boolean, status: number, text: string }> {
     const controller = new AbortController();
@@ -13,6 +15,74 @@ async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<
         clearTimeout(timeout);
         return { ok: false, status: 0, text: e.message };
     }
+}
+
+const ROTATION_VERIFY_INTERVAL_MS = 350;
+const ROTATION_VERIFY_DEADLINE_MS = 10_000;
+
+function strictBool(value: any): boolean | null {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined || value === '') return null;
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'in') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'out') return false;
+    return null;
+}
+
+export function rotationReadbackMatches(raw: any, action: 'in' | 'out'): boolean | null {
+    const model = raw?.stringViewerDataModel ?? raw;
+    const outRotation = strictBool(model?.outRotation);
+    const inRotation = strictBool(model?.inRotation);
+    const status = String(model?.rotationStatus ?? '').trim().toUpperCase();
+    const actualIn = outRotation !== null ? !outRotation : inRotation !== null ? inRotation : status === 'IN' ? true : status === 'OUT' ? false : null;
+    return actualIn === null ? null : action === 'in' ? actualIn : !actualIn;
+}
+
+async function fetchStringRotation(hostBase: string, array: number, string: number): Promise<boolean | null> {
+    const url = `${hostBase}/tools/monitor/ems/stringviewer/array/${array}/${string}/data`;
+    const result = await fetchWithTimeout(url, 1800);
+    if (!result.ok) return null;
+    try {
+        return rotationReadbackMatches(JSON.parse(result.text), 'in');
+    } catch {
+        return null;
+    }
+}
+
+async function verifyStringRotation(hostBase: string, target: any, action: 'in' | 'out'): Promise<{ confirmed: boolean | null; status: string }> {
+    const strings = target.type === 'string-single'
+        ? [Number(target.string)]
+        : Array.from({ length: Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40 }, (_, index) => index + 1);
+    const deadline = Date.now() + ROTATION_VERIFY_DEADLINE_MS;
+    let consecutiveMatches = 0;
+    let lastMatches = 0;
+    let lastKnown = 0;
+
+    while (Date.now() < deadline) {
+        const readings: Array<boolean | null> = [];
+        for (let offset = 0; offset < strings.length; offset += 12) {
+            readings.push(...await Promise.all(strings.slice(offset, offset + 12).map(async (string) => {
+                const inMatch = await fetchStringRotation(hostBase, Number(target.array), string);
+                return inMatch === null ? null : action === 'in' ? inMatch : !inMatch;
+            })));
+        }
+        lastKnown = readings.filter((value) => value !== null).length;
+        lastMatches = readings.filter((value) => value === true).length;
+        const allMatch = lastKnown === strings.length && lastMatches === strings.length;
+        consecutiveMatches = allMatch ? consecutiveMatches + 1 : 0;
+        if (consecutiveMatches >= 2) {
+            return {
+                confirmed: true,
+                status: target.type === 'string-single'
+                    ? `Target confirmed ${action} by two fresh StringViewer readings`
+                    : `All ${strings.length} array strings confirmed ${action} by two fresh StringViewer readings`
+            };
+        }
+        await new Promise((resolve) => setTimeout(resolve, ROTATION_VERIFY_INTERVAL_MS));
+    }
+
+    if (lastKnown === 0) return { confirmed: null, status: 'Command accepted; fresh rotation telemetry remained unavailable' };
+    return { confirmed: false, status: `Command accepted; ${lastMatches}/${strings.length} strings confirmed ${action} before timeout` };
 }
 
 export async function executeRotationCommand(target: any, action: 'in' | 'out'): Promise<any> {
@@ -45,29 +115,13 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
     let readbackConfirmed = null;
     let readbackStatus = 'Readback not checked or unavailable';
 
-    if (result.ok && result.text.includes('OK')) {
-        // Simple artificial delay before readback check
-        await new Promise(r => setTimeout(r, 600));
-
+    const accepted = result.ok && result.text.toUpperCase().includes('OK');
+    if (accepted) {
         try {
             if (target.type.startsWith('string')) {
-                const stringsRes = getEmsCachedRawStrings();
-                if (stringsRes && stringsRes.data) {
-                    if (target.type === 'string-single') {
-                        const sMatch = stringsRes.data.find((s:any) => 
-                            (String(s.ArrayNum || s.ArrayNumber) === String(target.array) && String(s.StringNum || s.StringNumber) === String(target.string))
-                        );
-                        if (sMatch) {
-                            const isOut = sMatch.InRotation === false || String(sMatch.InRotation) === "false" || sMatch.RotationStatus === 'OUT';
-                            const isIn = sMatch.InRotation === true || String(sMatch.InRotation) === 'true' || sMatch.RotationStatus === 'IN';
-                            if (action === 'in' && isIn) readbackConfirmed = true;
-                            if (action === 'out' && isOut) readbackConfirmed = true;
-                            readbackStatus = readbackConfirmed ? `Target confirmed ${action}` : 'Readback could not be definitively confirmed';
-                        }
-                    } else {
-                        readbackStatus = 'Whole array readback queued for dashboard refresh';
-                    }
-                }
+                const verification = await verifyStringRotation(hostBase, target, action);
+                readbackConfirmed = verification.confirmed;
+                readbackStatus = verification.status;
             } else if (target.type.startsWith('pcs')) {
                  const blockRes = getEmsCachedBlock();
                  if (blockRes && blockRes.data && blockRes.data.arrayPcsList) {
@@ -92,7 +146,7 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
         target,
         requestedAction: action,
         turtleUrl: url,
-        accepted: result.ok && result.text.includes('OK'),
+        accepted,
         responseStatus: result.status,
         responseText: result.text,
         readbackConfirmed,
@@ -107,10 +161,12 @@ export async function setStringRotation(req: any) {
     
     if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
 
+    const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
+    const optimizedTargets = compactFullArrayStringTargets(req.targets, stringsPerArray);
     const results = [];
     let successes = 0;
 
-    for (const t of req.targets) {
+    for (const t of optimizedTargets) {
         if (!t.array) continue;
         if (t.allStrings) {
             const res = await executeRotationCommand({ type: 'string-array', ...t }, req.action);
@@ -127,7 +183,7 @@ export async function setStringRotation(req: any) {
         action: `String Rotation ${req.action.toUpperCase()}`,
         level: "warning",
         category: "Control",
-        details: `Requested rotation ${req.action} for ${req.targets.length} target arrays/strings. Reason: ${req.reason || 'None'}. Note: ${req.note || 'None'}. Successful executions: ${successes}`,
+        details: `Requested rotation ${req.action} for ${req.targets.length} selected targets, optimized to ${optimizedTargets.length} EMS command targets. Reason: ${req.reason || 'None'}. Note: ${req.note || 'None'}. Successful executions: ${successes}`,
         user: "LocalOperator",
         metadata: { request: req, results, confirmed: req.confirmed, reason: req.reason, note: req.note }
     });

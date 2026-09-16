@@ -9,8 +9,12 @@ import {
   emulateModbusRead,
   saveProfileSnapshot,
   runLiveDiagnostics,
+  probeMappedLiveRegisters,
+  runStringModbusParity,
   getModbusReader
 } from "./modbusProfileManager";
+import { readModbusStringContactorState } from "./modbusStringTelemetry";
+import { getOperationalModbusSnapshot, pollOperationalModbus } from "./modbusOperationalTelemetry";
 
 const router = express.Router();
 
@@ -215,6 +219,44 @@ router.get("/diagnostics/live-check", async (req, res) => {
     res.json(results);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+});
+
+router.get("/diagnostics/mapped-read-probe", async (_req, res) => {
+  try {
+    res.json(await probeMappedLiveRegisters());
+  } catch (error: any) {
+    res.status(503).json({ error: error?.message || String(error) });
+  }
+});
+
+router.get("/diagnostics/string-parity", async (_req, res) => {
+  try {
+    res.json(await runStringModbusParity());
+  } catch (error: any) {
+    res.status(503).json({ error: error?.message || String(error) });
+  }
+});
+
+router.get("/diagnostics/string-contactor", async (req, res) => {
+  const arrayNumber = Number(req.query.array);
+  const stringNumber = Number(req.query.string);
+  if (!Number.isInteger(arrayNumber) || !Number.isInteger(stringNumber)) {
+    return res.status(400).json({ error: "array and string must be integers" });
+  }
+  try {
+    res.json(await readModbusStringContactorState(arrayNumber, stringNumber));
+  } catch (error: any) {
+    res.status(503).json({ error: error?.message || String(error) });
+  }
+});
+
+router.get("/operational", async (req, res) => {
+  try {
+    const current = req.query.refresh === "1" ? await pollOperationalModbus() : getOperationalModbusSnapshot();
+    res.json(current);
+  } catch (error: any) {
+    res.status(503).json({ error: error?.message || String(error) });
   }
 });
 

@@ -15,6 +15,8 @@ interface ContactorControlModalProps {
     targets: ContactorTarget[];
     ignoreLowCgVoltAlarm: boolean;
     ignoreHighCgVoltAlarm: boolean;
+    ignoreStringDcBusVoltageDeltaLimit: boolean;
+    recloseCount: number;
     confirmed: boolean;
     reason: string;
     note?: string;
@@ -28,6 +30,8 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
   const [note, setNote] = useState('');
   const [ignoreLow, setIgnoreLow] = useState(false);
   const [ignoreHigh, setIgnoreHigh] = useState(false);
+  const [ignoreVoltageDelta, setIgnoreVoltageDelta] = useState(false);
+  const [recloseCount, setRecloseCount] = useState(6);
   const [explicitConfirm, setExplicitConfirm] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -53,6 +57,8 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
         targets,
         ignoreLowCgVoltAlarm: ignoreLow,
         ignoreHighCgVoltAlarm: ignoreHigh,
+        ignoreStringDcBusVoltageDeltaLimit: action === 'close' && ignoreVoltageDelta,
+        recloseCount,
         confirmed: true,
         reason,
         note
@@ -71,6 +77,8 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
     setNote('');
     setIgnoreLow(false);
     setIgnoreHigh(false);
+    setIgnoreVoltageDelta(false);
+    setRecloseCount(6);
     setExplicitConfirm(false);
     setError('');
     setResults(null);
@@ -79,12 +87,12 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
 
   return (
     <div className="fixed inset-0 bg-black/75 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-prizm-background border border-prizm-border rounded-lg shadow-2xl max-w-lg w-full overflow-hidden flex flex-col">
+      <div className="bg-prizm-surface border-2 border-prizm-border rounded-lg shadow-2xl max-w-lg w-full overflow-hidden flex flex-col opacity-100">
         {/* Header */}
-        <div className="p-4 border-b border-prizm-border flex items-center justify-between bg-black/40">
+        <div className="p-4 border-b border-prizm-border flex items-center justify-between bg-prizm-surface-strong">
           <h2 className="text-sm font-bold text-prizm-text uppercase tracking-widest flex items-center gap-2">
             <ShieldAlert size={16} className={action === 'open' ? 'text-prizm-warning' : 'text-prizm-info'} />
-            Phoenix BMS Contactor Control
+            EMS Contactor Permission Control
           </h2>
           <button onClick={handleCloseModal} disabled={pending} className="text-prizm-text-muted hover:text-white transition-colors">
             <X size={16} />
@@ -93,7 +101,7 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
 
         {results === null ? (
           /* Form Screen */
-          <div className="p-5 flex flex-col gap-4 text-xs font-mono">
+          <div className="p-5 flex flex-col gap-4 text-xs font-mono bg-prizm-surface">
             {/* Action and Targets Preview */}
             <div className={`p-4 rounded border ${action === 'open' ? 'bg-prizm-warning/10 border-prizm-warning/30 text-prizm-warning' : 'bg-prizm-info/10 border-prizm-info/30 text-prizm-info'}`}>
               <div className="font-bold text-sm uppercase mb-2">
@@ -112,9 +120,23 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
             {/* Warn Label */}
             <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded leading-relaxed text-[11px]">
               <div className="font-bold flex items-center gap-1.5 mb-1 text-red-400">
-                <TriangleAlert size={14} /> WARNING: DIRECT PHOENIX BMS COMMAND
+                <TriangleAlert size={14} /> WARNING: LIVE EMS CONTACTOR COMMAND
               </div>
-              This sends a direct Phoenix BMS contactor command to the selected array Phoenix endpoint, for example <code className="bg-black/40 px-1 py-0.5 rounded text-white">http://10.0.3.1:8080/turtle</code>. This is not the same as EMS rotation.
+              This changes the requested contactor state through the site EMS. Success is shown only after fresh telemetry confirms the requested physical state.
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 p-3 bg-prizm-surface/40 border border-prizm-border rounded">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={ignoreVoltageDelta} onChange={(e) => setIgnoreVoltageDelta(e.target.checked)} disabled={pending || action !== 'close'} className="rounded border-prizm-border bg-prizm-surface text-prizm-warning focus:ring-0 focus:ring-offset-0" />
+                <div className="flex flex-col">
+                  <span className="font-bold text-prizm-text uppercase text-[10px]">Ignore DC Bus VΔ Limit</span>
+                  <span className="text-[9px] text-prizm-text-muted">Kobold-compatible close override</span>
+                </div>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-bold text-prizm-text uppercase text-[10px]">Reclose Count</span>
+                <input type="number" min={0} max={20} step={1} value={recloseCount} onChange={(e) => setRecloseCount(Math.max(0, Math.min(20, Number(e.target.value) || 0)))} disabled={pending} className="bg-prizm-surface border border-prizm-border text-prizm-text p-1.5 rounded text-xs" />
+              </label>
             </div>
 
             {error && (
@@ -198,7 +220,7 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
                 <div className="flex flex-col gap-0.5 text-prizm-text">
                   <span className="font-bold uppercase text-[10px] text-prizm-warning">Explicit Operation Acknowledgment</span>
                   <p className="text-[10px] text-prizm-text-muted leading-relaxed">
-                    I confirm that I have verified voltages and that this operation is authorized. I acknowledge that direct contactor command bypasses automatic safety algorithms.
+                    I confirm that I have verified voltages, interlocks, and authorization. Any voltage-delta override selected above is intentional.
                   </p>
                 </div>
               </label>
@@ -231,7 +253,7 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
                     <div className="grid grid-cols-2 gap-3 text-[11px] mt-1">
                       {/* Phoenix BMS Response */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[9px] text-prizm-text-muted uppercase font-bold tracking-wider">Phoenix Response</span>
+                        <span className="text-[9px] text-prizm-text-muted uppercase font-bold tracking-wider">EMS Response</span>
                         <div className="flex items-center gap-1.5">
                           {accepted ? (
                             <>
@@ -287,7 +309,7 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
         )}
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-prizm-border bg-black/40 flex justify-end gap-3 text-xs font-mono uppercase tracking-widest font-bold">
+        <div className="p-4 border-t border-prizm-border bg-prizm-surface-strong flex justify-end gap-3 text-xs font-mono uppercase tracking-widest font-bold">
           {results === null ? (
             <>
               <button onClick={handleCloseModal} disabled={pending} className="px-4 py-2 text-prizm-text-muted hover:text-white transition-colors">

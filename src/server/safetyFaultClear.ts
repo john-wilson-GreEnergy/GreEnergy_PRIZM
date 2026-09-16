@@ -109,6 +109,40 @@ try {
   console.warn("Could not parse SAFETY_FAULT_CLEAR_PROTO inline", err);
 }
 
+export function buildSafetyFaultClearCommand(input: {
+  stationCode: string;
+  blockIndex: number;
+  entityKey: string;
+  operatorUsername?: string;
+  commandId?: string;
+}): { commandId: string; buffer: Uint8Array } {
+  if (!root) throw new Error("Protobuf definition missing");
+  if (!input.stationCode?.trim()) throw new Error("Station code is required");
+  if (!Number.isSafeInteger(input.blockIndex) || input.blockIndex < 1) throw new Error("Valid block index is required");
+  if (!input.entityKey?.trim()) throw new Error("Reset entity key is required");
+
+  const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
+  const CommandMessage = root.lookupType("phoenixtongue.Command");
+  const commandId = input.commandId || uuidv4();
+  const blockEndpoint = {
+    endpointType: EndpointTypeEnum.values.BLOCK,
+    stationCode: input.stationCode.trim(),
+    blockIndex: input.blockIndex,
+  };
+  const commandPayload = {
+    commandId,
+    commandTarget: blockEndpoint,
+    commandSource: blockEndpoint,
+    commandPayload: {
+      manualClearDeviceFault: { entityKey: input.entityKey.trim() },
+    },
+    username: input.operatorUsername?.trim() || "local-prizm",
+  };
+  const validationError = CommandMessage.verify(commandPayload);
+  if (validationError) throw new Error(`Protobuf validation failed: ${validationError}`);
+  return { commandId, buffer: CommandMessage.encode(CommandMessage.create(commandPayload)).finish() };
+}
+
 export interface SafetyFaultClearCandidate {
   id: string;
   displayKey: string;
@@ -275,6 +309,22 @@ function mergeCandidates(bvCandidates: SafetyFaultClearCandidate[], lcCandidates
     return Array.from(map.values());
 }
 
+export function buildSafetyFaultCandidateSnapshot(blockData: any, lastCallData: any) {
+    const blockviewerCandidates = normalizeBlockviewerTopology(blockData);
+    const lastCallCandidates = extractLastCallCandidates(lastCallData);
+    const uniqueLastCall = new Map<string, SafetyFaultClearCandidate>();
+    for (const candidate of lastCallCandidates) {
+        uniqueLastCall.set(normalizeKey(candidate.entityKey), candidate);
+    }
+    const merged = mergeCandidates(blockviewerCandidates, Array.from(uniqueLastCall.values()));
+    return {
+        eligible: merged.filter(candidate => candidate.allowFaultReset === true),
+        notEligible: merged.filter(candidate => candidate.allowFaultReset !== true),
+        blockviewerCandidates,
+        lastCallCandidates,
+    };
+}
+
 router.get("/candidates", async (req, res) => {
     try {
         const profile = ProfileStore.getActiveProfile();
@@ -314,20 +364,8 @@ router.get("/candidates", async (req, res) => {
             if (cachedLc && cachedLc.data) lastCallData = cachedLc.data;
         }
 
-        const bvCandidates = normalizeBlockviewerTopology(blockData);
-        const lcCandidates = extractLastCallCandidates(lastCallData);
-        
-        // De-dup lcCandidates by normalized key to avoid repeating the same one
-        const lcUnique = new Map<string, SafetyFaultClearCandidate>();
-        for (const c of lcCandidates) {
-             const nk = normalizeKey(c.entityKey);
-             lcUnique.set(nk, c);
-        }
-
-        const merged = mergeCandidates(bvCandidates, Array.from(lcUnique.values()));
-
-        const eligible = merged.filter(c => c.allowFaultReset === true);
-        const notEligible = merged.filter(c => c.allowFaultReset !== true);
+        const { eligible, notEligible, blockviewerCandidates: bvCandidates, lastCallCandidates: lcCandidates } =
+            buildSafetyFaultCandidateSnapshot(blockData, lastCallData);
 
         const safeEligible = eligible.map(({ raw, ...rest }) => rest);
         const safeNotEligible = notEligible.map(({ raw, ...rest }) => rest);
@@ -408,36 +446,20 @@ router.post("/execute", async (req, res) => {
              return res.status(400).json({ error: "Entity is not enabled" });
         }
 
-        if (!root) return res.status(500).json({ error: "Protobuf definition missing" });
-
-        const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
-        const blockEnumValue = EndpointTypeEnum.values["BLOCK"];
-        const goblinEnumValue = EndpointTypeEnum.values["GOBLIN"];
-
-        const CommandMessage = root.lookupType("phoenixtongue.Command");
-        const commandPayload = {
-            commandId: uuidv4(),
-            commandTarget: { endpointType: blockEnumValue },
-            commandSource: { endpointType: goblinEnumValue },
-            commandPayload: {
-                 manualClearDeviceFault: {
-                     entityKey: targetEntity.resetEntityKey || targetEntity.entityKeyToken
-                 }
-            },
-            username: operatorUsername || "local-prizm"
-        };
-        
-        const errMsg = CommandMessage.verify(commandPayload);
-        if (errMsg) return res.status(500).json({ error: "Protobuf validation failed: " + errMsg });
-
-        const message = CommandMessage.create(commandPayload);
-        const buffer = CommandMessage.encode(message).finish();
+        const stationCode = String(profile.stationCode || targetEntity.stationCode || "").trim();
+        const blockIndex = Number(profile.blockIndex || targetEntity.blockIndex);
+        const command = buildSafetyFaultClearCommand({
+            stationCode,
+            blockIndex,
+            entityKey: targetEntity.resetEntityKey || targetEntity.entityKeyToken,
+            operatorUsername,
+        });
 
         const postUrl = baseUrl + "/tools/controls/ems/command";
         const cmdRes = await fetch(postUrl, {
             method: "POST",
             headers: { "Content-Type": "application/octet-stream" },
-            body: Buffer.from(buffer) as any
+            body: Buffer.from(command.buffer) as any
         });
 
         const queued = cmdRes.status === 200;
@@ -471,7 +493,7 @@ router.post("/execute", async (req, res) => {
         res.json({
             ok: queued,
             queued,
-            commandId: commandPayload.commandId,
+            commandId: command.commandId,
             profileId,
             emsBaseUrl: baseUrl,
             entityKeyToken: targetEntity.entityKeyToken,

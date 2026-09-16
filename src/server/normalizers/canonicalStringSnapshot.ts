@@ -59,6 +59,23 @@ function nonOnlineScore(row: any): number {
   return score;
 }
 
+function outOfRotationScore(row: any): number {
+  let score = 0;
+  const rotation = String(row?.rotationStatus ?? row?.rotationState ?? row?.rotation?.displayState ?? "").trim().toUpperCase();
+  if (row?.outRotation === true || row?.outOfRotation === true || row?.inRotation === false) score += 1000;
+  if (rotation === "OUT" || rotation === "OUT_OF_ROTATION" || rotation === "OUT OF ROTATION") score += 900;
+  if (String(row?.bucket ?? row?.operationalState ?? "").toUpperCase() === "OFFLINE") score += 300;
+  if (row?.positiveContactorClosed === false && row?.negativeContactorClosed === false) score += 50;
+  return score;
+}
+
+function nearlineScore(row: any): number {
+  let score = 0;
+  if (String(row?.bucket ?? row?.operationalState ?? "").toUpperCase() === "NEARLINE") score += 500;
+  if (row?.inRotation === true && (row?.positiveContactorClosed === false || row?.negativeContactorClosed === false)) score += 250;
+  return score;
+}
+
 function extractArrayCommunicationCounts(lastCall: any): PerArrayCounts[] | null {
   const arrayReport = lastCall?.blockReport?.arrayReport ?? lastCall?.arrayReport;
   if (!arrayReport || typeof arrayReport !== "object") return null;
@@ -83,7 +100,7 @@ function extractArrayCommunicationCounts(lastCall: any): PerArrayCounts[] | null
         sourcePath: `blockReport.arrayReport.${key}.arrayData`
       };
     })
-    .filter((row): row is PerArrayCounts => !!row && row.arrayNumber >= 1 && row.arrayNumber <= 8);
+    .filter((row): row is PerArrayCounts => !!row && row.arrayNumber >= 1);
 
   return rows.length ? rows : null;
 }
@@ -111,7 +128,7 @@ function extractDcBatteryCounts(lastCall: any): PerArrayCounts[] | null {
         sourcePath: `blockReport.dcBatteryReport.${key}.dcBatteryData.socData`
       };
     })
-    .filter((row): row is PerArrayCounts => !!row && row.arrayNumber >= 1 && row.arrayNumber <= 8);
+    .filter((row): row is PerArrayCounts => !!row && row.arrayNumber >= 1);
 
   return rows.length ? rows : null;
 }
@@ -137,7 +154,7 @@ function extractBlockViewerCounts(blockviewer: any): PerArrayCounts[] | null {
         sourcePath: `arrays[${index}]`
       };
     })
-    .filter((row: PerArrayCounts) => row.arrayNumber >= 1 && row.arrayNumber <= 8);
+    .filter((row: PerArrayCounts) => row.arrayNumber >= 1);
   return rows.length ? rows : null;
 }
 
@@ -224,6 +241,143 @@ function setNotCommunicating(row: any, countSource: PerArrayCounts) {
   };
 }
 
+
+function setOffline(row: any, countSource: PerArrayCounts) {
+  row.communicating = true;
+  row.stringConnectionState = "OFFLINE";
+  row.connectionState = "OFFLINE";
+  row.outRotation = true;
+  row.inRotation = false;
+  row.rotationEnabled = false;
+  row.rotationStatus = "OUT";
+  row.bucket = "offline";
+  row.operationalState = "OFFLINE";
+  row.rotation = {
+    ...(row.rotation ?? {}),
+    normalizedState: "OUT OF ROTATION",
+    displayState: "OUT",
+    inRotation: false,
+    outOfRotation: true,
+    source: row.rotation?.source ?? "canonical-array-counts"
+  };
+  row.classification = {
+    ...(row.classification ?? {}),
+    state: "offline",
+    bucket: "offline",
+    reason: "canonical_array_count_offline",
+    communicating: true,
+    inRotation: false,
+    contactorsClosed: row.bothContactorsClosed ?? null
+  };
+  row.sourceDebug = {
+    ...(row.sourceDebug ?? {}),
+    canonicalStringSnapshot: {
+      finalBucket: "offline",
+      finalSource: countSource.source,
+      finalSourcePath: countSource.sourcePath,
+      reason: "array state count assigned this row offline/out of rotation"
+    }
+  };
+}
+
+function setNearline(row: any, countSource: PerArrayCounts) {
+  row.communicating = true;
+  row.stringConnectionState = "NEARLINE";
+  row.connectionState = "NEARLINE";
+  row.outRotation = false;
+  row.inRotation = true;
+  row.rotationEnabled = true;
+  row.rotationStatus = "IN";
+  row.bucket = "nearline";
+  row.operationalState = "NEARLINE";
+  row.classification = {
+    ...(row.classification ?? {}),
+    state: "nearline",
+    bucket: "nearline",
+    reason: "canonical_array_count_nearline",
+    communicating: true,
+    inRotation: true,
+    contactorsClosed: row.bothContactorsClosed ?? false
+  };
+  row.sourceDebug = {
+    ...(row.sourceDebug ?? {}),
+    canonicalStringSnapshot: {
+      finalBucket: "nearline",
+      finalSource: countSource.source,
+      finalSourcePath: countSource.sourcePath,
+      reason: "array state count assigned this row nearline"
+    }
+  };
+}
+
+function applyLastCallStringTelemetry(rows: any[], lastCall: any): void {
+  const arrayReport = lastCall?.blockReport?.arrayReport ?? lastCall?.arrayReport;
+  if (!arrayReport || typeof arrayReport !== "object") return;
+
+  for (const row of rows) {
+    const arrayNumber = rowArray(row);
+    const stringNumber = rowString(row);
+    const arrayEntry = arrayReport?.[arrayNumber] ?? arrayReport?.[String(arrayNumber)];
+    const stringReport = arrayEntry?.stringReport;
+    const stringEntry = stringReport?.[stringNumber] ?? stringReport?.[String(stringNumber)] ?? stringReport?.[`string${stringNumber}`];
+    const data = stringEntry?.stringData ?? stringEntry;
+    if (!data || typeof data !== "object") continue;
+
+    // Array totals cannot override an explicitly reported string rotation bit.
+    // In particular, aggregate communication reconciliation may have cleared it.
+    if (typeof data.outRotation === "boolean") {
+      row.outRotation = data.outRotation;
+      row.inRotation = !data.outRotation;
+      row.rotationEnabled = !data.outRotation;
+      row.rotationStatus = data.outRotation ? "OUT" : "IN";
+      row.rotation = {
+        ...(row.rotation ?? {}),
+        inRotation: !data.outRotation,
+        outOfRotation: data.outRotation,
+        displayState: row.rotationStatus,
+        normalizedState: data.outRotation ? "OUT OF ROTATION" : "IN ROTATION",
+        rawValue: data.outRotation,
+        source: "last-call-explicit-rotation",
+        sourcePath: `blockReport.arrayReport.${arrayNumber}.stringReport.${stringNumber}.stringData.outRotation`
+      };
+    }
+
+    const positive = typeof data.positiveContactorClosed === "boolean" ? data.positiveContactorClosed : null;
+    const negative = typeof data.negativeContactorClosed === "boolean" ? data.negativeContactorClosed : null;
+    const expected = typeof data.contactorsCloseExpected === "boolean" ? data.contactorsCloseExpected : null;
+    const recloseCount = Number(data.recloseCount);
+
+    if (positive !== null) row.positiveContactorClosed = positive;
+    if (negative !== null) row.negativeContactorClosed = negative;
+    if (expected !== null) row.contactorsCloseExpected = expected;
+    if (Number.isFinite(recloseCount)) row.recloseCount = recloseCount;
+
+    if (positive !== null && negative !== null) {
+      const bothClosed = positive && negative;
+      row.bothContactorsClosed = bothClosed;
+      row.contactorsClosed = bothClosed;
+      row.contactorClosed = bothClosed;
+      row.contactorStatus = bothClosed ? "CLOSED" : "OPEN";
+      row.contactorState = bothClosed ? "CLOSED" : "OPEN";
+      row.stringContactorState = bothClosed ? "CLOSED" : "OPEN";
+      row.contactorMismatch = expected === null ? positive !== negative : expected !== bothClosed || positive !== negative;
+      row.commandMatchesContactors = expected === null ? null : expected === bothClosed && positive === negative;
+      row.actualContactorStateSource = "last-call-explicit-polarity";
+    }
+
+    row.sourceDebug = {
+      ...(row.sourceDebug ?? {}),
+      lastCallStringTelemetryApplied: {
+        source: `blockReport.arrayReport.${arrayNumber}.stringReport.${stringNumber}.stringData`,
+        positiveContactorClosed: positive,
+        negativeContactorClosed: negative,
+        contactorsCloseExpected: expected,
+        recloseCount: Number.isFinite(recloseCount) ? recloseCount : null
+      }
+    };
+  }
+}
+
 export function applyCanonicalStringSnapshot(
   inputRows: any[],
   sources: { lastCall?: any; blockviewer?: any } = {}
@@ -232,7 +386,7 @@ export function applyCanonicalStringSnapshot(
   const perArray = extractCanonicalArrayCounts(sources);
   const perArrayByNumber = new Map(perArray.map(row => [row.arrayNumber, row]));
 
-  for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+  for (const arrayNumber of perArray.map((row) => row.arrayNumber)) {
     const countSource = perArrayByNumber.get(arrayNumber);
     if (!countSource) continue;
 
@@ -251,11 +405,39 @@ export function applyCanonicalStringSnapshot(
       .slice(0, notCommCount);
     const notCommSet = new Set(notCommRows.map(row => rowString(row)));
 
+    const communicatingRows = arrayRows.filter(row => !notCommSet.has(rowString(row)));
+    const offlineCount = Math.max(0, Math.min(countSource.offline, communicatingRows.length));
+    const offlineRows = [...communicatingRows]
+      .sort((a, b) => {
+        const scoreDiff = outOfRotationScore(b) - outOfRotationScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return rowString(b) - rowString(a);
+      })
+      .slice(0, offlineCount);
+    const offlineSet = new Set(offlineRows.map(row => rowString(row)));
+
+    const rotationEligibleRows = communicatingRows.filter(row => !offlineSet.has(rowString(row)));
+    const nearlineCount = Math.max(0, Math.min(countSource.nearline, rotationEligibleRows.length));
+    const nearlineRows = [...rotationEligibleRows]
+      .sort((a, b) => {
+        const scoreDiff = nearlineScore(b) - nearlineScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return rowString(b) - rowString(a);
+      })
+      .slice(0, nearlineCount);
+    const nearlineSet = new Set(nearlineRows.map(row => rowString(row)));
+
     for (const row of arrayRows) {
       if (notCommSet.has(rowString(row))) setNotCommunicating(row, countSource);
+      else if (offlineSet.has(rowString(row))) setOffline(row, countSource);
+      else if (nearlineSet.has(rowString(row))) setNearline(row, countSource);
       else setOnline(row, countSource);
     }
   }
+
+  // Restore explicit per-string rotation and contactor feedback after aggregate
+  // assignment. Counts do not identify a specific string's rotation state.
+  applyLastCallStringTelemetry(rows, sources.lastCall);
 
   const rollups = rows.reduce(
     (acc, row) => {

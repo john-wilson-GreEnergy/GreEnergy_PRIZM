@@ -1,0 +1,9 @@
+{
+  "port": 3000,
+  "browserLaunch": true,
+  "automaticStartup": true,
+  "logRetention": 20,
+  "startupTimeoutSeconds": 120,
+  "workspaceUrl": "http://localhost:3000",
+  "updateChannel": "manual"
+}

@@ -23,6 +23,7 @@ import { ProfileStore } from "./profiles/profileStore";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
 import { observationRuntime } from "./observations/ObservationRuntime";
+import { buildSafetyFaultCandidateSnapshot } from "./safetyFaultClear";
 
 const router = Router();
 
@@ -113,38 +114,33 @@ function collectEmsAppCandidates(root: any, path: string = ""): any[] {
 export function deriveArrayNumberFromRow(str: any): number | null {
   const raw = str?.raw || str;
   if (!raw) return null;
+  const allowedArrays = new Set(ProfileStore.getActiveProfile().topologyModel?.blocks?.flatMap((block) =>
+    Array.from({ length: block.arrayEnd - block.arrayStart + 1 }, (_, index) => block.arrayStart + index)
+  ) || Array.from({ length: ProfileStore.getActiveProfile().arrayCount || 8 }, (_, index) => index + 1));
+  const validArray = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && allowedArrays.has(parsed) ? parsed : null;
+  };
 
   // 1. row.arrayNumber / row.ArrayNumber
   const an = raw.arrayNumber ?? raw.ArrayNumber;
-  if (typeof an === 'number' && an >= 1 && an <= 8) return an;
-  if (typeof an === 'string') {
-    const parsed = parseInt(an, 10);
-    if (parsed >= 1 && parsed <= 8) return parsed;
-  }
+  const parsedAn = validArray(an);
+  if (parsedAn !== null) return parsedAn;
 
   // 2. row.arrayIndex, only if >= 1
   const ai = raw.arrayIndex ?? raw.ArrayIndex ?? raw.array_index;
-  if (typeof ai === 'number' && ai >= 1 && ai <= 8) return ai;
-  if (typeof ai === 'string') {
-    const parsed = parseInt(ai, 10);
-    if (parsed >= 1 && parsed <= 8) return parsed;
-  }
+  const parsedAi = validArray(ai);
+  if (parsedAi !== null) return parsedAi;
 
   // 3. row.array
   const arr = raw.array;
-  if (typeof arr === 'number' && arr >= 1 && arr <= 8) return arr;
-  if (typeof arr === 'string') {
-    const parsed = parseInt(arr, 10);
-    if (parsed >= 1 && parsed <= 8) return parsed;
-  }
+  const parsedArr = validArray(arr);
+  if (parsedArr !== null) return parsedArr;
 
   // 4. row.arr
   const ar = raw.arr;
-  if (typeof ar === 'number' && ar >= 1 && ar <= 8) return ar;
-  if (typeof ar === 'string') {
-    const parsed = parseInt(ar, 10);
-    if (parsed >= 1 && parsed <= 8) return parsed;
-  }
+  const parsedAr = validArray(ar);
+  if (parsedAr !== null) return parsedAr;
 
   // 5. parse from row.label / row.displayLabel / row.friendlyString / row.id / row.deviceName
   const stringsToSearch: string[] = [];
@@ -164,25 +160,21 @@ export function deriveArrayNumberFromRow(str: any): number | null {
     if (parts.length >= 3) {
       const p2 = parseInt(parts[1], 10);
       const p3 = parseInt(parts[2], 10);
-      if (p2 >= 1 && p2 <= 8) return p2;
-      if (p3 >= 1 && p3 <= 8) return p3;
+      if (allowedArrays.has(p2)) return p2;
+      if (allowedArrays.has(p3)) return p3;
     }
 
     // Pattern: A1-S1 or A5
-    const matchA = s.match(/\bA([1-8])\b/i) || s.match(/A([1-8])[-_\s]/i);
-    if (matchA) {
-      return parseInt(matchA[1], 10);
-    }
+    const matchA = s.match(/\bA(\d+)\b/i) || s.match(/A(\d+)[-_\s]/i);
+    if (matchA && allowedArrays.has(parseInt(matchA[1], 10))) return parseInt(matchA[1], 10);
     
     // Pattern: Array 1 or Array5
-    const matchArray = s.match(/array\s*([1-8])\b/i);
-    if (matchArray) {
-      return parseInt(matchArray[1], 10);
-    }
+    const matchArray = s.match(/array\s*(\d+)\b/i);
+    if (matchArray && allowedArrays.has(parseInt(matchArray[1], 10))) return parseInt(matchArray[1], 10);
 
     // Pattern: Block 1 / Array 5 / ES3 - String 5
-    const matchBlockArray = s.match(/array\s*([1-8])/i);
-    if (matchBlockArray) {
+    const matchBlockArray = s.match(/array\s*(\d+)/i);
+    if (matchBlockArray && allowedArrays.has(parseInt(matchBlockArray[1], 10))) {
       return parseInt(matchBlockArray[1], 10);
     }
   }
@@ -1569,12 +1561,14 @@ export async function buildSiteOperationsSummaryFromCache() {
         
         // Part J - Safety Summary
         let topology = block.topology || status.topology || lastCall.topology || [];
-        if (!Array.isArray(topology) && topology.lineups) topology = topology.lineups; 
-        const clearableFaults = Array.isArray(topology) ? topology.filter((t: any) => t.allowFaultReset === true).map((t: any) => ({ ...t, entityKeyToken: t.entityKeyToken || t.id || t.name || "UNKNOWN_TOKEN" })) : [];
+        if (!Array.isArray(topology) && topology.lineups) topology = topology.lineups;
+        const safetyCandidates = buildSafetyFaultCandidateSnapshot(block, lastCall);
+        const clearableFaults = safetyCandidates.eligible.map(({ raw, ...candidate }) => candidate);
         const safetySummary = {
              clearableFaults,
              clearableCount: clearableFaults.length,
-             sourceOk: true,
+             sourceOk: safetyCandidates.blockviewerCandidates.length > 0 || safetyCandidates.lastCallCandidates.length > 0,
+             source: "shared-safety-fault-candidates-v1",
              lastUpdated: new Date().toISOString()
         };
 

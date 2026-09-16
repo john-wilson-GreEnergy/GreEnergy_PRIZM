@@ -79,7 +79,7 @@ export function normalizeSegmentIdentity(input: any): SegmentIdentity {
   } else {
     const parts: string[] = [];
     if (arrayNumber !== null) {
-      parts.push(`A${arrayNumber}`);
+      parts.push(`Array ${arrayNumber}`);
     }
     if (localEsNumber !== null) {
       parts.push(`ES${localEsNumber}`);

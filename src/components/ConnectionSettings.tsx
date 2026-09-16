@@ -135,17 +135,17 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   const [storageStatus, setStorageStatus] = useState<any>(null);
   const [storagePolicyState, setStoragePolicyState] = useState<any>(null);
   const [storageLoading, setStorageLoading] = useState<boolean>(false);
+  const [localDataLoading, setLocalDataLoading] = useState<boolean>(true);
+  const [localDataError, setLocalDataError] = useState<string>("");
 
-  const loadCacheStates = () => {
-     fetch('/api/local/cache/status')
-        .then(r => r.json())
-        .then(setCacheStatus)
-        .catch(console.error);
-
-     fetch('/api/local/cache/history/status')
-        .then(r => r.json())
-        .then(setHistoryStatus)
-        .catch(console.error);
+  const loadCacheStates = async () => {
+     const [cacheResponse, historyResponse] = await Promise.all([
+       fetch('/api/local/cache/status'),
+       fetch('/api/local/cache/history/status')
+     ]);
+     if (!cacheResponse.ok || !historyResponse.ok) throw new Error("Local cache status is unavailable.");
+     setCacheStatus(await cacheResponse.json());
+     setHistoryStatus(await historyResponse.json());
   };
 
   const loadStorageDetails = async () => {
@@ -164,15 +164,20 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   };
 
   useEffect(() => {
-     loadCacheStates();
-     loadStorageDetails();
-        
-     fetch('/api/local/cache/policy')
-        .then(r => r.json())
-        .then(data => {
-            if (data && data.policy) setCachePolicy(data.policy);
-        })
-        .catch(console.error);
+     setLocalDataLoading(true);
+     setLocalDataError("");
+     Promise.all([
+       loadCacheStates(),
+       loadStorageDetails(),
+       fetch('/api/local/cache/policy').then(async response => {
+         if (!response.ok) throw new Error("Local cache policy is unavailable.");
+         const data = await response.json();
+         if (data && data.policy) setCachePolicy(data.policy);
+       })
+     ]).catch(error => {
+       console.error(error);
+       setLocalDataError(error?.message || "Local storage details are unavailable.");
+     }).finally(() => setLocalDataLoading(false));
   }, [activeProfile]);
   
   const handlePolicyChange = async (newPolicy: string) => {
@@ -456,10 +461,10 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
           includeCollectionSegment: true,
           csSegment: 3,
           esSegmentStart: 10,
-          esSegmentStep: 1,
-          esCountPerArray: 21,
+          esSegmentStep: 5,
+          esCountPerArray: 20,
           segmentMin: 3,
-          segmentMax: 30
+          segmentMax: 105
         }
       ]
     };
@@ -512,10 +517,10 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
         includeCollectionSegment: true,
         csSegment: 3,
         esSegmentStart: 10,
-        esSegmentStep: 1,
-        esCountPerArray: 21,
+        esSegmentStep: 5,
+        esCountPerArray: 20,
         segmentMin: 3,
-        segmentMax: 30
+        segmentMax: 105
       };
       return {
         ...prev,
@@ -580,10 +585,10 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
           includeCollectionSegment: true,
           csSegment: 3,
           esSegmentStart: 10,
-          esSegmentStep: 1,
-          esCountPerArray: p.stringsPerArray || 21,
+          esSegmentStep: 5,
+          esCountPerArray: Math.max(1, Math.ceil((p.stringsPerArray || 40) / (p.capacityProfile?.stringsPerEnergySegment || 2))),
           segmentMin: 3,
-          segmentMax: 30
+          segmentMax: 105
         }
       ]
     };
@@ -773,6 +778,12 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
 
   return (
     <div className={mode === "all" ? "bg-white border border-slate-200 rounded-lg p-5 shadow-sm space-y-6" : "space-y-6"}>
+      {mode === "cache" && localDataLoading && !cacheStatus && !storageStatus && (
+        <div className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white p-8 text-xs text-slate-500 shadow-sm"><RefreshCw size={16} className="animate-spin text-emerald-600"/>Loading local storage status…</div>
+      )}
+      {mode === "cache" && !localDataLoading && localDataError && !cacheStatus && !storageStatus && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-xs text-amber-800 shadow-sm"><strong className="block uppercase">Local storage status unavailable</strong><span className="mt-1 block">{localDataError}</span></div>
+      )}
       {mode !== "cache" && (
         <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm space-y-6">
           
@@ -1440,7 +1451,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
           return `${val.toFixed(1)} ${sizes[i]}`;
         };
 
-        return storageStatus && storagePolicyState && (
+        return mode !== "profile" && storageStatus && storagePolicyState && (
           <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6 space-y-6">
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-prizm-border pb-3 gap-2">

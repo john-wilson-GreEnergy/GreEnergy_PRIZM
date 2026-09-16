@@ -1,4 +1,5 @@
 import type { CorrectiveActionFinding } from "../correctiveActionsEngine";
+import { getHvacFeedbackProfile } from "../../lib/hvacFeedbackProfile";
 
 export type FeatherHvacProfile = "dometic" | "bergstrom";
 
@@ -171,19 +172,27 @@ export function normalizeFeatherHvacCorrectiveFindings(
   devices: any[],
   options: { profile?: FeatherHvacProfile } = {}
 ): CorrectiveActionFinding[] {
-  const profile = options.profile || "dometic";
+  const fallbackProfile = options.profile || "dometic";
   const findings: CorrectiveActionFinding[] = [];
   const createdAt = new Date().toISOString();
 
   for (const device of devices || []) {
+    const reportedProfile = getHvacFeedbackProfile(device?.hvacType);
+    const profile: FeatherHvacProfile = reportedProfile === "unknown"
+      ? fallbackProfile
+      : reportedProfile;
     const arrayNumber = resolveArrayNumber(device);
     const segmentLabelRaw = resolveSegmentLabel(device);
     const segmentLabel = normalizeSegmentLabel(segmentLabelRaw);
     const energySegmentNumber = resolveEnergySegmentNumber(device, segmentLabelRaw);
     const deviceIp = device?.ip || device?.deviceIp || device?.endpoint || undefined;
+    const unitStates = {
+      1: getUnitState(device, 1, profile),
+      2: getUnitState(device, 2, profile)
+    };
 
     for (const unitNumber of [1, 2] as const) {
-      const state = getUnitState(device, unitNumber, profile);
+      const state = unitStates[unitNumber];
       if (state.mismatchType === "none" || !state.code || !state.issueName) continue;
 
       const targetLabel = [
@@ -214,6 +223,8 @@ export function normalizeFeatherHvacCorrectiveFindings(
           faultCode: state.code,
           hvacUnit: unitNumber,
           hvacProfile: profile,
+          reportedHvacType: device?.hvacType || null,
+          hvacProfileSource: reportedProfile === "unknown" ? "fallback" : "feather",
           mismatchType: state.mismatchType,
           issueName: state.issueName,
           arrayNumber,
@@ -225,7 +236,21 @@ export function normalizeFeatherHvacCorrectiveFindings(
           commanded: state.commanded,
           active: state.active,
           currentA: state.currentA,
-          fanSpeedRpm: state.fanSpeedRpm
+          fanSpeedRpm: state.fanSpeedRpm,
+          pairedHvac: {
+            hvac1: {
+              commanded: unitStates[1].commanded,
+              active: unitStates[1].active,
+              currentA: unitStates[1].currentA,
+              fanSpeedRpm: unitStates[1].fanSpeedRpm
+            },
+            hvac2: {
+              commanded: unitStates[2].commanded,
+              active: unitStates[2].active,
+              currentA: unitStates[2].currentA,
+              fanSpeedRpm: unitStates[2].fanSpeedRpm
+            }
+          }
         },
         likelyCauses: state.mismatchType === "active_not_commanded"
           ? [

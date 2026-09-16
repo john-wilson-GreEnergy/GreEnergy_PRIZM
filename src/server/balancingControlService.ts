@@ -18,6 +18,94 @@ async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<
     }
 }
 
+const BALANCING_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_BALANCING_VERIFY_DEADLINE_MS) || 15_000;
+const BALANCING_VERIFY_INTERVAL_MS = 750;
+
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function validateTargets(req: BalancingPreflightRequest): void {
+    if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
+    const seen = new Set<string>();
+    for (const target of req.targets) {
+        const array = Number(target.array);
+        if (!Number.isInteger(array) || array < 1 || array > 8) throw new Error(`Invalid array target: ${target.array}`);
+        const isArray = target.allStrings === true;
+        if (!isArray) {
+            const string = Number(target.string);
+            const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
+            if (!Number.isInteger(string) || string < 1 || string > stringsPerArray) throw new Error(`Invalid string target: A${array}-S${target.string}`);
+        }
+        const key = isArray ? `A${array}:*` : `A${array}:S${Number(target.string)}`;
+        if (seen.has(key)) throw new Error(`Duplicate balancing target: ${key}`);
+        seen.add(key);
+    }
+}
+
+export function countActiveBalancingCells(payload: any): number | null {
+    const model = payload?.stringViewerDataModel ?? payload;
+    const packs = model?.balancingMap?.batteryPacks;
+    if (!packs || typeof packs !== "object") return null;
+    let active = 0;
+    for (const pack of Object.values(packs) as any[]) {
+        const groups = pack?.cellGroups;
+        if (!groups || typeof groups !== "object") continue;
+        for (const group of Object.values(groups) as any[]) {
+            const value = String(group?.value ?? "").trim();
+            if (value && value !== "---" && value !== "--") active += 1;
+        }
+    }
+    return active;
+}
+
+async function fetchBalancingActivity(hostBase: string, array: number, string: number) {
+    const url = `${hostBase}/tools/monitor/ems/stringviewer/array/${array}/${string}/data`;
+    const result = await fetchWithTimeout(url, 2500);
+    if (!result.ok) return { array, string, available: false, activeCells: null as number | null };
+    try {
+        const payload = JSON.parse(result.text);
+        const activeCells = countActiveBalancingCells(payload);
+        return { array, string, available: activeCells !== null, activeCells };
+    } catch {
+        return { array, string, available: false, activeCells: null as number | null };
+    }
+}
+
+async function verifyBalancingTarget(hostBase: string, req: BalancingPreflightRequest, target: BalancingPreflightRequest["targets"][number]) {
+    const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
+    const strings = target.allStrings === true
+        ? Array.from({ length: stringsPerArray }, (_, index) => index + 1)
+        : [Number(target.string)];
+    const deadline = Date.now() + BALANCING_VERIFY_DEADLINE_MS;
+    let lastReadings: Awaited<ReturnType<typeof fetchBalancingActivity>>[] = [];
+
+    while (Date.now() < deadline) {
+        lastReadings = [];
+        for (let offset = 0; offset < strings.length; offset += 12) {
+            lastReadings.push(...await Promise.all(strings.slice(offset, offset + 12).map((string) =>
+                fetchBalancingActivity(hostBase, Number(target.array), string)
+            )));
+        }
+        const available = lastReadings.filter((reading) => reading.available);
+        const activeCells = available.reduce((sum, reading) => sum + Number(reading.activeCells || 0), 0);
+        if (req.mode === "stop" && available.length === strings.length && activeCells === 0) {
+            return { confirmed: true, state: "stopped", status: `Balancing stopped on ${available.length}/${strings.length} reporting string(s)`, activeCells, availableStrings: available.length, totalStrings: strings.length };
+        }
+        if (req.mode !== "stop" && activeCells > 0) {
+            return { confirmed: true, state: "active", status: `Balancing activity confirmed on ${activeCells} cell group(s)`, activeCells, availableStrings: available.length, totalStrings: strings.length };
+        }
+        await sleep(BALANCING_VERIFY_INTERVAL_MS);
+    }
+
+    const available = lastReadings.filter((reading) => reading.available);
+    const activeCells = available.reduce((sum, reading) => sum + Number(reading.activeCells || 0), 0);
+    if (req.mode !== "stop" && available.length > 0 && activeCells === 0) {
+        return { confirmed: null, state: "idle-within-deadband", status: `Command accepted; ${available.length}/${strings.length} string(s) reported no active shunts. Cells may already be within the requested deadband.`, activeCells, availableStrings: available.length, totalStrings: strings.length };
+    }
+    return { confirmed: null, state: "telemetry-unavailable", status: `Command accepted; balancing telemetry available on ${available.length}/${strings.length} string(s)`, activeCells, availableStrings: available.length, totalStrings: strings.length };
+}
+
 export type BalancingPreflightRequest = {
   targetType: "string" | "array";
   targets: Array<{
@@ -42,6 +130,31 @@ export type BalancingExecuteRequest = BalancingPreflightRequest & {
   adbConfirmationText?: string;
   requestedBy?: string;
 };
+
+export function buildBalancingCommandUrl(hostBase: string, req: BalancingPreflightRequest, target: BalancingPreflightRequest["targets"][number]): string {
+    const isArrayTarget = req.targetType === "array" || target.allStrings === true;
+    const targetPath = isArrayTarget
+        ? `/tools/controls/ems/array/${target.array}`
+        : `/tools/controls/ems/array/${target.array}/string/${target.string}`;
+
+    if (req.mode === "stop") return `${hostBase}${targetPath}/balance/stop`;
+
+    const chargingDeadband = req.chargingDeadband;
+    const dischargingDeadband = req.dischargingDeadband;
+    if (!Number.isFinite(chargingDeadband) || Number(chargingDeadband) < 0) {
+        throw new Error("A non-negative charging deadband is required");
+    }
+    if (!Number.isFinite(dischargingDeadband) || Number(dischargingDeadband) < 0) {
+        throw new Error("A non-negative discharging deadband is required");
+    }
+
+    const params = new URLSearchParams({
+        chargingDeadband: String(chargingDeadband),
+        dischargingDeadband: String(dischargingDeadband)
+    });
+    if (req.mode === "avg") return `${hostBase}${targetPath}/balance/avg?${params.toString()}`;
+    return `${hostBase}${targetPath}/balance/provided/${req.providedMv}?${params.toString()}`;
+}
 
 export async function getBalancingCapabilities() {
     return {
@@ -73,8 +186,10 @@ function getEmsBaseUrl(): string {
 }
 
 export async function executePreflightCheck(req: BalancingPreflightRequest) {
-    if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) {
-        throw new Error("No targets specified");
+    validateTargets(req);
+    if (req.mode !== "stop") {
+        if (!Number.isFinite(req.chargingDeadband) || Number(req.chargingDeadband) < 0) throw new Error("A non-negative charging deadband is required");
+        if (!Number.isFinite(req.dischargingDeadband) || Number(req.dischargingDeadband) < 0) throw new Error("A non-negative discharging deadband is required");
     }
 
     const emsUrl = getEmsBaseUrl();
@@ -85,19 +200,22 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
     let warnings: string[] = [];
     
     try {
-        const appsRes = await fetchWithTimeout(`${emsUrl}/tools/controls/ems/apps`, 3000);
+        // EMS exposes app state through BlockViewer. The former
+        // /tools/controls/ems/apps lookup is not a readable endpoint on this
+        // Turtle version and returns 404.
+        const appsRes = await fetchWithTimeout(`${emsUrl}/tools/monitor/ems/blockviewer/data`, 5000);
         if (appsRes.ok && appsRes.text) {
-            const appsJSON = JSON.parse(appsRes.text);
+            const root = JSON.parse(appsRes.text);
+            const appsJSON = root?.dragonApps ?? root?.apps ?? root?.emsApps ?? root?.data?.dragonApps ?? root?.data?.apps ?? root?.data?.emsApps ?? [];
             if (Array.isArray(appsJSON)) {
-                const adb = appsJSON.find((a: any) => a.appCode === "ADB0001");
+                const adb = appsJSON.find((a: any) => String(a.appCode ?? a.applicationTypeCode ?? "").trim() === "ADB0001");
                 if (adb) {
-                    adbEnabled = adb.enabled;
-                    statusKnown = true;
-                } else {
-                    warnings.push("ADB0001 app not found in EMS list.");
-                }
+                    const health = String(adb.health ?? "").toUpperCase();
+                    adbEnabled = adb.enabled === true ? true : adb.enabled === false ? false : health.includes("NOT_ENABLED") || health.includes("DISABLED") ? false : health.includes("HEALTHY") ? true : null;
+                    statusKnown = adbEnabled !== null;
+                } else warnings.push("ADB0001 app not found in EMS BlockViewer data.");
             }
-        }
+        } else warnings.push(`EMS BlockViewer app lookup failed (HTTP ${appsRes.status || "unavailable"}).`);
     } catch (e: any) {
         warnings.push(`Failed to fetch EMS apps: ${e.message}`);
     }
@@ -117,33 +235,21 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
     let outOfRotationCount = 0;
     let unknownCount = 0;
     
-    const enrichedTargets = req.targets.map(t => {
-        let rotationStatus: "IN" | "OUT" | "UNKNOWN" = "UNKNOWN";
-        const stringMeta = rawData.find((r: any) => {
-            const arr = Number(r.arrayIndex || r.array);
-            const str = Number(r.stringIndex || r.string);
-             if (req.targetType === "array" || t.allStrings) {
-                 return arr === t.array;
-             }
-             return arr === t.array && str === t.string;
+    const enrichedTargets = req.targets.flatMap(t => {
+        const candidateRows = t.allStrings === true
+            ? rawData.filter((r: any) => Number(r.arrayIndex ?? r.array) === Number(t.array))
+            : [rawData.find((r: any) => Number(r.arrayIndex ?? r.array) === Number(t.array) && Number(r.stringIndex ?? r.string) === Number(t.string))].filter(Boolean);
+        const expectedCount = t.allStrings === true ? Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40 : 1;
+        const rows = candidateRows.slice(0, expectedCount);
+        const enriched = rows.map((stringMeta: any) => {
+            const rawOut = stringMeta.out_rotation ?? stringMeta.outRotation ?? stringMeta.outOfRotation;
+            const isOut = rawOut === true || rawOut === 1 || String(rawOut).toLowerCase() === "true" || String(stringMeta.rotation || "").toLowerCase() === "fault";
+            if (isOut) outOfRotationCount++; else inRotationCount++;
+            return { array: Number(t.array), string: Number(stringMeta.stringIndex ?? stringMeta.string), allStrings: false, rotationStatus: isOut ? "OUT" as const : "IN" as const };
         });
-        
-        if (stringMeta) {
-            const isOut = Boolean(stringMeta.out_rotation ?? stringMeta.outRotation ?? (stringMeta.rotation === "fault" || stringMeta.outOfRotation));
-            rotationStatus = isOut ? "OUT" : "IN";
-            if (isOut) {
-                outOfRotationCount++;
-            } else {
-                inRotationCount++;
-            }
-        } else {
-            unknownCount++;
-        }
-
-        return {
-            ...t,
-            rotationStatus
-        };
+        for (let missing = rows.length; missing < expectedCount; missing++) unknownCount++;
+        if (enriched.length === 0 && expectedCount === 1) return [{ ...t, rotationStatus: "UNKNOWN" as const }];
+        return enriched;
     });
 
     let recommendedAction: "balance-directly" | "move-targets-out-of-rotation" | "disable-adb" | "warn-unknown" = "balance-directly";
@@ -168,7 +274,7 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
             appName: "Auto Discharge Balancer"
         },
         targetRotation: {
-            total: req.targets.length,
+            total: inRotationCount + outOfRotationCount + unknownCount,
             inRotationCount,
             outOfRotationCount,
             unknownCount,
@@ -184,6 +290,7 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
     if (!["avg", "provided", "stop"].includes(req.mode)) throw new Error("Invalid balancing mode");
     if (req.mode === "provided" && typeof req.providedMv !== "number") throw new Error("Numeric providedMv required for provided mode");
+    validateTargets(req);
     
     // conservative range is 2500 - 3800
     if (req.mode === "provided" && req.providedMv !== undefined && (req.providedMv < 2500 || req.providedMv > 3800)) {
@@ -191,6 +298,14 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     }
 
     const hostBase = getEmsBaseUrl();
+
+    // Repeat preflight at execution time so a stale or hand-crafted client
+    // cannot bypass the ADB/rotation checks performed by the dialog.
+    const livePreflight = await executePreflightCheck(req);
+    if (!livePreflight.adb.statusKnown) throw new Error("ADB status is unknown; balancing is blocked until EMS app state can be verified");
+    if (req.preflightChoice === "balance-directly" && livePreflight.adb.enabled === true && (livePreflight.targetRotation.inRotationCount > 0 || livePreflight.targetRotation.unknownCount > 0)) {
+        throw new Error("ADB0001 is enabled and one or more targets are in rotation or unknown; move targets out of rotation or disable ADB first");
+    }
 
     let rotationActionTaken = false;
     let adbDisableActionTaken = false;
@@ -221,13 +336,15 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         if (!adbRes.success) throw new Error("Failed to disable ADB0001 app: " + (adbRes.message || adbRes.error));
         adbDisableActionTaken = true;
     } else if (req.preflightChoice === "move-targets-out-of-rotation-then-balance") {
-        await setStringRotation({
+        const rotationResult = await setStringRotation({
             targets: req.targets,
             action: 'out',
             reason: req.reason || 'Balancing Preflight',
             note: req.note,
             confirmed: true
         });
+        const rotationVerified = Array.isArray(rotationResult?.results) && rotationResult.results.length > 0 && rotationResult.results.every((result: any) => result.accepted === true && result.readbackConfirmed === true);
+        if (!rotationVerified) throw new Error("Balancing blocked because out-of-rotation preparation was not fully verified");
         rotationActionTaken = true;
     }
 
@@ -237,32 +354,16 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
 
     for (const target of req.targets) {
         try {
-            let url = "";
-            let queryParams = "";
-            
-            if (req.mode !== "stop") {
-                const cDb = req.chargingDeadband !== undefined ? req.chargingDeadband : 5;
-                const dDb = req.dischargingDeadband !== undefined ? req.dischargingDeadband : 10;
-                queryParams = `?dischargingDeadband=${dDb}&chargingDeadband=${cDb}`;
-            }
-
-            if (req.targetType === "array" || target.allStrings) {
-                if (req.mode === "avg") url = `${hostBase}/tools/controls/ems/array/${target.array}/balance/avg${queryParams}`;
-                else if (req.mode === "stop") url = `${hostBase}/tools/controls/ems/array/${target.array}/balance/stop`;
-                else url = `${hostBase}/tools/controls/ems/array/${target.array}/balance/provided/${req.providedMv}${queryParams}`;
-            } else {
-                if (req.mode === "avg") url = `${hostBase}/tools/controls/ems/array/${target.array}/string/${target.string}/balance/avg${queryParams}`;
-                else if (req.mode === "stop") url = `${hostBase}/tools/controls/ems/array/${target.array}/string/${target.string}/balance/stop`;
-                else url = `${hostBase}/tools/controls/ems/array/${target.array}/string/${target.string}/balance/provided/${req.providedMv}${queryParams}`;
-            }
+            const url = buildBalancingCommandUrl(hostBase, req, target);
 
             const response = await fetchWithTimeout(url, 15000);
             
-            if (response.ok && response.text.includes("OK")) {
-                results.push({ target, success: true });
+            if (response.ok) {
+                const verification = await verifyBalancingTarget(hostBase, req, target);
+                results.push({ target, success: true, accepted: true, responseStatus: response.status, responseText: response.text, chargingDeadband: req.mode === "stop" ? null : req.chargingDeadband, dischargingDeadband: req.mode === "stop" ? null : req.dischargingDeadband, readbackConfirmed: verification.confirmed, readbackState: verification.state, readbackStatus: verification.status, verification });
                 successes++;
             } else {
-                 results.push({ target, success: false, error: !response.ok ? response.text : "Response did not contain OK" });
+                 results.push({ target, success: false, accepted: false, responseStatus: response.status, responseText: response.text, error: response.text });
                  failures++;
             }
 
@@ -284,8 +385,8 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     });
 
     return {
-        success: successes > 0,
+        success: successes === req.targets.length && failures === 0,
         results,
-        readbackConfirmed: null 
+        readbackConfirmed: results.length > 0 && results.every((result: any) => result.readbackConfirmed === true)
     };
 }

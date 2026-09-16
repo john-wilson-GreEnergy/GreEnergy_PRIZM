@@ -34,6 +34,8 @@ import { filterAndNormalizeArraySummary } from "../lib/arraySummaryFilters";
 import { getSystemSocAndSource } from "../lib/socUtils";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
+import HvacQuickReference from "./HvacQuickReference";
+import { getHvacFeedbackProfile, supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
 
 
 function compactNumberRangesForCorrectivePdf(values: any[]): string {
@@ -210,6 +212,7 @@ function CollapsibleSection({
   children,
   badge = null,
   className = "",
+  onExpandedChange,
 }: {
   title: string;
   icon?: any;
@@ -217,6 +220,7 @@ function CollapsibleSection({
   children: React.ReactNode;
   badge?: React.ReactNode;
   className?: string;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   return (
@@ -224,7 +228,11 @@ function CollapsibleSection({
       className={`bg-prizm-surface-strong border border-prizm-border rounded-lg overflow-hidden flex flex-col ${className}`}
     >
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          const nextExpanded = !expanded;
+          setExpanded(nextExpanded);
+          onExpandedChange?.(nextExpanded);
+        }}
         className="flex items-center justify-between p-3 bg-black/20 hover:bg-white border border-slate-200 text-slate-900 transition-colors border-b border-prizm-border w-full text-left"
       >
         <h3 className="text-xs font-bold text-prizm-text uppercase tracking-widest font-mono flex items-center gap-2">
@@ -831,7 +839,13 @@ function getHvacUnitNumberFromFinding(finding: any): 1 | 2 | null {
   return null;
 }
 
-function getHvacRuntimeState(hvac: any, useFanRpmAsFaultIndicator = false) {
+function resolveHvacRpmSupport(hvacType: unknown, fallbackUseRpm = false): boolean {
+  return getHvacFeedbackProfile(hvacType) === "unknown"
+    ? fallbackUseRpm
+    : supportsFanSpeedFeedback(hvacType);
+}
+
+function getHvacRuntimeState(hvac: any, useFanRpmAsFaultIndicator = false, hvacType?: unknown) {
   const unit = hvac || {};
   const commanded = !!(
     unit.fanLowOn ||
@@ -844,9 +858,10 @@ function getHvacRuntimeState(hvac: any, useFanRpmAsFaultIndicator = false) {
   const currentA = Number(unit.currentA || 0);
   const fanSpeedRpm = Number(unit.fanSpeedRpm || 0);
 
+  const rpmSupported = resolveHvacRpmSupport(hvacType, useFanRpmAsFaultIndicator);
   const active = !!(
     currentA > 0.2 ||
-    (useFanRpmAsFaultIndicator && fanSpeedRpm > 0)
+    (rpmSupported && fanSpeedRpm > 0)
   );
 
   return {
@@ -854,7 +869,7 @@ function getHvacRuntimeState(hvac: any, useFanRpmAsFaultIndicator = false) {
     active,
     currentA,
     fanSpeedRpm,
-    useFanRpmAsFaultIndicator,
+    useFanRpmAsFaultIndicator: rpmSupported,
     isNormalExpectedActual: commanded === active
   };
 }
@@ -936,7 +951,7 @@ function isLatchedHvacFindingClearedByNormalReport(
     const hvac = unitNumber === 1 ? device?.hvac1 : device?.hvac2;
     if (!hvac) continue;
 
-    const state = getHvacRuntimeState(hvac, useFanRpmAsFaultIndicator);
+    const state = getHvacRuntimeState(hvac, useFanRpmAsFaultIndicator, device?.hvacType);
 
     if (mismatchType === "commanded_not_active") {
       // Clear only when that HVAC is still commanded AND now has current/RPM feedback.
@@ -1031,7 +1046,7 @@ function getSegmentDescriptorFromFeatherDevice(device: any): {
   // Feather ES IPs commonly appear in 5-step host spacing: .10 = ES1, .15 = ES2, .20 = ES3, etc.
   if (Number.isFinite(host) && host > 0) {
     const inferred = Math.round((host - 5) / 5);
-    if (inferred > 0 && inferred <= 40) {
+    if (Number.isInteger(inferred) && inferred > 0) {
       return {
         segmentType: "energy",
         segmentNumber: inferred,
@@ -1049,6 +1064,87 @@ function getSegmentDescriptorFromFeatherDevice(device: any): {
 function getEnergySegmentNumberFromFeatherDevice(device: any): number | undefined {
   const segment = getSegmentDescriptorFromFeatherDevice(device);
   return segment.segmentType === "energy" ? segment.segmentNumber : undefined;
+}
+
+function getTopologyConvertedLocation(entity: any, energySegmentsPerLineup: number): {
+  label: string;
+  detail: string;
+} | null {
+  const segmentsPerLineup = Math.max(1, Math.floor(energySegmentsPerLineup)) + 1;
+  const displayKey = String(entity?.displayKey || "");
+  const entityKey = String(entity?.entityKey || "");
+  const entityType = String(entity?.entityType || "");
+  const numericToken = displayKey.match(/:(\d+)\s*$/)?.[1] || entityKey.match(/_(\d+)\s*$/)?.[1];
+  const rawValue = Number(numericToken);
+  if (/AcBatteryBlock/i.test(entityType)) {
+    return { label: "Block-level device", detail: "Not assigned to one enclosure" };
+  }
+  if (/BlockMeter/i.test(entityType) && Number.isFinite(rawValue)) {
+    return { label: `Block-level meter · Unit ${rawValue}`, detail: "Not assigned to one enclosure" };
+  }
+  if (!Number.isFinite(rawValue) || rawValue < 1) return null;
+
+  let globalSegmentIndex: number | null = null;
+  let devicePosition: number | null = null;
+
+  if (/feather/i.test(entityType)) {
+    const lineup = Math.floor(rawValue / 100);
+    const localPosition = rawValue % 100;
+    if (lineup > 0 && localPosition >= 1 && localPosition <= segmentsPerLineup) {
+      globalSegmentIndex = (lineup - 1) * segmentsPerLineup + localPosition;
+    }
+  } else if (/\bups\b/i.test(entityType)) {
+    globalSegmentIndex = Math.floor(rawValue / 100);
+    devicePosition = rawValue % 100;
+  } else if (/Humidity Temperature Sensor|OpenClosedDetector/i.test(entityType) && rawValue >= 100) {
+    globalSegmentIndex = Math.floor(rawValue / 100);
+    devicePosition = rawValue % 100;
+  } else if (/FirePanelAddr|^FirePanel$|BlockEnclosure|CentipedeTeamDataDispatcher/i.test(entityType)) {
+    globalSegmentIndex = rawValue;
+  } else if (/ACBattery|^Battery$/i.test(entityType)) {
+    return { label: `Lineup ${rawValue} · Lineup-level device`, detail: "Associated with the full lineup" };
+  } else if (/^PCS$/i.test(entityType)) {
+    const pcsLineup = Number(displayKey.match(/:(\d+):\d+\s*$/)?.[1]);
+    const lineup = Number.isFinite(pcsLineup) && pcsLineup > 0 ? pcsLineup : rawValue;
+    return { label: `Lineup ${lineup} · PCS`, detail: "Lineup-level power conversion equipment" };
+  } else if (/OpenClosedDetector/i.test(entityType)) {
+    return { label: "Block-level detector", detail: `Detector ${rawValue} · not assigned to one enclosure` };
+  }
+
+  if (!globalSegmentIndex || globalSegmentIndex < 1) return null;
+  const lineup = Math.floor((globalSegmentIndex - 1) / segmentsPerLineup) + 1;
+  const localPosition = ((globalSegmentIndex - 1) % segmentsPerLineup) + 1;
+  const segmentLabel = localPosition === 1 ? "Collection Segment" : `Energy Segment ${localPosition - 1}`;
+  return {
+    label: `Lineup ${lineup} · ${segmentLabel}${devicePosition ? ` · ${/Humidity Temperature Sensor/i.test(entityType) ? "Sensor" : /OpenClosedDetector/i.test(entityType) ? "Detector" : "Unit"} ${devicePosition}` : ""}`,
+    detail: `Segment index ${globalSegmentIndex}`,
+  };
+}
+
+function inferEnergySegmentsPerLineupFromTopology(topology: any[]): number | null {
+  const collectionIndices = Array.from(new Set((topology || []).flatMap((entity: any) => {
+    const entityType = String(entity?.entityType || "");
+    const entitySubType = String(entity?.entitySubType || "");
+    const isCollectionAnchor =
+      /^FirePanel$/i.test(entityType) ||
+      /^FirePanelAddrCS$/i.test(entityType) ||
+      (/^BlockEnclosure$/i.test(entityType) && /collection/i.test(entitySubType));
+    if (!isCollectionAnchor) return [];
+    const displayKey = String(entity?.displayKey || "");
+    const entityKey = String(entity?.entityKey || "");
+    const value = Number(displayKey.match(/:(\d+)\s*$/)?.[1] || entityKey.match(/_(\d+)\s*$/)?.[1]);
+    return Number.isFinite(value) && value > 0 ? [value] : [];
+  }))).sort((a, b) => a - b);
+
+  if (collectionIndices.length < 2) return null;
+  const gapCounts = new Map<number, number>();
+  for (let index = 1; index < collectionIndices.length; index += 1) {
+    const gap = collectionIndices[index] - collectionIndices[index - 1];
+    if (gap > 1 && gap <= 100) gapCounts.set(gap, (gapCounts.get(gap) || 0) + 1);
+  }
+  const bestGap = Array.from(gapCounts.entries()).sort((a, b) => b[1] - a[1])[0];
+  if (!bestGap || bestGap[1] < 2) return null;
+  return bestGap[0] - 1;
 }
 
 function getHvacTargetLabelFromFeatherDevice(device: any, hvacUnit: 1 | 2, faultLabel?: string): string {
@@ -1189,6 +1285,19 @@ function getCorrectiveIssuePrimaryCode(issue: any): string {
   );
 }
 
+function isIgnoredOperationalNotification(issue: any): boolean {
+  const codes = [
+    issue?.nativeFaultCode,
+    issue?.faultCode,
+    issue?.normalizedFaultCode,
+    issue?.correctiveActionCode,
+    issue?.code,
+    issue?.faultId,
+    issue?.id
+  ].map((value) => String(value ?? "").trim());
+  return codes.includes("2534") || codes.includes("2561");
+}
+
 function getCorrectiveIssueTitleForTile(issue: any): string {
   const raw = String(
     issue?.issueName ||
@@ -1200,11 +1309,115 @@ function getCorrectiveIssueTitleForTile(issue: any): string {
     "Corrective action"
   );
 
-  return raw
+  const primaryCode = String(
+    issue?.code || issue?.faultCode || issue?.normalizedFaultCode || ""
+  ).trim();
+
+  const withoutRepeatedCode = primaryCode && raw.toUpperCase().startsWith(primaryCode.toUpperCase())
+    ? raw.slice(primaryCode.length).replace(/^\s*[-—:]?\s*/, "")
+    : raw;
+
+  return withoutRepeatedCode
     .replace(/^Array\s+[^—]+—\s*/i, "")
     .replace(/^Block\s+[^—]+—\s*/i, "")
     .replace(/^HVAC\s+—\s*/i, "HVAC — ")
     .trim();
+}
+
+type CorrectiveHvacTargetRow = {
+  key: string;
+  arrayNumber: number | null;
+  segmentNumber: number | null;
+  hvacUnit: number | null;
+  deviceIp: string | null;
+  commanded: boolean | null;
+  active: boolean | null;
+  currentA: number | null;
+  hvac1Commanded: boolean | null;
+  hvac1CurrentA: number | null;
+  hvac2Commanded: boolean | null;
+  hvac2CurrentA: number | null;
+  crossUnitMismatch: string | null;
+  label: string;
+};
+
+function getCorrectiveHvacTargetRows(issue: any): CorrectiveHvacTargetRow[] {
+  const labels = getCorrectiveExpandedTargetLabels(issue);
+  const related = [
+    issue,
+    ...(Array.isArray(issue?.relatedIssues) ? issue.relatedIssues : []),
+    ...(Array.isArray(issue?.related) ? issue.related : []),
+    ...(Array.isArray(issue?.children) ? issue.children : [])
+  ];
+
+  const finite = (value: any): number | null => {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const bool = (value: any): boolean | null => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = String(value).trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+    return null;
+  };
+  const coordinates = (label: string) => ({
+    arrayNumber: finite(label.match(/array\s*(\d+)/i)?.[1]),
+    segmentNumber: finite(label.match(/(?:energy\s*)?segment\s*(\d+)/i)?.[1]),
+    hvacUnit: finite(label.match(/hvac\s*([12])/i)?.[1]),
+    deviceIp: label.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] || null
+  });
+
+  const rows = labels.map((label) => {
+    const parsed = coordinates(label);
+    const matching = related.find((candidate: any) => {
+      const evidence = candidate?.evidence || {};
+      const candidateLabel = String(evidence?.targetLabel || candidate?.targetLabel || candidate?.stringKey || "");
+      const candidateCoordinates = coordinates(candidateLabel);
+      const candidateArray = finite(candidate?.arrayNumber ?? evidence?.arrayNumber) ?? candidateCoordinates.arrayNumber;
+      const candidateSegment = finite(candidate?.energySegmentNumber ?? evidence?.energySegmentNumber) ?? candidateCoordinates.segmentNumber;
+      const candidateUnit = finite(evidence?.hvacUnit ?? candidate?.hvacUnit) ?? candidateCoordinates.hvacUnit;
+      const candidateIp = String(evidence?.deviceIp || candidate?.deviceIp || candidateCoordinates.deviceIp || "");
+      return candidateArray === parsed.arrayNumber
+        && candidateSegment === parsed.segmentNumber
+        && candidateUnit === parsed.hvacUnit
+        && (!parsed.deviceIp || !candidateIp || candidateIp === parsed.deviceIp);
+    });
+    const evidence = matching?.evidence || {};
+    const paired = evidence?.pairedHvac || {};
+    const hvac1Commanded = bool(paired?.hvac1?.commanded);
+    const hvac1CurrentA = finite(paired?.hvac1?.currentA);
+    const hvac2Commanded = bool(paired?.hvac2?.commanded);
+    const hvac2CurrentA = finite(paired?.hvac2?.currentA);
+    const h1HasCurrent = (hvac1CurrentA ?? 0) > 0.2;
+    const h2HasCurrent = (hvac2CurrentA ?? 0) > 0.2;
+    const crossUnitMismatch = hvac1Commanded === true && !h1HasCurrent && h2HasCurrent
+      ? "H1 commanded · H2 has current"
+      : hvac2Commanded === true && !h2HasCurrent && h1HasCurrent
+        ? "H2 commanded · H1 has current"
+        : null;
+    return {
+      key: `${parsed.arrayNumber ?? "?"}-${parsed.segmentNumber ?? "?"}-${parsed.hvacUnit ?? "?"}`,
+      ...parsed,
+      commanded: bool(evidence?.commanded),
+      active: bool(evidence?.active),
+      currentA: finite(evidence?.currentA ?? evidence?.measuredCurrentA),
+      hvac1Commanded,
+      hvac1CurrentA,
+      hvac2Commanded,
+      hvac2CurrentA,
+      crossUnitMismatch,
+      label
+    };
+  });
+
+  return rows.sort((a, b) =>
+    (a.arrayNumber ?? 9999) - (b.arrayNumber ?? 9999)
+    || (a.segmentNumber ?? 9999) - (b.segmentNumber ?? 9999)
+    || (a.hvacUnit ?? 9999) - (b.hvacUnit ?? 9999)
+  );
 }
 
 
@@ -1221,14 +1434,14 @@ function getCorrectiveExpandedTargetLabels(issue: any): string[] {
     ...(Array.isArray(issue?.occurrences) ? issue.occurrences : [])
   ];
 
-  const labels: string[] = [];
+  const rawLabels: string[] = [];
 
   const addLabel = (value: any) => {
     const label = String(value || "").trim();
     if (!label) return;
     if (/^block\s+\d+$/i.test(label)) return;
     if (/target group/i.test(label)) return;
-    if (!labels.includes(label)) labels.push(label);
+    if (!rawLabels.includes(label)) rawLabels.push(label);
   };
 
   for (const item of items) {
@@ -1246,7 +1459,60 @@ function getCorrectiveExpandedTargetLabels(issue: any): string[] {
     }
   }
 
-  return labels;
+  const locationUnits = new Map<string, Set<string>>();
+  const coordinates = (label: string) => {
+    const reportedIp = label.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0];
+    const ipParts = reportedIp?.split(".").map(Number) || [];
+    const ipArray = ipParts.length === 4 && ipParts[0] === 10 && ipParts[1] === 0 && ipParts[2] > 0
+      ? ipParts[2]
+      : undefined;
+    const ipSegment = ipParts.length === 4 && ipParts[3] >= 10 && (ipParts[3] - 5) % 5 === 0
+      ? (ipParts[3] - 5) / 5
+      : undefined;
+    const array = label.match(/array\s*(\d+)/i)?.[1] || (ipArray ? String(ipArray) : undefined);
+    const segment = label.match(/(?:energy\s*)?segment\s*(\d+)/i)?.[1] || (ipSegment ? String(ipSegment) : undefined);
+    const unit = Array.from(label.matchAll(/HVAC\s*([12])\b/gi)).map((match) => match[1])[0];
+    const derivedHost = segment ? 5 + (Number(segment) * 5) : undefined;
+    const derivedIp = array && derivedHost && derivedHost <= 255 ? `10.0.${Number(array)}.${derivedHost}` : undefined;
+    const ip = reportedIp || derivedIp;
+    return { array, segment, unit, ip, locationKey: `${array || "?"}|${segment || "?"}` };
+  };
+
+  rawLabels.forEach((label) => {
+    const target = coordinates(label);
+    if (!target.unit) return;
+    const units = locationUnits.get(target.locationKey) || new Set<string>();
+    units.add(target.unit);
+    locationUnits.set(target.locationKey, units);
+  });
+
+  const canonical = new Map<string, string>();
+  rawLabels.forEach((label) => {
+    const target = coordinates(label);
+    if (!target.array && !target.segment && !target.unit && !target.ip) return;
+    const knownUnits = locationUnits.get(target.locationKey);
+    const inferredUnit = target.unit || (knownUnits?.size === 1 ? Array.from(knownUnits)[0] : undefined);
+
+    // An unidentified raw duplicate adds no information when the same location
+    // already has one or more unit-specific targets.
+    if (!inferredUnit && knownUnits && knownUnits.size > 0) return;
+
+    const base = [
+      target.array ? `Array ${target.array}` : "Array not identified",
+      target.segment ? `Energy Segment ${target.segment}` : "Segment not identified",
+      inferredUnit ? `HVAC ${inferredUnit}` : "HVAC unit not identified",
+      target.ip ? `IP ${target.ip}` : null
+    ].filter(Boolean).join(", ");
+    // IP is enrichment, not device identity: the same Feather unit is commonly
+    // reported once with an IP and once without it.
+    const key = `${target.locationKey}|${inferredUnit || "unknown"}`;
+    const existing = canonical.get(key);
+    // Prefer a label with an IP address when two sources describe the same unit.
+    if (!existing || (target.ip && !/\bIP\s+/i.test(existing))) canonical.set(key, base);
+  });
+
+  return Array.from(canonical.values())
+    .sort((a, b) => compareCorrectiveLocation({ targetLabel: a }, { targetLabel: b }));
 }
 
 function isCorrectiveHvacIssue(issue: any): boolean {
@@ -1264,6 +1530,67 @@ function isCorrectiveHvacIssue(issue: any): boolean {
   ].map((v) => String(v || "").toLowerCase()).join(" ");
 
   return text.includes("hvac") || text.includes("env-hvac");
+}
+
+type CorrectiveCategory = {
+  id: "hvac" | "string-cell" | "other";
+  label: string;
+  description: string;
+  issues: any[];
+};
+
+function correctiveLocationTuple(value: any): number[] {
+  const text = [
+    value?.targetLabel,
+    value?.affectedSummary,
+    value?.object,
+    value?.title,
+    value?.faultName,
+    ...(Array.isArray(value?.affectedTargets) ? value.affectedTargets : []),
+    ...(Array.isArray(value?.affected) ? value.affected : [])
+  ].map(String).join(" ");
+  const pick = (pattern: RegExp) => Number(text.match(pattern)?.[1] || 9999);
+  return [
+    Number(value?.arrayNumber ?? value?.arrayIndex ?? value?.evidence?.arrayNumber ?? pick(/array\s*(\d+)/i)) || 9999,
+    Number(value?.energySegmentNumber ?? value?.segmentNumber ?? value?.evidence?.energySegmentNumber ?? pick(/(?:energy\s*)?segment\s*(\d+)/i)) || 9999,
+    pick(/hvac\s*(\d+)/i),
+    Number(value?.stringNumber ?? value?.stringIndex ?? value?.evidence?.stringNumber ?? pick(/string\s*(\d+)/i)) || 9999,
+    pick(/(?:bpc|pack)\s*(\d+)/i),
+    pick(/(?:cell(?:\s*group)?|cg)\s*(\d+)/i)
+  ];
+}
+
+function compareCorrectiveLocation(a: any, b: any): number {
+  const av = correctiveLocationTuple(a);
+  const bv = correctiveLocationTuple(b);
+  for (let i = 0; i < av.length; i += 1) {
+    if (av[i] !== bv[i]) return av[i] - bv[i];
+  }
+  return getCorrectiveIssueTitleForTile(a).localeCompare(getCorrectiveIssueTitleForTile(b));
+}
+
+function getCorrectiveCategories(issues: any[]): CorrectiveCategory[] {
+  const visible = (issues || []).filter((issue: any) => {
+    return !!issue;
+  });
+  const isStringCell = (issue: any) => {
+    const text = [issue?.subsystem, issue?.resolved?.system, issue?.code, issue?.title, issue?.faultName, issue?.issueName]
+      .map((v) => String(v || "").toLowerCase()).join(" ");
+    return /string|cell|battery|bpc|contactor|balanc/.test(text);
+  };
+  const definitions: Omit<CorrectiveCategory, "issues">[] = [
+    { id: "hvac", label: "HVAC / Environmental", description: "Alarms and warnings ordered by array, segment, and HVAC unit" },
+    { id: "string-cell", label: "String / Cell", description: "String, BPC, cell, contactor, and balancing issues in equipment order" },
+    { id: "other", label: "Other Site Issues", description: "PCS, communications, controls, and remaining site findings" }
+  ];
+  return definitions.map((category) => ({
+    ...category,
+    issues: visible.filter((issue) => category.id === "hvac"
+      ? isCorrectiveHvacIssue(issue)
+      : category.id === "string-cell"
+        ? !isCorrectiveHvacIssue(issue) && isStringCell(issue)
+        : !isCorrectiveHvacIssue(issue) && !isStringCell(issue)).sort(compareCorrectiveLocation)
+  })).filter((category) => category.issues.length > 0);
 }
 
 function getExpandedCorrectiveTargetsForDisplay(issue: any): string[] {
@@ -1404,8 +1731,13 @@ function expandConsolidatedHvacRelatedTargets(issues: any[]): any[] {
         value.forEach(addTarget);
         return;
       }
-      const text = String(value).trim();
+      let text = String(value).trim();
       if (!text) return;
+      if (/HVAC\s*\?/i.test(text)) {
+        const afterPlaceholder = text.split(/HVAC\s*\?/i).slice(1).join(" ");
+        const reportedUnit = afterPlaceholder.match(/HVAC\s*([12])\b/i)?.[1];
+        if (reportedUnit) text = text.replace(/HVAC\s*\?/i, `HVAC ${reportedUnit}`);
+      }
       targets.add(text);
     };
 
@@ -1437,7 +1769,19 @@ function expandConsolidatedHvacRelatedTargets(issues: any[]): any[] {
       related.forEach(addFindingTargets);
     }
 
-    const affectedTargets = Array.from(targets);
+    const allTargets = Array.from(targets);
+    const knownHvacLocations = new Set(
+      allTargets
+        .filter((target) => /HVAC\s*[12]\b/i.test(target))
+        .map((target) => target.replace(/HVAC\s*[12]\b.*$/i, "").trim().toLowerCase())
+    );
+    const affectedTargets = allTargets
+      .filter((target) => {
+        if (!/HVAC\s*\?/i.test(target)) return true;
+        const location = target.replace(/HVAC\s*\?.*$/i, "").trim().toLowerCase();
+        return !knownHvacLocations.has(location);
+      })
+      .sort((a, b) => compareCorrectiveLocation({ targetLabel: a }, { targetLabel: b }));
 
     if (affectedTargets.length === 0) return issue;
 
@@ -1515,12 +1859,13 @@ function compactRuntimeCorrectiveActionsForTile(findings: any[]): any[] {
           groupedIssueName: issueName,
           affectedTargets: targetLabel ? [targetLabel] : []
         },
+        relatedIssues: [],
         recommendedAction:
           mismatchType === "commanded_not_active"
-            ? "Review affected targets by Array, Segment, and HVAC number. Confirm HVAC command state in PRIZM and local controller, then verify HVAC power, relay/contactor output, current feedback, RPM feedback, and local HVAC controller alarms."
+            ? "Review affected targets by Array, Segment, and HVAC number. Confirm HVAC command state in PRIZM and the local controller, then verify power, relay/contactor output, unit amperage, and local HVAC alarms."
             : mismatchType === "active_not_commanded"
               ? "Confirm no HVAC command is active in PRIZM or the local controller. Verify relay/contactor state, feedback wiring, current sensor scaling, and whether the HVAC is running locally without command."
-              : "Compare HVAC command state against current/RPM feedback and local controller status. Verify wiring, feedback scaling, relay state, and local HVAC alarms."
+              : "Compare each HVAC command against its matching unit amperage and local controller status. Verify wiring, feedback scaling, relay state, and local HVAC alarms."
       });
     } else {
       const targets = new Set<string>(existing.affectedTargets || []);
@@ -1536,6 +1881,10 @@ function compactRuntimeCorrectiveActionsForTile(findings: any[]): any[] {
         affectedTargets,
         affected: affectedTargets,
         occurrences: affectedTargets,
+        relatedIssues: [
+          ...(Array.isArray(existing?.relatedIssues) ? existing.relatedIssues : []),
+          finding
+        ],
         evidence: {
           ...(existing?.evidence || {}),
           affectedTargets
@@ -1556,7 +1905,7 @@ function synthesizeRuntimeHvacCorrectiveFindingsFromFeather(
 ): any[] {
   const findings: any[] = [];
 
-  const getState = (hvac: any) => {
+  const getState = (hvac: any, hvacType: unknown) => {
     const unit = hvac || {};
     const commanded = !!(
       unit.fanLowOn ||
@@ -1569,9 +1918,10 @@ function synthesizeRuntimeHvacCorrectiveFindingsFromFeather(
     const currentA = Number(unit.currentA || 0);
     const fanSpeedRpm = Number(unit.fanSpeedRpm || 0);
 
+    const rpmSupported = resolveHvacRpmSupport(hvacType, useFanRpmAsFaultIndicator);
     const active = !!(
       currentA > 0.2 ||
-      (useFanRpmAsFaultIndicator && fanSpeedRpm > 0)
+      (rpmSupported && fanSpeedRpm > 0)
     );
 
     return {
@@ -1579,7 +1929,7 @@ function synthesizeRuntimeHvacCorrectiveFindingsFromFeather(
       active,
       currentA,
       fanSpeedRpm,
-      useFanRpmAsFaultIndicator
+      useFanRpmAsFaultIndicator: rpmSupported
     };
   };
 
@@ -1587,12 +1937,16 @@ function synthesizeRuntimeHvacCorrectiveFindingsFromFeather(
     const arrayNumber = getArrayNumberFromFeatherDevice(device);
     const energySegmentNumber = getEnergySegmentNumberFromFeatherDevice(device);
     const deviceIp = device?.ip || device?.deviceIp || "";
+    const unitStates = {
+      1: getState(device?.hvac1, device?.hvacType),
+      2: getState(device?.hvac2, device?.hvacType)
+    };
 
     for (const hvacUnit of [1, 2] as const) {
       const hvac = hvacUnit === 1 ? device?.hvac1 : device?.hvac2;
       if (!hvac) continue;
 
-      const state = getState(hvac);
+      const state = unitStates[hvacUnit];
       let mismatchType: "commanded_not_active" | "active_not_commanded" | null = null;
 
       if (state.commanded && !state.active) mismatchType = "commanded_not_active";
@@ -1640,8 +1994,24 @@ function synthesizeRuntimeHvacCorrectiveFindingsFromFeather(
           active: state.active,
           currentA: state.currentA,
           fanSpeedRpm: state.fanSpeedRpm,
-          hvacEquipmentProfile: useFanRpmAsFaultIndicator ? "Bergstrom / RPM feedback enabled" : "Dometic / RPM feedback ignored",
-          fanRpmUsedAsFaultIndicator: useFanRpmAsFaultIndicator,
+          reportedHvacType: device?.hvacType || null,
+          hvacEquipmentProfile: state.useFanRpmAsFaultIndicator ? "Bergstrom / RPM feedback enabled" : "Dometic / RPM feedback ignored",
+          hvacProfileSource: getHvacFeedbackProfile(device?.hvacType) === "unknown" ? "fallback" : "feather",
+          fanRpmUsedAsFaultIndicator: state.useFanRpmAsFaultIndicator,
+          pairedHvac: {
+            hvac1: {
+              commanded: unitStates[1].commanded,
+              active: unitStates[1].active,
+              currentA: unitStates[1].currentA,
+              fanSpeedRpm: unitStates[1].fanSpeedRpm
+            },
+            hvac2: {
+              commanded: unitStates[2].commanded,
+              active: unitStates[2].active,
+              currentA: unitStates[2].currentA,
+              fanSpeedRpm: unitStates[2].fanSpeedRpm
+            }
+          },
           detectedCondition: issueName
         },
         recommendedAction:
@@ -1779,15 +2149,53 @@ export default function SiteOperationsDashboard({
 
   const [isAdvancedMode, setIsAdvancedMode] = useState(false);
   const [expandedCorrectiveActions, setExpandedCorrectiveActions] = useState<
-    Record<number, boolean>
+    Record<string, boolean>
   >({});
+  const [expandedCorrectiveCategories, setExpandedCorrectiveCategories] = useState<Record<string, boolean>>({
+    hvac: true,
+    "string-cell": true,
+    other: true
+  });
+  const [expandedCorrectiveTarget, setExpandedCorrectiveTarget] = useState<string | null>(null);
   const [showCorrectiveExportOptions, setShowCorrectiveExportOptions] = useState(false);
   const [correctiveExportingFormat, setCorrectiveExportingFormat] = useState<string | null>(null);
+  const [topologySearch, setTopologySearch] = useState("");
+  const [topologyTypeFilter, setTopologyTypeFilter] = useState("all");
+  const [topologyHealthFilter, setTopologyHealthFilter] = useState("all");
+  const [topologyRowLimit, setTopologyRowLimit] = useState(150);
+  const [topologyView, setTopologyView] = useState<"table" | "oneline">("table");
+  const [selectedTopologyArray, setSelectedTopologyArray] = useState<number | null>(null);
+  const [topologyRequested, setTopologyRequested] = useState(false);
+  const [topologyEnergySegmentsPerLineup, setTopologyEnergySegmentsPerLineup] = useState(() => {
+    const saved = Number(localStorage.getItem("prizm_topology_energy_segments_per_lineup"));
+    return Number.isFinite(saved) && saved >= 1 ? Math.floor(saved) : 20;
+  });
+  const [topologySegmentSizingMode, setTopologySegmentSizingMode] = useState<"auto" | "manual">(() =>
+    localStorage.getItem("prizm_topology_segment_sizing_mode") === "manual" ? "manual" : "auto"
+  );
+  const inferredTopologyEnergySegments = React.useMemo(
+    () => inferEnergySegmentsPerLineupFromTopology(state.siteSummary?.topology || []),
+    [state.siteSummary?.topology]
+  );
   const [runtimeCorrectiveActions, setRuntimeCorrectiveActions] = useState<any[]>([]);
   const runtimeHvacCorrectiveLatchRef = React.useRef<Map<string, any>>(new Map());
   const [hvacUseFanRpmForFaults, setHvacUseFanRpmForFaults] = useState<boolean>(() => {
     return localStorage.getItem("prizm_hvac_use_fan_rpm_fault_indicator") === "true";
   });
+
+  useEffect(() => {
+    localStorage.setItem("prizm_topology_energy_segments_per_lineup", String(topologyEnergySegmentsPerLineup));
+  }, [topologyEnergySegmentsPerLineup]);
+
+  useEffect(() => {
+    localStorage.setItem("prizm_topology_segment_sizing_mode", topologySegmentSizingMode);
+  }, [topologySegmentSizingMode]);
+
+  useEffect(() => {
+    if (topologySegmentSizingMode === "auto" && inferredTopologyEnergySegments && inferredTopologyEnergySegments !== topologyEnergySegmentsPerLineup) {
+      setTopologyEnergySegmentsPerLineup(inferredTopologyEnergySegments);
+    }
+  }, [topologySegmentSizingMode, inferredTopologyEnergySegments, topologyEnergySegmentsPerLineup]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -1798,7 +2206,7 @@ export default function SiteOperationsDashboard({
   const runtimeFeatherDevicesRef = React.useRef<any[]>([]);
 const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(null);
   const [runtimeCorrectiveLoading, setRuntimeCorrectiveLoading] = useState(false);
-  const toggleCorrectiveAction = (idx: number) => {
+  const toggleCorrectiveAction = (idx: string) => {
     setExpandedCorrectiveActions((prev) => ({
       ...prev,
       [idx]: !prev[idx],
@@ -1835,8 +2243,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
             console.warn("Corrective HVAC synthesis could not load Feather devices", featherErr);
           }
 
-          setRuntimeCorrectiveActions(
-            compactRuntimeCorrectiveActionsForTile(
+          const compactedFindings = compactRuntimeCorrectiveActionsForTile(
               applyRuntimeHvacCorrectiveLatchStore(
               runtimeHvacCorrectiveLatchRef.current,
               [
@@ -1845,9 +2252,28 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
               ],
               liveFeatherDevices,
               hvacUseFanRpmForFaults
-            )
-            )
-          );
+            ));
+
+          let enrichedFindings = compactedFindings;
+          try {
+            const resolveRes = await fetch("/api/local/corrective-actions/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ items: compactedFindings })
+            });
+            if (resolveRes.ok) {
+              const resolveJson = await resolveRes.json();
+              const resolved = Array.isArray(resolveJson?.resolved) ? resolveJson.resolved : [];
+              enrichedFindings = compactedFindings.map((finding: any, index: number) => ({
+                ...finding,
+                resolved: resolved[index] || finding.resolved
+              }));
+            }
+          } catch (resolveErr) {
+            console.warn("Corrective guidance resolution unavailable", resolveErr);
+          }
+
+          setRuntimeCorrectiveActions(enrichedFindings);
           setRuntimeCorrectiveSummary(json?.summary || null);
       } catch (err) {
         console.warn("[SiteOperationsDashboard] corrective-actions fetch failed", err);
@@ -1933,20 +2359,49 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
   // EMS App control states
   const [emsAppCandidate, setEmsAppCandidate] = useState<any>(null);
   const [emsAppTargetState, setEmsAppTargetState] = useState<boolean>(false);
-  const [emsAppConfText, setEmsAppConfText] = useState("");
   const [emsAppLoading, setEmsAppLoading] = useState(false);
   const [emsAppResult, setEmsAppResult] = useState<any>(null);
+  const [powerControlCandidate, setPowerControlCandidate] = useState<any>(null);
+  const [powerControlKw, setPowerControlKw] = useState(0);
+  const [powerControlKvar, setPowerControlKvar] = useState(0);
+  const [powerControlLoading, setPowerControlLoading] = useState(false);
+  const [powerControlResult, setPowerControlResult] = useState<any>(null);
 
-  const executeEmsAppAction = async () => {
-    if (!emsAppCandidate) return;
-    const expectedText = `${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`;
-    if (emsAppConfText !== expectedText) {
-      setEmsAppResult({
-        success: false,
-        message: "Confirmation text does not match",
+  const openPowerControl = (app: any) => {
+    const text = String(app.appStatus || "");
+    setPowerControlKw(Number(text.match(/Real Power:\s*(-?[\d.]+)/i)?.[1] || 0));
+    setPowerControlKvar(Number(text.match(/Reactive Power:\s*(-?[\d.]+)/i)?.[1] || 0));
+    setPowerControlResult(null);
+    setPowerControlCandidate(app);
+  };
+
+  const executePowerControl = async () => {
+    if (!powerControlCandidate) return;
+    setPowerControlLoading(true); setPowerControlResult(null);
+    try {
+      const response = await fetch("/api/local/ems-apps/power-control", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stationCode: state.siteSummary?.site?.stationCode || "BHE0020",
+          blockIndex: state.siteSummary?.site?.blockIndex || 1,
+          priority: powerControlCandidate.priority,
+          realPowerkW: powerControlKw,
+          reactivePowerkVAr: powerControlKvar,
+          requestedBy: "local-overview",
+        }),
       });
-      return;
-    }
+      const data = await response.json(); setPowerControlResult(data);
+      if (data.success) triggerRefresh(true);
+    } catch (error: any) { setPowerControlResult({ success: false, message: error.message }); }
+    finally { setPowerControlLoading(false); }
+  };
+
+  const executeEmsAppAction = async (candidate = emsAppCandidate, targetState = emsAppTargetState) => {
+    if (!candidate) return;
+    const expectedText = `${targetState ? "ENABLE" : "DISABLE"} ${candidate.appCode}`;
+
+    setEmsAppCandidate(candidate);
+    setEmsAppTargetState(targetState);
 
     setEmsAppLoading(true);
     setEmsAppResult(null);
@@ -1958,10 +2413,12 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         body: JSON.stringify({
           stationCode: state.siteSummary?.site?.stationCode || "BHE0020",
           blockIndex: state.siteSummary?.site?.blockIndex || 1,
-          appCode: emsAppCandidate.appCode,
-          priority: emsAppCandidate.priority,
-          enabled: emsAppTargetState,
-          confirmationText: emsAppConfText,
+          appCode: candidate.appCode,
+          priority: candidate.priority,
+          enabled: targetState,
+          // The server still validates a command-specific token. The UI creates it
+          // from the deliberate action click so operators never have to type it.
+          confirmationText: expectedText,
           requestedBy: "local-overview",
         }),
       });
@@ -1985,10 +2442,9 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
 
   const [debugExpanded, setDebugExpanded] = useState(false);
 
-  // Provide a callback to execute clearing
-  const executeClear = async () => {
-    if (!clearCandidate || clearConfRef !== clearCandidate.entityKeyToken) {
-      setClearResult({ error: "Confirmation text does not match" });
+  const dispatchSafetyClear = async (candidate: any, confirmationText: string) => {
+    if (!candidate?.allowFaultReset || !candidate?.entityKeyToken) {
+      setClearResult({ error: "This device is not currently eligible for a safety fault reset." });
       return;
     }
     setClearLoading(true);
@@ -2002,14 +2458,15 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           profileId,
-          entityKeyToken: clearCandidate.entityKeyToken,
-          confirmationText: clearConfRef,
+          entityKeyToken: candidate.entityKeyToken,
+          confirmationText,
           operatorUsername,
         }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Execute failed");
       setClearResult(j);
+      if (j.ok || j.queued) triggerRefresh(true);
     } catch (e: any) {
       setClearResult({ error: e.message });
     } finally {
@@ -2017,16 +2474,57 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
     }
   };
 
+  // Typed confirmation path retained for the full Safety Clear workflow.
+  const executeClear = async () => {
+    if (!clearCandidate || clearConfRef !== clearCandidate.entityKeyToken) {
+      setClearResult({ error: "Confirmation text does not match" });
+      return;
+    }
+    await dispatchSafetyClear(clearCandidate, clearConfRef);
+  };
+
+  // Summary-page fast action: one deliberate click on an EMS-eligible row.
+  const executeOneClickClear = async (candidate: any) => {
+    setClearCandidate(candidate);
+    setClearConfRef("");
+    setClearResult(null);
+    await dispatchSafetyClear(candidate, "CLEAR FAULT");
+  };
+
+  const fetchSummaryWithTopology = async (url: string, timeoutMs: number) => {
+    return fetchJsonWithTimeout(url, { timeoutMs });
+  };
+
+  useEffect(() => {
+    if (!active || !topologyRequested || (state.siteSummary?.topology || []).length > 0) return;
+    let cancelled = false;
+    fetchJsonWithTimeout("/api/local/snapshot/topology", { timeoutMs: 10000 })
+      .then((topologyRes) => {
+        if (cancelled) return;
+        const topologyData = topologyRes?.data;
+        const topology = Array.isArray(topologyData)
+          ? topologyData
+          : Array.isArray(topologyData?.entities)
+            ? topologyData.entities
+            : Array.isArray(topologyData?.topology)
+              ? topologyData.topology
+              : [];
+        setState((prev) => ({ ...prev, siteSummary: { ...(prev.siteSummary || {}), topology } }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [active, topologyRequested, state.siteSummary?.topology]);
+
   const triggerRefresh = (sectionRefresh = false) => {
     let url = "/api/local/site-data/block-summary";
     if (sectionRefresh || state.cacheStatus?.policy === "live-only") {
       url += "?refresh=true";
     }
-    fetchJsonWithTimeout(url, { timeoutMs: sectionRefresh ? 20000 : 5000 })
+    fetchSummaryWithTopology(url, sectionRefresh ? 20000 : 5000)
       .then((summaryRes) => {
         setState((prev) => ({
           ...prev,
-          siteSummary: summaryRes,
+          siteSummary: { ...summaryRes, topology: prev.siteSummary?.topology || [] },
           loading: false,
         }));
       })
@@ -2048,13 +2546,11 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         url += "?refresh=true";
       }
       try {
-        const summaryRes = await fetchJsonWithTimeout(url, {
-          timeoutMs: isFirst ? 25000 : 5000,
-        });
+        const summaryRes = await fetchSummaryWithTopology(url, isFirst ? 25000 : 5000);
         if (!unmounted)
           setState((prev) => ({
             ...prev,
-            siteSummary: summaryRes,
+            siteSummary: { ...summaryRes, topology: prev.siteSummary?.topology || [] },
             loading: false,
           }));
       } catch (err: any) {
@@ -2095,7 +2591,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
 
     fetchData();
     const interval = setInterval(async () => {
-      if (unmounted || !active) return;
+      if (unmounted || !active || document.hidden) return;
       const status = await fetchJsonWithTimeout("/api/local/cache/status", {
         timeoutMs: 1500,
       }).catch(() => {});
@@ -2106,12 +2602,10 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
           url += "?refresh=true";
         }
         try {
-          const summaryRes = await fetchJsonWithTimeout(url, {
-            timeoutMs: 5000,
-          });
+          const summaryRes = await fetchSummaryWithTopology(url, 5000);
           if (!unmounted && active) {
             // Only clear error if we succeeded
-            setState((prev) => ({ ...prev, siteSummary: summaryRes }));
+            setState((prev) => ({ ...prev, siteSummary: { ...summaryRes, topology: prev.siteSummary?.topology || [] } }));
           }
         } catch (err) {
           // Do not overwrite with error on background polling failure, just let it ride
@@ -2368,7 +2862,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
               ? "Compare requested contactor state against positive/negative feedback and verify the affected string is safe before inspection."
               : "Review corrective action details, source evidence, and remediation guidance."
         ),
-      resolved: {
+      resolved: finding?.resolved?.resolvedTroubleshooting ? finding.resolved : {
         resolvedTroubleshooting: {
           issueName: finding?.title,
           managerSummary:
@@ -2400,13 +2894,116 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
 
   const displayedCorrectiveActions = expandConsolidatedHvacRelatedTargets(
     consolidateCorrectiveActionsForTechnician(rawDisplayedCorrectiveActions)
+  ).filter((issue: any) => !isIgnoredOperationalNotification(issue));
+
+  const correctiveAffectedCount = (action: any) => {
+    const explicit = Number(action?.affectedCount ?? action?.count);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    if (Array.isArray(action?.affected) && action.affected.length > 0) return action.affected.length;
+    if (Array.isArray(action?.affectedTargets) && action.affectedTargets.length > 0) return action.affectedTargets.length;
+    return 1;
+  };
+  const displayedCorrectiveAffectedCount = displayedCorrectiveActions.reduce(
+    (total: number, action: any) => total + correctiveAffectedCount(action),
+    0
   );
+  const displayedCorrectiveWarningCount = displayedCorrectiveActions.reduce((total: number, action: any) => {
+    const severity = String(action?.severity || action?.level || "").toUpperCase();
+    return severity.includes("WARN") ? total + correctiveAffectedCount(action) : total;
+  }, 0);
+  const displayedCorrectiveAlarmCount = displayedCorrectiveActions.reduce((total: number, action: any) => {
+    const severity = String(action?.severity || action?.level || "").toUpperCase();
+    return severity.includes("ALARM") || severity.includes("CRIT")
+      ? total + correctiveAffectedCount(action)
+      : total;
+  }, 0);
+  const correctiveCategories = getCorrectiveCategories(displayedCorrectiveActions);
+  const categorizedCorrectiveRows = correctiveCategories.flatMap((category) => [
+    { __category: category },
+    ...(expandedCorrectiveCategories[category.id] ? category.issues : [])
+  ]);
 
   const runtimeCorrectiveCategorySummary = runtimeCorrectiveSummary?.byCategory || {};
 
   const clearableFaults = sum?.safetySummary?.clearableFaults || [];
   const safetyEligible = sum?.safetySummary?.clearableCount || 0;
   const safetyNotEligible = 0; // Not eligible faults no longer primarily tracked here
+  const topologyEntities = Array.isArray(sum?.topology) ? sum.topology : [];
+  const topologyTypes = Array.from(new Set(topologyEntities.map((entity: any) => String(entity?.entityType || "Unknown")))).sort();
+  const filteredTopologyEntities = topologyEntities.filter((entity: any) => {
+    const healthy = entity?.enabled !== false && entity?.ready !== false && entity?.communicating !== false;
+    if (topologyTypeFilter !== "all" && String(entity?.entityType || "Unknown") !== topologyTypeFilter) return false;
+    if (topologyHealthFilter === "healthy" && !healthy) return false;
+    if (topologyHealthFilter === "attention" && healthy) return false;
+    const query = topologySearch.trim().toLowerCase();
+    if (!query) return true;
+    return [entity?.displayKey, entity?.entityKey, entity?.entityType, entity?.entitySubType, entity?.statusMessageText, entity?.statusMessage]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
+
+  const finiteNumber = (...values: any[]) => {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (value !== null && value !== undefined && value !== "" && Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  };
+  const sumPcsMetric = (...keys: string[]) => {
+    let found = false;
+    const total = pcsData.reduce((sumValue: number, pcs: any) => {
+      const value = finiteNumber(...keys.map((key) => pcs?.[key]));
+      if (value === null) return sumValue;
+      found = true;
+      return sumValue + value;
+    }, 0);
+    return found ? total : null;
+  };
+  const formatPower = (value: number | null, unit = "kW") =>
+    value === null ? "--" : `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
+  const formatEnergy = (value: any) => {
+    const numeric = finiteNumber(value);
+    return numeric === null ? "--" : `${(numeric / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} MWh`;
+  };
+  const blockOperatingSummary = {
+    realMeasured: finiteNumber(sum?.blockOperatingSummary?.modbus?.measuredKW, sum?.blockOperatingSummary?.realMeasured, sumPcsMetric("acRealPowerKW", "acRealPowerKw")),
+    realCommanded: finiteNumber(sum?.blockOperatingSummary?.realCommanded, sumPcsMetric("acCmdRealPowerKW", "acRealPowerSettingKW", "acRealPowerSettingKw")),
+    reactiveMeasured: finiteNumber(sum?.blockOperatingSummary?.modbus?.measuredKVAR, sum?.blockOperatingSummary?.reactiveMeasured, sumPcsMetric("acReactivePowerKVAR", "acReactivePowerKvar")),
+    reactiveCommanded: finiteNumber(sum?.blockOperatingSummary?.reactiveCommanded, sumPcsMetric("acCmdReactivePowerKVAR", "acReactivePowerSettingKVAR", "acReactivePowerSettingKvar")),
+    onlineEnergy: finiteNumber(sum?.fleetCapacity?.onlineStoredKWh, onlineStats?.storedKWhTotal),
+    nearlineEnergy: finiteNumber(sum?.fleetCapacity?.nearlineStoredKWh, nearlineStats?.storedKWhTotal),
+    offlineEnergy: finiteNumber(sum?.fleetCapacity?.offlineStoredKWh, offlineStats?.storedKWhTotal),
+    targetPower: finiteNumber(sum?.blockOperatingSummary?.modbus?.targetKW),
+    stateOfCharge: finiteNumber(sum?.blockOperatingSummary?.modbus?.stateOfChargePct),
+    availableCharge: finiteNumber(sum?.blockOperatingSummary?.modbus?.availableChargeKW),
+    availableDischarge: finiteNumber(sum?.blockOperatingSummary?.modbus?.availableDischargeKW),
+  };
+  const installedCapacityKWh = finiteNumber(sum?.fleetCapacity?.installedCapacityKWh);
+  const totalStringCount = finiteNumber(rollups?.totalStrings, sum?.topologyStatus?.stringCount);
+  const capacityPerStringKWh = installedCapacityKWh !== null && totalStringCount
+    ? installedCapacityKWh / totalStringCount
+    : null;
+  const onlineCapacityKWh = finiteNumber(
+    sum?.fleetCapacity?.onlineInstalledKWh,
+    capacityPerStringKWh === null ? null : capacityPerStringKWh * Number(onlineStats?.count || 0)
+  );
+  const nearlineCapacityKWh = finiteNumber(
+    sum?.fleetCapacity?.nearlineInstalledKWh,
+    capacityPerStringKWh === null ? null : capacityPerStringKWh * Number(nearlineStats?.count || 0)
+  );
+  const topologyFamilySummary = topologyTypes.map((type) => {
+    const entities = topologyEntities.filter((entity: any) => String(entity?.entityType || "Unknown") === type);
+    const attention = entities.filter((entity: any) => entity?.enabled === false || entity?.ready === false || entity?.communicating === false).length;
+    return { type, total: entities.length, attention };
+  });
+  const selectedArraySummary = selectedTopologyArray === null
+    ? null
+    : arraySummaryData.find((array: any) => Number(array?.arrayNumber ?? array?.arrayIndex ?? array?.array) === selectedTopologyArray) || null;
+  const selectedArrayPcs = selectedTopologyArray === null
+    ? null
+    : pcsData.find((pcs: any) => Number(pcs?.arrayNumber ?? pcs?.arrayIndex) === selectedTopologyArray) || null;
+  const selectedArrayStoredKWh = selectedArraySummary && Array.isArray(selectedArraySummary?.raw?.strings)
+    ? selectedArraySummary.raw.strings.reduce((total: number, stringRow: any) => total + (finiteNumber(stringRow?.kwh) || 0), 0)
+    : finiteNumber(selectedArraySummary?.storedEnergyKWh);
 
   const combinedSources = sum?.sourceHealth || [];
   let featherTotal: any = sum?.featherSummary?.totalDevices;
@@ -2427,6 +3024,22 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
 
   const getCellMetrics = () => {
     const rows = sum?.stringSummary?.tableRows || [];
+    const modbusArrays = Array.isArray(sum?.modbusArraySummary) ? sum.modbusArraySummary : [];
+    const modbusValues = (key: string) => modbusArrays
+      .map((row: any) => finiteNumber(row?.[key]))
+      .filter((value: number | null): value is number => value !== null);
+    const modbusMin = (key: string) => {
+      const values = modbusValues(key);
+      return values.length ? Math.min(...values) : null;
+    };
+    const modbusMax = (key: string) => {
+      const values = modbusValues(key);
+      return values.length ? Math.max(...values) : null;
+    };
+    const modbusAverage = (key: string) => {
+      const values = modbusValues(key);
+      return values.length ? values.reduce((total: number, value: number) => total + value, 0) / values.length : null;
+    };
     
     let minCellVoltage = Infinity;
     let maxCellVoltage = -Infinity;
@@ -2468,15 +3081,15 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       }
     }
 
-    const finalMinVolt = minCellVoltage !== Infinity ? minCellVoltage : null;
-    const finalMaxVolt = maxCellVoltage !== -Infinity ? maxCellVoltage : null;
-    const finalAvgVolt = countVolt > 0 ? totalVolt / countVolt : (sum?.bessFleetSummary?.avgCellVoltageMv ?? null);
-    const finalMaxVoltDelta = maxCellVoltageDelta !== -Infinity ? maxCellVoltageDelta : (sum?.bessFleetSummary?.maxCellVoltageDeltaMv ?? null);
+    const finalMinVolt = minCellVoltage !== Infinity ? minCellVoltage : (modbusMin("CellVoltageMin") === null ? (sum?.cellMetrics?.minVoltage ?? null) : Number(modbusMin("CellVoltageMin")) * 1000);
+    const finalMaxVolt = maxCellVoltage !== -Infinity ? maxCellVoltage : (modbusMax("CellVoltageMax") === null ? (sum?.cellMetrics?.maxVoltage ?? null) : Number(modbusMax("CellVoltageMax")) * 1000);
+    const finalAvgVolt = countVolt > 0 ? totalVolt / countVolt : (modbusAverage("CellVoltageAvg") === null ? (sum?.cellMetrics?.avgVoltage ?? sum?.bessFleetSummary?.avgCellVoltageMv ?? null) : Number(modbusAverage("CellVoltageAvg")) * 1000);
+    const finalMaxVoltDelta = maxCellVoltageDelta !== -Infinity ? maxCellVoltageDelta : (sum?.cellMetrics?.deltaVoltage ?? sum?.bessFleetSummary?.maxCellVoltageDeltaMv ?? null);
 
-    const finalLowTemp = lowCellTempC !== Infinity ? lowCellTempC : null;
-    const finalHighTemp = highCellTempC !== -Infinity ? highCellTempC : (sum?.bessFleetSummary?.maxCellTempC ?? null);
-    const finalAvgTemp = countTemp > 0 ? totalTemp / countTemp : (sum?.bessFleetSummary?.avgCellTempC ?? null);
-    const finalMaxTempDelta = maxCellTempDelta !== -Infinity ? maxCellTempDelta : (sum?.bessFleetSummary?.maxCellTempDeltaC ?? null);
+    const finalLowTemp = lowCellTempC !== Infinity ? lowCellTempC : (modbusMin("CellTmpMin") ?? sum?.cellMetrics?.minTemp ?? null);
+    const finalHighTemp = highCellTempC !== -Infinity ? highCellTempC : (modbusMax("CellTmpMax") ?? sum?.cellMetrics?.maxTemp ?? sum?.bessFleetSummary?.maxCellTempC ?? null);
+    const finalAvgTemp = countTemp > 0 ? totalTemp / countTemp : (modbusAverage("CellTmpAvg") ?? sum?.cellMetrics?.avgTemp ?? sum?.bessFleetSummary?.avgCellTempC ?? null);
+    const finalMaxTempDelta = maxCellTempDelta !== -Infinity ? maxCellTempDelta : (sum?.cellMetrics?.deltaTemp ?? sum?.bessFleetSummary?.maxCellTempDeltaC ?? null);
 
     return {
       minCellVoltage: finalMinVolt,
@@ -2536,6 +3149,40 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
     <div className="flex-1 flex flex-col p-4 sm:p-6 overflow-y-auto no-scrollbar font-sans space-y-6">
       {/* Global Site Status Banner Removed (Moved to Global Header) */}
 
+      <section className="rounded-lg border border-prizm-border bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-prizm-border px-4 py-3">
+          <div>
+            <h2 className="text-[12px] font-bold uppercase tracking-wider text-slate-900">Block Operating Snapshot</h2>
+            <p className="mt-0.5 text-[9px] text-prizm-text-muted">Live AC-battery power plus native DC-battery capacity and stored-energy totals.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {sum?.modbusTelemetry?.available && <span className={`rounded px-2 py-1 text-[9px] font-bold uppercase ${sum.modbusTelemetry.stale ? "bg-amber-50 text-amber-700" : "bg-cyan-50 text-cyan-700"}`}>Modbus {sum.modbusTelemetry.stale ? "stale" : `${sum.modbusTelemetry.durationMs ?? "--"} ms`}</span>}
+            <span className={`rounded px-2 py-1 text-[9px] font-bold uppercase ${siteState === "LIVE" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{siteState}</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-prizm-border md:grid-cols-4 xl:grid-cols-6">
+          {[
+            ["Real Power", formatPower(blockOperatingSummary.realMeasured), `Cmd ${formatPower(blockOperatingSummary.realCommanded)}`],
+            ["Reactive Power", formatPower(blockOperatingSummary.reactiveMeasured, "kVAR"), `Cmd ${formatPower(blockOperatingSummary.reactiveCommanded, "kVAR")}`],
+            ["Power Target", formatPower(blockOperatingSummary.targetPower), "EMS Modbus operating target"],
+            ["Block SOC", blockOperatingSummary.stateOfCharge === null ? "--" : `${blockOperatingSummary.stateOfCharge.toFixed(1)}%`, "EMS Modbus block total"],
+            ["Available Charge", formatPower(blockOperatingSummary.availableCharge), "EMS Modbus capacity"],
+            ["Available Discharge", formatPower(blockOperatingSummary.availableDischarge), "EMS Modbus capacity"],
+            ["Online DC Capacity", formatEnergy(onlineCapacityKWh), `${onlineStats?.count ?? 0} strings · live array total`],
+            ["Nearline DC Capacity", formatEnergy(nearlineCapacityKWh), `${nearlineStats?.count ?? 0} strings · live array total`],
+            ["Online Stored DC", formatEnergy(blockOperatingSummary.onlineEnergy), "live DC-battery total"],
+            ["Nearline Stored DC", formatEnergy(blockOperatingSummary.nearlineEnergy), "live DC-battery total"],
+            ["Offline Stored DC", formatEnergy(blockOperatingSummary.offlineEnergy), `${offlineStats?.count ?? 0} strings · live DC-battery total`],
+          ].map(([label, value, detail]) => (
+            <div key={label} className="min-w-0 bg-white px-3 py-3">
+              <div className="text-[8px] font-bold uppercase tracking-wider text-prizm-text-muted">{label}</div>
+              <div className="mt-1 truncate font-mono text-[14px] font-bold text-slate-900" title={value}>{value}</div>
+              {detail && <div className="mt-0.5 truncate font-mono text-[8px] text-slate-500">{detail}</div>}
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* NEW TOP LAYOUT GRID: KPI BLOCKS + STRING SUMMARY */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         {/* KPI BLOCKS */}
@@ -2567,15 +3214,15 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                    <span className="text-prizm-warning uppercase">Strings Warn</span>
+                    <span className="text-prizm-warning uppercase">Fault Warnings</span>
                     <span className="font-bold text-prizm-warning">
-                      {sum?.topologyStatus?.warningCount ?? "--"}
+                      {displayedCorrectiveWarningCount}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
-                    <span className="text-prizm-danger uppercase">Strings Alarm</span>
+                    <span className="text-prizm-danger uppercase">Fault Alarms</span>
                     <span className="font-bold text-prizm-danger">
-                      {sum?.topologyStatus?.alarmCount ?? "--"}
+                      {displayedCorrectiveAlarmCount}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -3114,8 +3761,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         </span>
         <span className="flex items-center gap-3">
           <span className="text-[9px] text-prizm-text-muted tracking-wider uppercase font-mono">
-            {runtimeCorrectiveLoading ? "Loading live findings..." : `Live ${runtimeCorrectiveActions.length} • HVAC latch ${runtimeHvacCorrectiveLatchRef.current.size} • String/Battery ${runtimeCorrectiveCategorySummary.string_battery || 0} • Environmental ${runtimeCorrectiveCategorySummary.environmental || 0}`}
-            {" "}• Click row to expand • Click target to drill-down
+            {runtimeCorrectiveLoading ? "Loading live findings..." : `Groups ${displayedCorrectiveActions.length} • Affected ${displayedCorrectiveAffectedCount} • HVAC tracked ${runtimeHvacCorrectiveLatchRef.current.size}`}
+            {" "}• Expand a category, fault, then device for inline detail
           </span>
                         <button
                 type="button"
@@ -3163,7 +3810,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         </div>
       ) : null}
       <div className="overflow-x-auto no-scrollbar flex-1">
-        <div className="max-h-[450px] overflow-y-auto no-scrollbar">
+        <div>
           {displayedCorrectiveActions.length > 0 ? (
             <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
               <thead className="bg-white border border-slate-200 text-slate-900 text-[10px] text-slate-600 uppercase tracking-widest border-b border-prizm-border sticky top-0 z-10">
@@ -3178,30 +3825,45 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                 </tr>
               </thead>
               <tbody className="divide-y divide-prizm-border">
-                {displayedCorrectiveActions
-                  .filter((issue: any) => {
-                    const name = (issue.faultName || issue.fault || "").toLowerCase();
-                    const code = String(issue.code || issue.faultId || "");
-                    if (code === "2534" || code === "2561" || name.includes("2534") || name.includes("2561")) {
-                      return false;
-                    }
-                    return true;
-                  })
-                  .map((issue: any, i: number) => {
+                {categorizedCorrectiveRows.map((issue: any, i: number) => {
+                  if (issue.__category) {
+                    const category = issue.__category as CorrectiveCategory;
+                    const isOpen = !!expandedCorrectiveCategories[category.id];
+                    const affected = category.issues.reduce((count, item) => count + Math.max(1, Number(item?.count || item?.affectedCount) || 1), 0);
+                    return (
+                      <tr key={`category-${category.id}`} className="bg-slate-100 border-y border-slate-300">
+                        <td colSpan={7} className="p-0">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedCorrectiveCategories((prev) => ({ ...prev, [category.id]: !prev[category.id] }))}
+                            className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-slate-200 transition-colors"
+                          >
+                            <span className="flex items-center gap-2">
+                              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              <span className="font-black text-slate-900 uppercase tracking-wider">{category.label}</span>
+                              <span className="text-[9px] text-slate-600 normal-case tracking-normal">{category.description}</span>
+                            </span>
+                            <span className="text-[9px] font-bold text-slate-700">{category.issues.length} groups • {affected} affected</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const issueKey = `${issue.__category?.id || "issue"}-${getCorrectiveIssuePrimaryCode(issue)}-${correctiveLocationTuple(issue).join("-")}-${i}`;
                   const hasOccurrences =
                     (Array.isArray(issue.occurrences) &&
                       issue.occurrences.length > 0) ||
                     (Array.isArray(issue.affected) &&
                       issue.affected.length > 0);
-                  const isExpanded = !!expandedCorrectiveActions[i];
+                  const isExpanded = !!expandedCorrectiveActions[issueKey];
                   const kb = issue.resolved?.resolvedTroubleshooting;
 
                   return (
-                    <React.Fragment key={i}>
+                    <React.Fragment key={issueKey}>
                       <tr
                         className={`${hasOccurrences ? "cursor-pointer hover:bg-prizm-surface-strong/70" : "hover:bg-prizm-surface"} transition-colors`}
                         onClick={() =>
-                          hasOccurrences && toggleCorrectiveAction(i)
+                          hasOccurrences && toggleCorrectiveAction(issueKey)
                         }
                       >
                         <td className="py-2.5 px-3">
@@ -3253,10 +3915,14 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                           </div>
                         </td>
                         <td className="py-2.5 px-3 text-center text-emerald-700 font-extrabold">
-                          {issue.affected?.length || issue.occurrences?.length || 0}
+                          {isCorrectiveHvacIssue(issue)
+                            ? getCorrectiveExpandedTargetLabels(issue).length
+                            : (issue.affected?.length || issue.occurrences?.length || 0)}
                         </td>
-                        <td className="py-2.5 px-3 text-prizm-text font-semibold max-w-[150px] truncate" title={issue.affectedSummary || issue.object}>
-                          {issue.affectedSummary || issue.object}
+                        <td className="py-2.5 px-3 text-prizm-text font-semibold max-w-[220px] truncate" title={isCorrectiveHvacIssue(issue) ? getCorrectiveExpandedTargetLabels(issue).join(" • ") : (issue.affectedSummary || issue.object)}>
+                          {isCorrectiveHvacIssue(issue)
+                            ? getCorrectiveAffectedSummaryForTile(issue)
+                            : (issue.affectedSummary || issue.object)}
                         </td>
                         <td className="py-2.5 px-3 text-prizm-text-muted max-w-[220px] whitespace-normal leading-tight text-[9px]">
                           {kb?.managerSummary || "Local diagnostic review is recommended for this alarm pattern."}
@@ -3292,11 +3958,58 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                               <div className="lg:col-span-5 flex flex-col gap-2">
                                 <div className="text-[10px] uppercase tracking-wider text-emerald-700 font-bold flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full bg-prizm-primary animate-pulse"></span>
-                                  Affected Targets ({issue.affected ? issue.affected.length : issue.occurrences.length}):
+                                  Affected Targets ({isCorrectiveHvacIssue(issue)
+                                    ? getCorrectiveExpandedTargetLabels(issue).length
+                                    : (issue.affected ? issue.affected.length : issue.occurrences.length)}):
                                 </div>
                                 {issue.affected && issue.affected.length > 0 ? (
-                                  <div className="border border-prizm-border/40 rounded overflow-hidden max-h-[180px] overflow-y-auto no-scrollbar bg-white border border-slate-200 text-slate-900 divide-y divide-prizm-border/10">
-                                    {(() => {
+                                  <div className="border border-prizm-border/40 rounded overflow-x-auto bg-white border border-slate-200 text-slate-900 divide-y divide-prizm-border/10">
+                                    {isCorrectiveHvacIssue(issue) ? (
+                                      <div className="min-w-[720px]">
+                                        <div className="sticky top-0 z-[1] grid grid-cols-[88px_56px_105px_105px_1fr_110px] gap-2 bg-slate-100 border-b border-slate-300 px-2.5 py-1.5 text-[8px] font-black uppercase tracking-wider text-slate-600">
+                                          <span>Location</span>
+                                          <span>Fault</span>
+                                          <span>HVAC 1 · Cmd / A</span>
+                                          <span>HVAC 2 · Cmd / A</span>
+                                          <span>Mismatch</span>
+                                          <span>Controller IP</span>
+                                        </div>
+                                        {getCorrectiveHvacTargetRows(issue).map((target) => {
+                                          const feedbackMismatch = target.commanded !== null && target.active !== null
+                                            ? target.commanded !== target.active
+                                            : true;
+                                          const stateLabel = target.commanded === true && target.active === false
+                                            ? "ON → NO RUN"
+                                            : target.commanded === false && target.active === true
+                                              ? "OFF → RUNNING"
+                                              : target.commanded === target.active && target.commanded !== null
+                                                ? "MATCHED"
+                                                : "CHECK";
+                                          return (
+                                            <div
+                                              key={target.key}
+                                              className="grid grid-cols-[88px_56px_105px_105px_1fr_110px] gap-2 items-center px-2.5 py-2 border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                                              title={target.label}
+                                            >
+                                              <span className="font-black text-slate-900 whitespace-nowrap">
+                                                Array {target.arrayNumber ?? "?"} · {target.segmentNumber === 0 ? "CS" : `ES${target.segmentNumber ?? "?"}`}
+                                              </span>
+                                              <span className="font-black text-slate-900">H{target.hvacUnit ?? "?"}</span>
+                                              <span className={`inline-flex w-fit items-center rounded border px-1.5 py-0.5 text-[8px] font-black ${target.hvac1Commanded ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                                                {target.hvac1Commanded === null ? "—" : target.hvac1Commanded ? "ON" : "OFF"} · {target.hvac1CurrentA === null ? "—" : `${target.hvac1CurrentA.toFixed(1)} A`}
+                                              </span>
+                                              <span className={`inline-flex w-fit items-center rounded border px-1.5 py-0.5 text-[8px] font-black ${target.hvac2Commanded ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                                                {target.hvac2Commanded === null ? "—" : target.hvac2Commanded ? "ON" : "OFF"} · {target.hvac2CurrentA === null ? "—" : `${target.hvac2CurrentA.toFixed(1)} A`}
+                                              </span>
+                                              <span className={`inline-flex w-fit items-center rounded border px-1.5 py-0.5 text-[8px] font-black ${target.crossUnitMismatch || feedbackMismatch ? "border-amber-300 bg-amber-50 text-amber-800" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}>
+                                                {target.crossUnitMismatch || stateLabel}
+                                              </span>
+                                              <span className="font-bold text-slate-700 whitespace-nowrap">{target.deviceIp || "Not reported"}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (() => {
                                       const hvacTargetLabels = isCorrectiveHvacIssue(issue)
                                         ? getCorrectiveExpandedTargetLabels(issue)
                                         : [];
@@ -3319,18 +4032,22 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                         ? condensedTargets
                                         : condensedTargets.slice(0, displayLimit);
 
-                                      const listElems = toShow.map((aff: any, affIdx: number) => (
+                                      const listElems = toShow.map((aff: any, affIdx: number) => {
+                                        const label = aff.condensedLabel || aff.targetLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView);
+                                        const targetKey = `${issueKey}-target-${label}`;
+                                        const targetOpen = expandedCorrectiveTarget === targetKey;
+                                        return <React.Fragment key={targetKey}>
                                         <div
-                                          key={affIdx}
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleActionClick(aff);
+                                            setExpandedCorrectiveTarget(targetOpen ? null : targetKey);
                                           }}
                                           className="py-1.5 px-2.5 hover:bg-prizm-primary/10 cursor-pointer transition-colors flex justify-between items-center gap-3"
-                                          title={`${aff.condensedLabel || aff.targetLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)} (${aff.condensedCount || 1} target${(aff.condensedCount || 1) === 1 ? "" : "s"})`}
+                                          title={`${label} (${aff.condensedCount || 1} target${(aff.condensedCount || 1) === 1 ? "" : "s"}) — expand details here`}
                                         >
                                           <span className="text-prizm-text font-bold truncate">
-                                            {aff.condensedLabel || aff.targetLabel || formatAffectedTargetForDisplay(aff, issue.resolved?.system, kb?.detailView)}
+                                            {targetOpen ? <ChevronDown size={11} className="inline mr-1" /> : <ChevronRight size={11} className="inline mr-1" />}
+                                            {label}
                                           </span>
                                           <span className="flex items-center gap-1 shrink-0">
                                             {(aff.condensedCount || 1) > 1 ? (
@@ -3343,7 +4060,20 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                             </span>
                                           </span>
                                         </div>
-                                      ));
+                                        {targetOpen ? (
+                                          <div className="px-3 py-2 bg-slate-100 border-t border-slate-200 whitespace-normal text-[9px] leading-relaxed">
+                                            <div className="font-black text-slate-900 mb-1">Device fault detail</div>
+                                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-700">
+                                              <span>Location</span><span className="font-bold">{label}</span>
+                                              <span>Severity</span><span className="font-bold">{String(issue.level || issue.severity || "Warning")}</span>
+                                              <span>Fault</span><span className="font-bold">{getCorrectiveIssueTitleForTile(issue)}</span>
+                                              <span>Source</span><span className="font-bold">{aff.source || issue.source || "FEATHER / EMS"}</span>
+                                              {issue?.evidence?.detectedCondition ? <><span>Detected condition</span><span className="font-bold">{String(issue.evidence.detectedCondition)}</span></> : null}
+                                            </div>
+                                          </div>
+                                        ) : null}
+                                        </React.Fragment>;
+                                      });
 
                                       if (condensedTargets.length > displayLimit) {
                                         listElems.push(
@@ -3361,7 +4091,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                     })()}
                                   </div>
                                 ) : (
-                                  <div className="grid grid-cols-2 gap-1.5 max-h-[140px] overflow-y-auto no-scrollbar">
+                                  <div className="grid grid-cols-2 gap-1.5">
                                     {(() => {
                                       const occCount = (issue.occurrences || []).length;
                                       const displayLimit = 15;
@@ -3404,8 +4134,21 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   {/* Recommended Actions */}
                                   <div>
-                                    <div className="text-[9.5px] uppercase font-bold text-emerald-400 tracking-wider mb-1.5">
-                                      • Recommended Actions
+                                    <div className="text-[9.5px] uppercase font-bold text-emerald-400 tracking-wider mb-1.5 flex items-center justify-between gap-2">
+                                      <span>• Recommended Actions</span>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          const matrixId = issue?.resolved?.matrixEntryId || kb?.id;
+                                          if (matrixId) localStorage.setItem("prizm_troubleshooting_selected_entry", String(matrixId));
+                                          localStorage.setItem("prizm_troubleshooting_open_matrix", "true");
+                                          navigate("troubleshooting-library");
+                                        }}
+                                        className="rounded border border-prizm-primary/40 bg-prizm-primary/10 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-emerald-700 hover:bg-prizm-primary/20"
+                                      >
+                                        Edit Guidance
+                                      </button>
                                     </div>
                                     <ul className="list-none space-y-1 pl-1">
                                       {(kb?.recommendedActions || issue.resolved?.recommendedActions || ["Perform local site audit."]).map((act: string, aIdx: number) => (
@@ -3467,6 +4210,11 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         </div>
       </div>
     </div>
+
+      <HvacQuickReference
+        devices={runtimeFeatherDevicesRef.current}
+        fallbackUseRpm={hvacUseFanRpmForFaults}
+      />
 
       {/* EMS Apps */}
       <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col mt-4">
@@ -3550,29 +4298,29 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                     </td>
                     {isAdvancedMode && (
                       <td className="py-1 px-2 text-center w-[100px]">
-                        <button
-                          onClick={() => {
-                            setEmsAppCandidate(app);
-                            setEmsAppTargetState(!app.enabled);
-                            setEmsAppConfText("");
-                            setEmsAppResult(null);
-                          }}
-                          className={`px-2 py-1 flex items-center justify-center gap-1 rounded font-bold uppercase transition-colors w-full border ${
-                            app.enabled
-                              ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-                              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-                          }`}
-                        >
-                          {app.enabled ? (
-                            <>
-                              <Pause size={10} /> Disable
-                            </>
-                          ) : (
-                            <>
-                              <Play size={10} /> Enable
-                            </>
-                          )}
-                        </button>
+                        {app.supportedLocally && app.interaction === "enableDisable" ? (
+                          <button
+                            onClick={() => {
+                              void executeEmsAppAction(app, !app.enabled);
+                            }}
+                            className={`px-2 py-1 flex items-center justify-center gap-1 rounded font-bold uppercase transition-colors w-full border ${
+                              app.enabled
+                                ? "bg-red-500/10 border-red-500/30 text-red-600 hover:bg-red-500/20"
+                                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20"
+                            }`}
+                          >
+                            {app.enabled ? <><Pause size={10} /> Disable</> : <><Play size={10} /> Enable</>}
+                          </button>
+                        ) : app.supportedLocally && app.interaction === "powerControl" ? (
+                          <div className="flex gap-1">
+                            <button onClick={() => void executeEmsAppAction(app, !app.enabled)} className={`flex-1 rounded border px-2 py-1 font-bold uppercase ${app.enabled ? "border-red-500/30 bg-red-500/10 text-red-600" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"}`}>{app.enabled ? "Disable" : "Enable"}</button>
+                            <button onClick={() => openPowerControl(app)} className="flex-1 rounded border border-blue-500/30 bg-blue-500/10 px-2 py-1 font-bold uppercase text-blue-700 hover:bg-blue-500/20">Set Power</button>
+                          </div>
+                        ) : (
+                          <span className="block px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-500 font-bold uppercase" title={app.reason || "No verified local control mapping"}>
+                            Read only
+                          </span>
+                        )}
                       </td>
                     )}
                     <td className="py-1 px-2 text-prizm-text-muted text-xs">
@@ -3589,7 +4337,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                     <td className="py-1 px-2 text-prizm-text whitespace-pre-wrap leading-tight">
                       {(app.hasShortAppStatus && app.shortAppStatus
                         ? app.shortAppStatus
-                        : app.appStatus || "--"
+                        : app.appStatus || app.reason || "--"
                       ).replace(/<br\s*\/?>/gi, "\n")}
                     </td>
                   </tr>
@@ -3603,6 +4351,176 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
           </div>
         )}
       </div>
+
+      <CollapsibleSection
+        title={`Block Topology (${filteredTopologyEntities.length}/${topologyEntities.length})`}
+        icon={Network}
+        defaultExpanded={false}
+        onExpandedChange={(expanded) => { if (expanded) setTopologyRequested(true); }}
+      >
+        <div className="border-b border-prizm-border bg-prizm-surface p-3">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="mr-auto flex flex-wrap gap-1.5">
+              {topologyFamilySummary.map(({ type, total, attention }) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setTopologyTypeFilter(type); setTopologyView("table"); setTopologyRowLimit(150); }}
+                  className={`rounded border px-2 py-1.5 text-[8px] font-bold uppercase transition-colors ${topologyTypeFilter === type ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-prizm-border bg-white text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {type} <span className="font-mono">{total}</span>{attention > 0 && <span className="ml-1 text-red-600">· {attention}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded border border-prizm-border bg-white p-0.5">
+              <button type="button" onClick={() => setTopologyView("table")} className={`rounded px-3 py-1 text-[8px] font-bold uppercase ${topologyView === "table" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Tabular</button>
+              <button type="button" onClick={() => setTopologyView("oneline")} className={`rounded px-3 py-1 text-[8px] font-bold uppercase ${topologyView === "oneline" ? "bg-slate-900 text-white" : "text-slate-600"}`}>One-line</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(220px,1fr)_190px_170px_180px_auto]">
+            <input
+              value={topologySearch}
+              onChange={(event) => { setTopologySearch(event.target.value); setTopologyRowLimit(150); }}
+              placeholder="Search device, entity key, type, subtype, or status…"
+              className="rounded border border-prizm-border bg-white px-3 py-2 text-[10px] text-slate-900 outline-none focus:border-prizm-primary"
+            />
+            <select value={topologyTypeFilter} onChange={(event) => { setTopologyTypeFilter(event.target.value); setTopologyRowLimit(150); }} className="rounded border border-prizm-border bg-white px-3 py-2 text-[10px] text-slate-900">
+              <option value="all">All device types</option>
+              {topologyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <select value={topologyHealthFilter} onChange={(event) => { setTopologyHealthFilter(event.target.value); setTopologyRowLimit(150); }} className="rounded border border-prizm-border bg-white px-3 py-2 text-[10px] text-slate-900">
+              <option value="all">All health states</option>
+              <option value="healthy">Healthy</option>
+              <option value="attention">Needs attention</option>
+            </select>
+            <label className="flex items-center gap-2 rounded border border-prizm-border bg-white px-2 py-2 text-[9px] font-bold uppercase text-prizm-text-muted">
+              <select value={topologySegmentSizingMode} onChange={(event) => setTopologySegmentSizingMode(event.target.value as "auto" | "manual")} className="min-w-0 border-0 bg-transparent text-[9px] font-bold uppercase text-slate-600 outline-none">
+                <option value="auto">Auto verified</option>
+                <option value="manual">Manual override</option>
+              </select>
+              <input aria-label="Energy segments per lineup" type="number" min="1" max="99" disabled={topologySegmentSizingMode === "auto"} value={topologyEnergySegmentsPerLineup} onChange={(event) => setTopologyEnergySegmentsPerLineup(Math.max(1, Math.floor(Number(event.target.value) || 1)))} className="w-10 border-0 bg-transparent text-right text-[11px] font-mono text-slate-900 outline-none disabled:text-emerald-700" />
+            </label>
+            <button type="button" onClick={() => { setTopologySearch(""); setTopologyTypeFilter("all"); setTopologyHealthFilter("all"); setTopologyRowLimit(150); }} className="rounded border border-prizm-border bg-white px-3 py-2 text-[10px] font-bold uppercase text-prizm-text-muted hover:bg-slate-50">Clear filters</button>
+          </div>
+          <p className="mt-2 text-[9px] text-prizm-text-muted">Read-only topology from the current Site Operations snapshot. {topologySegmentSizingMode === "auto" ? (inferredTopologyEnergySegments ? `Segment sizing verified from Collection Segment anchors: ${inferredTopologyEnergySegments} ES per lineup.` : "Waiting for enough Collection Segment anchors to verify segment sizing.") : `Manual segment sizing override active${inferredTopologyEnergySegments ? `; topology currently indicates ${inferredTopologyEnergySegments} ES per lineup` : ""}.`} Fault reset remains protected under Safety / Advanced.</p>
+        </div>
+        {topologyView === "oneline" ? (
+          <div className="grid grid-cols-1 gap-3 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            {arraySummaryData.map((array: any, index: number) => {
+              const arrayNumber = finiteNumber(array?.arrayNumber, array?.arrayIndex, array?.array, index + 1) ?? index + 1;
+              const online = finiteNumber(array?.onlineStringCount, array?.onlineStrings, array?.onlineCount, array?.buckets?.online);
+              const nearline = finiteNumber(array?.nearlineStringCount, array?.nearlineStrings, array?.nearlineCount, array?.buckets?.nearline);
+              const offline = finiteNumber(array?.offlineStringCount, array?.offlineStrings, array?.offlineCount, array?.buckets?.offline);
+              const soc = finiteNumber(
+                array?.socPct,
+                array?.soc,
+                array?.averageSocPct,
+                array?.avgSocPct,
+                online && online > 0 ? array?.onlineSOC : null,
+                nearline && nearline > 0 ? array?.nearlineSOC : null,
+                array?.onlineSOC,
+                array?.nearlineSOC,
+                array?.offlineSOC
+              );
+              const arrayPcs = pcsData.find((pcs: any) => Number(pcs?.arrayNumber ?? pcs?.arrayIndex) === Number(arrayNumber));
+              const ready = array?.communicating !== false && arrayPcs?.communicating !== false && arrayPcs?.isReady !== false;
+              return (
+                <button key={`array-oneline-${arrayNumber}`} type="button" onClick={() => setSelectedTopologyArray(Number(arrayNumber))} className={`rounded-lg border bg-white p-3 text-left shadow-sm transition hover:border-emerald-400 hover:shadow-md ${selectedTopologyArray === Number(arrayNumber) ? "border-emerald-500 ring-2 ring-emerald-100" : "border-prizm-border"}`}>
+                  <div className="flex items-center justify-between border-b border-prizm-border pb-2">
+                    <strong className="text-[11px] uppercase tracking-wider text-slate-900">Array {arrayNumber}</strong>
+                    <span className={`rounded px-2 py-0.5 text-[8px] font-bold uppercase ${ready ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{ready ? "Ready" : "Attention"}</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 font-mono">
+                    <div><span className="block text-[8px] uppercase text-slate-400">State of charge</span><strong className="text-[16px] text-slate-900">{soc === null ? "--" : `${soc.toFixed(1)}%`}</strong></div>
+                    <div><span className="block text-[8px] uppercase text-slate-400">PCS</span><strong className="text-[11px] text-slate-700">{arrayPcs?.state || array?.pcsState || array?.state || (ready ? "Ready" : "Check")}</strong></div>
+                  </div>
+                  <div className="mt-3 flex gap-3 border-t border-prizm-border pt-2 text-[8px] font-bold uppercase">
+                    <span className="text-emerald-700">Online {online ?? "--"}</span><span className="text-amber-600">Near {nearline ?? "--"}</span><span className="text-red-600">Off {offline ?? "--"}</span>
+                  </div>
+                </button>
+              );
+            })}
+            {arraySummaryData.length === 0 && <div className="col-span-full rounded border border-dashed border-prizm-border bg-white p-8 text-center text-[10px] uppercase text-prizm-text-muted">No array summary is available in the current snapshot.</div>}
+            {selectedArraySummary && selectedTopologyArray !== null && (
+              <div className="col-span-full overflow-hidden rounded-lg border border-emerald-300 bg-white shadow-md">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-prizm-border bg-emerald-50 px-4 py-3">
+                  <div>
+                    <strong className="block text-[12px] uppercase tracking-wider text-emerald-900">Array {selectedTopologyArray} System Details</strong>
+                    <span className="text-[8px] uppercase text-emerald-700">Select another array above to compare without leaving this view</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setTopologyView("table"); setTopologySearch(`Array ${selectedTopologyArray}`); setTopologyRowLimit(150); }} className="rounded border border-emerald-300 bg-white px-3 py-1.5 text-[8px] font-bold uppercase text-emerald-800 hover:bg-emerald-100">View devices</button>
+                    <button type="button" onClick={() => setActiveTab?.("arrays-strings")} className="rounded bg-emerald-700 px-3 py-1.5 text-[8px] font-bold uppercase text-white hover:bg-emerald-800">Open strings</button>
+                    <button type="button" aria-label="Close array details" onClick={() => setSelectedTopologyArray(null)} className="rounded border border-prizm-border bg-white px-2 py-1.5 text-[10px] text-slate-500 hover:bg-slate-50">×</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-px bg-prizm-border md:grid-cols-4 xl:grid-cols-8">
+                  {[
+                    ["PCS State", selectedArrayPcs?.state || "--"],
+                    ["PCS Ready", selectedArrayPcs?.isReady === true ? "Yes" : selectedArrayPcs?.isReady === false ? "No" : "--"],
+                    ["Online SOC", finiteNumber(selectedArraySummary?.onlineSOC) === null ? "--" : `${finiteNumber(selectedArraySummary?.onlineSOC)?.toFixed(1)}%`],
+                    ["Online Strings", String(selectedArraySummary?.onlineStringCount ?? "--")],
+                    ["Nearline Strings", String(selectedArraySummary?.nearlineStringCount ?? "--")],
+                    ["Offline Strings", String(selectedArraySummary?.offlineStringCount ?? "--")],
+                    ["Real Power", formatPower(finiteNumber(selectedArrayPcs?.acRealPowerKW, selectedArraySummary?.measuredkW))],
+                    ["Commanded", formatPower(finiteNumber(selectedArrayPcs?.acCmdRealPowerKW, selectedArraySummary?.commandedkW))],
+                    ["DC Voltage", finiteNumber(selectedArrayPcs?.dcVoltageVolt) === null ? "--" : `${finiteNumber(selectedArrayPcs?.dcVoltageVolt)?.toLocaleString()} V`],
+                    ["DC Current", finiteNumber(selectedArrayPcs?.dcCurrentAmp) === null ? "--" : `${finiteNumber(selectedArrayPcs?.dcCurrentAmp)?.toLocaleString()} A`],
+                    ["AC Voltage", finiteNumber(selectedArrayPcs?.acVoltageAB) === null ? "--" : `${finiteNumber(selectedArrayPcs?.acVoltageAB)?.toLocaleString()} V`],
+                    ["Frequency", finiteNumber(selectedArrayPcs?.frequencyHz, selectedArrayPcs?.acFrequencyHz) === null ? "--" : `${finiteNumber(selectedArrayPcs?.frequencyHz, selectedArrayPcs?.acFrequencyHz)?.toFixed(2)} Hz`],
+                    ["In Rotation", String(selectedArraySummary?.inRotationCount ?? "--")],
+                    ["Out Rotation", String(selectedArraySummary?.outOfRotationCount ?? "--")],
+                    ["Stored DC", formatEnergy(selectedArrayStoredKWh)],
+                    ["Source", selectedArraySummary?.sourcePath || "normalized array"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0 bg-white px-3 py-3">
+                      <span className="block text-[8px] font-bold uppercase text-slate-400">{label}</span>
+                      <strong className="mt-1 block truncate font-mono text-[11px] text-slate-800" title={value}>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+        <>
+        <div className="max-h-[520px] overflow-auto">
+          <table className="w-full min-w-[900px] text-left text-[10px] font-mono">
+            <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 uppercase tracking-wider shadow-sm">
+              <tr>
+                <th className="px-3 py-2">Device</th>
+                <th className="px-3 py-2 text-center">Health</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">SubType</th>
+                <th className="px-3 py-2">Converted Location</th>
+                <th className="px-3 py-2">Status Message</th>
+                <th className="px-3 py-2 text-center">Fault Reset</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-prizm-border">
+              {filteredTopologyEntities.slice(0, topologyRowLimit).map((entity: any, index: number) => {
+                const healthy = entity?.enabled !== false && entity?.ready !== false && entity?.communicating !== false;
+                const convertedLocation = getTopologyConvertedLocation(entity, topologyEnergySegmentsPerLineup);
+                const statusMessage = entity?.statusMessageText || entity?.statusMessage || (healthy ? "Operational / reporting normally" : [entity?.enabled === false ? "Disabled" : null, entity?.ready === false ? "Not ready" : null, entity?.communicating === false ? "Not communicating" : null].filter(Boolean).join(" · "));
+                return (
+                  <tr key={`${entity?.entityKey || entity?.displayKey || "topology"}-${index}`} className="bg-white hover:bg-slate-50">
+                    <td className="px-3 py-2"><strong className="block text-slate-900">{entity?.displayKey || entity?.entityKey || "Unnamed device"}</strong><span className="block max-w-[300px] truncate text-[8px] text-slate-400" title={entity?.entityKey}>{entity?.entityKey || "--"}</span></td>
+                    <td className="px-3 py-2 text-center"><span className={`inline-flex rounded px-2 py-0.5 text-[8px] font-bold uppercase ${healthy ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{healthy ? "Healthy" : "Attention"}</span></td>
+                    <td className="px-3 py-2 font-bold text-slate-700">{entity?.entityType || "Unknown"}</td>
+                    <td className="px-3 py-2 text-slate-600">{entity?.entitySubType || "--"}</td>
+                    <td className="px-3 py-2"><strong className="block text-slate-800">{convertedLocation?.label || "Not segment-addressed"}</strong>{convertedLocation && <span className="block text-[8px] text-slate-400">{convertedLocation.detail}</span>}</td>
+                    <td className="px-3 py-2 text-slate-700">{statusMessage || "--"}</td>
+                    <td className="px-3 py-2 text-center">{entity?.allowFaultReset === true ? <button type="button" onClick={() => navigate("safety-fault")} className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[8px] font-bold uppercase text-red-700 hover:bg-red-100">Eligible · Open Safety</button> : <span className="text-slate-400">No</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {filteredTopologyEntities.length > topologyRowLimit && <div className="flex justify-center border-t border-prizm-border bg-prizm-surface p-3"><button type="button" onClick={() => setTopologyRowLimit((current) => current + 250)} className="rounded border border-prizm-border bg-white px-4 py-2 text-[9px] font-bold uppercase text-prizm-text hover:bg-slate-50">Load 250 more ({filteredTopologyEntities.length - topologyRowLimit} remaining)</button></div>}
+        </>
+        )}
+      </CollapsibleSection>
 
       {/* Safety & Source Health */}
       <CollapsibleSection
@@ -3653,10 +4571,12 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                       </td>
                       <td className="py-1 px-2 text-center">
                         <button
-                          onClick={() => setClearCandidate(f)}
-                          className="px-2 py-1 bg-prizm-danger/10 text-prizm-danger rounded hover:bg-prizm-danger hover:text-white transition-colors"
+                          onClick={() => executeOneClickClear(f)}
+                          disabled={clearLoading || f.allowFaultReset !== true || !f.entityKeyToken}
+                          title="Immediately send a manual fault reset for this EMS-eligible device"
+                          className="px-2 py-1 bg-prizm-danger/10 text-prizm-danger rounded hover:bg-prizm-danger hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          Clear
+                          {clearLoading && clearCandidate?.entityKeyToken === f.entityKeyToken ? "Resetting…" : "Reset Fault"}
                         </button>
                       </td>
                     </tr>
@@ -3667,8 +4587,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
           </div>
         ) : (
           <div className="p-4 text-[10px] font-mono uppercase text-prizm-text-muted border-b border-prizm-border">
-            {clearableFaults.length === 0
-              ? "Safety Faults API Unavailable"
+            {sum?.safetySummary?.sourceOk === false
+              ? "Safety fault data is unavailable."
               : "No clearable safety faults detected."}
           </div>
         )}
@@ -3932,7 +4852,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                 </p>
               </div>
 
-              {!clearResult && (
+              {!clearResult && !clearLoading && (
                 <div>
                   <label className="block text-xs font-bold text-prizm-text mb-2 uppercase tracking-widest font-mono">
                     Type confirmation text:{" "}
@@ -3947,6 +4867,13 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                     onChange={(e) => setClearConfRef(e.target.value)}
                     className="w-full bg-white border border-slate-200 text-slate-900 border border-prizm-border rounded p-2 text-slate-900 font-mono focus:border-prizm-primary outline-none focus:ring-1 focus:ring-prizm-primary"
                   />
+                </div>
+              )}
+
+              {clearLoading && (
+                <div className="flex items-center gap-3 rounded border border-prizm-warning/30 bg-prizm-warning/10 p-4 text-xs font-bold text-prizm-warning">
+                  <Activity size={16} className="animate-spin" />
+                  Sending reset command and waiting for EMS response…
                 </div>
               )}
 
@@ -4003,7 +4930,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
               >
                 {clearResult ? "Close" : "Cancel"}
               </button>
-              {!clearResult && (
+              {!clearResult && !clearLoading && (
                 <button
                   onClick={executeClear}
                   disabled={
@@ -4024,6 +4951,30 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       )}
 
       {/* EMS App Control Modal */}
+      {powerControlCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-prizm-border bg-white text-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-prizm-border bg-prizm-surface p-4">
+              <div><h3 className="font-mono text-sm font-bold uppercase tracking-widest">Power Control</h3><p className="mt-1 text-[10px] text-slate-500">PC00001 · Priority {powerControlCandidate.priority}</p></div>
+              <button onClick={() => setPowerControlCandidate(null)} disabled={powerControlLoading} className="text-xl text-slate-500">×</button>
+            </div>
+            <div className="space-y-4 p-6 font-mono text-xs">
+              <div className="rounded border border-blue-200 bg-blue-50 p-3 text-blue-900">Positive kW commands discharge; negative kW commands charge. Applying setpoints does not change the app’s enabled state.</div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1"><span className="font-bold uppercase text-slate-600">Real Power (kW)</span><input type="number" value={powerControlKw} onChange={e => setPowerControlKw(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-slate-900" /></label>
+                <label className="space-y-1"><span className="font-bold uppercase text-slate-600">Reactive Power (kVAr)</span><input type="number" value={powerControlKvar} onChange={e => setPowerControlKvar(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-slate-900" /></label>
+              </div>
+              <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 p-3"><span>Application state</span><span className={`font-bold uppercase ${powerControlCandidate.enabled ? "text-emerald-700" : "text-red-600"}`}>{powerControlCandidate.enabled ? "Enabled" : "Disabled"}</span></div>
+              {powerControlResult && <div className={`rounded border p-3 ${powerControlResult.success ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-700"}`}>{powerControlResult.message || powerControlResult.error}</div>}
+            </div>
+            <div className="flex gap-2 border-t border-prizm-border bg-prizm-surface p-4">
+              <button onClick={() => setPowerControlCandidate(null)} disabled={powerControlLoading} className="flex-1 rounded border border-slate-300 bg-white px-4 py-2 font-mono text-[10px] font-bold uppercase">Cancel</button>
+              <button onClick={() => void executePowerControl()} disabled={powerControlLoading || !Number.isFinite(powerControlKw) || !Number.isFinite(powerControlKvar)} className="flex-1 rounded bg-blue-600 px-4 py-2 font-mono text-[10px] font-bold uppercase text-white disabled:opacity-50">{powerControlLoading ? "Verifying…" : "Apply Setpoints"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {emsAppCandidate && (
         <div className="fixed inset-0 bg-white border border-slate-200 text-slate-900 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 text-slate-900 border border-prizm-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
@@ -4033,7 +4984,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                 size={18}
               />
               <h3 className="font-bold text-prizm-text font-mono uppercase tracking-widest text-sm">
-                Review EMS App Control
+                EMS App Control
               </h3>
             </div>
             <div className="p-6 space-y-4 font-mono text-xs">
@@ -4044,12 +4995,12 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                     : "bg-amber-500/10 border-amber-500/30 text-amber-500"
                 }`}
               >
-                You are about to{" "}
+                PRIZM is requesting{" "}
                 <span className="font-bold uppercase">
                   {emsAppTargetState ? "ENABLE" : "DISABLE"}
                 </span>{" "}
-                a Dragon Application. This can immediately change the
-                operational behavior of the system.
+                this EMS application and verifying the result against fresh
+                EMS telemetry.
               </div>
 
               <table className="w-full text-left">
@@ -4111,25 +5062,12 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                 </tbody>
               </table>
 
-              <div className="pt-2">
-                <label className="text-[10px] text-prizm-text-muted uppercase mb-1 block">
-                  Type exactly '
-                  <span className="text-prizm-text">
-                    {emsAppTargetState ? "ENABLE" : "DISABLE"}{" "}
-                    {emsAppCandidate.appCode}
-                  </span>
-                  '
-                </label>
-                <input
-                  type="text"
-                  value={emsAppConfText}
-                  onChange={(e) => setEmsAppConfText(e.target.value)}
-                  placeholder={`${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`}
-                  disabled={emsAppLoading}
-                  autoComplete="off"
-                  className="w-full bg-white border border-slate-200 text-slate-900 border border-prizm-border p-2 focus:outline-none focus:border-prizm-primary text-slate-900 tracking-widest uppercase disabled:opacity-50"
-                />
-              </div>
+              {emsAppLoading && (
+                <div className="flex items-center justify-center gap-2 rounded border border-blue-300 bg-blue-50 p-3 text-[10px] font-bold uppercase tracking-wider text-blue-700">
+                  <Activity size={14} className="animate-spin" />
+                  Command sent — waiting for EMS readback
+                </div>
+              )}
 
               {emsAppResult && (
                 <div
@@ -4159,25 +5097,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                 disabled={emsAppLoading}
                 className="flex-1 py-3 text-xs font-bold text-prizm-text-muted hover:text-white transition-colors uppercase tracking-widest disabled:opacity-50"
               >
-                {emsAppResult ? "Close" : "Cancel"}
+                {emsAppLoading ? "Verifying..." : "Close"}
               </button>
-              {!emsAppResult && (
-                <button
-                  onClick={executeEmsAppAction}
-                  disabled={
-                    emsAppLoading ||
-                    emsAppConfText !==
-                      `${emsAppTargetState ? "ENABLE" : "DISABLE"} ${emsAppCandidate.appCode}`
-                  }
-                  className={`flex-1 py-3 text-xs font-bold transition-colors uppercase tracking-widest flex items-center justify-center gap-2 ${
-                    emsAppTargetState
-                      ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 disabled:bg-prizm-surface disabled:text-prizm-text-muted"
-                      : "bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:bg-prizm-surface disabled:text-prizm-text-muted"
-                  }`}
-                >
-                  {emsAppLoading ? "Processing..." : "Confirm Action"}
-                </button>
-              )}
             </div>
           </div>
         </div>

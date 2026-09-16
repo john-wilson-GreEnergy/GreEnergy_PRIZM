@@ -1,0 +1,11 @@
+import React,{useEffect,useMemo,useState} from "react";
+import type {ThermalPoint} from "../server/thermal/thermalModel";
+import {thermalMetrics,type ThermalMetric,type ThermalDisplayValues} from "../server/thermal/thermalMetrics";
+export type HistoryReviewPoint={id:string;point:ThermalPoint;displayValues:ThermalDisplayValues;excluded?:boolean};
+export default function ThermalHistoryTable({points,metric,label}:{points:HistoryReviewPoint[];metric:ThermalMetric;label:(id:string)=>string}){
+  const [page,setPage]=useState(0);const shown=useMemo(()=>points.filter(p=>!p.excluded).slice().sort((a,b)=>b.point.at-a.point.at||a.id.localeCompare(b.id)),[points]);useEffect(()=>setPage(0),[points]);
+  return <details className="mt-4 rounded border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-semibold">Recorded readings · {shown.length} shown samples</summary><p className="my-2 text-xs text-slate-500">Matches the graph/export selection and applied filters. Retained site history uses a bounded summary; this is not the complete raw archive.</p>
+    <div className="max-h-72 overflow-auto"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{["Recorded time","Device",thermalMetrics[metric].label,"Mode","Quality","Recorded faults"].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead><tbody>{shown.slice(page*100,page*100+100).map((s,i)=><tr className="border-t" key={`${s.id}-${s.point.at}-${i}`}><td className="p-2">{new Date(s.point.at).toLocaleString()}</td><td className="p-2">{label(s.id)}</td><td className="p-2">{s.point.quality!=="Live"?s.point.quality:s.displayValues[metric]===null?"Not reported":`${s.displayValues[metric].toFixed(metric==="cellRate"?2:1)} ${thermalMetrics[metric].unit}`}</td><td className="p-2">{s.point.mode}</td><td className="p-2">{s.point.quality}</td><td className="p-2">{s.point.faults?.join("; ")||(s.point.faults?"None reported":"Not recorded")}</td></tr>)}</tbody></table></div>
+    <div className="mt-2 flex items-center gap-3 text-xs"><button disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button><span>{shown.length?`${page*100+1}–${Math.min(shown.length,page*100+100)} of ${shown.length}`:"No recorded observations match"}</span><button disabled={(page+1)*100>=shown.length} onClick={()=>setPage(p=>p+1)}>Next</button></div>
+  </details>;
+}

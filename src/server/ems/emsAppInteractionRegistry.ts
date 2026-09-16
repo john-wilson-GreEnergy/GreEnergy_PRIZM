@@ -20,6 +20,14 @@ export const DRAGON_APP_CODE_NAME_MAP: Record<string, string> = {
 };
 
 export const EMS_APP_INTERACTION_REGISTRY: Record<string, any> = {
+  BP00001: {
+    interaction: "enableDisable",
+    supportedLocally: true,
+    safetyLevel: "critical",
+    confirmationEnable: "ENABLE BP00001",
+    confirmationDisable: "DISABLE BP00001",
+    externalEquivalent: "enable/{appCode}/{priority}/{on|off}"
+  },
   CAL001: {
     interaction: "enableDisable",
     supportedLocally: true,
@@ -62,10 +70,10 @@ export const EMS_APP_INTERACTION_REGISTRY: Record<string, any> = {
   },
   PC00001: {
     interaction: "powerControl",
-    supportedLocally: false,
+    supportedLocally: true,
     safetyLevel: "critical",
     fields: ["enabled", "kW", "kVAr"],
-    reason: "External endpoint mapped; local SetEMSApplicationConfiguration serialization not implemented yet",
+    reason: "Verified against StackOS SetEMSApplicationConfiguration command logging",
     externalEquivalent: "power?priority={priority}&enabled={on|off}&kW={kW}&kVAr={kVAr}"
   },
   BOP0001: {

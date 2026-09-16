@@ -1,0 +1,34 @@
+import React,{useEffect,useRef,useState} from "react";
+import {createPortal} from "react-dom";
+import {X} from "lucide-react";
+import type {SiteStorageStatus} from "../server/thermal/siteHistory";
+const api="/api/local/site-data/thermal/storage";
+const size=(bytes:number|null)=>bytes===null?"Unavailable":`${(bytes/1024**3).toFixed(2)} GiB`;
+const date=(at:number|null)=>at===null?"Not yet":new Date(at).toLocaleString();
+async function request(options?:RequestInit):Promise<SiteStorageStatus>{const response=await fetch(api,options);const body=await response.json();if(!response.ok)throw new Error(body.error||"Storage request failed");return body;}
+export default function ThermalStorageModal({onClose,onChanged}:{onClose:()=>void;onChanged:()=>void}){
+  const [status,setStatus]=useState<SiteStorageStatus|null>(null),[days,setDays]=useState(7),[cap,setCap]=useState("32"),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+  const dialog=useRef<HTMLDivElement>(null);
+  useEffect(()=>{const controller=new AbortController();const previous=document.activeElement as HTMLElement|null;
+    dialog.current?.focus();request({signal:controller.signal}).then(s=>{if(!controller.signal.aborted){setStatus(s);setDays(s.retentionDays);setCap(String(s.maxBytes/1024**3));}}).catch(e=>{if(!controller.signal.aborted)setError(String(e));});
+    return()=>{controller.abort();previous?.focus();};
+  },[]);
+  const save=async(enabled:boolean,keepSettings=false)=>{setBusy(true);setError("");try{const s=await request({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled,retentionDays:keepSettings&&status?status.retentionDays:days,maxGiB:keepSettings&&status?status.maxBytes/1024**3:Number(cap)})});setStatus(s);onChanged();}catch(e){setError(String(e));}finally{setBusy(false);}};
+  return createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4"><div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="thermal-storage-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 text-slate-800 shadow-2xl" onKeyDown={event=>{
+    if(event.key==="Escape"&&!busy)onClose();
+    if(event.key==="Tab"){const elements=dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled)');if(!elements?.length)return;const first=elements[0],last=elements[elements.length-1];if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
+  }}>
+    <div className="flex items-center justify-between"><h2 id="thermal-storage-title" className="text-lg font-bold">Site history storage</h2><button aria-label="Close storage settings" disabled={busy} onClick={onClose}><X/></button></div>
+    <p className="mt-2 text-sm">Record every mapped HVAC unit using existing telemetry. The newest 1–7 days are retained automatically, independently of graph selection.</p>
+    {error&&<p role="alert" className="mt-3 rounded bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {!status?<p className="mt-4">{error?"Storage settings unavailable.":"Loading storage settings…"}</p>:<>
+      <div className="mt-4 rounded border bg-slate-50 p-3 text-sm"><strong>{status.pausedReason?"Paused":status.enabled?"Recording enabled":"Recording stopped"}</strong><p>{status.siteLabel||status.currentSiteLabel||"Waiting for site identity"} · {status.unitCount} mapped HVAC units</p>{status.pausedReason&&<p className="mt-2 text-red-800">{status.pausedReason}</p>}{status.enabled&&<p className="mt-1">Collects fresh observations while PRIZM is running. Resumes this site after restart.</p>}</div>
+      <div className="mt-4 grid grid-cols-2 gap-4 text-sm"><label>Retention days<select aria-label="Site retention days" className="mt-1 block w-full rounded border p-2" value={days} onChange={e=>setDays(Number(e.target.value))}>{[1,2,3,4,5,6,7].map(d=><option key={d} value={d}>{d} day{d===1?"":"s"}</option>)}</select></label><label>Maximum storage (GiB)<input aria-label="Site storage cap GiB" type="number" min="0.1" max="1024" step="0.1" className="mt-1 block w-full rounded border p-2" value={cap} onChange={e=>setCap(e.target.value)}/></label></div>
+      <p className="mt-3 rounded bg-amber-50 p-3 text-xs text-amber-950">Automatic deletion removes only expired whole-site history. Reducing retention deletes older history at once. Cleanup continues when recording is stopped. Existing targeted recordings are preserved. Recording pauses at the storage cap or the {size(status.reserveBytes)} free-disk reserve.</p>
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">{[["History used",size(status.usedBytes)],["Free disk",size(status.freeBytes)],["Oldest retained hour",date(status.oldestAt)],["Last sample saved",date(status.lastSavedAt)],["Last expiry cleanup",date(status.lastCleanupAt)],["Dropped observations",String(status.droppedSamples)],["Seven-day estimate",size(status.projectedSevenDayBytes)]].map(([label,value])=><div key={label}><dt className="text-slate-500">{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
+      {status.projectedSevenDayBytes!==null&&(status.projectedSevenDayBytes>Number(cap)*1024**3||(status.freeBytes!==null&&status.projectedSevenDayBytes>status.freeBytes-status.reserveBytes))&&<p className="mt-3 text-xs font-semibold text-amber-900">The seven-day estimate exceeds the selected cap or available disk headroom. Recording may pause before seven days; increase capacity if full coverage is required.</p>}
+      <p className="mt-3 text-xs text-slate-500">Estimate assumes 5-second samples at 600 bytes per unit; actual cadence, commands and values affect size. Disk reserve is separate from the cap.</p><p className="mt-2 break-all text-xs text-slate-500">Storage location: {status.directory}</p>
+      <div className="mt-5 flex flex-wrap gap-2"><button className="rounded bg-sky-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={busy||!status.canStart||!Number.isFinite(Number(cap))||Number(cap)<0.1||Number(cap)>1024} onClick={()=>save(true)}>{status.enabled&&!status.pausedReason?"Save recording settings":status.pausedReason?"Resume site recording":"Start site recording"}</button><button className="rounded border px-4 py-2 text-sm disabled:opacity-40" disabled={busy} onClick={()=>save(status.enabled)}>Save retention settings</button><button className="rounded border px-4 py-2 text-sm disabled:opacity-40" disabled={busy||!status.enabled} onClick={()=>save(false,true)}>Stop site recording</button><button className="rounded border px-4 py-2 text-sm" disabled={busy} onClick={async()=>{try{setStatus(await request());setError("");}catch(e){setError(String(e));}}}>Refresh status</button></div>
+    </>}
+  </div></div>,document.body);
+}

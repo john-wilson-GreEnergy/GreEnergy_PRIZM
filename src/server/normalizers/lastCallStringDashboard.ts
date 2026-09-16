@@ -92,8 +92,12 @@ export function buildLastCallStringDashboardData(args: {
   const blockArrays = Array.isArray(args.blockWrapper?.data?.arrays) ? args.blockWrapper.data.arrays : [];
   const strings: any[] = [];
   const perArray: any[] = [];
+  const topology = args.profile?.topologyModel;
+  const arrayStart = Number(topology?.arrayStart || 1);
+  const arrayEnd = Number(topology?.arrayEnd || args.profile?.arrayCount || Math.max(...Object.keys(arrayReport).map(Number).filter(Number.isFinite), 1));
+  const stringsPerArray = Number(args.profile?.stringsPerArray || 40);
 
-  for (let arrayNumber = 1; arrayNumber <= 8; arrayNumber++) {
+  for (let arrayNumber = arrayStart; arrayNumber <= arrayEnd; arrayNumber++) {
     const arrEntry = arrayReport[String(arrayNumber)] ?? arrayReport[arrayNumber];
     const arrayData = arrEntry?.arrayData ?? arrEntry ?? {};
     const stringReport = arrEntry?.stringReport ?? {};
@@ -102,7 +106,7 @@ export function buildLastCallStringDashboardData(args: {
     const hasCommunicationCounts = Number.isFinite(communicatingCount);
 
     const candidateRows: any[] = [];
-    for (let stringNumber = 1; stringNumber <= 40; stringNumber++) {
+    for (let stringNumber = 1; stringNumber <= stringsPerArray; stringNumber++) {
       const reportEntry = getStringReportEntry(stringReport, stringNumber);
       const stringData = reportEntry?.stringData ?? reportEntry ?? {};
       const blockString = blockArrays[arrayNumber - 1]?.strings?.[stringNumber - 1] ?? null;

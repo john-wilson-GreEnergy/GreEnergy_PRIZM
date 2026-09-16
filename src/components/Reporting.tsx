@@ -31,7 +31,6 @@ import {
   FileCheck
 } from "lucide-react";
 import { BessDevice, ReportConfig } from "../types";
-import SiteSensorsMatrix from "./SiteSensorsMatrix";
 
 interface ReportingProps {
   devices: BessDevice[];
@@ -54,8 +53,6 @@ export default function Reporting({
 }: ReportingProps) {
   // Report Catalog Template items
   const [catalog, setCatalog] = useState<any[]>([]);
-  // Sub-tabs navigation for matrix vs reports
-  const [activeSubTab, setActiveSubTab] = useState<"archives" | "sensors">("sensors");
   // Recent exports list
   const [recentReports, setRecentReports] = useState<any[]>([]);
   // Selected builder template state
@@ -513,34 +510,12 @@ export default function Reporting({
         </div>
       )}
 
-      {/* SUB-TABS NAVIGATION */}
-      <div className="flex border-b border-prizm-border pb-0.5 gap-2" id="prizm-reporting-subtabs">
-        <button
-          onClick={() => setActiveSubTab("sensors")}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 cursor-pointer transition-all ${
-            activeSubTab === "sensors"
-              ? "border-prizm-primary text-prizm-primary font-sans"
-              : "border-transparent text-prizm-text-muted hover:text-white"
-          }`}
-        >
-          Environmental Sensors Matrix
-        </button>
-        <button
-          onClick={() => setActiveSubTab("archives")}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 cursor-pointer transition-all ${
-            activeSubTab === "archives"
-              ? "border-prizm-primary text-prizm-primary font-sans"
-              : "border-transparent text-prizm-text-muted hover:text-white"
-          }`}
-        >
-          Diagnostic Journals & Exports
-        </button>
+      <div className="rounded-lg border border-prizm-border bg-prizm-surface px-4 py-3">
+        <h2 className="text-xs font-black uppercase tracking-widest text-prizm-text">Diagnostic Journals & Exports</h2>
+        <p className="mt-1 text-[10px] text-prizm-text-muted">
+          Environmental sensor monitoring is consolidated under Site Health → Environment & Safety.
+        </p>
       </div>
-
-      {activeSubTab === "sensors" ? (
-        <SiteSensorsMatrix />
-      ) : (
-        <>
 
       {/* CORE DIAGNOSTIC CAPTURE PANEL */}
       {diagnosticSession && diagnosticSession.active ? (
@@ -669,7 +644,7 @@ export default function Reporting({
             </div>
           </div>
 
-          <div className="p-3 bg-[#EAB308]/5 border border-dashed border-[#EAB308]/20 rounded text-[10px] text-[#EAB308]/80 leading-relaxed uppercase">
+          <div className="p-3 bg-amber-50 border border-dashed border-amber-400 rounded text-[10px] text-amber-800 leading-relaxed uppercase">
             <div className="flex gap-2 items-start">
               <Info size={12} className="shrink-0 mt-0.5" />
               <span>
@@ -715,7 +690,7 @@ export default function Reporting({
             </button>
           </div>
 
-          <div className="p-3 bg-[#EAB308]/5 border border-dashed border-[#EAB308]/20 rounded text-[10px] text-[#EAB308]/80 leading-relaxed uppercase">
+          <div className="p-3 bg-amber-50 border border-dashed border-amber-400 rounded text-[10px] text-amber-800 leading-relaxed uppercase">
             <div className="flex gap-2 items-start">
               <Info size={12} className="shrink-0 mt-0.5" />
               <span>
@@ -1090,7 +1065,7 @@ export default function Reporting({
                 <div>
                   <span className="block font-bold text-prizm-text uppercase tracking-wider">Storage Retention Check</span>
                   <span className="text-emerald-400 font-bold block mt-1">✔ OK — CRON DAEMON ACTIVE</span>
-                  <span className="text-[#9CA3AF]/60 block uppercase">Checked on hourly rotation intervals</span>
+                  <span className="text-prizm-text-muted block uppercase">Checked on hourly rotation intervals</span>
                 </div>
               </div>
               <div className="bg-prizm-surface-strong p-3 rounded border border-white/5 space-y-2 flex gap-3">
@@ -1098,7 +1073,7 @@ export default function Reporting({
                 <div>
                   <span className="block font-bold text-prizm-text uppercase tracking-wider">Buffer capacity status</span>
                   <span className="text-emerald-400 font-bold block mt-1">✔ SAFE — 0.05% FLASH EXGEST</span>
-                  <span className="text-[#9CA3AF]/60 block uppercase">1GB MAX DISK POOLI LIMIT</span>
+                  <span className="text-prizm-text-muted block uppercase">1GB MAX DISK POOL LIMIT</span>
                 </div>
               </div>
             </div>
@@ -1221,8 +1196,6 @@ export default function Reporting({
         </div>
       </div>
       <SiteDataExport />
-      </>
-      )}
 
     </div>
   );

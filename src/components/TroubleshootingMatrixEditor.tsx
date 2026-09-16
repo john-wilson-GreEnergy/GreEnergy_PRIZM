@@ -42,9 +42,9 @@ function toText(value: any): string {
   return String(value);
 }
 
-function parseArrayText(value: string): string[] {
+function parseArrayText(value: string, allowCommas = false): string[] {
   return value
-    .split(/\n|,/)
+    .split(allowCommas ? /\n|,/ : /\n/)
     .map((v) => v.trim())
     .filter(Boolean);
 }
@@ -57,7 +57,13 @@ function normalizePatch(edit: Record<string, string>) {
   }
 
   for (const field of ARRAY_FIELDS) {
-    if (field in edit) patch[field] = parseArrayText(edit[field]);
+    if (field in edit) {
+      const isCodeOrMatchField = ["faultCodes", "warningCodes", "infoCodes", "warrantyCodes", "matchTerms"].includes(field);
+      const values = parseArrayText(edit[field], isCodeOrMatchField);
+      patch[field] = ["faultCodes", "warningCodes", "infoCodes", "warrantyCodes"].includes(field)
+        ? values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+        : values;
+    }
   }
 
   return patch;
@@ -90,8 +96,13 @@ export default function TroubleshootingMatrixEditor() {
       const nextEntries = Array.isArray(payload.entries) ? payload.entries : [];
       setEntries(nextEntries);
 
+      const requestedId = localStorage.getItem("prizm_troubleshooting_selected_entry") || "";
+      if (requestedId) localStorage.removeItem("prizm_troubleshooting_selected_entry");
+
       const nextSelected =
-        selectedId && nextEntries.some((entry: MatrixEntry) => entry.id === selectedId)
+        requestedId && nextEntries.some((entry: MatrixEntry) => entry.id === requestedId)
+          ? requestedId
+          : selectedId && nextEntries.some((entry: MatrixEntry) => entry.id === selectedId)
           ? selectedId
           : nextEntries[0]?.id || "";
 

@@ -40,6 +40,9 @@ async function run(): Promise<void> {
   assert.equal(executions, 1);
   assert.equal(runtime.getDebugState().state, "RUNNING");
 
+  runtime.requestRefresh("scheduled-interval");
+  assert.equal(runtime.getDebugState().pendingRefreshCount, 0, "scheduled ticks must be dropped while a cycle is active");
+
   for (let index = 0; index < 100; index += 1) {
     runtime.requestRefresh(index % 2 === 0 ? "manual:burst-a" : "manual:burst-b");
   }
@@ -57,7 +60,7 @@ async function run(): Promise<void> {
   assert.equal(maximumConcurrency, 1);
   assert.equal(debug.maximumObservedConcurrency, 1);
   assert.equal(debug.refreshQueueDepth, 0);
-  assert.equal(debug.coalescedRefreshCount, 100);
+  assert.equal(debug.coalescedRefreshCount, 101);
   assert.equal(debug.queuedRefreshCount, 100);
   assert.deepEqual(observedCycleIds, [1, 2], "cycle IDs must increase monotonically");
   assert.deepEqual(observedContextIds, observedCycleIds, "acquisition context must carry the producing cycle ID");

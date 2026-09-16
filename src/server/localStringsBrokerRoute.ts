@@ -87,6 +87,29 @@ function pN(val: any, def: number | null = null): number | null {
   return Number.isNaN(n) ? def : n;
 }
 
+function normalizedAggregateContactorState(row: any): "OPEN" | "CLOSED" | null {
+  const raw = row.stringContactorState ?? row.StringContactorState ?? row.contactorState ?? row.ContactorState;
+  const value = String(raw ?? "").trim().toUpperCase();
+  if (["OPEN", "OPENED"].includes(value)) return "OPEN";
+  if (["CLOSED", "CLOSE"].includes(value)) return "CLOSED";
+  return null;
+}
+
+function hasContactorOpenNotification(row: any): boolean {
+  const candidates = [
+    row.warns,
+    row.warnings,
+    row.warningCodes,
+    row.Warns,
+    row.Warnings,
+    row.WarningCodes,
+  ];
+  return candidates.some((candidate) => {
+    if (Array.isArray(candidate)) return candidate.some((value) => String(value).trim() === "2534");
+    return String(candidate ?? "").split(/[^0-9]+/).includes("2534");
+  });
+}
+
 function hasUsableStringIdentity(rows: any[]): boolean {
   if (!Array.isArray(rows) || rows.length === 0) return false;
   return rows.some((row: any) => {
@@ -114,8 +137,21 @@ function normalizeRows(rawData: any[], ipMap: any[], metaWrapper: LocalStringsMe
     else connectionState = String(connectionState);
 
     const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? row.ContactorsCloseExpected ?? (connectionState === "Online"));
-    const positiveContactorClosed = Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? row.PositiveContactorClosed ?? (connectionState === "Online"));
-    const negativeContactorClosed = Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? row.NegativeContactorClosed ?? (connectionState === "Online"));
+    const aggregateContactorState = normalizedAggregateContactorState(row);
+    const contactorOpenReported = aggregateContactorState === "OPEN" || hasContactorOpenNotification(row);
+    // Turtle's aggregate StringContactorState is the state Kobold renders. Some
+    // payloads retain stale individual feedback booleans, so the explicit
+    // aggregate state must win when the two representations disagree.
+    const positiveContactorClosed = contactorOpenReported
+      ? false
+      : aggregateContactorState === "CLOSED"
+        ? true
+        : Boolean(row.positive_contactor_closed ?? row.positiveContactorClosed ?? row.PositiveContactorClosed ?? (connectionState === "Online"));
+    const negativeContactorClosed = contactorOpenReported
+      ? false
+      : aggregateContactorState === "CLOSED"
+        ? true
+        : Boolean(row.negative_contactor_closed ?? row.negativeContactorClosed ?? row.NegativeContactorClosed ?? (connectionState === "Online"));
     const contactorMismatch = (contactorsCloseExpected !== positiveContactorClosed) || (contactorsCloseExpected !== negativeContactorClosed);
 
     const maxT = pN(row.cellGroupTempMax || row.MaxCellGroupTemp || row.cellTempMax);

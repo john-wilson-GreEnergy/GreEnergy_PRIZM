@@ -138,7 +138,10 @@ export class BalancerTestService {
     for (const testId of testIds) {
       try {
         const report = await this.getReport(testId);
-        allRows.push(...report.rows);
+        // Site-wide reports can contain more rows than V8 permits as arguments to
+        // Array.push(...rows). Append iteratively so completed full-site tests do
+        // not fail with "Maximum call stack size exceeded".
+        for (const row of report.rows) allRows.push(row);
       } catch (err: any) {
         console.warn(`Partial analysis failure for testId ${testId}:`, err);
         errors.push(`Test ID ${testId}: ${err.message}`);
@@ -167,7 +170,8 @@ export class BalancerTestService {
       deployEndpointConfigured: !unconfigured,
       message: unconfigured
         ? "Balancer test deployment endpoint is not configured. Status and analysis are available."
-        : "Balancer test deployment is supported and configured."
+        : "Balancer test deployment is supported and configured.",
+      maxStringIndex: Math.max(1, ProfileStore.getActiveProfile()?.stringsPerArray || 40)
     };
   }
 
@@ -214,10 +218,17 @@ export class BalancerTestService {
 
     // Validation
     let rejectionReason = "";
+    const stringScope=req.targetScope==="string";
     if (!req.arrays || !Array.isArray(req.arrays) || req.arrays.length === 0) {
       rejectionReason = "arrays must be non-empty";
     } else if (req.arrays.some(a => isNaN(a) || a < 1 || a > 8)) {
       rejectionReason = "arrays must be between 1 and 8";
+    } else if (stringScope && req.arrays.length !== 1) {
+      rejectionReason = "individual-string tests require exactly one array";
+    } else if (stringScope && (!Array.isArray(req.strings) || req.strings.length === 0)) {
+      rejectionReason = "individual-string tests require at least one string";
+    } else if (stringScope && req.strings!.some(value=>!Number.isInteger(value)||value<1||value>(profile?.stringsPerArray||40))) {
+      rejectionReason = `strings must be between 1 and ${profile?.stringsPerArray||40}`;
     } else if (req.direction !== "charge" && req.direction !== "discharge") {
       rejectionReason = "direction must be charge or discharge";
     }
@@ -246,7 +257,8 @@ export class BalancerTestService {
     }
 
     const baseUrl = getEmsBaseUrl();
-    const emsEndpoint = `${baseUrl}/tools/report/ems/balancertest/trigger/${req.direction}.json?arrayIndexes=${req.arrays.join(",")}`;
+    const targetQuery=`arrayIndexes=${req.arrays.join(",")}${stringScope?`&stringIndexes=${req.strings!.join(",")}`:""}`;
+    const emsEndpoint = `${baseUrl}/tools/report/ems/balancertest/trigger/${req.direction}.json?${targetQuery}`;
 
     let emsHttpStatus: number | null = null;
     let emsResponseText: string | null = null;
@@ -316,6 +328,8 @@ export class BalancerTestService {
       stationCode,
       block: blockNum,
       arrays: req.arrays,
+      strings: req.strings || [],
+      targetScope: stringScope ? "string" : "array",
       direction: req.direction,
       operator: req.operator || "PRIZM Operator",
       accepted,

@@ -8,6 +8,8 @@ export interface SegmentNumberingParams {
   displayName?: string | null;
   ip?: string | null;
   enclosureType?: string | null;
+  energySegmentsPerArray?: number | null;
+  includeCollectionSegment?: boolean | null;
 }
 
 /**
@@ -32,7 +34,14 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
     displayName,
     ip,
     enclosureType,
+    energySegmentsPerArray,
+    includeCollectionSegment,
   } = params;
+  const maxEnergySegment = Number.isInteger(Number(energySegmentsPerArray)) && Number(energySegmentsPerArray) > 0
+    ? Number(energySegmentsPerArray)
+    : 20;
+  const hasCollectionSegment = includeCollectionSegment !== false;
+  const positionsPerArray = maxEnergySegment + (hasCollectionSegment ? 1 : 0);
 
   const lowerDisplay = (displayName || "").toLowerCase();
   const lowerLabel = (segmentLabel || "").toLowerCase();
@@ -57,7 +66,7 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
   // 2. Prefer explicit energySegmentIndex if it is 1..21
   if (energySegmentIndex !== undefined && energySegmentIndex !== null && !isNaN(Number(energySegmentIndex))) {
     const val = Number(energySegmentIndex);
-    if (val >= 1 && val <= 21) {
+    if (val >= 1 && val <= maxEnergySegment) {
       return val;
     }
   }
@@ -68,7 +77,7 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
       const matchES = token.match(/ES\s*(\d+)/i);
       if (matchES) {
         const val = parseInt(matchES[1], 10);
-        if (val >= 1 && val <= 21) {
+        if (val >= 1 && val <= maxEnergySegment) {
           return val;
         }
       }
@@ -84,7 +93,7 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
       const lastOctet = parseInt(parts[3], 10);
       if (!isNaN(lastOctet) && lastOctet >= 10 && (lastOctet - 10) % 5 === 0) {
         const val = Math.floor((lastOctet - 10) / 5) + 1;
-        if (val >= 1 && val <= 21) {
+        if (val >= 1 && val <= maxEnergySegment) {
           return val;
         }
       }
@@ -94,7 +103,7 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
   // 5. Prefer segmentPosition if it is 1..21
   if (segmentPosition !== undefined && segmentPosition !== null && !isNaN(Number(segmentPosition))) {
     const val = Number(segmentPosition);
-    if (val >= 1 && val <= 21) {
+    if (val >= 1 && val <= maxEnergySegment) {
       return val;
     }
   }
@@ -102,7 +111,7 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
   // 6. Prefer raw segmentIndex if confirmed array-local 1..21
   if (segmentIndex !== undefined && segmentIndex !== null && !isNaN(Number(segmentIndex))) {
     const val = Number(segmentIndex);
-    if (val >= 1 && val <= 21) {
+    if (val >= 1 && val <= maxEnergySegment) {
       return val;
     }
   }
@@ -113,11 +122,11 @@ export function getArrayLocalEnergySegmentNumber(params: SegmentNumberingParams)
   // ES number = positionInArray - 1
   if (enclosureIndex !== undefined && enclosureIndex !== null && !isNaN(Number(enclosureIndex))) {
     const encIdx = Number(enclosureIndex);
-    const positionInArray = ((encIdx - 1) % 21) + 1;
-    if (positionInArray === 1) {
+    const positionInArray = ((encIdx - 1) % positionsPerArray) + 1;
+    if (hasCollectionSegment && positionInArray === 1) {
       return "CS";
     } else {
-      return positionInArray - 1;
+      return positionInArray - (hasCollectionSegment ? 1 : 0);
     }
   }
 

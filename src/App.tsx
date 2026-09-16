@@ -27,31 +27,34 @@ import {
   Check,
   Gauge
 } from "lucide-react";
-// TODO: Implement route-level dynamic imports for code splitting.
-import SiteOperationsDashboard from "./components/SiteOperationsDashboard";
-import CorrectiveActionsDashboard from "./components/CorrectiveActionsDashboard";
-import StringDashboard from "./components/StringDashboard";
-import SiteDistributionDashboard from "./components/SiteDistributionDashboard";
-import PcsDashboard from "./components/PcsDashboard";
-import FeatherDashboard from "./components/FeatherDashboard";
-import ProvisioningDashboard from "./components/ProvisioningDashboard";
-import HvacSimulationDashboard from "./components/HvacSimulationDashboard";
-import StringFanCommandHold from "./components/StringFanCommandHold";
-import BalancerTestDashboard from "./components/BalancerTestDashboard";
-import TroubleshootingLibrary from "./components/TroubleshootingLibrary";
-import TroubleshootingMatrixEditor from "./components/TroubleshootingMatrixEditor";
-
+const SiteOperationsDashboard = React.lazy(() => import("./components/SiteOperationsDashboard"));
+const CorrectiveActionsDashboard = React.lazy(() => import("./components/CorrectiveActionsDashboard"));
+const StringDashboard = React.lazy(() => import("./components/StringDashboard"));
+const SiteDistributionDashboard = React.lazy(() => import("./components/SiteDistributionDashboard"));
+const PcsDashboard = React.lazy(() => import("./components/PcsDashboard"));
+const FeatherDashboard = React.lazy(() => import("./components/FeatherDashboard"));
+const ProvisioningDashboard = React.lazy(() => import("./components/ProvisioningDashboard"));
+const FeatherSerialConnectionManager = React.lazy(() => import("./components/FeatherSerialConnectionManager"));
+const IoLogikFleetManager = React.lazy(() => import("./components/IoLogikFleetManager"));
+const HvacSimulationDashboard = React.lazy(() => import("./components/HvacSimulationDashboard"));
+const StringFanCommandHold = React.lazy(() => import("./components/StringFanCommandHold"));
+const BalancerTestDashboard = React.lazy(() => import("./components/BalancerTestDashboard"));
+const TroubleshootingLibrary = React.lazy(() => import("./components/TroubleshootingLibrary"));
+const TroubleshootingMatrixEditor = React.lazy(() => import("./components/TroubleshootingMatrixEditor"));
 const Reporting = React.lazy(() => import("./components/Reporting"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
+const OneLineView = React.lazy(() => import("./components/OneLineView"));
+const ThermalWorkspace = React.lazy(() => import("./components/ThermalWorkspace"));
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
 const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
+const SafetyFaultClearView = React.lazy(() => import("./components/SafetyFaultClearView"));
 import DashboardLoadingSkeleton from "./components/common/DashboardLoadingSkeleton";
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteData } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
-type AppTabId = "overview" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "advanced" | "troubleshooting-library";
+type AppTabId = "overview" | "one-line" | "thermal-controls" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -60,6 +63,8 @@ interface TabItem {
 
 const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "overview": { label: "Block Summary", icon: Activity },
+  "one-line": { label: "One-Line View", icon: Network },
+  "thermal-controls": { label: "Thermal Controls", icon: Activity },
   "corrective-actions": { label: "Corrective Actions", icon: ShieldAlert },
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
@@ -69,12 +74,14 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "feather-hvac": { label: "Feather / HVAC", icon: Network },
   "lightbar-control": { label: "Lineup Lightbar", icon: Sliders },
   "reports": { label: "Reports / Exports", icon: FileText },
+  "safety-fault": { label: "Safety Clear", icon: ShieldAlert },
   "advanced": { label: "Safety / Advanced", icon: ShieldAlert },
   "troubleshooting-library": { label: "Troubleshooting KB", icon: BookOpen }
 };
 
 const DEFAULT_TABS_ORDER: string[] = [
   "overview",
+  "one-line",
   "corrective-actions",
   "arrays-strings",
   "site-health",
@@ -82,35 +89,77 @@ const DEFAULT_TABS_ORDER: string[] = [
   "balancer-test",
   "site-configuration",
   "feather-hvac",
+  "thermal-controls",
   "lightbar-control",
   "reports",
+  "safety-fault",
   "advanced",
   "troubleshooting-library"
 ];
 
+type PortalMode = "technician" | "operator";
+const TECHNICIAN_TABS_ORDER: string[] = [
+  "overview",
+  "one-line",
+  "corrective-actions",
+  "arrays-strings",
+  "site-health",
+  "pcs-dashboard",
+  "balancer-test",
+  "site-configuration",
+  "feather-hvac",
+  "thermal-controls",
+  "lightbar-control",
+  "troubleshooting-library",
+  "reports",
+  "safety-fault"
+];
+
+function readPortalMode(): PortalMode {
+  const requested = new URLSearchParams(window.location.search).get("portal");
+  return requested === "operator" ? "operator" : "technician";
+}
+
 export default function App() {
+  const [portalMode, setPortalMode] = useState<PortalMode>(readPortalMode);
   const [activeTab, setActiveTab] = useState<AppTabId>(() => {
-    const requested = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('legacyTab');
-    return requested && requested in MASTER_TABS_MAP ? requested as AppTabId : "overview";
+    const searchParams = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+    const requested = searchParams?.get('tab') ?? searchParams?.get('legacyTab') ?? null;
+    const portal = typeof window === 'undefined' ? "technician" : readPortalMode();
+    const persisted = typeof window === 'undefined' ? null : window.localStorage.getItem(`prizm_active_tab_${portal}`) || window.localStorage.getItem("prizm_active_tab");
+    if (requested && requested in MASTER_TABS_MAP) return requested as AppTabId;
+    return persisted && persisted in MASTER_TABS_MAP ? persisted as AppTabId : "overview";
   });
-  const [visitedTabs, setVisitedTabs] = useState<Set<AppTabId>>(
-    () => new Set<AppTabId>(["overview"])
-  );
   useEffect(() => {
-    setVisitedTabs(prev => {
-      if (prev.has(activeTab)) return prev;
-      const next = new Set(prev);
-      next.add(activeTab);
-      return next;
-    });
-  }, [activeTab]);
+    window.localStorage.setItem("prizm_active_tab", activeTab);
+    window.localStorage.setItem(`prizm_active_tab_${portalMode}`, activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("tab") !== activeTab) {
+      url.searchParams.set("tab", activeTab);
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [activeTab, portalMode]);
 
   const [isPending, startTransition] = useTransition();
   const handleSetActiveTab = (tab: AppTabId | string) => {
-    startTransition(() => setActiveTab(tab as AppTabId));
+    if (!(tab in MASTER_TABS_MAP)) return;
+    const nextTab = tab as AppTabId;
+    window.localStorage.setItem("prizm_active_tab", nextTab);
+    window.localStorage.setItem(`prizm_active_tab_${portalMode}`, nextTab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", nextTab);
+    window.history.replaceState(window.history.state, "", url);
+    startTransition(() => setActiveTab(nextTab));
   };
-  const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold" | "provisioning">("feather");
+  const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold" | "serial-mode" | "iologik" | "provisioning">("feather");
   const [troubleshootingSub, setTroubleshootingSub] = useState<"library" | "matrix">("library");
+  useEffect(() => {
+    if (activeTab !== "troubleshooting-library") return;
+    if (localStorage.getItem("prizm_troubleshooting_open_matrix") === "true") {
+      setTroubleshootingSub("matrix");
+      localStorage.removeItem("prizm_troubleshooting_open_matrix");
+    }
+  }, [activeTab]);
   const [loading, setLoading] = useState(true);
   const [diagnosticSession, setDiagnosticSession] = useState<any>(null);
   const [manualRepolling, setManualRepolling] = useState(false);
@@ -142,6 +191,27 @@ export default function App() {
     return DEFAULT_TABS_ORDER.map(id => ({ id, visible: true }));
   });
 
+  const effectiveTabsOrder = React.useMemo(() => portalMode === "technician"
+    ? tabsOrder.filter((tab) => TECHNICIAN_TABS_ORDER.includes(tab.id))
+    : tabsOrder, [portalMode, tabsOrder]);
+
+  useEffect(() => {
+    const applyPortal = (nextPortal: PortalMode) => {
+      setPortalMode(nextPortal);
+      const allowedTabs = nextPortal === "technician" ? TECHNICIAN_TABS_ORDER : DEFAULT_TABS_ORDER;
+      const saved = window.localStorage.getItem(`prizm_active_tab_${nextPortal}`);
+      const nextTab = saved && allowedTabs.includes(saved) ? saved as AppTabId : "overview";
+      window.localStorage.setItem(`prizm_active_tab_${nextPortal}`, nextTab);
+      const url = new URL(window.location.href); url.searchParams.set("tab", nextTab); window.history.replaceState(window.history.state, "", url);
+      startTransition(() => setActiveTab(nextTab));
+    };
+    const handlePortalChange = (event: Event) => applyPortal((event as CustomEvent<PortalMode>).detail === "operator" ? "operator" : "technician");
+    const handlePopState = () => applyPortal(readPortalMode());
+    window.addEventListener("prizm-portal-change", handlePortalChange);
+    window.addEventListener("popstate", handlePopState);
+    return () => { window.removeEventListener("prizm-portal-change", handlePortalChange); window.removeEventListener("popstate", handlePopState); };
+  }, []);
+
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   // Save configurations layout changes to secure local client storage
@@ -157,14 +227,14 @@ export default function App() {
 
   // If the focus tab gets disabled or hidden, auto-select the next visible tab to preserve render viewport
   useEffect(() => {
-    const currentTabItem = tabsOrder.find(t => t.id === activeTab);
-    if (currentTabItem && !currentTabItem.visible) {
-      const firstVisible = tabsOrder.find(t => t.visible);
+    const currentTabItem = effectiveTabsOrder.find(t => t.id === activeTab);
+    if (!currentTabItem || !currentTabItem.visible) {
+      const firstVisible = effectiveTabsOrder.find(t => t.visible);
       if (firstVisible) {
         handleSetActiveTab(firstVisible.id as AppTabId);
       }
     }
-  }, [tabsOrder, activeTab]);
+  }, [effectiveTabsOrder, activeTab]);
 
   const moveTab = (index: number, direction: "up" | "down") => {
     const newIdx = direction === "up" ? index - 1 : index + 1;
@@ -176,8 +246,22 @@ export default function App() {
     setTabsOrder(updated);
   };
 
+  const movePortalTab = (id: string, direction: "up" | "down") => {
+    const allowed = portalMode === "technician" ? TECHNICIAN_TABS_ORDER : DEFAULT_TABS_ORDER;
+    const ordered = tabsOrder.filter(tab => allowed.includes(tab.id));
+    const index = ordered.findIndex(tab => tab.id === id);
+    const neighbor = ordered[direction === "up" ? index - 1 : index + 1];
+    if (index < 0 || !neighbor) return;
+    const currentIndex = tabsOrder.findIndex(tab => tab.id === id);
+    const neighborIndex = tabsOrder.findIndex(tab => tab.id === neighbor.id);
+    const updated = [...tabsOrder];
+    [updated[currentIndex], updated[neighborIndex]] = [updated[neighborIndex], updated[currentIndex]];
+    setTabsOrder(updated);
+  };
+
   const toggleTabVisibility = (id: string) => {
-    const visibleCount = tabsOrder.filter(t => t.visible).length;
+    const allowed = portalMode === "technician" ? TECHNICIAN_TABS_ORDER : DEFAULT_TABS_ORDER;
+    const visibleCount = tabsOrder.filter(t => allowed.includes(t.id) && t.visible).length;
     const tabToToggle = tabsOrder.find(t => t.id === id);
     if (visibleCount <= 1 && tabToToggle?.visible) {
       return; // Safeguard navbar to have at least one active screen
@@ -187,7 +271,6 @@ export default function App() {
 
   const resetTabs = () => {
     setTabsOrder(DEFAULT_TABS_ORDER.map(id => ({ id, visible: true })));
-    handleSetActiveTab("overview");
   };
 
   // Monitor EMS metadata
@@ -202,7 +285,7 @@ export default function App() {
           const tab = e.detail;
           if (tab === "settings" || tab === "ems-health" || tab === "tool-dashboards") {
             handleSetActiveTab("site-configuration");
-          } else if (tab === "safety-fault" || tab === "advanced" || tab === "safety-advanced") {
+          } else if (tab === "advanced" || tab === "safety-advanced") {
             handleSetActiveTab("advanced");
           } else if (tab === "site-distribution" || tab === "site-sensors" || tab === "site-health") {
             handleSetActiveTab("site-health");
@@ -238,8 +321,13 @@ export default function App() {
     consecutiveFailureCount,
     consecutiveDegradedCount,
     lastPollAttemptedAt,
-    lastGoodSnapshotAt
+    lastGoodSnapshotAt,
+    setActiveView
   } = useSiteData();
+
+  useEffect(() => {
+    setActiveView(activeTab);
+  }, [activeTab, setActiveView]);
 
   const [warmStartState, setWarmStartState] = useState<"idle" | "running" | "complete" | "failed">("idle");
 
@@ -402,15 +490,15 @@ export default function App() {
       const isLive = currentConnection?.status === "LIVE" && currentConnection?.reachable;
       const isRecording = currentSession?.active === true && currentSession?.paused !== true;
       
-      let intervalMs = 2000;
+      let intervalMs = 15000;
       if (isHidden) {
-          intervalMs = 15000;
+          intervalMs = 30000;
       } else if (isRecording) {
           intervalMs = 3000;
       } else if (isLive) {
-          intervalMs = 2000;
+          intervalMs = 15000;
       } else {
-          intervalMs = 2000;
+          intervalMs = 20000;
       }
       
       if (now - lastPollRef.current < intervalMs) return;
@@ -424,7 +512,7 @@ export default function App() {
       }
     };
 
-    const poll = setInterval(checkPoll, 1000);
+    const poll = setInterval(checkPoll, 2000);
     return () => {
       cancelled = true;
       clearInterval(poll);
@@ -480,10 +568,8 @@ export default function App() {
             {(!connectionStatus || connectionStatus?.status === 'OFFLINE') && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline</span>}
             {connectionStatus?.status === 'MISCONFIGURED' && <span className="text-prizm-danger font-bold flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline (Misconfigured)</span>}
             
-            <span title={emsMetadata?.activeEmsBaseUrl || "No site linked"} className="truncate max-w-[200px]">NODE: {
-                (connectionStatus?.status === 'LIVE' || connectionStatus?.status === 'PARTIAL') && emsMetadata?.activeEmsBaseUrl 
-                    ? emsMetadata.activeEmsBaseUrl.replace(/^https?:\/\//, '') 
-                    : (emsMetadata ? (emsMetadata.activeProfileName || "UNLINKED") : '...')
+            <span title={emsMetadata?.siteName || emsMetadata?.activeProfileName || "Site name unavailable"} className="truncate max-w-[240px]">SITE: {
+                emsMetadata?.siteName || emsMetadata?.activeProfileName || 'Unknown'
             }</span>
             
             <span>STATION: {connectionStatus?.discoveredStationCode || connectionStatus?.stationCode || 'Unknown'}</span>
@@ -493,6 +579,9 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+          <span className={`hidden md:inline-flex rounded border px-2 py-1 font-mono text-[9px] font-black uppercase tracking-wider ${portalMode === "technician" ? "border-sky-300 bg-sky-50 text-sky-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}>
+            {portalMode} portal
+          </span>
           {/* Sync Heartbeat display */}
           <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-prizm-text-muted">
             <span className="hidden lg:inline font-bold">SYNC HEARTBEAT:</span>
@@ -634,11 +723,11 @@ export default function App() {
   <>
       <section className="bg-prizm-surface-strong border-b border-prizm-border z-40 sticky top-14 transition-all shrink-0">
         <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between overflow-x-auto no-scrollbar scroll-smooth">
+          <div className="flex items-center justify-between gap-2">
             
             {/* Tabs control styled beautifully */}
-            <div className="flex items-center space-x-1 py-1 min-w-0 flex-shrink flex-wrap">
-              {tabsOrder
+            <div className="flex min-w-0 flex-1 items-center space-x-1 overflow-x-auto py-1 no-scrollbar scroll-smooth">
+              {effectiveTabsOrder
                 .filter(tab => tab.visible)
                 .map(tab => {
                   const master = MASTER_TABS_MAP[tab.id];
@@ -661,13 +750,55 @@ export default function App() {
                 })}
             </div>
 
+            <button
+              onClick={() => setIsConfigOpen(true)}
+              aria-label="Arrange navigation tabs"
+              title="Arrange navigation tabs"
+              className="shrink-0 rounded border border-prizm-border p-2 text-prizm-text-muted transition-colors hover:bg-prizm-info/10 hover:text-prizm-primary"
+            >
+              <Settings size={15} />
+            </button>
+
           </div>
         </div>
       </section>
 
+      {isConfigOpen && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-end bg-black/30 p-4 sm:p-6" onMouseDown={() => setIsConfigOpen(false)}>
+          <div className="mt-24 w-full max-w-md rounded-lg border border-prizm-border bg-prizm-surface p-5 shadow-2xl" onMouseDown={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b border-prizm-border pb-3">
+              <div>
+                <h2 className="font-mono text-sm font-bold uppercase text-prizm-text">Navigation Tabs</h2>
+                <p className="mt-1 text-xs text-prizm-text-muted">Show, hide, or arrange tabs for the {portalMode} portal.</p>
+              </div>
+              <button onClick={() => setIsConfigOpen(false)} aria-label="Close navigation settings" className="rounded p-1.5 text-prizm-text-muted hover:bg-black/10 hover:text-prizm-text"><X size={16} /></button>
+            </div>
+            <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+              {tabsOrder.filter(tab => (portalMode === "technician" ? TECHNICIAN_TABS_ORDER : DEFAULT_TABS_ORDER).includes(tab.id)).map((tab, index, configuredTabs) => {
+                const master = MASTER_TABS_MAP[tab.id];
+                if (!master) return null;
+                const Icon = master.icon;
+                return <div key={tab.id} className={`flex items-center justify-between rounded border p-2.5 text-xs ${tab.visible ? "border-prizm-border bg-black/5" : "border-dashed border-prizm-border opacity-60"}`}>
+                  <div className="flex min-w-0 items-center gap-2"><Icon size={14} className={tab.visible ? "text-prizm-primary" : "text-prizm-text-muted"} /><span className="truncate font-bold uppercase text-prizm-text">{master.label}</span></div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => toggleTabVisibility(tab.id)} aria-label={`${tab.visible ? "Hide" : "Show"} ${master.label}`} title={tab.visible ? "Hide tab" : "Show tab"} className="rounded p-1.5 text-prizm-text-muted hover:bg-black/10 hover:text-prizm-primary">{tab.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                    <button onClick={() => movePortalTab(tab.id, "up")} disabled={index === 0} aria-label={`Move ${master.label} left`} title="Move left" className="rounded p-1.5 text-prizm-text-muted hover:bg-black/10 hover:text-prizm-text disabled:opacity-25"><ArrowUp size={14} /></button>
+                    <button onClick={() => movePortalTab(tab.id, "down")} disabled={index === configuredTabs.length - 1} aria-label={`Move ${master.label} right`} title="Move right" className="rounded p-1.5 text-prizm-text-muted hover:bg-black/10 hover:text-prizm-text disabled:opacity-25"><ArrowDown size={14} /></button>
+                  </div>
+                </div>;
+              })}
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t border-prizm-border pt-4">
+              <button onClick={resetTabs} className="flex items-center gap-2 rounded border border-prizm-border px-3 py-2 text-xs font-bold uppercase text-prizm-text-muted hover:bg-black/10 hover:text-prizm-text"><RotateCcw size={14} />Reset defaults</button>
+              <button onClick={() => setIsConfigOpen(false)} className="rounded bg-prizm-primary px-4 py-2 text-xs font-bold uppercase text-black">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CORE WORKSPACE CONSOLE WINDOW */}
       <main className="flex-1 p-4 sm:p-6 bg-prizm-bg w-full px-4 sm:px-6 lg:px-8">
-        {(loading || siteDataLoading) ? (
+        {loading && activeTab !== "arrays-strings" ? (
           <div className="h-[400px] flex flex-col items-center justify-center space-y-4 border border-prizm-border bg-prizm-surface rounded-lg">
             <RefreshCw className="animate-spin text-prizm-primary" size={32} />
             <div className="text-center font-mono">
@@ -744,55 +875,57 @@ export default function App() {
             )}
 
             <Suspense fallback={<DashboardLoadingSkeleton label="Loading dashboard..." />}>
-              {visitedTabs.has("overview") && (
-                <div className={activeTab === "overview" ? "block animate-fade-in" : "hidden"}>
-                  <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active={activeTab === "overview"} />
+              {activeTab === "overview" && (
+                <div className="block animate-fade-in">
+                  <SiteOperationsDashboard setActiveTab={handleSetActiveTab} active />
                 </div>
               )}
 
-              {visitedTabs.has("corrective-actions") && (
-                <div className={activeTab === "corrective-actions" ? "block animate-fade-in" : "hidden"}>
-                  <CorrectiveActionsDashboard active={activeTab === "corrective-actions"} />
+              {activeTab === "thermal-controls" && <ThermalWorkspace />}
+              {activeTab === "one-line" && (
+                <div className="block animate-fade-in">
+                  <OneLineView active />
                 </div>
               )}
 
-              {visitedTabs.has("arrays-strings") && (
-                <div className={activeTab === "arrays-strings" ? "block animate-fade-in" : "hidden"}>
-                  <StringDashboard active={activeTab === "arrays-strings"} />
+              {activeTab === "corrective-actions" && (
+                <div className="block animate-fade-in">
+                  <CorrectiveActionsDashboard active />
                 </div>
               )}
 
-              {visitedTabs.has("site-health") && (
-                <div className={activeTab === "site-health" ? "block animate-fade-in font-sans" : "hidden"}>
-                  <SiteDistributionDashboard active={activeTab === "site-health"} />
+              {activeTab === "arrays-strings" && (
+                <div className="block animate-fade-in">
+                  <StringDashboard active />
                 </div>
               )}
 
-              {visitedTabs.has("pcs-dashboard") && (
-                <div className={activeTab === "pcs-dashboard" ? "block animate-fade-in" : "hidden"}>
-                  <PcsDashboard active={activeTab === "pcs-dashboard"} />
+              {activeTab === "site-health" && (
+                <div className="block animate-fade-in font-sans">
+                  <SiteDistributionDashboard active />
                 </div>
               )}
 
-              {visitedTabs.has("balancer-test") && (
-                <div className={activeTab === "balancer-test" ? "block animate-fade-in" : "hidden"}>
-                  <BalancerTestDashboard active={activeTab === "balancer-test"} />
+              {activeTab === "pcs-dashboard" && (
+                <div className="block animate-fade-in">
+                  <PcsDashboard active />
                 </div>
               )}
 
-              {visitedTabs.has("site-configuration") && (
-                <div className={activeTab === "site-configuration" ? "block animate-fade-in" : "hidden"}>
-                  <SiteConfigurationDashboard 
-                    tabsOrder={tabsOrder} 
-                    toggleTabVisibility={toggleTabVisibility} 
-                    moveTab={moveTab} 
-                    resetTabs={resetTabs} 
-                  />
+              {activeTab === "balancer-test" && (
+                <div className="block animate-fade-in">
+                  <BalancerTestDashboard active />
                 </div>
               )}
 
-              {visitedTabs.has("feather-hvac") && (
-                <div className={activeTab === "feather-hvac" ? "block space-y-4 animate-fade-in" : "hidden"}>
+              {activeTab === "site-configuration" && (
+                <div className="block animate-fade-in">
+                  <SiteConfigurationDashboard />
+                </div>
+              )}
+
+              {activeTab === "feather-hvac" && (
+                <div className="block space-y-4 animate-fade-in">
                   <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
                     <button
                       onClick={() => setFeatherSub("feather")}
@@ -825,6 +958,26 @@ export default function App() {
                       String Fan Command Hold
                     </button>
                     <button
+                      onClick={() => setFeatherSub("serial-mode")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        featherSub === "serial-mode"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      Serial Mode Inventory
+                    </button>
+                    <button
+                      onClick={() => setFeatherSub("iologik")}
+                      className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                        featherSub === "iologik"
+                          ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
+                          : "border-transparent text-prizm-text-muted hover:text-white"
+                      }`}
+                    >
+                      ioLogik Fleet
+                    </button>
+                    <button
                       onClick={() => setFeatherSub("provisioning")}
                       className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
                         featherSub === "provisioning"
@@ -835,29 +988,23 @@ export default function App() {
                       Provisioning
                     </button>
                   </div>
-                  <div className={featherSub === "feather" ? "block" : "hidden"}>
-                    <FeatherDashboard active={activeTab === "feather-hvac" && featherSub === "feather"} />
-                  </div>
-                  <div className={featherSub === "simulation" ? "block" : "hidden"}>
-                    <HvacSimulationDashboard active={activeTab === "feather-hvac" && featherSub === "simulation"} />
-                  </div>
-                  <div className={featherSub === "fan-hold" ? "block" : "hidden"}>
-                    <StringFanCommandHold active={activeTab === "feather-hvac" && featherSub === "fan-hold"} />
-                  </div>
-                  <div className={featherSub === "provisioning" ? "block" : "hidden"}>
-                    <ProvisioningDashboard active={activeTab === "feather-hvac" && featherSub === "provisioning"} />
-                  </div>
+                  {featherSub === "feather" && <FeatherDashboard active />}
+                  {featherSub === "simulation" && <HvacSimulationDashboard active />}
+                  {featherSub === "fan-hold" && <StringFanCommandHold active />}
+                  {featherSub === "serial-mode" && <FeatherSerialConnectionManager active />}
+                  {featherSub === "iologik" && <IoLogikFleetManager active />}
+                  {featherSub === "provisioning" && <ProvisioningDashboard />}
                 </div>
               )}
 
-              {visitedTabs.has("lightbar-control") && (
-                <div className={activeTab === "lightbar-control" ? "block animate-fade-in" : "hidden"}>
+              {activeTab === "lightbar-control" && (
+                <div className="block animate-fade-in">
                   <LineupLightbarControl />
                 </div>
               )}
 
-              {visitedTabs.has("reports") && (
-                <div className={activeTab === "reports" ? "block animate-fade-in" : "hidden"}>
+              {activeTab === "reports" && (
+                <div className="block animate-fade-in">
                   <Reporting 
                     devices={[]}
                     reports={[]}
@@ -869,14 +1016,20 @@ export default function App() {
                 </div>
               )}
 
-              {visitedTabs.has("advanced") && (
-                <div className={activeTab === "advanced" ? "block animate-fade-in" : "hidden"}>
+              {activeTab === "advanced" && (
+                <div className="block animate-fade-in">
                   <SafetyAdvancedDashboard />
                 </div>
               )}
 
-              {visitedTabs.has("troubleshooting-library") && (
-                <div className={activeTab === "troubleshooting-library" ? "block space-y-4 animate-fade-in" : "hidden"}>
+              {activeTab === "safety-fault" && (
+                <div className="block animate-fade-in">
+                  <SafetyFaultClearView />
+                </div>
+              )}
+
+              {activeTab === "troubleshooting-library" && (
+                <div className="block space-y-4 animate-fade-in">
                   <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
                     <button
                       onClick={() => setTroubleshootingSub("library")}
@@ -900,13 +1053,8 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className={troubleshootingSub === "library" ? "block" : "hidden"}>
-                    <TroubleshootingLibrary />
-                  </div>
-
-                  <div className={troubleshootingSub === "matrix" ? "block" : "hidden"}>
-                    <TroubleshootingMatrixEditor />
-                  </div>
+                  {troubleshootingSub === "library" && <TroubleshootingLibrary />}
+                  {troubleshootingSub === "matrix" && <TroubleshootingMatrixEditor />}
                 </div>
               )}
             </Suspense>

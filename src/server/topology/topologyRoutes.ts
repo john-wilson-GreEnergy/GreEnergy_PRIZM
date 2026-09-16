@@ -6,8 +6,9 @@ import * as XLSX from "xlsx";
 import { buildSiteTopologyFromCachedSources } from "./siteTopology";
 import { readSiteArtifact, writeSiteArtifact, getEffectiveCachePolicy, shouldFetchLive } from "../cache/prizmCache";
 import { refreshSiteOperationsSources, buildSiteOperationsSummaryFromCache } from "../siteOperations";
-import { getEmsConnectionStatus } from "../emsTurtleClient";
-import { ProfileStore } from "../profiles/profileStore";
+import { getEmsConnectionStatus, getEmsSourcesDebugInfo } from "../emsTurtleClient";
+import { fetchEnrichedDevices } from "../feather/deviceEnrichment";
+import { ProfileStore, getDefaultTopologyModel } from "../profiles/profileStore";
 import { EmsProfile } from "../profiles/profileTypes";
 import {
   SiteTopologyProfile as LibSiteTopologyProfile,
@@ -31,6 +32,10 @@ import {
   SiteTopologyProfile as EngineSiteTopologyProfile,
   SiteTopologyDevice as EngineSiteTopologyDevice
 } from "./siteTopologyEngine";
+import { topologyIngestionMatrixReport } from "./TopologyIngestionMatrix";
+import { discoverSiteProfile } from "./SiteProfileDiscovery";
+import { activateSiteProfileDraft, listSiteProfileDrafts, nextSiteProfileRevision, saveSiteProfileDraft } from "./SiteProfileDraftStore";
+import { loadSitePresentation, saveSitePresentation } from "./SitePresentationStore";
 
 type SiteTopologyProfile = LibSiteTopologyProfile;
 type SiteTopologyDevice = LibSiteTopologyDevice;
@@ -71,7 +76,7 @@ export function buildDefaultSiteTopologyProfile(emsProf: EmsProfile): SiteTopolo
       csHostOctets: [3],
       esStartHostOctet: 10,
       esHostStep: 5,
-      esCountPerArray: emsProf.stringsPerArray || 20,
+      esCountPerArray: emsProf.topologyModel?.esCountPerArray || Math.max(1, Math.ceil((emsProf.stringsPerArray || 40) / (emsProf.capacityProfile?.stringsPerEnergySegment || 2))),
       pcsHostOctets: [1]
     },
     explicitDevices: [],
@@ -121,6 +126,115 @@ export function saveSiteTopologyProfile(profileId: string, profile: SiteTopology
 }
 
 // ---------------------- API ROUTES ----------------------
+
+topologyRouter.get("/topology/presentation", (_req, res) => {
+  const topology = buildSiteTopologyFromCachedSources();
+  const cleanDraft = listSiteProfileDrafts().find(draft => draft.status === "active" && !draft.conflicts.length && !draft.unresolved.length)
+    || listSiteProfileDrafts().find(draft => !draft.conflicts.length && !draft.unresolved.length);
+  const arrayIndices = cleanDraft?.lineups.map(lineup => lineup.lineupIndex)
+    || topology.arrays.map(array => array.arrayIndex).filter((value, index, values) => values.indexOf(value) === index).sort((a, b) => a - b);
+  const siteKey = cleanDraft?.siteKey || `${topology.siteIdentity.stationCode || "unknown"}:block:${topology.siteIdentity.blockIndex || "unknown"}`;
+  const presentation = loadSitePresentation(siteKey, arrayIndices);
+  const energySegmentCount = cleanDraft?.lineups[0]?.energySegmentCount || topology.expectedTopology?.blocks?.[0]?.esCountPerArray || 20;
+  res.json({ ...presentation, energySegmentCount });
+});
+
+topologyRouter.put("/topology/presentation", (req, res) => {
+  try {
+    const topology = buildSiteTopologyFromCachedSources();
+    const cleanDraft = listSiteProfileDrafts().find(draft => draft.status === "active" && !draft.conflicts.length && !draft.unresolved.length)
+      || listSiteProfileDrafts().find(draft => !draft.conflicts.length && !draft.unresolved.length);
+    const allowedArrays = new Set((cleanDraft?.lineups.map(lineup => lineup.lineupIndex) || topology.arrays.map(array => array.arrayIndex)).map(Number));
+    const arrays = Array.isArray(req.body?.arrays) ? req.body.arrays : [];
+    if (arrays.length !== allowedArrays.size || arrays.some((array: any) => !allowedArrays.has(Number(array.arrayIndex)))) throw new Error("The saved layout must contain every discovered array exactly once.");
+    if (new Set(arrays.map((array: any) => Number(array.arrayIndex))).size !== arrays.length) throw new Error("The layout contains a duplicate array identity.");
+    const siteKey = cleanDraft?.siteKey || `${topology.siteIdentity.stationCode || "unknown"}:block:${topology.siteIdentity.blockIndex || "unknown"}`;
+    const saved = saveSitePresentation({ schemaVersion: 1, siteKey, updatedAt: new Date().toISOString(), columns: req.body?.columns, arrays, segmentLabels: req.body?.segmentLabels || {} });
+    const energySegmentCount = cleanDraft?.lineups[0]?.energySegmentCount || topology.expectedTopology?.blocks?.[0]?.esCountPerArray || 20;
+    res.json({ ...saved, energySegmentCount });
+  } catch (error: any) { res.status(400).json({ error: error?.message || String(error) }); }
+});
+
+// Read-only discovery capability inventory with current endpoint health.
+topologyRouter.get("/topology/discovery/matrix", (_req, res) => {
+  const sources = topologyIngestionMatrixReport(getEmsSourcesDebugInfo() as any[]);
+  res.json({ generatedAt: new Date().toISOString(), sources });
+});
+
+// Stored drafts never affect the active site until explicitly activated.
+topologyRouter.get("/topology/discovery/drafts", (_req, res) => {
+  res.json({ drafts: listSiteProfileDrafts() });
+});
+
+topologyRouter.post("/topology/discovery/drafts", async (_req, res) => {
+  try {
+    const topology = buildSiteTopologyFromCachedSources();
+    const enriched = await fetchEnrichedDevices();
+    const enrichedFeathers = (enriched.devices || []).map((device: any) => ({
+      ipAddress: device.ip || device.deviceIp,
+      arrayIndex: device.arrayIndex ?? null,
+      stringIndex: device.stringIndex ?? null,
+      segmentLabel: device.segmentLabel ?? device.topology?.segmentLabel ?? null,
+      entityDescription: device.entityDescription ?? null,
+      enclosureLabel: device.entityDescription ?? device.segmentLabel ?? null,
+      sourcePath: "enriched-feather-cache",
+      raw: device
+    })).filter((device: any) => !!device.ipAddress);
+    const featherByIp = new Map(topology.featherDevices.map(device => [device.ipAddress, device]));
+    for (const device of enrichedFeathers) {
+      featherByIp.set(device.ipAddress, { ...(featherByIp.get(device.ipAddress) || {}), ...device });
+    }
+    topology.featherDevices = [...featherByIp.values()];
+    const preliminary = discoverSiteProfile(topology);
+    const existingDraft = listSiteProfileDrafts().find(draft => draft.siteKey === preliminary.siteKey && draft.evidenceFingerprint === preliminary.evidenceFingerprint);
+    if (existingDraft) {
+      res.json({ draft: existingDraft, activated: existingDraft.status === "active", unchanged: true });
+      return;
+    }
+    const draft = discoverSiteProfile(topology, nextSiteProfileRevision(preliminary.siteKey));
+    saveSiteProfileDraft(draft);
+    res.status(201).json({ draft, activated: false });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
+
+topologyRouter.post("/topology/discovery/drafts/:id/activate", (req, res) => {
+  try {
+    const draftCandidate = listSiteProfileDrafts().find(draft => draft.id === req.params.id);
+    if (!draftCandidate) throw new Error(`Site profile draft '${req.params.id}' was not found.`);
+    if (draftCandidate.conflicts.length || draftCandidate.unresolved.length) throw new Error("Draft cannot be activated until topology conflicts and unresolved evidence are cleared.");
+    const active = ProfileStore.getActiveProfile();
+    const lineupIndices = draftCandidate.lineups.map(lineup => lineup.lineupIndex).sort((a, b) => a - b);
+    const segmentCounts = [...new Set(draftCandidate.lineups.map(lineup => lineup.energySegmentCount))];
+    const stringsPerSegment = [...new Set(draftCandidate.lineups.map(lineup => lineup.stringsPerEnergySegment))];
+    if (!lineupIndices.length || segmentCounts.length !== 1 || segmentCounts[0] == null || stringsPerSegment.length !== 1 || stringsPerSegment[0] == null) {
+      throw new Error("Draft does not have a consistent lineup, segment, and string structure.");
+    }
+    const esCount = segmentCounts[0];
+    const stringsPerArray = esCount * stringsPerSegment[0];
+    const existing = active.topologyModel || getDefaultTopologyModel();
+    const arrayStart = Math.min(...lineupIndices);
+    const arrayEnd = Math.max(...lineupIndices);
+    ProfileStore.updateProfile(active.id, {
+      arrayCount: lineupIndices.length,
+      stringsPerArray,
+      topologyModel: {
+        ...existing,
+        type: "custom-manual",
+        arrayStart,
+        arrayEnd,
+        segmentEnd: existing.esSegmentStart + (esCount - 1) * existing.esSegmentStep,
+        esCountPerArray: esCount,
+        blocks: existing.blocks.map((block, index) => index === 0 ? { ...block, arrayStart, arrayEnd, segmentEnd: block.esSegmentStart + (esCount - 1) * block.esSegmentStep, esCountPerArray: esCount } : block)
+      }
+    });
+    const draft = activateSiteProfileDraft(req.params.id);
+    res.json({ draft, profileUpdated: true, rollbackProfileUpdatedAt: active.updatedAt });
+  } catch (error: any) {
+    res.status(409).json({ error: error?.message || String(error) });
+  }
+});
 
 // Legacy Dashboards compatibility
 topologyRouter.get("/site-topology", async (req, res) => {

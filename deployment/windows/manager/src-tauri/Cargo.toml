@@ -1,0 +1,28 @@
+[package]
+name = "greenergy-prizm-manager"
+version = "0.1.0"
+description = "GreEnergy PRIZM Desktop Manager"
+authors = ["GreEnergy Resources LLC"]
+edition = "2021"
+
+[lib]
+name = "greenergy_prizm_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "greenergy-prizm-manager"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sysinfo = "0.33"
+zip = "2"
+chrono = "0.4"
+dirs = "6"

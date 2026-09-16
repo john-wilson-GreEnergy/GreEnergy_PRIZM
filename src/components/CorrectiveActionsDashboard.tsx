@@ -268,6 +268,20 @@ function getFindingsFromPayload(payload: any): CorrectiveFinding[] {
   return [];
 }
 
+function isIgnoredOperationalNotification(finding: any): boolean {
+  const codes = [
+    finding?.nativeFaultCode,
+    finding?.faultCode,
+    finding?.normalizedFaultCode,
+    finding?.correctiveActionCode,
+    finding?.code,
+    finding?.faultId,
+    finding?.id,
+    getFaultCode(finding)
+  ].map((value) => String(value ?? "").trim());
+  return codes.includes("2534") || codes.includes("2561");
+}
+
 
 function asArray(value: any): any[] {
   if (Array.isArray(value)) return value.filter((v) => v !== null && v !== undefined && String(v).trim() !== "");
@@ -668,7 +682,7 @@ function getSuggestedAction(finding: CorrectiveFinding): string {
 
 function getArrayLabel(finding: CorrectiveFinding): string {
   const value = finding?.arrayNumber ?? finding?.evidence?.arrayNumber;
-  return value !== undefined && value !== null ? `A${value}` : "—";
+  return value !== undefined && value !== null ? `Array ${value}` : "—";
 }
 
 function getEquipmentLabel(finding: CorrectiveFinding): string {
@@ -740,6 +754,7 @@ export default function CorrectiveActionsDashboard({ active = true }: { active?:
       }
 
       const nextFindings = mergeCorrectiveFindings(backendFindings, legacyTileFindings, runtimeFeatherFindings)
+        .filter((finding) => !isIgnoredOperationalNotification(finding))
         .slice()
         .sort(compareCorrectiveFindings);
 

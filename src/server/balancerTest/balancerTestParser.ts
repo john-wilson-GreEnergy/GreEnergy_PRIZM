@@ -53,6 +53,8 @@ JSON.parse(line);
         id,
         block: loc.block,
         arrays: loc.arrays,
+        strings: loc.strings,
+        targetScope: loc.targetScope,
         direction,
         state,
         progress,
@@ -70,9 +72,9 @@ JSON.parse(line);
   return results;
 }
 
-export function parseLocationFromTargets(targets: string): { block: string; arrays: string[] } {
+export function parseLocationFromTargets(targets: string): { block: string; arrays: string[]; strings: Array<{array:string;stringNumber:string}>; targetScope:"block"|"array"|"string"|"unknown" } {
   if (!targets) {
-    return { block: "", arrays: [] };
+    return { block: "", arrays: [], strings: [], targetScope:"unknown" };
   }
   if (targets.startsWith("Array ")) {
     const withoutPrefix = targets.replace(/^Array\s+/i, "");
@@ -84,14 +86,20 @@ export function parseLocationFromTargets(targets: string): { block: string; arra
         const split = p.split(":");
         return split[2] || "";
       }).filter(Boolean);
-      return { block, arrays };
+      return { block, arrays, strings: [], targetScope:"array" };
     }
+  } else if (targets.startsWith("String ")) {
+    const entries=targets.split(",").map(entry=>entry.trim().replace(/^String\s+/i,"")).filter(Boolean);
+    const parsed=entries.map(entry=>entry.split(":"));
+    const block=parsed[0]?.[1]||"";
+    const strings=parsed.map(parts=>({array:parts[2]||"",stringNumber:parts[3]||""})).filter(item=>item.array&&item.stringNumber);
+    return {block,arrays:[...new Set(strings.map(item=>item.array))],strings,targetScope:"string"};
   } else if (targets.startsWith("Block ")) {
     const withoutPrefix = targets.replace(/^Block\s+/i, "");
     const block = withoutPrefix.split(":")[1] || "";
-    return { block, arrays: [] };
+    return { block, arrays: [], strings: [], targetScope:"block" };
   }
-  return { block: "", arrays: [] };
+  return { block: "", arrays: [], strings: [], targetScope:"unknown" };
 }
 
 export function parseDateToSeconds(dateStr: string | null | undefined): number | null {

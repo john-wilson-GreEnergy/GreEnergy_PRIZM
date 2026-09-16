@@ -30,6 +30,13 @@ async function runTests() {
   assert.strictEqual(parsedStatuses[1].progress, 50); // 15 of 30
   console.log("  -> Test Case 3: Status parser extracts CellGroups N and progress passed!");
 
+  const stringStatus=parseStatusPayload('{"testId":6,"direction":"Charge","statusMessage":"CellGroups: 1","balancerTestTargets":"String BHE0020:1:3:14","started":true,"finished":false}',30)[0];
+  assert.strictEqual(stringStatus.targetScope,"string");
+  assert.strictEqual(stringStatus.block,"1");
+  assert.deepStrictEqual(stringStatus.arrays,["3"]);
+  assert.deepStrictEqual(stringStatus.strings,[{array:"3",stringNumber:"14"}]);
+  console.log("  -> Test Case 3b: Single-string EMS target is preserved passed!");
+
   // 4. Report parser extracts site/block/array/string/bpc/cell from cellGroupKey
   const rawReportHtml = `
     <html><body>{
@@ -139,6 +146,18 @@ async function runTests() {
   assert.strictEqual(combinedAnalysis.summary.confirmedBalances, 4);
   console.log("  -> Test Case 11: Combined multi-test analysis merges rows passed!");
 
+  // Full-site reports can exceed the engine's spread-argument limit. Exercise the
+  // service aggregation path with the same row count observed in test ID 5.
+  const originalGetReport = BalancerTestService.getReport;
+  const fullSiteRows = Array.from({ length: 134400 }, () => row1);
+  BalancerTestService.getReport = async () => ({ rows: fullSiteRows, raw: {} });
+  const fullSiteAnalysis = await BalancerTestService.getAnalysis([5]);
+  BalancerTestService.getReport = originalGetReport;
+  assert.strictEqual(fullSiteAnalysis.summary.totalCellGroups, 134400);
+  assert.deepStrictEqual(fullSiteAnalysis.rows, []);
+  assert.ok(Buffer.byteLength(JSON.stringify(fullSiteAnalysis)) < 100_000);
+  console.log("  -> Test Case 11b: Full-site report aggregation stays stack-safe and response-bounded passed!");
+
   // 12. capability endpoint returns deploySupported false when no endpoint configured
   process.env.MOCK_DEPLOY_UNCONFIGURED = "true";
   const capsUnconfigured = BalancerTestService.getCapabilities();
@@ -239,6 +258,16 @@ async function runTests() {
   assert.ok(interceptedUrls.some(u => u.includes("trigger/charge.json")));
   assert.ok(interceptedUrls.some(u => u.includes("arrayIndexes=1,2")));
   console.log("  -> Test Case 18: Successful deploy hits correct endpoint and parses testId passed!");
+
+  interceptedUrls.length=0;
+  globalThis.fetch = mockFetch;
+  (global as any).fetch = mockFetch;
+  const stringDeploy=await BalancerTestService.deploy({arrays:[3],strings:[14],targetScope:"string",direction:"charge"});
+  globalThis.fetch = originalFetch;
+  (global as any).fetch = originalGlobalFetch;
+  assert.strictEqual(stringDeploy.accepted,true);
+  assert.ok(interceptedUrls.some(u=>u.includes("arrayIndexes=3")&&u.includes("stringIndexes=14")));
+  console.log("  -> Test Case 19: Single-string deploy uses the documented EMS parameter pair passed!");
 
   console.log("All unit tests completed successfully!");
 }

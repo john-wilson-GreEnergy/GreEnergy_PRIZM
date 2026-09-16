@@ -1,9 +1,7 @@
-import { execFile } from "child_process";
-import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
-import os from "os";
-import { getEmsCachedLastCall } from "../emsTurtleClient";
+import protobuf from "protobufjs";
+import { getEmsCachedBlock, getEmsCachedLastCall } from "../emsTurtleClient";
 import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { getAppInteraction } from "./emsAppInteractionRegistry";
@@ -41,76 +39,52 @@ export interface SetAppStatusResult {
   verificationAttempts?: number;
 }
 
+const EMS_APP_CONTROL_PROTO = `syntax = "proto3";
+package phoenixtongue;
+message Command {
+  string commandId = 1;
+  string originalCommandId = 3;
+  Endpoint commandTarget = 4;
+  Endpoint commandSource = 5;
+  CommandPayload commandPayload = 6;
+  string username = 7;
+}
+message CommandPayload { SetEMSApplicationEnabledStatus setEMSApplicationEnabledStatus = 202; }
+message SetEMSApplicationEnabledStatus {
+  string applicationTypeCode = 1;
+  uint32 applicationPriority = 2;
+  bool enabled = 5;
+}
+message Endpoint {
+  EndpointType endpointType = 1;
+  string stationCode = 2;
+  uint32 blockIndex = 3;
+}
+enum EndpointType { INVALID_COMMAND_TARGET_TYPE = 0; GOBLIN = 1; STATION = 2; BLOCK = 3; }
+`;
+
+const emsAppControlRoot = protobuf.parse(EMS_APP_CONTROL_PROTO).root;
+
 export async function buildSetEmsApplicationEnabledStatusCommand(input: SetAppStatusInput): Promise<{ commandBytes: Buffer; commandId: string }> {
-  const tempDir = os.tmpdir();
-  const outPath = path.join(tempDir, `cmd_${Date.now()}_${Math.random().toString(36).substring(7)}.bin`);
-  
-  const javaHelperPath = path.join(process.cwd(), "src/server/ems/java/BuildEmsAppEnableCommand.java");
-  const username = input.requestedBy || "PRIZM";
-
-  const classDir = process.env.PRIZM_JAVA_HELPER_CLASS_DIR || path.join(tempDir, `prizm_class_dir_${Date.now()}_${Math.random().toString(36).substring(7)}`);
-  const turtleLibGlob = process.env.PRIZM_TURTLE_LIB_CLASSPATH || "/home/john/turtle/WEB-INF/lib/*";
-
-  try {
-    // Ensure classDir exists
-    await fs.mkdir(classDir, { recursive: true });
-
-    // Compile with javac
-    await new Promise<void>((resolve, reject) => {
-      execFile("javac", [
-        "-cp",
-        turtleLibGlob,
-        "-d",
-        classDir,
-        javaHelperPath
-      ], (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(`Java compilation failed: ${err.message}. Stderr: ${stderr}`));
-        } else {
-          resolve();
-        }
-      });
-    });
-
-    // Run compiled class with java
-    let spawnedStdout = "";
-    await new Promise<void>((resolve, reject) => {
-      execFile("java", [
-        "-cp",
-        `${classDir}:${turtleLibGlob}`,
-        "BuildEmsAppEnableCommand",
-        input.stationCode,
-        input.blockIndex.toString(),
-        input.appCode,
-        input.priority.toString(),
-        input.enabled.toString(),
-        username,
-        outPath
-      ], (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(`Java execution failed: ${err.message}. Stderr: ${stderr}`));
-        } else {
-          spawnedStdout = stdout;
-          resolve();
-        }
-      });
-    });
-
-    const commandBytes = await fs.readFile(outPath);
-    const commandId = spawnedStdout.trim() || `gen-${Date.now()}`;
-
-    // Clean up temporary files
-    await fs.unlink(outPath).catch(() => {});
-    await fs.rm(classDir, { recursive: true, force: true }).catch(() => {});
-    
-    return { commandBytes, commandId };
-  } catch (err: any) {
-    // Cleanup on failure
-    await fs.unlink(outPath).catch(() => {});
-    await fs.rm(classDir, { recursive: true, force: true }).catch(() => {});
-    console.error("[DragonAppControl] Java helper build / execution failed:", err);
-    throw new Error(`Failed to compile or build real command protobuf payload: ${err.message}`);
-  }
+  const Command = emsAppControlRoot.lookupType("phoenixtongue.Command");
+  const commandId = randomUUID();
+  const endpoint = { endpointType: 3, stationCode: input.stationCode.trim(), blockIndex: input.blockIndex };
+  const payload = {
+    commandId,
+    commandTarget: endpoint,
+    commandSource: endpoint,
+    commandPayload: {
+      setEMSApplicationEnabledStatus: {
+        applicationTypeCode: input.appCode,
+        applicationPriority: input.priority,
+        enabled: input.enabled,
+      },
+    },
+    username: input.requestedBy?.trim() || "local-prizm",
+  };
+  const validationError = Command.verify(payload);
+  if (validationError) throw new Error(`Protobuf validation failed: ${validationError}`);
+  return { commandBytes: Buffer.from(Command.encode(Command.create(payload)).finish()), commandId };
 }
 
 function writeAuditLog(record: any) {
@@ -126,16 +100,14 @@ function writeAuditLog(record: any) {
 // Verification background polling helper
 async function verifyEmsAppState(
   appCode: string, 
-  targetEnabled: boolean
+  targetEnabled: boolean,
+  baseUrl: string,
 ): Promise<{ 
   status: "VERIFIED_SUCCESS" | "VERIFIED_FAILED" | "VERIFICATION_UNAVAILABLE"; 
   attempts: number; 
   liveEnabled?: boolean; 
   message?: string 
 }> {
-  // Wait at least 5 seconds before first readback to avoid stale pre-command data
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  
   const searchAppInPayload = (obj: any): any => {
     if (!obj || typeof obj !== "object") return null;
     if (Array.isArray(obj)) {
@@ -155,14 +127,13 @@ async function verifyEmsAppState(
     return null;
   };
 
-  const maxAttempts = 15;
-  const url = `http://127.0.0.1:3000/api/local/site-operations/summary?refresh=true&verifyTs=${Date.now()}`;
+  const maxAttempts = 12;
   let lastFoundLiveEnabled: boolean | undefined = undefined;
   let everFoundApp = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await fetch(`${baseUrl}/tools/monitor/ems/blockviewer/data?verifyTs=${Date.now()}-${attempt}`, {
         headers: {
           "Cache-Control": "no-cache",
           "Pragma": "no-cache"
@@ -193,7 +164,7 @@ async function verifyEmsAppState(
     }
 
     if (attempt < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 
@@ -268,13 +239,20 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
 
   const expectedConfirmation = `${input.enabled ? "ENABLE" : "DISABLE"} ${input.appCode}`;
   registry = getAppInteraction(input.appCode);
+
+  if (input.confirmationText !== expectedConfirmation) {
+    logAudit(false, "CONFIRMATION_REQUIRED", "REJECTED");
+    return { success: false, error: "CONFIRMATION_REQUIRED", expectedConfirmationText: expectedConfirmation };
+  }
   
+  const appStateCache = getEmsCachedBlock();
   const lastCallCache = getEmsCachedLastCall();
-  if (!lastCallCache || !lastCallCache.data) {
-    return { success: false, error: "DATA_UNAVAILABLE", message: "Live app data cannot be read (lastCall.json not available)." };
+  if (!appStateCache?.data) {
+    return { success: false, error: "DATA_UNAVAILABLE", message: "Live EMS app data cannot be read from BlockViewer." };
   }
 
-  const blockReport = lastCallCache.data.blockReport || lastCallCache.data;
+  const identityPayload = lastCallCache?.data || appStateCache.data;
+  const blockReport = identityPayload.blockReport || identityPayload;
   const topology = blockReport.topology || {};
   const currentStationCode = topology.stationCode || blockReport.stationCode || "BHE0021";
   const currentBlockIndex = topology.blockIndex || blockReport.blockIndex || 1;
@@ -303,12 +281,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
     return null;
   }
 
-  liveApp = searchApp(lastCallCache.data);
-
-  if (input.confirmationText !== expectedConfirmation) {
-    logAudit(false, "CONFIRMATION_REQUIRED", "REJECTED");
-    return { success: false, error: "CONFIRMATION_REQUIRED", expectedConfirmationText: expectedConfirmation };
-  }
+  liveApp = searchApp(appStateCache.data);
 
   if (!liveApp) {
     logAudit(false, "APP_NOT_FOUND", "REJECTED");
@@ -321,7 +294,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
     return { success: false, error: "PRIORITY_MISMATCH", message: "Requested priority does not match live EMS app priority.", requestedPriority: input.priority, livePriority: livePriority };
   }
 
-  if (registry.interaction !== "enableDisable" || !registry.supportedLocally || registry.interaction === "readOnly") {
+  if (!["enableDisable", "powerControl"].includes(registry.interaction) || !registry.supportedLocally || registry.interaction === "readOnly") {
     logAudit(false, "APP_NOT_SUPPORTED_LOCALLY", "REJECTED");
     return { success: false, error: "APP_NOT_SUPPORTED_LOCALLY", message: "This EMS app is not supported for local enable/disable control.", appCode: input.appCode, interaction: registry.interaction, supportedLocally: registry.supportedLocally };
   }
@@ -392,7 +365,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
 
   if (dispatched) {
     // Perform fresh readback verification
-    const verification = await verifyEmsAppState(input.appCode, input.enabled);
+    const verification = await verifyEmsAppState(input.appCode, input.enabled, baseUrl);
 
     if (verification.status === "VERIFIED_SUCCESS") {
       logAudit(
@@ -416,7 +389,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
         
         try {
           const prizmCache = require("../cache/prizmCache");
-          prizmCache.set("raw__tools_report_ems_lastCall_json", lastCallCache.data, {
+          prizmCache.set("raw__tools_monitor_ems_blockviewer_data", appStateCache.data, {
             isRaw: true,
             rawExt: ".json",
             ttlMs: 15000
@@ -483,4 +456,3 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
     };
   }
 }
-

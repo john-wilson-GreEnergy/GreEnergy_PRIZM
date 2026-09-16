@@ -178,16 +178,14 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
     for (const b of expectedTopology.blocks) {
       for (let arr = b.arrayStart; arr <= b.arrayEnd; arr++) {
         discoveredArrayIndices.add(arr);
-        for (let si = 1; si <= b.esCountPerArray; si++) {
+        const expectedStringCount = Math.max(0, Number(activeProfile?.stringsPerArray) || 0);
+        for (let si = 1; si <= expectedStringCount; si++) {
           const uniqueKey = `${arr}:${si}`;
-          const segment = b.esSegmentStart + (si - 1) * b.esSegmentStep;
-          const ip = buildIpFromStandardTopology(b.basePrefix, arr, segment);
           stringMap.set(uniqueKey, {
             arrayIndex: arr,
             stringIndex: si,
             stringKey: `Array ${arr} String ${si} (Expected - ${b.blockName})`,
             displayKey: `Array ${arr} String ${si}`,
-            ipAddress: ip,
             sourcePath: 'expected_topology'
           });
         }
@@ -231,12 +229,10 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
   // Array Topology
   const arrayMap = new Map<number, PrizmArrayTopology>();
   for (const ai of discoveredArrayIndices) {
-    let stringCountConfigured = 0;
     let bName = "";
     if (expectedTopology) {
       const b = expectedTopology.blocks.find(blk => ai >= blk.arrayStart && ai <= blk.arrayEnd);
       if (b) {
-        stringCountConfigured = b.esCountPerArray;
         bName = b.blockName;
       }
     }
@@ -244,7 +240,7 @@ export function buildSiteTopologyFromCachedSources(): PrizmSiteTopology {
       arrayIndex: ai,
       arrayKey: bName ? `${bName}_ARR_${ai}` : `ARR_${ai}`,
       displayKey: bName ? `${bName} Array ${ai}` : `Array ${ai}`,
-      stringCount: stringCountConfigured || 0,
+      stringCount: 0,
       pcsCount: 0,
       sourcePath: 'discovered_strings',
     });

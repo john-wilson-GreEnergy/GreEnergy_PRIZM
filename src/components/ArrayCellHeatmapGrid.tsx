@@ -253,7 +253,7 @@ export default function ArrayCellHeatmapGrid({ arrayDetailsByArray = {} }: Array
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="e.g. A1-S3, S10, 10, Array 5 String 28..."
+            placeholder="e.g. Array 1 / String 3, String 10, Array 5 String 28..."
             className="w-full bg-prizm-surface-strong border border-prizm-border text-prizm-text text-[11px] p-1.5 rounded outline-none focus:border-prizm-primary placeholder:text-prizm-text-muted/50 placeholder:normal-case font-bold"
           />
         </div>

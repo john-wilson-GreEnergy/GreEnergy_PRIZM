@@ -74,7 +74,7 @@ function runTests() {
     stringNumber: 5,
     compact: true
   });
-  assert.strictEqual(compactLabel, "A5 / ES3 / S5");
+  assert.strictEqual(compactLabel, "Array 5 / ES3 / S5");
   console.log("  -> Compact label formatting passed!");
 
   console.log("All stringToEsMapper tests completed successfully!");

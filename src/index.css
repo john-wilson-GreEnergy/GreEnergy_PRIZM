@@ -20,6 +20,40 @@
   --prizm-sidebar: #F8FAFC;
 }
 
+/* Technician palettes intentionally leave warning, danger, and success colors
+   unchanged so operational state keeps the same meaning in every view. */
+:root[data-prizm-palette="contrast"] {
+  --prizm-bg: #E8EDF3;
+  --prizm-bg-muted: #C7D1DC;
+  --prizm-surface: #FFFFFF;
+  --prizm-surface-strong: #DCE4EC;
+  --prizm-border: #718096;
+  --prizm-text: #07111F;
+  --prizm-text-muted: #263649;
+  --prizm-primary: #08783B;
+  --prizm-primary-strong: #045A2B;
+  --prizm-info: #005FA3;
+  --prizm-data-green: #066B35;
+  --prizm-header: #071827;
+  --prizm-sidebar: #DCE4EC;
+}
+
+:root[data-prizm-palette="daylight"] {
+  --prizm-bg: #F3F8F8;
+  --prizm-bg-muted: #D6E6E6;
+  --prizm-surface: #FFFFFF;
+  --prizm-surface-strong: #E8F3F1;
+  --prizm-border: #9AB8B7;
+  --prizm-text: #102A2D;
+  --prizm-text-muted: #3C5D60;
+  --prizm-primary: #087F67;
+  --prizm-primary-strong: #056451;
+  --prizm-info: #086C9E;
+  --prizm-data-green: #087F50;
+  --prizm-header: #F7FFFE;
+  --prizm-sidebar: #E8F3F1;
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;

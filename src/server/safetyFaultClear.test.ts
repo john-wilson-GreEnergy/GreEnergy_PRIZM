@@ -46,7 +46,7 @@ async function runTests() {
     assert.strictEqual(commFailureEntity?.communicating, false, "ENT_03 properly reports non-communicating");
 
     // Test 5: Protobuf command builder creates a Command
-    const { SAFETY_FAULT_CLEAR_PROTO } = await import("./safetyFaultClear");
+    const { SAFETY_FAULT_CLEAR_PROTO, buildSafetyFaultClearCommand, buildSafetyFaultCandidateSnapshot } = await import("./safetyFaultClear");
     const root = protobuf.parse(SAFETY_FAULT_CLEAR_PROTO).root;
     const CommandMessage = root.lookupType("phoenixtongue.Command");
     const EndpointTypeEnum = root.lookupEnum("phoenixtongue.EndpointType");
@@ -75,6 +75,41 @@ async function runTests() {
     assert.strictEqual(decoded.commandTarget.endpointType, EndpointTypeEnum.values["BLOCK"]);
     assert.strictEqual(decoded.commandPayload.manualClearDeviceFault.entityKey, "ENT_01");
     assert.strictEqual(decoded.username, "local-prizm");
+
+    // Test 6: production builder includes the block identity required by Turtle.
+    const built = buildSafetyFaultClearCommand({
+        stationCode: "BHE0020",
+        blockIndex: 1,
+        entityKey: "OCDK-ST:BHE0020-B:1-OCD:7507",
+        operatorUsername: "test-operator",
+        commandId: "test-command-id",
+    });
+    const builtDecoded = CommandMessage.decode(built.buffer) as any;
+    assert.strictEqual(builtDecoded.commandTarget.endpointType, EndpointTypeEnum.values["BLOCK"]);
+    assert.strictEqual(builtDecoded.commandTarget.stationCode, "BHE0020");
+    assert.strictEqual(builtDecoded.commandTarget.blockIndex, 1);
+    assert.strictEqual(builtDecoded.commandSource.endpointType, EndpointTypeEnum.values["BLOCK"]);
+    assert.strictEqual(builtDecoded.commandSource.stationCode, "BHE0020");
+    assert.strictEqual(builtDecoded.commandSource.blockIndex, 1);
+    assert.strictEqual(builtDecoded.commandPayload.manualClearDeviceFault.entityKey, "OCDK-ST:BHE0020-B:1-OCD:7507");
+
+    // Test 7: Summary and Safety Clear consume the same LastCall-style candidate shape.
+    const snapshot = buildSafetyFaultCandidateSnapshot({}, {
+        topologyReport: {
+            topologyNodes: [{
+                entityKey: "OCDK-ST:BHE0020-B:1-OCD:7507",
+                entityType: "OpenClosedDetector",
+                statusMessage: "Hydrogen Alarm: <span>Requires Manual clear</span>",
+                allowFaultReset: true,
+                enabled: true,
+                ready: true,
+                communicating: true,
+            }]
+        }
+    });
+    assert.strictEqual(snapshot.eligible.length, 1);
+    assert.strictEqual(snapshot.eligible[0].entityKeyToken, "OCDK_ST_BHE0020_B_1_OCD_7507");
+    assert.strictEqual(snapshot.eligible[0].statusMessageText, "Hydrogen Alarm: Requires Manual clear");
 
     console.log("All tests passed!");
 }

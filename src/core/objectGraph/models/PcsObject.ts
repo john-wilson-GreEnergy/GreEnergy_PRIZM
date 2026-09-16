@@ -6,5 +6,5 @@ export interface PcsObject extends CanonicalObject { readonly kind: 'pcs'; reado
 export function pcsCanonicalKey(siteId: string, arrayIndex: number, pcsIndex: number): string { return `pcs:${normalizeSiteIdentifier(siteId)}:${positiveIndex(arrayIndex, 'arrayIndex')}:${positiveIndex(pcsIndex, 'pcsIndex')}`; }
 export function createPcsObject(input: { siteId: string; arrayIndex: number; pcsIndex: number; displayName?: string; metadata?: Readonly<Metadata> }, context?: ObjectCreationContext): PcsObject {
   const siteId = normalizeSiteIdentifier(input.siteId); const arrayIndex = positiveIndex(input.arrayIndex, 'arrayIndex'); const pcsIndex = positiveIndex(input.pcsIndex, 'pcsIndex');
-  return createCanonicalObject<PcsObject>({ kind: 'pcs', canonicalKey: pcsCanonicalKey(siteId, arrayIndex, pcsIndex), displayName: input.displayName ?? `A${arrayIndex}-PCS${pcsIndex}`, metadata: input.metadata, properties: { siteId, arrayIndex, pcsIndex }, context });
+  return createCanonicalObject<PcsObject>({ kind: 'pcs', canonicalKey: pcsCanonicalKey(siteId, arrayIndex, pcsIndex), displayName: input.displayName ?? `Array ${arrayIndex} / PCS ${pcsIndex}`, metadata: input.metadata, properties: { siteId, arrayIndex, pcsIndex }, context });
 }

@@ -7,7 +7,25 @@ coverage/
 .env*
 !.env.example
 .prizm-cache/
+.prizm-data/
+.prizm-history/
 reports/generated/
+
+# Local runtime output and site-specific operational state
+data/audit/
+data/cache/
+data/ssh/
+data/hvac_simulation_audit.json
+data/active-topology-profile.json
+data/prizm_connection_profiles.json
+data/topology-profiles/topology-prof-*.json
+data/iologik-assets/*
+
+# Local assessment rollback snapshots
+src/components/*.rollback-*.tsx
+
+# Generated platform packages
+deployment/windows/artifacts/
 
 # PRIZM local runtime cache/history
 .prizm-cache/

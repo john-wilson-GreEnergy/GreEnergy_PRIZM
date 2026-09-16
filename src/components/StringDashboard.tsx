@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock } from "lucide-react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock, CheckCircle2, XCircle, TriangleAlert, Activity, X } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
+import StringCommunicationIndicator from "./StringCommunicationIndicator";
 import { formatTemperatureF } from "../utils/temperatureScale";
 
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import { normalizeVoltage, normalizeDeltaVoltage } from '../lib/voltageNormalizer';
-import RotationModal, { RotationTarget } from './RotationModal';
+import type { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
-import ContactorControlModal, { ContactorTarget } from './ContactorControlModal';
 import { useSiteData } from '../context/SiteDataContext';
 
 function getContactorVisualState(row: any) {
@@ -150,39 +150,159 @@ class StringDetailErrorBoundary extends React.Component<StringDetailErrorBoundar
 
 export default function StringDashboard({ active = true }: { active?: boolean }) {
   const { snapshot, isInitialLoading, refreshNow } = useSiteData();
+  const [fastStringsView, setFastStringsView] = useState<any | null>(null);
+  const [contactorOverlays, setContactorOverlays] = useState<Map<string, any>>(() => new Map());
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const load = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/local/site-data/strings-fast", { cache: "no-store" });
+        if (!response.ok) return;
+        const next = await response.json();
+        if (!cancelled && Array.isArray(next?.strings) && next.strings.length > 0) {
+          setFastStringsView((previous: any) => previous?.cycleId === next.cycleId ? previous : next);
+        }
+      } catch {
+        // Preserve the last known good fast publication.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void load();
+    // Stream changed rows while this page is visible. The slower GET remains a
+    // recovery/snapshot path rather than forcing a 320-row render every 1.5s.
+    const stream = new EventSource("/api/local/site-data/strings-stream");
+    stream.addEventListener("strings", (event) => {
+      try {
+        const publication = JSON.parse((event as MessageEvent).data);
+        const changes = Array.isArray(publication?.changes) ? publication.changes : [];
+        if (!changes.length) return;
+        setFastStringsView((previous: any) => {
+          if (!previous || !Array.isArray(previous.strings)) return previous;
+          const byKey = new Map(previous.strings.map((row: any) => [
+            `${Number(row.arrayNumber ?? row.arrayIndex)}:${Number(row.stringNumber ?? row.stringIndex)}`,
+            row
+          ]));
+          for (const change of changes) byKey.set(change.key, change.row);
+          return { ...previous, brokerVersion: publication.version, capturedAt: publication.capturedAt, strings: [...byKey.values()] };
+        });
+      } catch {
+        // The periodic snapshot request below repairs malformed/lost events.
+      }
+    });
+    const timer = window.setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      stream.close();
+    };
+  }, [active]);
   
   const data = useMemo(() => {
-    if (!snapshot) return null;
-    const stringSummary = snapshot.rollups?.stringSummary || {};
+    if (!snapshot && !fastStringsView) return null;
+    const stringSummary = snapshot?.rollups?.stringSummary || {};
     const stringSummarySummary = stringSummary.summary || {};
     const stringSummaryRollups = stringSummary.rollups || {};
+    const snapshotRows = snapshot?.normalized?.strings || [];
+    const fastRows = Array.isArray(fastStringsView?.strings) ? fastStringsView.strings : [];
+    const snapshotByIdentity = new Map(
+      snapshotRows.map((row: any) => [
+        `${Number(row.arrayNumber ?? row.arrayIndex)}:${Number(row.stringNumber ?? row.stringIndex)}`,
+        row
+      ])
+    );
+    const baseRows = fastRows.length
+      ? fastRows.map((row: any) => {
+          const snapshotRow: any = snapshotByIdentity.get(
+            `${Number(row.arrayNumber ?? row.arrayIndex)}:${Number(row.stringNumber ?? row.stringIndex)}`
+          ) || {};
+          const merged = { ...snapshotRow, ...row };
+
+          // The fast lane arrives before the richer battery-pack report. Keep
+          // the newest fast electrical values while retaining authoritative
+          // balancing enrichment from the completed snapshot.
+          if (row.balanceTelemetryAvailable !== true && snapshotRow.balanceTelemetryAvailable === true) {
+            merged.balanceTelemetryAvailable = true;
+            merged.balanceCount = snapshotRow.balanceCount;
+            merged.balanceActivity = snapshotRow.balanceActivity;
+            merged.balanceMode = snapshotRow.balanceMode;
+            merged.balanceModeRaw = snapshotRow.balanceModeRaw;
+            merged.balanceProvidedVoltageTarget = snapshotRow.balanceProvidedVoltageTarget;
+            merged.balanceDetails = snapshotRow.balanceDetails;
+          }
+          return merged;
+        })
+      : snapshotRows;
+    // A targeted post-command StringViewer reading is newer than the periodic
+    // full-site publication. Keep it overlaid briefly so an older coordinator
+    // cycle cannot visually reverse a contactor that has already moved.
+    const rows = baseRows.map((row: any) => {
+      const key = `${Number(row.arrayNumber ?? row.arrayIndex)}:${Number(row.stringNumber ?? row.stringIndex)}`;
+      const state = contactorOverlays.get(key);
+      if (!state) return row;
+      const closed = state.positiveContactorClosed === true && state.negativeContactorClosed === true;
+      const open = state.positiveContactorClosed === false && state.negativeContactorClosed === false;
+      return {
+        ...row,
+        contactor: state,
+        positiveContactorClosed: state.positiveContactorClosed,
+        negativeContactorClosed: state.negativeContactorClosed,
+        contactorsCloseExpected: state.contactorsCloseExpected,
+        dcBusVoltage: state.dcBusVoltage,
+        busVoltage: state.dcBusVoltage,
+        busVoltageVdc: state.dcBusVoltage,
+        bothContactorsClosed: closed ? true : open ? false : null,
+        contactorStatus: closed ? "CLOSED" : open ? "OPEN" : "PARTIAL",
+        contactorState: closed ? "CLOSED" : open ? "OPEN" : "PARTIAL",
+        stringContactorState: closed ? "CLOSED" : open ? "OPEN" : "PARTIAL",
+        actualContactorStateSource: "post-command-stringviewer"
+      };
+    });
+    const fastSummary = fastStringsView?.summary || {};
+    const fastRollups = fastStringsView?.rollups || {};
+    const mergedFastSummary = {
+      ...stringSummarySummary,
+      ...fastSummary,
+      knownBpcCount: fastSummary.knownBpcCount || stringSummarySummary.knownBpcCount,
+      totalBpcs: fastSummary.totalBpcs || stringSummarySummary.totalBpcs,
+      expectedBpcCount: fastSummary.expectedBpcCount || stringSummarySummary.expectedBpcCount,
+      warningBpcs: fastSummary.warningBpcs || stringSummarySummary.warningBpcs,
+      alarmBpcs: fastSummary.alarmBpcs || stringSummarySummary.alarmBpcs
+    };
+    const mergedFastRollups = {
+      ...stringSummaryRollups,
+      ...fastRollups,
+      knownBpcCount: fastRollups.knownBpcCount || stringSummaryRollups.knownBpcCount,
+      expectedBpcCount: fastRollups.expectedBpcCount || stringSummaryRollups.expectedBpcCount,
+      warningBpcs: fastRollups.warningBpcs || stringSummaryRollups.warningBpcs,
+      alarmBpcs: fastRollups.alarmBpcs || stringSummaryRollups.alarmBpcs
+    };
     return {
-      strings: snapshot.normalized?.strings || [],
-      summary: stringSummarySummary,
-      rollups: stringSummaryRollups,
-      buckets: stringSummary.buckets || {},
-      sourceHealth: stringSummary.sourceHealth || snapshot.rollups?.sourceHealth || [],
-      emsBaseUrl: snapshot.siteIdentity?.emsBaseUrl || "",
-      durationMs: snapshot.debug?.lastPollDurationMs || 0,
-      stationCode: snapshot.siteIdentity?.stationCode || "",
-      blockIndex: snapshot.siteIdentity?.blockIndex || 1,
-      cache: snapshot.liveStatus ? {
+      strings: rows,
+      summary: fastRows.length ? mergedFastSummary : stringSummarySummary,
+      rollups: fastRows.length ? mergedFastRollups : stringSummaryRollups,
+      buckets: fastRows.length ? (fastStringsView.buckets || {}) : (stringSummary.buckets || {}),
+      sourceHealth: fastRows.length ? (fastStringsView.sourceHealth || []) : (stringSummary.sourceHealth || snapshot?.rollups?.sourceHealth || []),
+      emsBaseUrl: snapshot?.siteIdentity?.emsBaseUrl || "",
+      durationMs: fastRows.length ? (fastStringsView.durationMs || 0) : (snapshot?.debug?.lastPollDurationMs || 0),
+      stationCode: snapshot?.siteIdentity?.stationCode || "",
+      blockIndex: snapshot?.siteIdentity?.blockIndex || 1,
+      cache: snapshot?.liveStatus ? {
         sourceOk: snapshot.liveStatus.state !== "OFFLINE",
         isStale: snapshot.liveStatus.state === "PARTIAL" || snapshot.liveStatus.stale === true,
         lastUpdatedAt: snapshot.liveStatus.lastUpdated
       } : null
     };
-  }, [snapshot]);
-
-  const [notificationRollupsByString, setNotificationRollupsByString] = useState<Record<string, any>>({});
-  const [liveStringRows, setLiveStringRows] = useState<any[]>([]);
-  const [liveStringRowsReady, setLiveStringRowsReady] = useState(false);
-  const [liveStringRowsLoading, setLiveStringRowsLoading] = useState(false);
-  const [liveStringRowsLastUpdated, setLiveStringRowsLastUpdated] = useState<string | null>(null);
+  }, [snapshot, fastStringsView, contactorOverlays]);
 
   const [loading, setLoading] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(15000);
-  
   const [search, setSearch] = useState("");
   const [arrayFilter, setArrayFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
@@ -196,102 +316,25 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   
   const [rotationCapabilities, setRotationCapabilities] = useState<any>(null);
-  const [rotationModalOpen, setRotationModalOpen] = useState(false);
-  const [rotationModalAction, setRotationModalAction] = useState<'in' | 'out'>('in');
-  const [rotationModalTargets, setRotationModalTargets] = useState<any[]>([]);
+  const [commandPending, setCommandPending] = useState<string | null>(null);
+  // State updates are asynchronous. Keep an immediate lock as well so a
+  // double-click cannot publish the same equipment command twice before the
+  // pending-state render disables the controls.
+  const commandPendingRef = useRef(false);
+  const [commandNotice, setCommandNotice] = useState<{ status: "success" | "warning" | "error"; title: string; detail: string } | null>(null);
   
   const [balancingModalOpen, setBalancingModalOpen] = useState(false);
 
   const [isAdvancedMode, setIsAdvancedMode] = useState(() => localStorage.getItem("prizm_advanced_mode") === "true");
-  const [contactorModalOpen, setContactorModalOpen] = useState(false);
-  const [contactorModalAction, setContactorModalAction] = useState<"open" | "close">("open");
-  const [contactorModalTargets, setContactorModalTargets] = useState<any[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadNotificationRollups = async () => {
-      try {
-        const res = await fetch("/api/local/site-data/notifications/rollups");
-        if (!res.ok) return;
-        const json = await res.json();
-        const byString = json?.grouped?.byString || json?.byString || json?.raw?.byString || {};
-        if (!cancelled) setNotificationRollupsByString(byString);
-      } catch (err) {
-        console.warn("[StringDashboard] notification rollups fetch failed", err);
-      }
-    };
-
-    loadNotificationRollups();
-    const timer = window.setInterval(loadNotificationRollups, 10000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const loadLiveStringRows = async (force = false) => {
-    if (!active && !force) return;
-    setLiveStringRowsLoading(true);
-
-    try {
-      const res = await fetch("/api/local/strings/dashboard?maxAgeMs=5000");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const json = await res.json();
-      const rows = Array.isArray(json?.strings) ? json.strings : [];
-
-      if (rows.length >= 300) {
-        setLiveStringRows(rows);
-        setLiveStringRowsReady(true);
-        setLiveStringRowsLastUpdated(new Date().toISOString());
-      } else if (!liveStringRowsReady) {
-        setLiveStringRows(rows);
-      }
-    } catch (err) {
-      console.warn("[StringDashboard] live string rows fetch failed", err);
-    } finally {
-      setLiveStringRowsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!active) return;
-
-    let cancelled = false;
-
-    const run = async () => {
-      if (cancelled) return;
-      await loadLiveStringRows(false);
-    };
-
-    run();
-    const timer = window.setInterval(run, 10000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [active, liveStringRowsReady]);
-
   useEffect(() => {
     localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
   }, [isAdvancedMode]);
 
-  useEffect(() => {
-    if (!active || refreshInterval === 0) return;
-    const iv = setInterval(() => {
-        refreshNow(false);
-    }, refreshInterval);
-    return () => clearInterval(iv);
-  }, [active, refreshInterval, refreshNow]);
-  
   useEffect(() => { fetch('/api/local/capabilities').then(r => r.json()).then(setRotationCapabilities).catch(()=>{}); }, []);
 
   useEffect(() => {
-    if (!isInitialLoading) setLoading(false);
-  }, [isInitialLoading]);
+    if (!isInitialLoading || fastStringsView?.strings?.length > 0) setLoading(false);
+  }, [isInitialLoading, fastStringsView]);
 
   useEffect(() => {
     if (active) {
@@ -316,12 +359,11 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     }
   }, [data?.strings]); // Intentionally omitting selectedString to avoid infinite loop on update
 
-  const handleRotationConfirm = async (req: any) => {
-    await fetch("/api/local/strings/rotation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
-    setRotationModalOpen(false);
-    setSelectedIds(new Set());
-    handleManualRefresh();
-  };
+  useEffect(() => {
+    if (!commandNotice) return;
+    const timer = window.setTimeout(() => setCommandNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [commandNotice]);
 
   const handleBalancingPreflight = async (req: any) => {
       const res = await fetch("/api/local/balancing/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
@@ -338,36 +380,22 @@ export default function StringDashboard({ active = true }: { active?: boolean })
           const err = await res.json();
           throw new Error(err.error || "Failed to execute balancing");
       }
+      const result = await res.json();
+      if (result?.success !== true) {
+          const failed = Array.isArray(result?.results) ? result.results.filter((item: any) => item?.accepted !== true) : [];
+          throw new Error(failed.map((item: any) => item?.error || item?.responseText || 'EMS rejected a balancing target').join('; ') || 'One or more balancing targets were not accepted');
+      }
+      const statuses = Array.isArray(result?.results) ? result.results.map((item: any) => item?.readbackStatus).filter(Boolean) : [];
+      setCommandNotice({
+          status: result?.readbackConfirmed === true ? "success" : "warning",
+          title: result?.readbackConfirmed === true ? "Balancing verified" : "Balancing accepted — activity pending",
+          detail: statuses.join('; ') || 'EMS accepted the balancing command; direct activity telemetry is not yet conclusive.'
+      });
       setBalancingModalOpen(false);
       setSelectedIds(new Set());
-      handleManualRefresh();
+      void handleManualRefresh();
+      return result;
   };
-
-  function openContactorModal(action: "open" | "close") {
-    const targets = getSelectedTargets();
-    if (!targets.length) return;
-    setContactorModalAction(action);
-    setContactorModalTargets(targets);
-    setContactorModalOpen(true);
-  }
-
-  async function handleContactorConfirm(req: any) {
-    const res = await fetch("/api/local/strings/contactors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req)
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to execute contactor control");
-    }
-
-    const result = await res.json();
-    setSelectedIds(new Set());
-    await handleManualRefresh();
-    return result;
-  }
 
   const getSelectedTargets = () => {
     // Array optimization
@@ -375,20 +403,88 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     const grouped = new Map<number, number[]>();
     for (const id of selectedIds) {
         const s = strings.find((st:any) => st.id === id);
-        if (s && s.arrayNumber) {
-           if (!grouped.has(s.arrayNumber)) grouped.set(s.arrayNumber, []);
-           grouped.get(s.arrayNumber)!.push(s.stringNumber);
+        const arrayNumber = Number(s?.arrayNumber ?? s?.arrayIndex);
+        const stringNumber = Number(s?.stringNumber ?? s?.stringIndex);
+        if (Number.isInteger(arrayNumber) && arrayNumber > 0 && Number.isInteger(stringNumber) && stringNumber > 0) {
+           if (!grouped.has(arrayNumber)) grouped.set(arrayNumber, []);
+           grouped.get(arrayNumber)!.push(stringNumber);
         }
     }
     for (const [arr, strs] of grouped.entries()) {
-        const totalInArr = strings.filter((fs:any) => fs.arrayNumber === arr).length;
-        if (strs.length === totalInArr) {
+        const configuredStringsPerArray = Number(data?.profile?.stringsPerArray ?? data?.stringsPerArray) || 40;
+        const uniqueStrings = [...new Set(strs)].sort((a, b) => a - b);
+        if (uniqueStrings.length >= configuredStringsPerArray) {
              targets.push({ array: arr, allStrings: true });
         } else {
-             strs.forEach((st:any) => targets.push({ array: arr, string: st }));
+             uniqueStrings.forEach((st:any) => targets.push({ array: arr, string: st }));
         }
     }
     return targets;
+  };
+
+  const sendOneClickCommand = async (kind: "rotation" | "contactors", action: "in" | "out" | "open" | "close") => {
+    const targets = getSelectedTargets();
+    if (!targets.length || commandPending || commandPendingRef.current) return;
+    commandPendingRef.current = true;
+    const commandKey = `${kind}-${action}`;
+    const targetCount = selectedIds.size;
+    setCommandPending(commandKey);
+    setCommandNotice(null);
+    try {
+      const commandId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const body = kind === "rotation"
+        ? { commandId, targets, action, reason: "Technician one-click operation", note: "Sent from String List quick controls", confirmed: true }
+        : { commandId, targets, action, ignoreLowCgVoltAlarm: false, ignoreHighCgVoltAlarm: false, confirmed: true, reason: "Technician one-click operation", note: "Sent from String List quick controls" };
+      const response = await fetch(`/api/local/strings/${kind}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || result?.message || "Command was not accepted");
+      const commandResults = Array.isArray(result?.results) ? result.results : [];
+      const rejectedCount = commandResults.filter((item: any) => item?.accepted === false || item?.success === false).length;
+      const targetLabel = (item: any) => item?.target?.allStrings
+        ? `Array ${item.target.array}`
+        : `Array ${item?.target?.array ?? "?"} / String ${item?.target?.string ?? "?"}`;
+      if (rejectedCount > 0) {
+        const rejected = commandResults.find((item: any) => item?.accepted === false || item?.success === false);
+        throw new Error(`${targetLabel(rejected)} was not accepted: ${rejected?.error || rejected?.responseText || "controller request failed"}`);
+      }
+      if (result?.success !== true) {
+        const failedReadbacks = commandResults
+          .filter((item: any) => item?.readbackConfirmed !== true)
+          .map((item: any) => `${targetLabel(item)}: ${item?.readbackStatus || "requested state was not verified"}`);
+        setCommandNotice({
+          status: "warning",
+          title: "Command accepted — verification incomplete",
+          detail: failedReadbacks.join("; ") || "EMS accepted the command, but fresh physical feedback has not fully confirmed it yet."
+        });
+        return;
+      }
+      if (kind === "contactors") {
+        const next = new Map(contactorOverlays);
+        for (const item of commandResults) {
+          const state = item?.readbackState;
+          if (state && item?.readbackConfirmed === true) {
+            next.set(`${Number(state.arrayNumber)}:${Number(state.stringNumber)}`, state);
+          }
+        }
+        setContactorOverlays(next);
+        window.setTimeout(() => setContactorOverlays(new Map()), 10_000);
+      }
+      const label = kind === "rotation" ? `Rotation ${action.toUpperCase()}` : `${action === "open" ? "Open" : "Close"} contactors`;
+      setCommandNotice({ status: "success", title: "Command sent successfully", detail: `${label} sent for ${targetCount} selected string${targetCount === 1 ? "" : "s"}.` });
+      setSelectedIds(new Set());
+      // The verified targeted row is rendered immediately above. Reconcile the
+      // rest of the site without blocking the command confirmation.
+      void refreshNow(true).catch(() => undefined);
+    } catch (error: any) {
+      setCommandNotice({ status: "error", title: "Command failed", detail: error?.message || "The command could not be sent." });
+    } finally {
+      commandPendingRef.current = false;
+      setCommandPending(null);
+    }
   };
 
 const handleManualRefresh = async () => {
@@ -402,9 +498,11 @@ const handleManualRefresh = async () => {
       }
   };
 
-  const snapshotStrings = data?.strings || [];
-  const strings = liveStringRowsReady && liveStringRows.length ? liveStringRows : snapshotStrings;
-  const stringRowsAreWarming = !liveStringRowsReady && snapshotStrings.length > 0;
+  // The coordinator snapshot is the sole authority for rows and rollups. Mixing
+  // the legacy dashboard route with a different snapshot cycle caused visibly
+  // incorrect rows and summary totals.
+  const strings = data?.strings || [];
+  const stringRowsAreWarming = false;
 
   const getStringContactorClosedState = (row: any): boolean | null => {
     const positiveFeedback =
@@ -655,6 +753,44 @@ const handleManualRefresh = async () => {
       return true;
     });
   }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search]);
+
+  const filteredByArray = useMemo(() => {
+    const grouped = new Map<number, any[]>();
+    for (const row of filtered) {
+      const arrayNumber = Number(row.arrayNumber ?? row.arrayIndex);
+      const rows = grouped.get(arrayNumber);
+      if (rows) rows.push(row);
+      else grouped.set(arrayNumber, [row]);
+    }
+    return grouped;
+  }, [filtered]);
+
+  // Keep selection accounting linear in the number of displayed strings.
+  // The legacy path remains available while render parity is validated.
+  const fastSelectionAccounting = new URLSearchParams(window.location.search).get("fastStringRender") !== "off";
+  const selectedCountByArray = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const row of filtered) {
+      if (!selectedIds.has(row.id)) continue;
+      const arrayNumber = Number(row.arrayNumber ?? row.arrayIndex);
+      counts.set(arrayNumber, (counts.get(arrayNumber) || 0) + 1);
+    }
+    return counts;
+  }, [filtered, selectedIds]);
+
+  const filteredSelectedCount = filtered.reduce(
+    (count: number, row: any) => count + (selectedIds.has(row.id) ? 1 : 0),
+    0
+  );
+  const areAllFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
+  const areSomeFilteredSelected = filteredSelectedCount > 0 && !areAllFilteredSelected;
+
+  const toggleAllFilteredStrings = () => {
+    const next = new Set(selectedIds);
+    if (areAllFilteredSelected) filtered.forEach((row: any) => next.delete(row.id));
+    else filtered.forEach((row: any) => next.add(row.id));
+    setSelectedIds(next);
+  };
 
   const downloadCsv = () => {
     if (filtered.length === 0) return;
@@ -920,13 +1056,6 @@ const handleManualRefresh = async () => {
             <option value="warnings">Warnings</option>
             <option value="alarms">Alarms</option>
           </select>
-          <select value={refreshInterval} onChange={e => setRefreshInterval(Number(e.target.value))} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
-            <option value={0}>Refresh: Paused</option>
-            <option value={5000}>Refresh: 5s</option>
-            <option value={10000}>Refresh: 10s</option>
-            <option value={30000}>Refresh: 30s</option>
-            <option value={60000}>Refresh: 60s</option>
-          </select>
           <button onClick={downloadCsv} title="Export CSV" className="bg-white/5 hover:bg-white/10 text-prizm-text border border-prizm-border px-1.5 py-0.5 rounded transition-colors cursor-pointer shrink-0">
             <Download size={14} />
           </button>
@@ -949,69 +1078,72 @@ const handleManualRefresh = async () => {
 
 </div>
       </div>
-      {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-1.5 py-0.5 bg-[#001a1a] border-x border-b border-prizm-border shadow-md z-[60] relative saturate-150">
-           <div className="flex items-center gap-4">
-              <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
+      <div className="sticky top-[64px] flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-[#001a1a]/95 text-slate-100 backdrop-blur border-x border-b border-teal-700 shadow-md z-[75] saturate-150">
+           <div className="flex flex-wrap items-center gap-3">
+              <span className={`text-xs font-mono font-bold uppercase tracking-widest ${selectedIds.size > 0 ? "text-emerald-300" : "text-slate-100"}`}>
+                {selectedIds.size > 0 ? `${selectedIds.size} Selected` : "Select strings to control"}
+              </span>
+              <button
+                onClick={() => setSelectedIds(new Set(filtered.map((row: any) => row.id)))}
+                disabled={filtered.length === 0}
+                className="text-[10px] text-cyan-300 hover:text-white uppercase tracking-widest underline decoration-cyan-300/50 underline-offset-4 transition-colors disabled:opacity-60"
+              >
+                Select Visible ({filtered.length})
+              </button>
               <button 
                  onClick={() => setSelectedIds(new Set())}
-                 className="text-[10px] text-prizm-text-muted hover:text-white uppercase tracking-widest underline decoration-prizm-text-muted/30 underline-offset-4 transition-colors"
+                 disabled={selectedIds.size === 0}
+                 className="text-[10px] text-slate-200 hover:text-white uppercase tracking-widest underline decoration-slate-300/50 underline-offset-4 transition-colors disabled:opacity-60"
               >
                  Clear
               </button>
            </div>
-           <div className="flex items-center gap-2" title={!rotationCapabilities?.strings?.single ? "String Rotation Control capability not verified on local EMS" : ""}>
+           <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[9px] uppercase tracking-widest text-slate-100 font-bold">Rotation</span>
               <button
-                  disabled={!rotationCapabilities?.strings?.single}
-                  onClick={() => {
-                     setRotationModalAction('in');
-                     setRotationModalTargets(getSelectedTargets());
-                     setRotationModalOpen(true);
-                  }}
+                  disabled={selectedIds.size === 0 || !rotationCapabilities?.strings?.single || !!commandPending}
+                  title={!rotationCapabilities?.strings?.single ? "String rotation capability is not verified on this EMS" : "Place selected strings in rotation"}
+                  onClick={() => sendOneClickCommand("rotation", "in")}
                   className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                  Set In Rotation
+                  {commandPending === "rotation-in" ? <><Activity size={11} className="mr-1 inline animate-spin"/>Sending</> : "Set In Rotation"}
               </button>
               <button
-                  disabled={!rotationCapabilities?.strings?.single}
-                  onClick={() => {
-                     setRotationModalAction('out');
-                     setRotationModalTargets(getSelectedTargets());
-                     setRotationModalOpen(true);
-                  }}
+                  disabled={selectedIds.size === 0 || !rotationCapabilities?.strings?.single || !!commandPending}
+                  title={!rotationCapabilities?.strings?.single ? "String rotation capability is not verified on this EMS" : "Take selected strings out of rotation"}
+                  onClick={() => sendOneClickCommand("rotation", "out")}
                   className="px-3 py-1 bg-slate-500/20 text-slate-300 border border-slate-500/50 hover:bg-slate-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                  Set Out Rotation
+                  {commandPending === "rotation-out" ? <><Activity size={11} className="mr-1 inline animate-spin"/>Sending</> : "Set Out Rotation"}
+              </button>
+              <span className="h-5 w-px bg-prizm-border mx-1" />
+              <span className="text-[9px] uppercase tracking-widest text-slate-100 font-bold">Contactors</span>
+              <button
+                  disabled={selectedIds.size === 0 || !!commandPending}
+                  onClick={() => sendOneClickCommand("contactors", "open")}
+                  className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Open selected string contactors through Phoenix BMS"
+              >
+                  {commandPending === "contactors-open" ? <><Activity size={11} className="mr-1 inline animate-spin"/>Sending</> : "Open Contactors"}
               </button>
               <button
-                  onClick={() => {
-                     setBalancingModalOpen(true);
-                  }}
+                  disabled={selectedIds.size === 0 || !!commandPending}
+                  onClick={() => sendOneClickCommand("contactors", "close")}
+                  className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Close selected string contactors through Phoenix BMS"
+              >
+                  {commandPending === "contactors-close" ? <><Activity size={11} className="mr-1 inline animate-spin"/>Sending</> : "Close Contactors"}
+              </button>
+              <span className="h-5 w-px bg-prizm-border mx-1" />
+              <button
+                  disabled={selectedIds.size === 0}
+                  onClick={() => setBalancingModalOpen(true)}
                   className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                   Set Balancing
               </button>
-              <button
-                  onClick={() => openContactorModal("open")}
-                  className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
-                  title="Open selected string contactors through Phoenix BMS"
-              >
-                  Open Contactors
-              </button>
-              <button
-                  onClick={() => openContactorModal("close")}
-                  className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30 rounded text-[10px] uppercase font-bold tracking-widest transition-colors cursor-pointer"
-                  title="Close selected string contactors through Phoenix BMS"
-              >
-                  Close Contactors
-              </button>
-              {isAdvancedMode && (
-                 <>
-                 </>
-              )}
            </div>
-        </div>
-      )}
+      </div>
       {/* Main Strings Table Engine */}
       <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
          <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
@@ -1019,7 +1151,18 @@ const handleManualRefresh = async () => {
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
                   <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-[30px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[54px] sm:min-w-[64px]">ARR</th>
-                  <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] w-[30px]"></th>
+                  <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-[84px] sm:left-[94px] bg-prizm-surface-strong z-[80] w-[30px] text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all displayed strings"
+                      title={areAllFilteredSelected ? "Clear all displayed strings" : `Select all ${filtered.length} displayed strings`}
+                      className="accent-prizm-primary w-3 h-3 cursor-pointer"
+                      checked={areAllFilteredSelected}
+                      disabled={filtered.length === 0}
+                      ref={el => { if (el) el.indeterminate = areSomeFilteredSelected; }}
+                      onChange={toggleAllFilteredStrings}
+                    />
+                  </th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border font-bold sticky top-[102px] left-[114px] sm:left-[124px] bg-prizm-surface-strong z-[80] whitespace-nowrap min-w-[48px]">STR</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Contactors</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Rotation</th>
@@ -1037,7 +1180,8 @@ const handleManualRefresh = async () => {
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Max Temp (°F)</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Δ Temp (°F)</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL CT</th>
-                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL MODE</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">BAL ACTIVITY</th>
+                  <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">CONFIG MODE</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Location</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border sticky top-[102px] bg-prizm-surface-strong z-[50]">Fans</th>
                   <th className="px-1.5 py-0.5 border-b border-prizm-border text-right sticky top-[102px] bg-prizm-surface-strong z-[50]">Timestamp</th>
@@ -1051,17 +1195,13 @@ const handleManualRefresh = async () => {
               ) : (
                 filtered.map((s:any, idx: number) => {
                   const isArrFirst = idx === 0 || filtered[idx-1].arrayNumber !== s.arrayNumber;
-                  const arrStrings = filtered.filter((fs:any) => fs.arrayNumber === s.arrayNumber);
-                  const arrSelectedCount = arrStrings.filter((fs:any) => selectedIds.has(fs.id)).length;
+                  const arrStrings = filteredByArray.get(Number(s.arrayNumber ?? s.arrayIndex)) || [];
+                  const arrSelectedCount = fastSelectionAccounting
+                    ? (selectedCountByArray.get(Number(s.arrayNumber ?? s.arrayIndex)) || 0)
+                    : arrStrings.filter((fs:any) => selectedIds.has(fs.id)).length;
                   const isArrAllSelected = arrSelectedCount > 0 && arrSelectedCount === arrStrings.length;
                   const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrStrings.length;
                   
-                  const normalizeText = (value: any): string => {
-                    if (value === null || value === undefined) return "";
-                    if (typeof value === "string") return value.toUpperCase();
-                    try { return JSON.stringify(value).toUpperCase(); } catch { return String(value).toUpperCase(); }
-                  };
-
                   const rowWarnings = [
                     ...(Array.isArray(s.warnings) ? s.warnings : []),
                     ...(Array.isArray(s.notificationList) ? s.notificationList : []),
@@ -1071,23 +1211,7 @@ const handleManualRefresh = async () => {
 
                   const rowAlarms = Array.isArray(s.alarms) ? s.alarms : [];
 
-                  const alertText = [
-                    ...rowWarnings,
-                    ...rowAlarms,
-                    s.alertSummary,
-                    s.operationalState,
-                    s.statusLabel,
-                    s.rotationStatus,
-                    s.rotationState,
-                    s.stringRotationState,
-                    s.balMode,
-                    s.balanceMode,
-                    s.bucket,
-                    s.stringConnectionState
-                  ].map(normalizeText).join(" ");
-
                   const rowBucket = String(s.bucket || "").toLowerCase();
-                  const balModeText = String(s.balMode || s.balanceMode || "").trim().toUpperCase();
 
                   // Reference legend: dot 1 in rotation group is communication timestamp.
                   const sampleAgeMs = Number(s.sampleAgeMs ?? 0);
@@ -1101,44 +1225,47 @@ const handleManualRefresh = async () => {
                         ? "delayed"
                         : "fresh";
 
-                  // Reference legend: dot 2 in rotation group is rotation state.
-                  // Offline, OOR, balance mode Off, or explicit OUT must render as out-of-rotation.
-                  const explicitOutOfRotation =
-                    s.outRotation === true ||
-                    s.inRotation === false ||
-                    balModeText === "OFF" ||
-                    String(s.rotationStatus || "").toUpperCase().includes("OUT") ||
-                    String(s.rotationState || "").toUpperCase().includes("OUT") ||
-                    String(s.stringRotationState || "").toUpperCase().includes("OUT") ||
-                    alertText.includes("STRING OOR") ||
-                    alertText.includes("OUT OF ROTATION") ||
-                    alertText.includes("OUT-OF-ROTATION") ||
-                    alertText.includes("OOR WARNING") ||
-                    rowBucket === "offline" ||
-                    rowBucket === "notcommunicating";
-
-                  const inRotation = !explicitOutOfRotation;
+                  // Rotation is an independent controller state. Do not derive it
+                  // from balancing mode, contactors, alerts, or operational bucket.
+                  const rotationText = String(
+                    s.rotationStatus ??
+                    s.rotationState ??
+                    s.stringRotationState ??
+                    ""
+                  ).trim().toUpperCase();
+                  let rotationDisplayState: "IN" | "OUT" | "UNKNOWN" = "UNKNOWN";
+                  if (rotationText === "OUT" || rotationText === "OUT_OF_ROTATION" || rotationText === "OUT OF ROTATION") {
+                    rotationDisplayState = "OUT";
+                  } else if (rotationText === "IN" || rotationText === "IN_ROTATION" || rotationText === "IN ROTATION") {
+                    rotationDisplayState = "IN";
+                  } else if (s.outRotation === true || s.inRotation === false) {
+                    rotationDisplayState = "OUT";
+                  } else if (s.inRotation === true || s.outRotation === false) {
+                    rotationDisplayState = "IN";
+                  } else {
+                    const nestedRotationText = String(s.rotation?.displayState ?? "").trim().toUpperCase();
+                    if (nestedRotationText === "OUT" || s.rotation?.outOfRotation === true || s.rotation?.inRotation === false) {
+                      rotationDisplayState = "OUT";
+                    } else if (nestedRotationText === "IN" || s.rotation?.inRotation === true || s.rotation?.outOfRotation === false) {
+                      rotationDisplayState = "IN";
+                    }
+                  }
 
                   // Reference legend: dot 3 in rotation group is notification severity.
-                  const stringNotificationKey = `${Number(s.arrayNumber ?? s.arrayIndex)}-${Number(s.stringNumber ?? s.stringIndex)}`;
-                  const stringNotificationRollup = notificationRollupsByString[stringNotificationKey] || null;
+                  // Counts and lists are alternate representations of the same
+                  // canonical alerts, not additive sources.
+                  const warningTotal = Math.max(
+                    Number(s.warningCount || 0),
+                    Number(s.uniqueWarningCount || 0),
+                    rowWarnings.length,
+                    0
+                  );
 
-                  const warningTotal =
-                    Number(stringNotificationRollup?.warningCount ?? 0) ||
-                    (
-                      Number(s.warningCount || 0) +
-                      Number(s.uniqueWarningCount || 0) +
-                      rowWarnings.length +
-                      (explicitOutOfRotation ? 1 : 0)
-                    );
-
-                  const alarmTotal =
-                    Number(stringNotificationRollup?.alarmCount ?? 0) ||
-                    (
-                      Number(s.alarmCount || 0) +
-                      Number(s.uniqueAlarmCount || 0) +
-                      rowAlarms.length
-                    );
+                  const alarmTotal = Math.max(
+                    Number(s.alarmCount || 0),
+                    Number(s.uniqueAlarmCount || 0),
+                    rowAlarms.length
+                  );
 
                   const alertsState = alarmTotal > 0 ? "alarm" : warningTotal > 0 ? "warning" : "ok";
 
@@ -1149,9 +1276,11 @@ const handleManualRefresh = async () => {
                         ? "bg-prizm-warning border border-prizm-warning shadow-[0_0_5px_rgba(255,204,0,0.5)]"
                         : "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]";
 
-                  const rotDot2 = inRotation
+                  const rotDot2 = rotationDisplayState === "IN"
                     ? "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
-                    : "bg-black border border-slate-500";
+                    : rotationDisplayState === "OUT"
+                      ? "bg-black border border-slate-500"
+                      : "bg-slate-500 border border-slate-400";
 
                   const rotDot3 =
                     alertsState === "alarm"
@@ -1315,11 +1444,13 @@ const handleManualRefresh = async () => {
                   const telemetryAvailable = s.balanceTelemetryAvailable === true || (Array.isArray(s.balanceDetails) && s.balanceDetails.length > 0);
                   let balanceTooltip = "Balance telemetry not reported by current EMS source.";
                   let balCountToShow = "--";
-                  let balModeToShow = "--";
+                  let balActivityToShow = "Unknown";
+                  let balModeToShow = "Not Reported";
 
                   if (telemetryAvailable) {
                       balCountToShow = String(s.balanceCount ?? 0);
-                      balModeToShow = s.balanceMode || "--";
+                      balActivityToShow = s.balanceActivity || "Unknown";
+                      balModeToShow = s.balanceMode && s.balanceMode !== "--" ? s.balanceMode : "Not Reported";
 
                       const details = Array.isArray(s.balanceDetails) ? s.balanceDetails : [];
                       const totalBpcs = details.length || 14;
@@ -1343,6 +1474,8 @@ const handleManualRefresh = async () => {
                         return `BPC ${idx}: ${modeStr} | ${stateStr} | ${cgStr}`;
                       });
                       balanceTooltip = [
+                        `Activity: ${balActivityToShow}`,
+                        `Configured mode: ${balModeToShow}`,
                         `Active: ${activeCount} / ${totalBpcs}`,
                         `Telemetry: ${reportedCount} / ${totalBpcs}`,
                         "",
@@ -1396,6 +1529,7 @@ const handleManualRefresh = async () => {
 </td>
 <td className="px-1.5 py-0.5 border-r border-prizm-border/20 sticky left-[114px] sm:left-[124px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
    {s.stringNumber}
+   <StringCommunicationIndicator row={s}/>
 </td>
 <td className="px-1.5 py-0.5">
                        <div 
@@ -1411,7 +1545,7 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5">
                        <div 
                          className="flex items-center gap-1 cursor-help"
-                         title={`Comm: ${commState.toUpperCase()} | Rotation: ${inRotation ? "IN" : "OUT"} | Notification: ${alertsState.toUpperCase()}`}
+                         title={`Comm: ${commState.toUpperCase()} | Rotation: ${rotationDisplayState} | Notification: ${alertsState.toUpperCase()}`}
                        >
                           <div className={`w-2 h-2 rounded-full ${rotDot1}`}></div>
                           <div className={`w-2 h-2 rounded-full ${rotDot2}`}></div>
@@ -1423,7 +1557,23 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.busVoltage !== null && s.busVoltage !== undefined ? s.busVoltage : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.amps !== null ? s.amps : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text">{s.kw !== null ? s.kw : "--"}</td>
-                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-info font-bold">{s.socPct !== null ? s.socPct+"%" : "--"}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs font-bold">
+                        {s.socPct !== null && s.socPct !== undefined && Number.isFinite(Number(s.socPct)) ? (() => {
+                            const soc = Math.max(0, Math.min(100, Number(s.socPct)));
+                            const fillClass = soc < 20 ? "bg-red-500" : soc < 50 ? "bg-amber-400" : "bg-emerald-500";
+                            return (
+                                <div className="flex items-center" title={`State of charge: ${Number(s.socPct).toFixed(1)}%`}>
+                                    <div className="relative h-4 w-12 overflow-hidden rounded-[3px] border border-prizm-border bg-prizm-surface-strong shadow-inner">
+                                        <div className={`absolute inset-y-0 left-0 ${fillClass} opacity-70 transition-[width] duration-300`} style={{ width: `${soc}%` }} />
+                                        <span className="absolute inset-0 flex items-center justify-center text-[9px] font-extrabold text-prizm-text drop-shadow-[0_1px_0_rgba(255,255,255,0.75)]">
+                                            {Number(s.socPct).toFixed(Number(s.socPct) % 1 === 0 ? 0 : 1)}%
+                                        </span>
+                                    </div>
+                                    <span className="h-2 w-0.5 rounded-r bg-prizm-border" aria-hidden="true" />
+                                </div>
+                            );
+                        })() : <span className="text-prizm-text-muted">--</span>}
+                    </td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{formatNumber(s.ah, 2)}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.minCellVoltage !== null && normalizeVoltage(s.minCellVoltage) !== null ? normalizeVoltage(s.minCellVoltage) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellVoltage !== null && normalizeVoltage(s.maxCellVoltage) !== null ? normalizeVoltage(s.maxCellVoltage) : "--"}</td>
@@ -1432,6 +1582,7 @@ const handleManualRefresh = async () => {
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted">{s.maxCellTemperature != null ? formatTemperatureF(s.maxCellTemperature, { decimals: 1, showUnit: false, sourceUnit: "C" }) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-warning">{s.cellTemperatureDelta != null ? (s.cellTemperatureDelta * 1.8).toFixed(1) : "--"}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text-muted cursor-help" title={balanceTooltip}>{balCountToShow}</td>
+                    <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text cursor-help" title={balanceTooltip}>{balActivityToShow}</td>
                     <td className="px-1.5 py-0.5 font-mono text-xs text-prizm-text truncate max-w-[100px] cursor-help" title={balanceTooltip}>{balModeToShow}</td>
                     <td className="px-1.5 py-0.5 font-bold text-prizm-text-muted text-xs">
                         {locStr}
@@ -1462,14 +1613,15 @@ const handleManualRefresh = async () => {
         <span className="text-xl leading-none">&uarr;</span> TOP
       </button>
 
-          <RotationModal
-        isOpen={rotationModalOpen}
-        onClose={() => setRotationModalOpen(false)}
-        onConfirm={handleRotationConfirm}
-        targets={rotationModalTargets}
-        action={rotationModalAction}
-        targetType="string"
-      />
+      {commandNotice && (
+        <div role="status" aria-live="polite" className={`fixed right-5 top-24 z-[120] w-[min(360px,calc(100vw-2.5rem))] rounded-xl border-2 bg-prizm-surface p-4 shadow-2xl ${commandNotice.status === "success" ? "border-emerald-500" : commandNotice.status === "warning" ? "border-amber-500" : "border-red-500"}`}>
+          <div className="flex items-start gap-3">
+            {commandNotice.status === "success" ? <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-500" size={20}/> : commandNotice.status === "warning" ? <TriangleAlert className="mt-0.5 shrink-0 text-amber-500" size={20}/> : <XCircle className="mt-0.5 shrink-0 text-red-500" size={20}/>}
+            <div className="min-w-0 flex-1"><strong className="block text-xs font-black uppercase tracking-wide text-prizm-text">{commandNotice.title}</strong><span className="mt-1 block text-[11px] leading-relaxed text-prizm-text-muted">{commandNotice.detail}</span></div>
+            <button type="button" onClick={() => setCommandNotice(null)} className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-prizm-border text-prizm-text-muted hover:bg-prizm-surface-strong" aria-label="Dismiss command confirmation"><X size={13}/></button>
+          </div>
+        </div>
+      )}
 
       <BalancingModal
         isOpen={balancingModalOpen}
@@ -1480,13 +1632,6 @@ const handleManualRefresh = async () => {
         targetType="string"
       />
 
-      <ContactorControlModal
-        isOpen={contactorModalOpen}
-        onClose={() => setContactorModalOpen(false)}
-        onConfirm={handleContactorConfirm}
-        targets={contactorModalTargets}
-        action={contactorModalAction}
-      />
     </div>
   );
 }

@@ -6,7 +6,7 @@ export interface BalancingModalProps {
     isOpen: boolean;
     onClose: () => void;
     onPreflight: (req: any) => Promise<any>;
-    onConfirm: (req: any) => Promise<void>;
+    onConfirm: (req: any) => Promise<any>;
     targets: RotationTarget[];
     targetType: 'string' | 'array';
 }
@@ -14,8 +14,8 @@ export interface BalancingModalProps {
 export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm, targets, targetType }: BalancingModalProps) {
     const [mode, setMode] = useState<'avg' | 'provided' | 'stop'>('avg');
     const [providedMv, setProvidedMv] = useState<number | ''>('');
-    const [chargingDeadband, setChargingDeadband] = useState<number>(5);
-    const [dischargingDeadband, setDischargingDeadband] = useState<number>(10);
+    const [chargingDeadband, setChargingDeadband] = useState<number | ''>(5);
+    const [dischargingDeadband, setDischargingDeadband] = useState<number | ''>(10);
     const [reason, setReason] = useState('Corrective Action');
     const [note, setNote] = useState('');
     
@@ -51,7 +51,11 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                 setError('Please provide a valid target millivolt value between 2500 and 3800.');
                 return;
             }
-            if (chargingDeadband < 0 || dischargingDeadband < 0) {
+            if (mode !== 'stop' && (chargingDeadband === '' || dischargingDeadband === '')) {
+                setError('Charging and discharging deadbands are required.');
+                return;
+            }
+            if (mode !== 'stop' && (Number(chargingDeadband) < 0 || Number(dischargingDeadband) < 0)) {
                 setError('Deadbands must be non-negative.');
                 return;
             }
@@ -66,7 +70,9 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
             };
             const result = await onPreflight(req);
             setPreflightData(result);
-            if (!result.okToBalanceDirectly && result.adb?.enabled) {
+            if (!result.adb?.statusKnown) {
+                setError('ADB status could not be verified. Balancing is blocked until the EMS app state is available.');
+            } else if (!result.okToBalanceDirectly && result.adb?.enabled) {
                 setShowAdbPreflight(true);
             } else {
                 // Skip directly to execute
@@ -189,7 +195,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                         <div className="max-h-[60px] overflow-y-auto no-scrollbar">
                         {targets.map((t, i) => (
                             <span key={i}>
-                                {targetType === 'string' ? `Array ${t.array} / String ${t.string}` : `Array ${t.array} / PCS ${t.pcs}`}<br/>
+                                {t.allStrings ? `Array ${t.array} / All Strings` : `Array ${t.array} / String ${t.string}`}<br/>
                             </span>
                         ))}
                         </div>
@@ -229,12 +235,12 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                     {mode !== 'stop' && (
                         <div className="flex gap-4">
                              <div className="flex flex-col gap-1 flex-1">
-                                 <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Charging Deadband</label>
-                                 <input type="number" className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={chargingDeadband} onChange={e => setChargingDeadband(parseInt(e.target.value, 10) || 0)} disabled={pending} />
+                                 <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Charging Deadband (mV)</label>
+                                 <input type="number" min="0" step="1" required className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={chargingDeadband} onChange={e => setChargingDeadband(e.target.value === '' ? '' : Number(e.target.value))} disabled={pending} />
                              </div>
                              <div className="flex flex-col gap-1 flex-1">
-                                 <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Discharging Deadband</label>
-                                 <input type="number" className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={dischargingDeadband} onChange={e => setDischargingDeadband(parseInt(e.target.value, 10) || 0)} disabled={pending} />
+                                 <label className="text-prizm-text-muted uppercase tracking-wider font-bold">Discharging Deadband (mV)</label>
+                                 <input type="number" min="0" step="1" required className="bg-prizm-surface border border-prizm-border text-prizm-text p-2 rounded" value={dischargingDeadband} onChange={e => setDischargingDeadband(e.target.value === '' ? '' : Number(e.target.value))} disabled={pending} />
                              </div>
                         </div>
                     )}

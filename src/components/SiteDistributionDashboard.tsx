@@ -17,12 +17,15 @@ import {
   Sliders,
   Check,
   Shield,
-  FileText
+  FileText,
+  Settings,
+  X
 } from "lucide-react";
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
+import FirmwareInventoryPanel from "./FirmwareInventoryPanel";
 import { useSiteData } from "../context/SiteDataContext";
 import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
-import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
+import { formatTemperatureF, celsiusToFahrenheit, fahrenheitToCelsius } from "../utils/temperatureScale";
 import { jsPDF } from "jspdf";
 import {
   ResponsiveContainer,
@@ -61,6 +64,7 @@ export interface SiteStringDistributionRow {
   blockIndex?: number;
   arrayIndex: number;
   stringIndex: number;
+  energySegmentNumber?: number;
   ip?: string;
   displayLabel: string;
   stackVoltage?: number;
@@ -77,6 +81,7 @@ export interface SiteStringDistributionRow {
   communicating: boolean;
   inRotation: boolean;
   outRotation?: boolean;
+  bucket?: "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
   contactorsClosed?: boolean;
   statusColor: "green" | "red" | "yellow" | "gray";
   statusLabel: string;
@@ -188,7 +193,17 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [graphError, setGraphError] = useState<string | null>(null);
 
   // Sub-tab selection state
-  const [currentView, setCurrentView] = useState<"distribution" | "sensors" | "heatmap">("distribution");
+  const [currentView, setCurrentView] = useState<"distribution" | "sensors" | "heatmap" | "firmware">(() => {
+    const requested = new URL(window.location.href).searchParams.get("healthView") || localStorage.getItem("prizm_site_health_view");
+    return requested === "sensors" || requested === "heatmap" || requested === "firmware" ? requested : "distribution";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("prizm_site_health_view", currentView);
+    const url = new URL(window.location.href);
+    url.searchParams.set("healthView", currentView);
+    window.history.replaceState(window.history.state, "", url);
+  }, [currentView]);
 
   // Filters & Settings state
   const [activeTab, setActiveTab] = useState<"voltage" | "temperature" | "heatmap">("voltage");
@@ -208,6 +223,56 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const [warningVolt, setWarningVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.highWarningMin);
   const [lowVolt, setLowVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.lowWarningMax);
   const [lowAlarmVolt, setLowAlarmVolt] = useState<number>(SITE_HEALTH_THRESHOLDS.voltageVdc.lowAlarmMax);
+  const [thresholdSaveState, setThresholdSaveState] = useState<"loading" | "idle" | "saving" | "saved" | "error">("loading");
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [showAlarmSettings, setShowAlarmSettings] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/site-health-visual-thresholds")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Unable to load saved levels (${res.status})`);
+        return res.json();
+      })
+      .then((payload) => {
+        if (cancelled || !payload?.thresholds) return;
+        const t = payload.thresholds;
+        setAlarmTemp(Number(t.alarmTemp));
+        setWarningTemp(Number(t.warningTemp));
+        setLowTemp(Number(t.lowTemp));
+        setLowAlarmTemp(Number(t.lowAlarmTemp));
+        setAlarmVolt(Number(t.alarmVolt));
+        setWarningVolt(Number(t.warningVolt));
+        setLowVolt(Number(t.lowVolt));
+        setLowAlarmVolt(Number(t.lowAlarmVolt));
+        setThresholdSaveState("idle");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setThresholdError(error?.message || "Unable to load saved visual alarm levels.");
+        setThresholdSaveState("error");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveVisualThresholds = async () => {
+    setThresholdSaveState("saving");
+    setThresholdError(null);
+    try {
+      const response = await fetch("/api/settings/site-health-visual-thresholds", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alarmTemp, warningTemp, lowTemp, lowAlarmTemp, alarmVolt, warningVolt, lowVolt, lowAlarmVolt })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || "Unable to save visual alarm levels.");
+      setThresholdSaveState("saved");
+      window.setTimeout(() => setThresholdSaveState("idle"), 2200);
+    } catch (error: any) {
+      setThresholdError(error?.message || "Unable to save visual alarm levels.");
+      setThresholdSaveState("error");
+    }
+  };
 
   // Load graph specific telemetry data
   const loadGraphData = async (refresh = false, useSample = false) => {
@@ -290,8 +355,9 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   };
 
   useEffect(() => {
+    if (!active || currentView !== "distribution" || data) return;
     loadData();
-  }, []);
+  }, [active, currentView]);
 
   // Helper for status HEX
   const getStatusColorHex = (color: string) => {
@@ -309,33 +375,37 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   const strings = data?.rows || [];
 
   const stringListStatusBuckets = snapshot?.rollups?.stringSummary?.buckets || null;
-  const stringListStatusRows =
-    snapshot?.normalized?.strings ||
-    snapshot?.rollups?.stringSummary?.tableRows ||
-    strings ||
-    [];
+  const snapshotStatusRows = Array.isArray(snapshot?.normalized?.strings) ? snapshot.normalized.strings : [];
+  const summaryStatusRows = Array.isArray(snapshot?.rollups?.stringSummary?.tableRows) ? snapshot.rollups.stringSummary.tableRows : [];
+  const stringListStatusRows = snapshotStatusRows.length
+    ? snapshotStatusRows
+    : summaryStatusRows.length
+      ? summaryStatusRows
+      : strings;
 
   const countStringBucket = (bucket: string): number =>
     stringListStatusRows.filter((row: any) => row?.bucket === bucket).length;
 
+  const canonicalBucketTotal =
+    Number(stringListStatusBuckets?.online || 0) +
+    Number(stringListStatusBuckets?.nearline || 0) +
+    Number(stringListStatusBuckets?.offline || 0) +
+    Number(stringListStatusBuckets?.notCommunicating || 0) +
+    Number(stringListStatusBuckets?.unknown || 0);
+  const hasCanonicalBucketCounts = canonicalBucketTotal > 0;
+
   const stringListStatusCounts = {
-    total: Number(stringListStatusBuckets?.online ?? NaN) >= 0
-      ? Number(stringListStatusBuckets.online || 0) +
-        Number(stringListStatusBuckets.nearline || 0) +
-        Number(stringListStatusBuckets.offline || 0) +
-        Number(stringListStatusBuckets.notCommunicating || 0) +
-        Number(stringListStatusBuckets.unknown || 0)
-      : (stringListStatusRows.length || strings.length),
-    online: Number(stringListStatusBuckets?.online ?? NaN) >= 0
+    total: hasCanonicalBucketCounts ? canonicalBucketTotal : (stringListStatusRows.length || strings.length),
+    online: hasCanonicalBucketCounts
       ? Number(stringListStatusBuckets.online || 0)
       : countStringBucket('online'),
-    nearline: Number(stringListStatusBuckets?.nearline ?? NaN) >= 0
+    nearline: hasCanonicalBucketCounts
       ? Number(stringListStatusBuckets.nearline || 0)
       : countStringBucket('nearline'),
-    offline: Number(stringListStatusBuckets?.offline ?? NaN) >= 0
+    offline: hasCanonicalBucketCounts
       ? Number(stringListStatusBuckets.offline || 0)
       : countStringBucket('offline'),
-    notCommunicating: Number(stringListStatusBuckets?.notCommunicating ?? NaN) >= 0
+    notCommunicating: hasCanonicalBucketCounts
       ? Number(stringListStatusBuckets.notCommunicating || 0)
       : countStringBucket('notCommunicating')
   };
@@ -360,24 +430,10 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
 
   // Filter application
 
-  const normalizedStrings =
-    Array.isArray((data as any)?.strings) ? (data as any).strings :
-    [];
-
-  const stringListTopRowSource =
-    normalizedStrings ||
-    strings ||
-    snapshot?.normalized?.strings ||
-    snapshot?.rollups?.stringSummary?.tableRows ||
-    [];
-
-  const stringListTopRowStatusCounts = {
-    total: stringListTopRowSource.length,
-    online: stringListTopRowSource.filter((r: any) => r?.bucket === "online").length,
-    nearline: stringListTopRowSource.filter((r: any) => r?.bucket === "nearline").length,
-    offline: stringListTopRowSource.filter((r: any) => r?.bucket === "offline").length,
-    notCommunicating: stringListTopRowSource.filter((r: any) => r?.bucket === "notCommunicating").length
-  };
+  // Use the same canonical bucket rollup as the cards above. The previous
+  // `normalizedStrings || strings` fallback always selected an empty array
+  // because empty arrays are truthy, leaving this summary at all zeroes.
+  const stringListTopRowStatusCounts = stringListStatusCounts;
 
   const filteredStrings = useMemo(() => {
     return strings.filter(s => {
@@ -779,7 +835,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     let arrY = 44;
     arraySummaries.forEach(arr => {
       doc.setFont("Helvetica", "Bold");
-      doc.text(`A${arr.arrayIndex}`, 17, arrY);
+      doc.text(`Array ${arr.arrayIndex}`, 17, arrY);
       doc.setFont("Helvetica", "Normal");
       doc.text(String(arr.stringCount), 25, arrY);
       doc.text(`${arr.voltMin ?? "--"}/${arr.voltAvg ?? "--"}/${arr.voltMax ?? "--"} Vdc`, 38, arrY);
@@ -902,12 +958,12 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
       const d: any = payload[0].payload;
       return (
         <div className="bg-prizm-surface border border-prizm-border p-3 rounded-md text-[11px] text-prizm-text font-mono shadow-2xl space-y-1 z-50">
-          <div className="text-cyan-400 font-bold border-b border-prizm-border pb-1 flex justify-between gap-4">
-            <span>UNIT: {d.displayLabel}</span>
+          <div className="text-prizm-info font-bold border-b border-prizm-border pb-1 flex justify-between gap-4">
+            <span>{d.displayLabel || `Array ${d.arrayIndex} / String ${d.stringIndex}`}</span>
             <span>#{d.xIndex}</span>
           </div>
-          <div>Array: <span className="text-white font-bold">{d.arrayIndex}</span> | String: <span className="text-white font-bold">{d.stringIndex}</span></div>
-          <div>IP Address: <span className="text-white">{d.ip || "N/A"}</span></div>
+          <div>Array: <span className="text-prizm-text font-bold">{d.arrayIndex}</span> | String: <span className="text-prizm-text font-bold">{d.stringIndex}</span></div>
+          <div>Controller IP: <span className="text-prizm-text font-bold">{d.ip || "Not reported"}</span></div>
           
           <div className="pt-1.5 grid grid-cols-2 gap-2 text-[10.5px]">
             <div>
@@ -1020,43 +1076,56 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
   return (
     <div className="space-y-4" id="prizm-site-distribution-panel">
       {/* Primary Sub-Tab Switcher for Site Health */}
-      <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-lg space-x-1 shadow-sm">
+      <div className="sticky top-0 z-30 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 border border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface/95 backdrop-blur p-2 rounded-lg shadow-sm">
         <button
           onClick={() => setCurrentView("distribution")}
-          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-md border transition-all cursor-pointer text-left ${
             currentView === "distribution"
-              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
-              : "border-transparent text-prizm-text-muted hover:text-white"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/10 font-extrabold shadow-sm"
+              : "border-prizm-border text-prizm-text-muted hover:bg-prizm-surface-strong hover:text-prizm-text"
           }`}
         >
-          <BarChart3 size={12} />
-          Voltage & Temp Spreads
+          <BarChart3 size={16} />
+          <span><span className="block">String Health</span><span className="block normal-case tracking-normal font-sans font-medium opacity-70 mt-0.5">Voltage, temperature, rotation and communications</span></span>
         </button>
         <button
           onClick={() => setCurrentView("heatmap")}
-          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-md border transition-all cursor-pointer text-left ${
             currentView === "heatmap"
-              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
-              : "border-transparent text-prizm-text-muted hover:text-white"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/10 font-extrabold shadow-sm"
+              : "border-prizm-border text-prizm-text-muted hover:bg-prizm-surface-strong hover:text-prizm-text"
           }`}
         >
-          <Layers size={12} />
-          Cell Heatmap
+          <Layers size={16} />
+          <span><span className="block">Cell Heatmap</span><span className="block normal-case tracking-normal font-sans font-medium opacity-70 mt-0.5">Array-to-cell thermal and voltage patterns</span></span>
         </button>
         <button
           onClick={() => setCurrentView("sensors")}
-          className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-md border transition-all cursor-pointer text-left ${
             currentView === "sensors"
-              ? "border-prizm-primary text-prizm-primary bg-prizm-info/5 font-extrabold"
-              : "border-transparent text-prizm-text-muted hover:text-white"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/10 font-extrabold shadow-sm"
+              : "border-prizm-border text-prizm-text-muted hover:bg-prizm-surface-strong hover:text-prizm-text"
           }`}
         >
-          <Shield size={12} />
-          Sensor Health & Open Closed Detectors
+          <Shield size={16} />
+          <span><span className="block">Environment & Safety</span><span className="block normal-case tracking-normal font-sans font-medium opacity-70 mt-0.5">Unified overhead map and sensor matrix</span></span>
+        </button>
+        <button
+          onClick={() => setCurrentView("firmware")}
+          className={`flex items-center gap-3 px-4 py-3 rounded-md border transition-all cursor-pointer text-left ${
+            currentView === "firmware"
+              ? "border-prizm-primary text-prizm-primary bg-prizm-info/10 font-extrabold shadow-sm"
+              : "border-prizm-border text-prizm-text-muted hover:bg-prizm-surface-strong hover:text-prizm-text"
+          }`}
+        >
+          <Cpu size={16} />
+          <span><span className="block">Firmware</span><span className="block normal-case tracking-normal font-sans font-medium opacity-70 mt-0.5">SC, BPC, Feather and EMS versions</span></span>
         </button>
       </div>
 
-      {currentView === "sensors" ? (
+      {currentView === "firmware" ? (
+        <FirmwareInventoryPanel />
+      ) : currentView === "sensors" ? (
         <div className="animate-fade-in" id="prizm-merged-sensors-view">
           <SiteSensorsDashboard />
         </div>
@@ -1213,9 +1282,9 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
         </div>      </div>
 
       {/* WORKSPACE PANELS MATRIX */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 items-stretch">
         {/* INTERACTIVE CONTROLS / FILTERS SLIDER SIDEBAR (1 Col on Desktop) */}
-        <div className="xl:col-span-1 bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-5">
+        <div className="hidden">
           {/* API & Source Health Card */}
           <div className="bg-prizm-surface-strong/60 p-3 rounded-lg border border-prizm-border/80 space-y-2" id="prizm-api-source-health-card">
             <div className="flex items-center gap-1.5 border-b border-prizm-border pb-1.5">
@@ -1344,7 +1413,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="e.g. A1-S3..."
+                  placeholder="e.g. Array 1 / String 3..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full bg-prizm-surface border border-prizm-border text-prizm-text text-[11px] pl-7 pr-2 py-1.5 rounded"
@@ -1443,143 +1512,78 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
             </span>
           </div>
 
-          {/* INTERACTIVE THRESHOLD SLIDERS */}
+          {/* Persistent numerical visual thresholds */}
           <div className="space-y-3 pt-4 border-t border-prizm-border/60">
-            <span className="text-[10px] text-prizm-text-muted font-bold uppercase tracking-wider block">Set Visual Alarm Levels</span>
-            
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-prizm-text-muted font-bold uppercase tracking-wider block">Visual Alarm Levels</span>
+              <span className={`text-[8px] font-bold uppercase ${thresholdSaveState === "saved" ? "text-emerald-600" : thresholdSaveState === "error" ? "text-red-600" : "text-prizm-text-muted"}`}>
+                {thresholdSaveState === "loading" ? "Loading saved values" : thresholdSaveState === "saving" ? "Saving" : thresholdSaveState === "saved" ? "Saved permanently" : thresholdSaveState === "error" ? "Save failed" : "Persistent settings"}
+              </span>
+            </div>
+
             {activeTab === "temperature" ? (
-              <div className="space-y-2.5 text-[10px]">
-                 <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Alarm high temp:</span>
-                    <span className="text-prizm-danger">{formatTemperatureF(alarmTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="45"
-                    max="75"
-                    step="1"
-                    value={alarmTemp}
-                    onChange={e => setAlarmTemp(Number(e.target.value))}
-                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Warning high temp:</span>
-                    <span className="text-prizm-warning">{formatTemperatureF(warningTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="25"
-                    max="50"
-                    step="1"
-                    value={warningTemp}
-                    onChange={e => setWarningTemp(Number(e.target.value))}
-                    className="w-full accent-prizm-warning h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Low warning temp:</span>
-                    <span className="text-prizm-info">{formatTemperatureF(lowTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="15"
-                    max="25"
-                    step="1"
-                    value={lowTemp}
-                    onChange={e => setLowTemp(Number(e.target.value))}
-                    className="w-full accent-prizm-info h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Low alarm temp:</span>
-                    <span className="text-prizm-danger">{formatTemperatureF(lowAlarmTemp, { decimals: 1, showUnit: true, sourceUnit: "C" })}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="15"
-                    step="1"
-                    value={lowAlarmTemp}
-                    onChange={e => setLowAlarmTemp(Number(e.target.value))}
-                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                {[
+                  { label: "High alarm", value: alarmTemp, setter: setAlarmTemp, tone: "text-prizm-danger" },
+                  { label: "High warning", value: warningTemp, setter: setWarningTemp, tone: "text-prizm-warning" },
+                  { label: "Low warning", value: lowTemp, setter: setLowTemp, tone: "text-prizm-info" },
+                  { label: "Low alarm", value: lowAlarmTemp, setter: setLowAlarmTemp, tone: "text-prizm-danger" }
+                ].map((field) => (
+                  <label key={field.label} className="space-y-1 font-bold">
+                    <span className={field.tone}>{field.label}</span>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="1"
+                        value={Number(celsiusToFahrenheit(field.value).toFixed(1))}
+                        onChange={(event) => field.setter(fahrenheitToCelsius(Number(event.target.value)))}
+                        className="w-full rounded border border-prizm-border bg-prizm-surface-strong py-1.5 pl-2 pr-7 font-mono text-[11px] text-prizm-text outline-none focus:border-prizm-primary"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-prizm-text-muted">°F</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             ) : (
-              <div className="space-y-2.5 text-[10px]">
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Alarm high volt:</span>
-                    <span className="text-prizm-danger">{alarmVolt} Vdc</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1400"
-                    max="1600"
-                    step="10"
-                    value={alarmVolt}
-                    onChange={e => setAlarmVolt(Number(e.target.value))}
-                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Warning high volt:</span>
-                    <span className="text-prizm-warning">{warningVolt} Vdc</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1200"
-                    max="1440"
-                    step="10"
-                    value={warningVolt}
-                    onChange={e => setWarningVolt(Number(e.target.value))}
-                    className="w-full accent-prizm-warning h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Low warning volt:</span>
-                    <span className="text-prizm-info">{lowVolt} Vdc</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1100"
-                    max="1300"
-                    step="10"
-                    value={lowVolt}
-                    onChange={e => setLowVolt(Number(e.target.value))}
-                    className="w-full accent-prizm-info h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between font-bold mb-1">
-                    <span>Low alarm volt:</span>
-                    <span className="text-prizm-danger">{lowAlarmVolt} Vdc</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="900"
-                    max="1100"
-                    step="10"
-                    value={lowAlarmVolt}
-                    onChange={e => setLowAlarmVolt(Number(e.target.value))}
-                    className="w-full accent-prizm-danger h-1 bg-prizm-bg-muted rounded"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                {[
+                  { label: "High alarm", value: alarmVolt, setter: setAlarmVolt, tone: "text-prizm-danger" },
+                  { label: "High warning", value: warningVolt, setter: setWarningVolt, tone: "text-prizm-warning" },
+                  { label: "Low warning", value: lowVolt, setter: setLowVolt, tone: "text-prizm-info" },
+                  { label: "Low alarm", value: lowAlarmVolt, setter: setLowAlarmVolt, tone: "text-prizm-danger" }
+                ].map((field) => (
+                  <label key={field.label} className="space-y-1 font-bold">
+                    <span className={field.tone}>{field.label}</span>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="1"
+                        value={field.value}
+                        onChange={(event) => field.setter(Number(event.target.value))}
+                        className="w-full rounded border border-prizm-border bg-prizm-surface-strong py-1.5 pl-2 pr-9 font-mono text-[11px] text-prizm-text outline-none focus:border-prizm-primary"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[8px] text-prizm-text-muted">Vdc</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             )}
+            {thresholdError && <p className="text-[9px] font-semibold leading-tight text-red-600">{thresholdError}</p>}
+            <button
+              type="button"
+              onClick={saveVisualThresholds}
+              disabled={thresholdSaveState === "loading" || thresholdSaveState === "saving"}
+              className="w-full rounded border border-prizm-primary/40 bg-prizm-primary/15 px-3 py-1.5 text-[9px] font-bold uppercase text-prizm-primary hover:bg-prizm-primary/25 disabled:opacity-50"
+            >
+              {thresholdSaveState === "saving" ? "Saving levels…" : "Save visual alarm levels"}
+            </button>
+            <p className="text-[8.5px] leading-tight text-prizm-text-muted">Saved on this PRIZM device and restored after refreshes, server restarts, and device reboots.</p>
           </div>
         </div>
 
         {/* PRIMARY SPREAD GRAPH PLOTTER (3 Cols on Desktop) */}
-        <div className="xl:col-span-3 space-y-4">
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-3">
+        <div className="xl:col-span-4 min-h-0 flex flex-col gap-4">
+          <div className="relative bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-3">
             <div className="flex items-center justify-between border-b border-prizm-border pb-2 text-xs">
               <span className="font-bold text-prizm-text uppercase tracking-widest block text-xs">
                 {activeTab === "voltage" ? "Stack Voltage Site Spread Map" : "Stack Temperature Site Spread Map"}
@@ -1588,6 +1592,90 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 METRIC: <span className="font-extrabold text-prizm-primary">{activeTab === "voltage" ? "Stack Voltage Vdc" : (tempMetric === "max" ? "Max Cell Temperature (°F)" : "Average Cell Temperature (°F)")}</span>
               </span>
             </div>
+
+            <div className="grid grid-cols-1 gap-2 rounded-lg border border-prizm-border bg-prizm-surface-strong/60 p-2.5 lg:grid-cols-[auto_150px_190px_minmax(220px,1fr)_auto_auto] lg:items-end">
+              <div className="grid grid-cols-2 gap-1 rounded border border-prizm-border bg-prizm-surface p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("voltage")}
+                  className={`rounded px-3 py-1.5 text-[9px] font-bold uppercase ${activeTab === "voltage" ? "bg-emerald-600 text-white" : "text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
+                >Voltage Spread</button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("temperature")}
+                  className={`rounded px-3 py-1.5 text-[9px] font-bold uppercase ${activeTab === "temperature" ? "bg-orange-500 text-white" : "text-prizm-text-muted hover:bg-prizm-surface-strong"}`}
+                >Temperature Spread</button>
+              </div>
+              <label className="space-y-1 text-[8px] font-bold uppercase text-prizm-text-muted">
+                Array
+                <select value={arrayFilter} onChange={(event) => setArrayFilter(event.target.value)} className="block w-full rounded border border-prizm-border bg-prizm-surface px-2 py-1.5 text-[10px] text-prizm-text">
+                  <option value="all">All arrays</option>
+                  {arrayOptions.map((array) => <option key={array} value={String(array)}>Array {array}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-[8px] font-bold uppercase text-prizm-text-muted">
+                Status
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="block w-full rounded border border-prizm-border bg-prizm-surface px-2 py-1.5 text-[10px] text-prizm-text">
+                  <option value="all">All statuses</option>
+                  <option value="green">Connected / in rotation</option>
+                  <option value="red">Disconnected / in rotation</option>
+                  <option value="yellow">Out of rotation</option>
+                  <option value="gray">Not communicating</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-[8px] font-bold uppercase text-prizm-text-muted">
+                Search string, label, or IP
+                <div className="relative">
+                  <Search size={11} className="absolute left-2 top-2 text-prizm-text-muted" />
+                  <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Array 1 / String 3 or 10.0.1.17" className="w-full rounded border border-prizm-border bg-prizm-surface py-1.5 pl-7 pr-2 text-[10px] text-prizm-text" />
+                </div>
+              </label>
+              <label className="flex items-center gap-1.5 pb-1.5 text-[9px] font-bold text-prizm-text">
+                <input type="checkbox" checked={outliersOnly} onChange={(event) => setOutliersOnly(event.target.checked)} /> Outliers only
+              </label>
+              <button type="button" onClick={() => setShowAlarmSettings(true)} className="flex items-center justify-center gap-1.5 rounded border border-prizm-border bg-prizm-surface px-3 py-1.5 text-[9px] font-bold uppercase text-prizm-text hover:bg-prizm-bg-muted">
+                <Settings size={12} /> Alarm levels
+              </button>
+            </div>
+
+            {activeTab === "temperature" && (
+              <div className="flex justify-end">
+                <label className="flex items-center gap-2 text-[9px] font-bold text-prizm-text-muted">Temperature metric
+                  <select value={tempMetric} onChange={(event) => setTempMetric(event.target.value as "max" | "avg")} className="rounded border border-prizm-border bg-prizm-surface px-2 py-1 text-prizm-text">
+                    <option value="max">Maximum cell temperature</option>
+                    <option value="avg">Average cell temperature</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
+            {showAlarmSettings && (
+              <div className="absolute right-4 top-14 z-50 w-[340px] rounded-xl border border-prizm-border bg-prizm-surface p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between border-b border-prizm-border pb-2">
+                  <div><h3 className="text-xs font-bold uppercase text-prizm-text">Visual alarm levels</h3><p className="text-[9px] text-prizm-text-muted">Persistent device settings</p></div>
+                  <button type="button" aria-label="Close alarm level settings" onClick={() => setShowAlarmSettings(false)} className="rounded p-1 text-prizm-text-muted hover:bg-prizm-bg-muted"><X size={14} /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  {(activeTab === "temperature" ? [
+                    { label: "High alarm", value: Number(celsiusToFahrenheit(alarmTemp).toFixed(1)), setter: (value: number) => setAlarmTemp(fahrenheitToCelsius(value)), unit: "°F" },
+                    { label: "High warning", value: Number(celsiusToFahrenheit(warningTemp).toFixed(1)), setter: (value: number) => setWarningTemp(fahrenheitToCelsius(value)), unit: "°F" },
+                    { label: "Low warning", value: Number(celsiusToFahrenheit(lowTemp).toFixed(1)), setter: (value: number) => setLowTemp(fahrenheitToCelsius(value)), unit: "°F" },
+                    { label: "Low alarm", value: Number(celsiusToFahrenheit(lowAlarmTemp).toFixed(1)), setter: (value: number) => setLowAlarmTemp(fahrenheitToCelsius(value)), unit: "°F" }
+                  ] : [
+                    { label: "High alarm", value: alarmVolt, setter: setAlarmVolt, unit: "Vdc" },
+                    { label: "High warning", value: warningVolt, setter: setWarningVolt, unit: "Vdc" },
+                    { label: "Low warning", value: lowVolt, setter: setLowVolt, unit: "Vdc" },
+                    { label: "Low alarm", value: lowAlarmVolt, setter: setLowAlarmVolt, unit: "Vdc" }
+                  ]).map((field) => (
+                    <label key={field.label} className="space-y-1 font-bold text-prizm-text-muted">{field.label}
+                      <div className="relative"><input type="number" value={field.value} onChange={(event) => field.setter(Number(event.target.value))} className="w-full rounded border border-prizm-border bg-prizm-surface-strong py-1.5 pl-2 pr-9 font-mono text-prizm-text" /><span className="absolute inset-y-0 right-2 flex items-center text-[8px]">{field.unit}</span></div>
+                    </label>
+                  ))}
+                </div>
+                {thresholdError && <p className="mt-2 text-[9px] font-bold text-red-600">{thresholdError}</p>}
+                <button type="button" onClick={saveVisualThresholds} disabled={thresholdSaveState === "saving"} className="mt-3 w-full rounded bg-prizm-primary px-3 py-2 text-[9px] font-bold uppercase text-white disabled:opacity-50">{thresholdSaveState === "saving" ? "Saving…" : thresholdSaveState === "saved" ? "Saved permanently" : "Save alarm levels"}</button>
+              </div>
+            )}
 
             {/* COLOR KEY STATUTORY LEGEND */}
             <div className="p-2.5 rounded border border-prizm-border/40 bg-prizm-surface-strong shadow-inner flex flex-wrap gap-x-4 gap-y-1.5 text-[9.5px]">
@@ -1836,7 +1924,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
           </div>
 
           {/* OUTLIERS / ABNORMAL STRING DEVICE GRID */}
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-3">
+          <div className="bg-prizm-surface border border-prizm-border rounded-lg shadow-sm p-4 font-mono space-y-3 flex-1 min-h-[320px] flex flex-col">
             <div className="flex items-center justify-between border-b border-prizm-border pb-2">
               <span className="font-bold text-xs text-prizm-text uppercase flex items-center gap-1.5">
                 <AlertTriangle className={flaggedCount > 0 ? "text-prizm-warning animate-pulse" : "text-prizm-primary"} size={14} />
@@ -1847,13 +1935,15 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
               </span>
             </div>
 
-            <div className="overflow-x-auto border border-prizm-border rounded bg-prizm-bg max-h-[220px]">
+            <div className="overflow-auto border border-prizm-border rounded bg-prizm-bg flex-1 min-h-[240px]">
               <table className="w-full text-left border-collapse text-[10.5px]">
-                <thead>
+                <thead className="sticky top-0 z-20 bg-prizm-surface-strong shadow-sm">
                   <tr className="bg-prizm-surface-strong border-b border-prizm-border text-prizm-text-muted font-bold text-[9.5px]">
                     <th className="p-2 border-r border-prizm-border text-center">Array</th>
                     <th className="p-2 border-r border-prizm-border text-center">String</th>
                     <th className="p-2 border-r border-prizm-border">Label</th>
+                    <th className="p-2 border-r border-prizm-border text-center">Energy Segment</th>
+                    <th className="p-2 border-r border-prizm-border text-center">Side</th>
                     <th className="p-2 border-r border-prizm-border text-right">Voltage Min</th>
                     <th className="p-2 border-r border-prizm-border text-right">Voltage Max</th>
                     <th className="p-2 border-r border-prizm-border text-right">Voltage Avg</th>
@@ -1867,7 +1957,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                 <tbody className="divide-y divide-prizm-border/50">
                   {filteredStrings.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
+                      <td colSpan={13} className="p-6 text-center text-emerald-600 font-bold bg-emerald-50 text-xs">
                         {outliersOnly 
                           ? "🎉 ALL site controllers are normal. No active threshold breach or off-line rotations detected."
                           : "🔍 No controller strings match your current active filters."}
@@ -1926,6 +2016,8 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
                           <td className="p-2 font-bold text-center text-prizm-text">{s.arrayIndex}</td>
                           <td className="p-2 font-bold text-center text-prizm-text">{s.stringIndex}</td>
                           <td className="p-2 font-bold text-prizm-text-muted">{s.displayLabel}</td>
+                          <td className="p-2 text-center font-bold text-prizm-info">ES{s.energySegmentNumber ?? Math.ceil(s.stringIndex / 2)}</td>
+                          <td className="p-2 text-center font-bold text-prizm-text">{s.stringIndex % 2 === 1 ? "A-side" : "B-side"}</td>
                           <td className={`p-2 text-right font-bold ${isHighVolt ? 'text-red-500' : isLowVolt ? 'text-cyan-500' : 'text-slate-300'}`}>
                             {renderVoltMin}
                           </td>

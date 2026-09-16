@@ -32,7 +32,7 @@ interface FormatStringEsLabelInput {
  * Formats a consistent display label for a string / energy segment target.
  * Examples:
  * - Full label: Block 1 / Array 5 / ES3 - String 5
- * - Compact label: A5 / ES3 / S5
+ * - Compact label: Array 5 / ES3 / S5
  */
 export function formatStringEsLabel(input: FormatStringEsLabelInput): string {
     const { blockIndex, arrayNumber, stringNumber, energySegmentNumber, includeBlock, compact } = input;
@@ -52,7 +52,7 @@ export function formatStringEsLabel(input: FormatStringEsLabelInput): string {
     if (compact) {
         const parts: string[] = [];
         if (arrayNumber !== undefined && arrayNumber !== null) {
-            parts.push(`A${arrayNumber}`);
+            parts.push(`Array ${arrayNumber}`);
         }
         if (finalEs !== null) {
             parts.push(`ES${finalEs}`);

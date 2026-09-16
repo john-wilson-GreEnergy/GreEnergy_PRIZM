@@ -13,7 +13,7 @@ import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { getTopologyUiCapabilities } from "../lib/topologyUiCapabilities";
 import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
-import { normalizeSegmentIdentity } from "../lib/segmentIdentity";
+import { supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -29,10 +29,6 @@ interface FeatherDetailsViewProps {
   selectedDevice: FeatherHvacDevice;
   activeTopologyProfile?: any;
   onBack: () => void;
-  triggerDevicePoll: () => Promise<void>;
-  isPollingDevice: boolean;
-  selectedDeviceInterval: string;
-  setSelectedDeviceInterval: (val: string) => void;
   samples: any[];
   setSamples?: React.Dispatch<React.SetStateAction<any[]>>;
   pairedStrings: any[];
@@ -163,7 +159,7 @@ const StringRowWithNotifications = ({ s, formatTemperatureF }: { s: any; formatT
         <td className="p-2.5 text-center font-bold">{s.recloseCount ?? 0}</td>
         <td className="p-2.5 text-right text-prizm-text font-bold">
           {s.measuredVoltage !== undefined && s.measuredVoltage !== null 
-            ? `${(s.measuredVoltage / 1000).toFixed(1)} V` 
+            ? `${Number(s.measuredVoltage).toFixed(1)} V` 
             : "--"}
         </td>
         <td className="p-2.5 text-right">
@@ -255,10 +251,6 @@ export default function FeatherDetailsView({
   selectedDevice,
   activeTopologyProfile,
   onBack,
-  triggerDevicePoll,
-  isPollingDevice,
-  selectedDeviceInterval,
-  setSelectedDeviceInterval,
   samples,
   setSamples,
   pairedStrings,
@@ -270,6 +262,9 @@ export default function FeatherDetailsView({
   const [showValidationMatrix, setShowValidationMatrix] = useState<boolean>(false);
   const [showDetectorDebug, setShowDetectorDebug] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<"profile" | "raw">("profile");
+  useEffect(()=>{setAdvancedDrawerShowJson(false);setShowDetectorDebug(false);},[selectedDevice.ip]);
+  const latestTrendSample = samples.length > 0 ? samples[samples.length - 1] : null;
+  const fanSpeedFeedbackSupported = supportsFanSpeedFeedback(selectedDevice.hvacType);
 
   const topologyUi = useMemo(() => {
     return getTopologyUiCapabilities(activeTopologyProfile, selectedDevice);
@@ -281,7 +276,7 @@ export default function FeatherDetailsView({
 
   useEffect(() => {
     setLoadingTopology(true);
-    fetch("/api/local/site-sensors/topology?refresh=true&maxAgeMs=0")
+    fetch("/api/local/site-sensors/topology")
       .then(res => res.json())
       .then(data => {
         setTopologyData(data);
@@ -295,22 +290,27 @@ export default function FeatherDetailsView({
 
   // Helper to resolve Feather Segment type, index, and display label
   const resolveFeatherSegment = (device: any) => {
-    const ident = normalizeSegmentIdentity({
-      arrayNumber: device.arrayIndex,
-      stringNumber: device.stringIndex ?? device.stringNumber,
-      localEsNumber: device.energySegmentIndex ?? device.esNumber,
-      side: device.side ?? device.stringSide,
+    const resolvedNumOrCS = getArrayLocalEnergySegmentNumber({
+      arrayIndex: device.arrayIndex,
+      enclosureIndex: device.topology?.enclosureIndex ?? device.enclosureIndex,
+      segmentIndex: device.topology?.segmentIndex ?? device.segmentIndex,
+      segmentPosition: device.topology?.segmentPosition ?? device.segmentPosition,
+      energySegmentIndex: device.energySegmentIndex,
+      segmentLabel: device.segmentLabel ?? device.topology?.segmentLabel,
+      displayName: device.displayName ?? device.topology?.displayName,
+      ip: device.ip ?? device.deviceIp,
       enclosureType: device.enclosureType ?? device.topology?.enclosureType,
-      ip: device.ip || device.deviceIp,
-      displayLabel: device.segmentLabel ?? device.topology?.segmentLabel ?? device.displayName ?? device.topology?.displayName
+      energySegmentsPerArray: activeTopologyProfile?.assumptions?.energySegmentsPerArray,
+      includeCollectionSegment: activeTopologyProfile?.assumptions?.collectionSegmentsPerArray !== 0,
     });
 
-    const isCS = ident.enclosureType === "CS" || ident.enclosureType === "CollectionSegment" || ident.displayLabel.includes("CS");
+    const isCS = resolvedNumOrCS === "CS";
+    const segmentIndex = typeof resolvedNumOrCS === "number" ? resolvedNumOrCS : 1;
 
     return {
-      segmentIndex: ident.localEsNumber ?? 1,
+      segmentIndex,
       segmentType: (isCS ? "CS" : "ES") as "CS" | "ES",
-      displayLabel: ident.displayLabel
+      displayLabel: isCS ? `Array ${device.arrayIndex} - CS` : `Array ${device.arrayIndex} - ES ${segmentIndex}`
     };
   };
 
@@ -349,6 +349,8 @@ export default function FeatherDetailsView({
         segmentLabel: row.topology?.segmentLabel,
         displayName: row.location.displayName || row.topology?.displayName,
         enclosureType: row.location.enclosureType,
+        energySegmentsPerArray: activeTopologyProfile?.assumptions?.energySegmentsPerArray,
+        includeCollectionSegment: activeTopologyProfile?.assumptions?.collectionSegmentsPerArray !== 0,
       });
 
       if (isSelectedCS) {
@@ -365,6 +367,8 @@ export default function FeatherDetailsView({
       const doors = matchingRow?.doorSensors || {};
       const emergency = matchingRow?.emergencySensors || {};
       const comStatus = matchingRow?.comStatus || {};
+      const validFss = selectedDevice.fssSignals?.valid === true ? selectedDevice.fssSignals : null;
+      const validDoors = selectedDevice.doors?.valid === true ? selectedDevice.doors : null;
 
       const resolveDetectorState = (cell: any, fallbackVal: any, type: string) => {
         if (cell && cell.applicable !== false) {
@@ -418,7 +422,7 @@ export default function FeatherDetailsView({
           label: "Battery Doors",
           ...resolveDetectorState(
             doors.batteryDoors,
-            selectedDevice.doors ? !selectedDevice.doors.batteryDoorsClosed : null,
+            validDoors ? !validDoors.batteryDoorsClosed : null,
             "Door"
           ),
           isDoor: true,
@@ -429,7 +433,7 @@ export default function FeatherDetailsView({
           label: "Lower Top Cap",
           ...resolveDetectorState(
             doors.topCapDoors,
-            selectedDevice.doors ? !selectedDevice.doors.dcDoorsClosed : null,
+            validDoors ? !validDoors.lowerTopcapClosed : null,
             "Door"
           ),
           isDoor: true,
@@ -437,10 +441,30 @@ export default function FeatherDetailsView({
           cell: doors.topCapDoors
         },
         {
+          label: "Fire / Smoke Alarm",
+          ...resolveDetectorState(
+            other.smoke ?? other.fire,
+            validFss ? (validFss.fssAlarm || validFss.smokeAlarm || validFss.fireAlarm) : null,
+            "Alarm"
+          ),
+          type: "Alarm",
+          cell: other.smoke ?? other.fire
+        },
+        {
+          label: "Stat-X Release",
+          ...resolveDetectorState(
+            other.statXRelease,
+            validFss?.statXRelease ?? null,
+            "Alarm"
+          ),
+          type: "Alarm",
+          cell: other.statXRelease
+        },
+        {
           label: "Emergency Ventilation",
           ...resolveDetectorState(
             other.envControllerVent,
-            (selectedDevice.fssSignals as any)?.envControllerVent ?? null,
+            validFss ? (selectedDevice.emergencyVentilationOn ?? null) : null,
             "Alarm"
           ),
           type: "Alarm",
@@ -450,7 +474,7 @@ export default function FeatherDetailsView({
           label: "Hydrogen Fault",
           ...resolveDetectorState(
             other.hydrogenFault,
-            selectedDevice.fssSignals?.hydrogenFault ?? null,
+            validFss?.hydrogenFault ?? null,
             "Fault"
           ),
           type: "Fault",
@@ -460,7 +484,7 @@ export default function FeatherDetailsView({
           label: "Hydrogen Alarm",
           ...resolveDetectorState(
             other.hydrogen,
-            selectedDevice.fssSignals?.hydrogenAlarm ?? null,
+            validFss?.hydrogenAlarm ?? null,
             "Alarm"
           ),
           type: "Alarm",
@@ -470,7 +494,7 @@ export default function FeatherDetailsView({
           label: "I/O Logic",
           ...resolveDetectorState(
             comStatus.io,
-            (selectedDevice.fssSignals as any)?.ioLogic ?? null,
+            validFss ? ((selectedDevice.fssSignals as any)?.ioLogic ?? null) : null,
             "Fault"
           ),
           type: "Fault",
@@ -480,7 +504,7 @@ export default function FeatherDetailsView({
           label: "Fire Trouble",
           ...resolveDetectorState(
             other.fireTrouble,
-            selectedDevice.fssSignals?.fssTrouble ?? selectedDevice.fssSignals?.fireTrouble ?? null,
+            validFss?.fssTrouble ?? validFss?.fireTrouble ?? null,
             "Trouble"
           ),
           type: "Trouble",
@@ -490,7 +514,7 @@ export default function FeatherDetailsView({
           label: (emergency.moisture?.displayName || emergency.moisture?.label) || "Moisture / Top Cap Moisture",
           ...resolveDetectorState(
             emergency.moisture,
-            selectedDevice.fssSignals?.leakAlarm ?? null,
+            validFss?.leakAlarm ?? null,
             "Alarm"
           ),
           type: "Alarm",
@@ -504,7 +528,7 @@ export default function FeatherDetailsView({
             if (item.cell.monitoredByProfile === false || item.cell.contributesToHealth === false) {
               return false;
             }
-          } else {
+          } else if (item.value === null || item.value === undefined) {
             return false;
           }
         }
@@ -557,8 +581,8 @@ export default function FeatherDetailsView({
   const esNum = getEnergySegmentIndex(selectedDevice) || 1;
 
   // Detect mismatch for detailed cards
-  const mismatch1 = detectHvacMismatch({ hvac1: selectedDevice.hvac1 });
-  const mismatch2 = detectHvacMismatch({ hvac2: selectedDevice.hvac2 });
+  const mismatch1 = detectHvacMismatch({ hvacType: selectedDevice.hvacType, hvac1: selectedDevice.hvac1 });
+  const mismatch2 = detectHvacMismatch({ hvacType: selectedDevice.hvacType, hvac2: selectedDevice.hvac2 });
 
   // Render upgraded high-contrast HVAC unit card with strict ON/OFF styling and custom labels
   const renderDetailHvacCard = (hvac: any, unitNum: number, mismatch: any, activeBgColor: string, activeTextColor: string) => {
@@ -637,12 +661,12 @@ export default function FeatherDetailsView({
                   {(hvac.currentA || 0).toFixed(2)} <span className="text-[10px] text-prizm-text-muted font-normal font-sans">Amps</span>
                 </span>
               </div>
-              <div className="flex flex-col">
+              {fanSpeedFeedbackSupported && <div className="flex flex-col">
                 <span className="text-[8px] text-prizm-text-muted font-normal uppercase">Fan Speed</span>
                 <span className="text-prizm-text text-sm font-extrabold tracking-tight mt-0.5">
                   {hvac.fanSpeedRpm || 0} <span className="text-[10px] text-prizm-text-muted font-normal font-sans">RPM</span>
                 </span>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
@@ -789,21 +813,26 @@ export default function FeatherDetailsView({
           </div>
         </div>
 
-        {/* Top toolbar status indicator */}
-        <div className="text-[10px] text-prizm-text-muted">
-          Active Mode: <span className="text-prizm-primary font-bold">Direct Diagnostics</span>
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          <span className={`rounded border px-2 py-1 font-bold ${selectedDevice.reachable?"border-emerald-500/30 bg-emerald-500/10 text-emerald-400":"border-rose-500/30 bg-rose-500/10 text-rose-400"}`}>{selectedDevice.reachable?"ONLINE":"OFFLINE"}</span>
+          <span className="rounded border border-prizm-border px-2 py-1 text-prizm-text-muted">{resolvedSegment.displayLabel}</span>
+          <span className="rounded border border-prizm-border px-2 py-1 text-prizm-text-muted">{samples.length} captured samples</span>
         </div>
       </div>
 
+      <nav aria-label="Jump to Feather detail section" className="sticky top-0 z-20 grid grid-cols-2 gap-1 rounded-lg border border-prizm-border bg-prizm-surface/95 p-1 shadow-lg backdrop-blur md:grid-cols-5">
+        {([['overview','Health & HVAC'],['strings','Paired strings'],['trends','Live trends'],['signals','Analysis'],['source','Technical data']] as const).map(([key,label])=><a key={key} href={`#feather-${key}`} className="rounded px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-prizm-text-muted hover:bg-prizm-primary hover:text-white focus:bg-prizm-primary focus:text-white">{label}{key==='strings'&&topologyUi.showPairedStrings?` (${pairedStrings.length})`:''}</a>)}
+      </nav>
+
       {/* 3-Column Diagnostic Dashboard Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div id="feather-overview" className="scroll-mt-16 grid grid-cols-1 lg:grid-cols-3 gap-4">
         
         {/* Identity & Metadata Card */}
         <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 flex flex-col justify-between">
           <div>
             <div className="border-b border-prizm-border pb-2 mb-3 flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary">System Identity</span>
-              <span className="text-[9px] text-prizm-text-muted">IP Mode: static</span>
+              <span className="text-[9px] text-prizm-text-muted">Canonical device identity</span>
             </div>
             <div className="space-y-2.5">
               <div className="flex justify-between items-center py-1 border-b border-white/5">
@@ -832,7 +861,7 @@ export default function FeatherDetailsView({
                    selectedDevice.hvac1?.firmwareVersion || 
                    selectedDevice.hvac2?.firmwareVersion || 
                    (selectedDevice as any).rawStats?.turtleVersion || 
-                   "2.73.18"}
+                   "Not reported"}
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-white/5">
@@ -968,9 +997,9 @@ export default function FeatherDetailsView({
                 let textValue = s.displayValue || "--";
 
                 if (s.isUnmonitored) {
-                  badgeClass = "bg-zinc-800/80 text-zinc-400 border border-zinc-700/40";
+                  badgeClass = "bg-slate-200 text-slate-700 border border-slate-400";
                 } else if (textValue === "UNKNOWN") {
-                  badgeClass = "bg-gray-500/10 text-gray-400 border border-gray-500/20";
+                  badgeClass = "bg-slate-100 text-slate-700 border border-slate-400";
                 } else if (s.value !== undefined && s.value !== null) {
                   const isTrue = s.value === true;
                   
@@ -1040,7 +1069,7 @@ export default function FeatherDetailsView({
         <div className="bg-prizm-surface border border-prizm-border rounded-lg p-4 space-y-4">
           <div className="border-b border-prizm-border pb-2 flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary">HVAC Controller Diagnostics</span>
-            <span className="text-[9px] text-prizm-text-muted">Model: Dual Stage Simulation</span>
+            <span className="text-[9px] text-prizm-text-muted">Two controller channels</span>
           </div>
 
           {/* HVAC UNIT 1 - Cyan theme */}
@@ -1070,7 +1099,7 @@ export default function FeatherDetailsView({
         }
 
         return (
-          <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+          <div id="feather-strings" className="scroll-mt-16 bg-prizm-surface border border-prizm-border rounded-lg p-5">
             <div className="border-b border-prizm-border pb-3 mb-4 flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">STRINGS / BPC IN ROTATION</span>
@@ -1169,55 +1198,16 @@ export default function FeatherDetailsView({
         );
       })()}
 
-      {/* Explicit Targeted Polling controls and continuous charts (Fix 8) */}
-      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+      {/* Continuous charts sourced from the canonical site telemetry stream. */}
+      <div id="feather-trends" className="scroll-mt-16 bg-prizm-surface border border-prizm-border rounded-lg p-5">
         <div className="border-b border-prizm-border pb-3 mb-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">Real-Time Polling Trends</span>
-            <span className="text-[9px] text-prizm-text-muted">Captured physical telemetry samples (Max 300 rolling samples)</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">Live Site Telemetry Trends</span>
+            <span className="text-[9px] text-prizm-text-muted">Captures this segment from PRIZM's shared site polling stream (max 300 samples)</span>
           </div>
 
-          {/* Polling Control Toolbar */}
           <div className="flex flex-wrap items-center gap-2 bg-prizm-surface-strong p-2 border border-prizm-border rounded text-[10px] shadow-inner font-mono">
-            {/* Start/Stop Polling */}
-            <button
-              onClick={() => {
-                if (selectedDeviceInterval === "Pause") {
-                  setSelectedDeviceInterval("5000"); // default to 5s
-                } else {
-                  setSelectedDeviceInterval("Pause");
-                }
-              }}
-              className={`px-3 py-1 rounded font-bold uppercase cursor-pointer transition-colors text-[9px] ${
-                selectedDeviceInterval !== "Pause"
-                  ? "bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30"
-                  : "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30"
-              }`}
-            >
-              {selectedDeviceInterval !== "Pause" ? "Stop Polling" : "Start Polling"}
-            </button>
-
-            {/* Poll Once */}
-            <button
-              onClick={triggerDevicePoll}
-              disabled={isPollingDevice}
-              className="px-3 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/25 rounded font-bold uppercase disabled:opacity-40 cursor-pointer transition-colors text-[9px]"
-            >
-              {isPollingDevice ? "Polling..." : "Poll Once"}
-            </button>
-
-            {/* Interval dropdown */}
-            <select
-              value={selectedDeviceInterval}
-              onChange={(e) => setSelectedDeviceInterval(e.target.value)}
-              className="bg-black/40 border border-prizm-border rounded px-1.5 py-1 text-[9px] text-prizm-text focus:outline-none font-mono font-bold"
-            >
-              <option value="Pause">Paused</option>
-              <option value="2000">2s Interval</option>
-              <option value="5000">5s Interval</option>
-              <option value="10000">10s Interval</option>
-              <option value="30000">30s Interval</option>
-            </select>
+            <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[9px] font-bold uppercase text-emerald-400">Shared stream</span>
 
             {/* Clear samples */}
             <button
@@ -1242,47 +1232,64 @@ export default function FeatherDetailsView({
         {samples.length === 0 ? (
           <div className="p-12 text-center text-prizm-text-muted italic border border-dashed border-prizm-border/40 rounded bg-black/10">
             <Activity className="mx-auto text-prizm-text-muted/30 mb-2 animate-pulse" size={24} />
-            No manual polling samples captured yet. Click "Start Polling" or "Poll Once" above to begin plotting live HVAC telemetry curves.
+            Connecting to Feather HVAC telemetry…
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+              <div className="rounded border border-cyan-500/25 bg-cyan-500/5 p-2"><span className="block text-prizm-text-muted">HVAC 1 current</span><strong className="text-cyan-400 text-sm">{Number(latestTrendSample?.hvac1Current ?? 0).toFixed(1)} A</strong></div>
+              <div className="rounded border border-amber-500/25 bg-amber-500/5 p-2"><span className="block text-prizm-text-muted">HVAC 2 current</span><strong className="text-amber-400 text-sm">{Number(latestTrendSample?.hvac2Current ?? 0).toFixed(1)} A</strong></div>
+              <div className="rounded border border-sky-500/25 bg-sky-500/5 p-2"><span className="block text-prizm-text-muted">Space temperature</span><strong className="text-sky-400 text-sm">{latestTrendSample?.spaceTemp != null ? `${Number(latestTrendSample.spaceTemp).toFixed(1)} °F` : "--"}</strong></div>
+              <div className="rounded border border-rose-500/25 bg-rose-500/5 p-2"><span className="block text-prizm-text-muted">Average cell temperature</span><strong className="text-rose-400 text-sm">{latestTrendSample?.cellTemp != null ? `${Number(latestTrendSample.cellTemp).toFixed(1)} °F` : "--"}</strong></div>
+            </div>
+          <div className={`grid grid-cols-1 gap-4 ${fanSpeedFeedbackSupported ? "xl:grid-cols-3" : "xl:grid-cols-2"}`}>
             
-            {/* Merged Amps & RPM Chart (Fix 4) */}
-            <div className="xl:col-span-2 bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
-              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 text-center tracking-wider">Physical Feedback Measurements (Current & Fan Speed)</span>
-              <div className="h-[180px]">
+            <div className="bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
+              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-1 text-center tracking-wider">HVAC Current Draw</span>
+              <span className="text-[8px] text-prizm-text-muted block mb-3 text-center">Compare unit load and identify unexpected current</span>
+              <div className="h-[210px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={samples}>
                     <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
                     <XAxis dataKey="timeLabel" stroke="#6B7280" fontSize={8} tickLine={false} />
                     <YAxis 
-                      yAxisId="left"
                       stroke="#06B6D4" 
                       fontSize={8} 
-                      label={{ value: 'Current (Amps)', angle: -90, position: 'insideLeft', style: { fill: '#06B6D4', fontSize: 8 } }} 
-                    />
-                    <YAxis 
-                      yAxisId="right"
-                      orientation="right"
-                      stroke="#10B981" 
-                      fontSize={8} 
-                      label={{ value: 'Fan Speed (RPM)', angle: 90, position: 'insideRight', style: { fill: '#10B981', fontSize: 8 } }} 
+                      unit=" A"
+                      domain={[0, 'auto']}
                     />
                     <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', fontSize: 10 }} />
                     <Legend wrapperStyle={{ fontSize: 9 }} />
-                    <Line yAxisId="left" type="monotone" dataKey="hvac1Current" name="HVAC 1 Current (A)" stroke="#06B6D4" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                    <Line yAxisId="left" type="monotone" dataKey="hvac2Current" name="HVAC 2 Current (A)" stroke="#F59E0B" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                    <Line yAxisId="right" type="monotone" dataKey="hvac1Rpm" name="HVAC 1 Fan (RPM)" stroke="#10B981" strokeWidth={1.5} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} />
-                    <Line yAxisId="right" type="monotone" dataKey="hvac2Rpm" name="HVAC 2 Fan (RPM)" stroke="#8B5CF6" strokeWidth={1.5} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="hvac1Current" name="HVAC 1" stroke="#06B6D4" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="hvac2Current" name="HVAC 2" stroke="#F59E0B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
+            {fanSpeedFeedbackSupported && <div className="bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
+              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-1 text-center tracking-wider">Fan Speed Feedback</span>
+              <span className="text-[8px] text-prizm-text-muted block mb-3 text-center">Physical RPM reported by each HVAC unit</span>
+              <div className="h-[210px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={samples}>
+                    <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                    <XAxis dataKey="timeLabel" stroke="#6B7280" fontSize={8} tickLine={false} />
+                    <YAxis stroke="#10B981" fontSize={8} unit=" rpm" domain={[0, 'auto']} />
+                    <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', fontSize: 10 }} />
+                    <Legend wrapperStyle={{ fontSize: 9 }} />
+                    <Line type="monotone" dataKey="hvac1Rpm" name="HVAC 1" stroke="#10B981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="hvac2Rpm" name="HVAC 2" stroke="#8B5CF6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>}
+
             {/* Temp °F Chart */}
             <div className="bg-black/20 p-3.5 border border-prizm-border/50 rounded-lg shadow-sm">
-              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-3 text-center tracking-wider">Temperatures (°F)</span>
-              <div className="h-[180px]">
+              <span className="text-[10px] font-extrabold text-prizm-text uppercase block mb-1 text-center tracking-wider">Temperatures</span>
+              <span className="text-[8px] text-prizm-text-muted block mb-3 text-center">Space, cell, supply-air, and outside readings in °F</span>
+              <div className="h-[210px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={samples}>
                     <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
@@ -1290,19 +1297,21 @@ export default function FeatherDetailsView({
                     <YAxis stroke="#6B7280" fontSize={8} label={{ value: '°F', angle: -90, position: 'insideLeft', style: { fill: '#6B7280', fontSize: 8 } }} />
                     <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', fontSize: 10 }} />
                     <Legend wrapperStyle={{ fontSize: 9 }} />
-                    <Line type="monotone" dataKey="spaceTemp" name="Supply Air" stroke="#38BDF8" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="cellTemp" name="Cell Temp" stroke="#F43F5E" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="spaceTemp" name="Space" stroke="#38BDF8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="cellTemp" name="Avg Cell" stroke="#F43F5E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="supplyTemp" name="Supply Air" stroke="#22C55E" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="outsideTemp" name="Outside" stroke="#A78BFA" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
-
+          </div>
           </div>
         )}
       </div>
 
       {/* Stepped Binary command/current traces and validation table (Fix 2 & Fix 3) */}
-      <div className="bg-prizm-surface border border-prizm-border rounded-lg p-5">
+      <div id="feather-signals" className="scroll-mt-16 bg-prizm-surface border border-prizm-border rounded-lg p-5">
         <div className="border-b border-prizm-border pb-3 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-prizm-primary block">Stepped State & Mismatch Analyzer</span>
@@ -1521,7 +1530,7 @@ export default function FeatherDetailsView({
       </div>
 
       {/* Direct JSON Source panel */}
-      <div className="space-y-2 border-t border-prizm-border pt-4">
+      <div id="feather-source" className="scroll-mt-16 space-y-2 rounded-lg border border-prizm-border bg-prizm-surface p-4">
         <div className="flex justify-between items-center bg-prizm-surface p-3 rounded border border-prizm-border">
           <div className="flex flex-col">
             <span className="text-prizm-text-muted text-[10px] uppercase font-bold">Direct JSON Source</span>

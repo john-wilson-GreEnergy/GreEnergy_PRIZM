@@ -109,7 +109,8 @@ function immutableAndParity(): void {
 }
 
 async function rollbackSweepCleanup(): Promise<void> {
-  assert.equal(getStringViewerConfig({}).mode, "legacy", "safe default rollback mode");
+  assert.equal(getStringViewerConfig({}).mode, "scheduled", "bounded scheduler is the production default");
+  assert.equal(getStringViewerConfig({ PRIZM_STRINGVIEWER_MODE: "legacy" }).mode, "legacy", "legacy fan-out remains an explicit rollback mode");
   let calls = 0;
   const scheduler = new StringViewerScheduler({ ...config, forceFullRefresh: true, batchBudget: 1 }, async () => { calls += 1; return success({ calls }); });
   const rows = [row(1, 1), row(1, 2), row(1, 3)];

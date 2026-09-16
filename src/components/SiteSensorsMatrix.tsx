@@ -223,18 +223,14 @@ export default function SiteSensorsMatrix() {
     }
   };
 
-  // Group rows by Array index to form the grid.
-  // 168 rows total, representing indices 1..8, segments CS, BS, ES1..19.
+  // Group rows by the arrays supplied by canonical topology telemetry.
   const arraysMap = useMemo(() => {
     const grouped: Record<number, BlockRow[]> = {};
-    for (let i = 1; i <= 8; i++) {
-      grouped[i] = [];
-    }
     rows.forEach(r => {
       const aIdx = r.location.arrayIndex;
-      if (grouped[aIdx]) {
-        grouped[aIdx].push(r);
-      }
+      if (!Number.isInteger(aIdx) || aIdx < 1) return;
+      if (!grouped[aIdx]) grouped[aIdx] = [];
+      grouped[aIdx].push(r);
     });
 
     // Sort each array's segments in column order: CS, BS, ES1..ES19
