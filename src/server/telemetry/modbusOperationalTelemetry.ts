@@ -71,6 +71,7 @@ export type OperationalModbusSnapshot = {
 let snapshot: OperationalModbusSnapshot = emptySnapshot();
 let timer: NodeJS.Timeout | null = null;
 let polling = false;
+let pcsSwitchRefreshInFlight = false;
 const pcsSwitchCache = new Map<number, { attemptedAt: number; value: PcsSwitchTelemetry }>();
 const PCS_SWITCH_POLL_INTERVAL_MS = Math.max(5_000, Number(process.env.PRIZM_PCS_SWITCH_POLL_MS) || 10_000);
 
@@ -466,8 +467,37 @@ export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot
       const values = decodeModel(modelRows, reads[arrayReadOffset + index].registers, header.address, arrayNames);
       return { arrayIndex: index + 1, ...values };
     });
-    const pcsSwitches = await Promise.all(inverterHeaders.map((_header, index) => readSmaPcsSwitchTelemetry(index + 1)));
-    snapshot = { available: true, capturedAt: new Date().toISOString(), durationMs: Date.now() - started, host, port: reads[0].port, addressOffset, stale: false, error: null, block, pcs, arrays, pcsSwitches };
+    // Publish the EMS Modbus registers immediately. PCS switch enrichment can
+    // involve eight independent HTTPS/Modbus device reads and must never make
+    // otherwise-fresh block telemetry appear stale.
+    snapshot = {
+      available: true,
+      capturedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      host,
+      port: reads[0].port,
+      addressOffset,
+      stale: false,
+      error: null,
+      block,
+      pcs,
+      arrays,
+      pcsSwitches: snapshot.pcsSwitches
+    };
+
+    if (!pcsSwitchRefreshInFlight) {
+      pcsSwitchRefreshInFlight = true;
+      void Promise.all(inverterHeaders.map((_header, index) => readSmaPcsSwitchTelemetry(index + 1)))
+        .then((pcsSwitches) => {
+          snapshot = { ...snapshot, pcsSwitches };
+        })
+        .catch((error: any) => {
+          console.warn("[Operational Modbus] PCS switch enrichment failed", error?.message || error);
+        })
+        .finally(() => {
+          pcsSwitchRefreshInFlight = false;
+        });
+    }
   } catch (error: any) {
     snapshot = { ...snapshot, available: snapshot.available, durationMs: Date.now() - started, stale: true, error: error?.message || String(error) };
   } finally {
