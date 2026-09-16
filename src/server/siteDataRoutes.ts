@@ -37,6 +37,8 @@ const cachedBrowserSnapshots = new Map<string, {
 const PUBLISHED_VIEW_INTERVAL_MS = Math.max(1_000, Number(process.env.PRIZM_PUBLISHED_VIEW_INTERVAL_MS || 4_000));
 let publishedViewTimer: NodeJS.Timeout | null = null;
 let publishedViewBuildInProgress = false;
+const demandedViewKeys = new Map<string, number>();
+const PUBLISHED_VIEW_DEMAND_TTL_MS = Math.max(10_000, Number(process.env.PRIZM_PUBLISHED_VIEW_DEMAND_TTL_MS || 30_000));
 
 type PublishedViewDefinition = {
   key: string;
@@ -85,18 +87,20 @@ export async function publishBrowserViews(): Promise<boolean> {
   // defensively clones the multi-megabyte canonical graph on every call.
   const source = getSnapshotOrNull();
   if (!source) return false;
-  const current = cachedBrowserSnapshots.get("heartbeat");
-  if (current?.source === source) return false;
+  const now = Date.now();
+  const desiredDefinitions = PUBLISHED_VIEW_DEFINITIONS.filter((definition) =>
+    definition.key === "heartbeat" || (demandedViewKeys.get(definition.key) || 0) >= now - PUBLISHED_VIEW_DEMAND_TTL_MS
+  );
+  if (desiredDefinitions.every((definition) => cachedBrowserSnapshots.get(definition.key)?.source === source)) return false;
 
   publishedViewBuildInProgress = true;
   try {
-    const next = new Map<string, ReturnType<typeof serializePublishedView>>();
-    for (const definition of PUBLISHED_VIEW_DEFINITIONS) {
-      next.set(definition.key, serializePublishedView(source, definition));
+    for (const definition of desiredDefinitions) {
+      if (cachedBrowserSnapshots.get(definition.key)?.source === source) continue;
+      cachedBrowserSnapshots.set(definition.key, serializePublishedView(source, definition));
       // Yield between large projections to keep command and Modbus requests responsive.
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    for (const [key, value] of next) cachedBrowserSnapshots.set(key, value);
     return true;
   } finally {
     publishedViewBuildInProgress = false;
@@ -280,6 +284,7 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     const cacheKey = heartbeatOnly
       ? "heartbeat"
       : `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
+    demandedViewKeys.set(cacheKey, Date.now());
     let cached = cachedBrowserSnapshots.get(cacheKey);
     // Startup fallback only. During normal operation the four-second publisher
     // owns serialization and this route simply writes an immutable buffer.
@@ -290,6 +295,10 @@ siteDataRouter.get("/snapshot", async (req, res) => {
       cached = serializePublishedView(snap, definition);
       cachedBrowserSnapshots.set(cacheKey, cached);
     }
+    // A view that has not been open recently may still have an older prepared
+    // projection. Serve it immediately for a fast first paint, then refresh it
+    // off the request path for the next browser poll.
+    if (cached.source !== snap) void publishBrowserViews();
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "application/json; charset=utf-8");

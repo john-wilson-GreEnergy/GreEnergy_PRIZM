@@ -149,8 +149,16 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       clearTimeout(timeoutId);
 
       if (response.status === 304) {
+        // An unchanged published snapshot is still a successful polling
+        // heartbeat. Treating it as neither success nor failure leaves the
+        // previous transient failure latched in the banner until EMS produces
+        // a different payload, which can make healthy polling look unstable.
+        const nowStr = new Date().toISOString();
+        setLastGoodSnapshotAt(nowStr);
         setError(null);
+        setDataQualityWarning(null);
         setConsecutiveFailureCount(0);
+        setConsecutiveDegradedCount(0);
         return;
       }
 
