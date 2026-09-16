@@ -150,6 +150,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const [fallbackMode, setFallbackMode] = useState(false);
     const [pcsSource, setPcsSource] = useState("PCS source unavailable or unmapped.");
     const [pcsUpdatedAt, setPcsUpdatedAt] = useState<string | null>(null);
+    const [arraySummary, setArraySummary] = useState<any[]>([]);
     const [arrayPowerSummary, setArrayPowerSummary] = useState<any[]>([]);
     const [modbusArraySummary, setModbusArraySummary] = useState<any[]>([]);
     const [modbusTelemetry, setModbusTelemetry] = useState<any>(null);
@@ -165,6 +166,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const apiDataLoadedRef = useRef(false);
+    const pcsHttpEtagRef = useRef<string | null>(null);
+    const pcsHttpDataRef = useRef<any>(null);
 
     const snapshotDashboardData = useMemo(() => {
         if (!snapshot) return null;
@@ -179,6 +182,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const applyDashboardData = React.useCallback((data: any) => {
         apiDataLoadedRef.current = true;
         setModbusTelemetry(data?.modbusTelemetry || null);
+        setArraySummary(Array.isArray(data?.arraySummary) ? data.arraySummary : []);
         setArrayPowerSummary(Array.isArray(data?.arrayPowerSummary) ? data.arrayPowerSummary : []);
         setModbusArraySummary(Array.isArray(data?.modbusArraySummary) ? data.modbusArraySummary : []);
         const pcsRows = (Array.isArray(data?.pcs) ? data.pcs : []).map((p: any, index: number) => {
@@ -239,7 +243,25 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     }, []);
 
     const fetchPcsView = React.useCallback(async (force = false) => {
-        const first = await fetchJsonWithTimeout(`/api/local/site-data/pcs${force ? "?refresh=true" : ""}`, { timeoutMs: 10000 });
+        const readPublishedPcs = async (refresh = false) => {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
+            try {
+                const response = await fetch(`/api/local/site-data/pcs${refresh ? "?refresh=true" : ""}`, {
+                    signal: controller.signal,
+                    headers: pcsHttpEtagRef.current ? { "If-None-Match": pcsHttpEtagRef.current } : undefined
+                });
+                if (response.status === 304 && pcsHttpDataRef.current) return pcsHttpDataRef.current;
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                pcsHttpEtagRef.current = response.headers.get("etag");
+                pcsHttpDataRef.current = data;
+                return data;
+            } finally {
+                window.clearTimeout(timeoutId);
+            }
+        };
+        const first = await readPublishedPcs(force);
         if (!force) return first;
 
         const previousStamp = first?.cache?.lastUpdated;
@@ -247,7 +269,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         let latest = first;
         while (Date.now() < deadline) {
             await new Promise(resolve => setTimeout(resolve, 500));
-            latest = await fetchJsonWithTimeout("/api/local/site-data/pcs", { timeoutMs: 3000 });
+            latest = await readPublishedPcs(false);
             if (latest?.cache?.lastUpdated && latest.cache.lastUpdated !== previousStamp) break;
         }
         return latest;
@@ -948,7 +970,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             </div>
 
             <div className="overflow-x-auto no-scrollbar">
-                {snapshot?.rollups?.arraySummary && snapshot.rollups.arraySummary.length > 0 ? (
+                {arraySummary.length > 0 ? (
                     <table className="w-full text-[10px] font-mono text-left whitespace-nowrap">
                         <thead className="bg-prizm-surface-strong text-prizm-text-muted uppercase tracking-widest border-b border-prizm-border">
                             <tr>
@@ -965,7 +987,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-prizm-border">
-                            {snapshot.rollups.arraySummary.map((arr: any, idx: number) => {
+                            {arraySummary.map((arr: any, idx: number) => {
                                 const name = arr.friendlyString || arr.name || `Array ${arr.arrayNumber ?? arr.arrayIndex ?? (idx + 1)}`;
                                 const arrayNumber = Number(arr.arrayNumber ?? arr.arrayIndex ?? (idx + 1));
                                 const liveLimits = arrayPowerSummary.find((row: any) => Number(row.arrayIndex) === arrayNumber);

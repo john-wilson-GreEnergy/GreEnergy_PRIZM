@@ -3587,11 +3587,12 @@ export function getPcsView(): any {
         };
     });
     return {
+        cycleId: snap.cycleId,
         pcs,
         pcsSummary: snap.rollups.pcsSummary || {},
+        arraySummary: snap.rollups.arraySummary || [],
         arrayPowerSummary,
         modbusArraySummary: modbusTelemetry.available && !modbusTelemetry.stale ? modbusTelemetry.arrays : [],
-        arrayDetailsByArray: (snap.normalized as any).arrayDetailsByArray || {},
         sourceHealth: snap.rollups.sourceHealth,
         source: "Coordinator Site Data Engine",
         cache: snap.liveStatus,

@@ -36,9 +36,35 @@ const cachedBrowserSnapshots = new Map<string, {
 
 const PUBLISHED_VIEW_INTERVAL_MS = Math.max(1_000, Number(process.env.PRIZM_PUBLISHED_VIEW_INTERVAL_MS || 4_000));
 let publishedViewTimer: NodeJS.Timeout | null = null;
+let publishedPcsTimer: NodeJS.Timeout | null = null;
 let publishedViewBuildInProgress = false;
 const demandedViewKeys = new Map<string, number>();
 const PUBLISHED_VIEW_DEMAND_TTL_MS = Math.max(10_000, Number(process.env.PRIZM_PUBLISHED_VIEW_DEMAND_TTL_MS || 30_000));
+const PUBLISHED_PCS_INTERVAL_MS = Math.max(500, Number(process.env.PRIZM_PUBLISHED_PCS_INTERVAL_MS || 1_000));
+let cachedPcsHttpView: {
+  signature: string;
+  json: string;
+  gzip: Buffer;
+  publishedAt: string;
+  etag: string;
+} | null = null;
+
+function publishPcsHttpView(): boolean {
+  const view = getPcsView();
+  if (!view || view.warming) return false;
+  const signature = `${view.cycleId || 0}:${view.modbusTelemetry?.capturedAt || "none"}`;
+  if (cachedPcsHttpView?.signature === signature) return false;
+  const json = JSON.stringify(view);
+  const publishedAt = new Date().toISOString();
+  cachedPcsHttpView = {
+    signature,
+    json,
+    gzip: gzipSync(json, { level: 1 }),
+    publishedAt,
+    etag: `W/"prizm-pcs-${signature}"`
+  };
+  return true;
+}
 
 type PublishedViewDefinition = {
   key: string;
@@ -115,12 +141,22 @@ export function startPublishedViewCache(): void {
   refresh();
   publishedViewTimer = setInterval(refresh, PUBLISHED_VIEW_INTERVAL_MS);
   publishedViewTimer.unref?.();
+  const refreshPcs = () => {
+    try { publishPcsHttpView(); }
+    catch (error: any) { console.warn("[Published PCS] Background preparation failed", error?.message || error); }
+  };
+  refreshPcs();
+  publishedPcsTimer = setInterval(refreshPcs, PUBLISHED_PCS_INTERVAL_MS);
+  publishedPcsTimer.unref?.();
   console.log(`[Published Views] Browser projections publishing every ${PUBLISHED_VIEW_INTERVAL_MS}ms`);
+  console.log(`[Published PCS] HTTP projection publishing every ${PUBLISHED_PCS_INTERVAL_MS}ms`);
 }
 
 export function stopPublishedViewCache(): void {
   if (publishedViewTimer) clearInterval(publishedViewTimer);
+  if (publishedPcsTimer) clearInterval(publishedPcsTimer);
   publishedViewTimer = null;
+  publishedPcsTimer = null;
 }
 
 export function getPublishedViewStatus() {
@@ -412,9 +448,23 @@ siteDataRouter.get("/domains/:domain/stream", (req, res) => {
 
 siteDataRouter.get("/pcs", (req, res) => {
   try {
-    const view = getPcsView();
+    if (!cachedPcsHttpView) publishPcsHttpView();
+    const cached = cachedPcsHttpView;
+    if (!cached) return res.json({ warming: true });
     res.setHeader("Cache-Control", "no-store");
-    res.json(view);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("X-PRIZM-Published-At", cached.publishedAt);
+    res.setHeader("X-PRIZM-PCS-Bytes", String(Buffer.byteLength(cached.json)));
+    res.setHeader("ETag", cached.etag);
+    if (req.headers["if-none-match"] === cached.etag) return res.status(304).end();
+    if (/\bgzip\b/i.test(String(req.headers["accept-encoding"] || ""))) {
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Content-Length", String(cached.gzip.length));
+      return res.end(cached.gzip);
+    }
+    res.setHeader("Content-Length", String(Buffer.byteLength(cached.json)));
+    return res.end(cached.json);
   } catch (err: any) {
     res.json({ warming: true, error: err.message });
   }
