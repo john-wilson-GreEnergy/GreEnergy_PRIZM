@@ -7,6 +7,7 @@ import { normalizeTopologyModel, generateFeatherDiscoveryCandidatesFromTopology 
 import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "../commissioning/siteCommissioningService";
 import { startOperationalModbusPolling } from "../telemetry/modbusOperationalTelemetry";
 import { startPreparedReportSnapshotCache } from "../reports/siteSnapshotEngine";
+import { startPublishedViewCache } from "../siteDataRoutes";
 
 export type PrizmBootPhase =
   | "idle"
@@ -284,6 +285,7 @@ export function startBackgroundPolling() {
   startOperationalModbusPolling();
   startPreparedReportSnapshotCache();
   startCoordinator();
+  startPublishedViewCache();
 
   slowRefreshInterval = setInterval(async () => {
     // maybe refresh modbus map

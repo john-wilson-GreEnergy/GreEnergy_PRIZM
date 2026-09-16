@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { immutableBindingValue, stableBindingJson } from '../telemetry/binding';
+import { freezeBindingValue, stableBindingJson } from '../telemetry/binding';
 import type { ObservationQuality, ObservationRecord, ObservationValueType } from './ObservationTypes';
 import type { TelemetryObservationBinding } from '../telemetry/binding';
 
@@ -15,4 +15,4 @@ export function observationQuality(binding: TelemetryObservationBinding, value: 
   if (binding.fallbackUsed || binding.confidence < 1 || binding.health.healthy === false) return { quality: 'DEGRADED', confidence: Math.min(binding.confidence, 0.75) };
   return { quality: 'GOOD', confidence: 1 };
 }
-export function immutableObservation(value: ObservationRecord): ObservationRecord { return immutableBindingValue(value); }
+export function immutableObservation(value: ObservationRecord): ObservationRecord { return freezeBindingValue(value); }

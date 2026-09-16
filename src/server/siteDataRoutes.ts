@@ -2,7 +2,7 @@ import { Router } from "express";
 import { gzipSync } from "node:zlib";
 import { thermalRouter } from "./thermal/thermalRoutes";
 import {
-getLatestSnapshot,
+  getSnapshotOrNull,
   getFastStringsView,
   getSiteDataStatusView,
   getBlockSummaryView,
@@ -30,7 +30,110 @@ const cachedBrowserSnapshots = new Map<string, {
   source: any;
   json: string;
   gzip: Buffer;
+  publishedAt: string;
+  etag: string;
 }>();
+
+const PUBLISHED_VIEW_INTERVAL_MS = Math.max(1_000, Number(process.env.PRIZM_PUBLISHED_VIEW_INTERVAL_MS || 4_000));
+let publishedViewTimer: NodeJS.Timeout | null = null;
+let publishedViewBuildInProgress = false;
+
+type PublishedViewDefinition = {
+  key: string;
+  heartbeatOnly?: boolean;
+  includeArrayDetails?: boolean;
+  includeStringDiagnostics?: boolean;
+  includeStrings?: boolean;
+};
+
+const PUBLISHED_VIEW_DEFINITIONS: PublishedViewDefinition[] = [
+  { key: "heartbeat", heartbeatOnly: true },
+  { key: "standard:compact-strings:with-strings", includeStrings: true },
+  { key: "details:compact-strings:with-strings", includeArrayDetails: true, includeStrings: true },
+  { key: "details:string-diagnostics:with-strings", includeArrayDetails: true, includeStringDiagnostics: true, includeStrings: true },
+  { key: "standard:compact-strings:without-strings", includeStrings: false }
+];
+
+function serializePublishedView(source: any, definition: PublishedViewDefinition) {
+  const browserSnapshot = definition.heartbeatOnly
+    ? buildHeartbeatSnapshot(source)
+    : buildBrowserSnapshot(source, {
+        includeArrayDetails: definition.includeArrayDetails,
+        includeStringDiagnostics: definition.includeStringDiagnostics,
+        includeStrings: definition.includeStrings
+      });
+  const json = JSON.stringify(browserSnapshot);
+  const publishedAt = new Date().toISOString();
+  const cycleId = Number(source?.cycleId || 0);
+  return {
+    source,
+    json,
+    gzip: gzipSync(json, { level: 1 }),
+    publishedAt,
+    etag: `W/\"prizm-${definition.key}-${cycleId}-${publishedAt}\"`
+  };
+}
+
+/**
+ * Prepare browser-ready, compressed views away from the HTTP request path.
+ * A complete set is swapped in atomically so browsers never observe a mix of
+ * old and new projections during a coordinator publication.
+ */
+export async function publishBrowserViews(): Promise<boolean> {
+  if (publishedViewBuildInProgress) return false;
+  // This is an internal read-only projection. Avoid getLatestSnapshot(), which
+  // defensively clones the multi-megabyte canonical graph on every call.
+  const source = getSnapshotOrNull();
+  if (!source) return false;
+  const current = cachedBrowserSnapshots.get("heartbeat");
+  if (current?.source === source) return false;
+
+  publishedViewBuildInProgress = true;
+  try {
+    const next = new Map<string, ReturnType<typeof serializePublishedView>>();
+    for (const definition of PUBLISHED_VIEW_DEFINITIONS) {
+      next.set(definition.key, serializePublishedView(source, definition));
+      // Yield between large projections to keep command and Modbus requests responsive.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    for (const [key, value] of next) cachedBrowserSnapshots.set(key, value);
+    return true;
+  } finally {
+    publishedViewBuildInProgress = false;
+  }
+}
+
+export function startPublishedViewCache(): void {
+  if (publishedViewTimer) return;
+  const refresh = () => publishBrowserViews().catch((error) => {
+    console.warn("[Published Views] Background preparation failed", error?.message || error);
+  });
+  refresh();
+  publishedViewTimer = setInterval(refresh, PUBLISHED_VIEW_INTERVAL_MS);
+  publishedViewTimer.unref?.();
+  console.log(`[Published Views] Browser projections publishing every ${PUBLISHED_VIEW_INTERVAL_MS}ms`);
+}
+
+export function stopPublishedViewCache(): void {
+  if (publishedViewTimer) clearInterval(publishedViewTimer);
+  publishedViewTimer = null;
+}
+
+export function getPublishedViewStatus() {
+  const heartbeat = cachedBrowserSnapshots.get("heartbeat");
+  return {
+    ready: !!heartbeat,
+    intervalMs: PUBLISHED_VIEW_INTERVAL_MS,
+    publishedAt: heartbeat?.publishedAt || null,
+    cycleId: heartbeat ? JSON.parse(heartbeat.json)?.cycleId ?? null : null,
+    views: Array.from(cachedBrowserSnapshots.entries()).map(([key, value]) => ({
+      key,
+      bytes: Buffer.byteLength(value.json),
+      gzipBytes: value.gzip.length,
+      publishedAt: value.publishedAt
+    }))
+  };
+}
 
 function withoutDiagnosticPayload(row: any, includeStringDiagnostics = false) {
   if (!row || typeof row !== "object" || Array.isArray(row)) return row;
@@ -157,11 +260,11 @@ siteDataRouter.use(async (req, res, next) => {
 
 siteDataRouter.get("/snapshot", async (req, res) => {
   try {
-    let snap = getLatestSnapshot();
+    let snap = getSnapshotOrNull();
     if (!snap) {
       console.log("[Site Data Routes] Snapshot not found, triggering immediate background poll...");
       requestRefresh("site-data:snapshot-warming");
-      snap = getLatestSnapshot();
+      snap = getSnapshotOrNull();
     }
     if (!snap) {
       return res.json({ warming: true, message: "Site snapshot is currently warming or offline." });
@@ -178,12 +281,13 @@ siteDataRouter.get("/snapshot", async (req, res) => {
       ? "heartbeat"
       : `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
     let cached = cachedBrowserSnapshots.get(cacheKey);
-    if (!cached || cached.source !== snap) {
-      const browserSnapshot = heartbeatOnly
-        ? buildHeartbeatSnapshot(snap)
-        : buildBrowserSnapshot(snap, { includeArrayDetails, includeStringDiagnostics, includeStrings });
-      const json = JSON.stringify(browserSnapshot);
-      cached = { source: snap, json, gzip: gzipSync(json, { level: 1 }) };
+    // Startup fallback only. During normal operation the four-second publisher
+    // owns serialization and this route simply writes an immutable buffer.
+    if (!cached) {
+      const definition = PUBLISHED_VIEW_DEFINITIONS.find((entry) => entry.key === cacheKey) || {
+        key: cacheKey, heartbeatOnly, includeArrayDetails, includeStringDiagnostics, includeStrings
+      };
+      cached = serializePublishedView(snap, definition);
       cachedBrowserSnapshots.set(cacheKey, cached);
     }
 
@@ -192,6 +296,9 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     res.setHeader("Vary", "Accept-Encoding");
     res.setHeader("X-PRIZM-Snapshot-Bytes", String(Buffer.byteLength(cached.json)));
     res.setHeader("X-PRIZM-Snapshot-View", view);
+    res.setHeader("X-PRIZM-Published-At", cached.publishedAt);
+    res.setHeader("ETag", cached.etag);
+    if (req.headers["if-none-match"] === cached.etag) return res.status(304).end();
     if (/\bgzip\b/i.test(String(req.headers["accept-encoding"] || ""))) {
       res.setHeader("Content-Encoding", "gzip");
       res.setHeader("Content-Length", String(cached.gzip.length));
@@ -202,6 +309,11 @@ siteDataRouter.get("/snapshot", async (req, res) => {
   } catch (err: any) {
     res.json({ warming: true, error: err.message || "Failed to retrieve site snapshot" });
   }
+});
+
+siteDataRouter.get("/published-views/status", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(getPublishedViewStatus());
 });
 
 siteDataRouter.get("/status", (req, res) => {

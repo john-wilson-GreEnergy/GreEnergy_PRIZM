@@ -13,6 +13,8 @@ export function stableBindingJson(value: unknown): string {
 export function bindingFingerprint(value: unknown): string { return createHash('sha256').update(stableBindingJson(value)).digest('hex'); }
 export function deterministicBindingId(domain: string, objectId: string): string { return `binding:${BINDING_SCHEMA_VERSION}:${domain}:${objectId}`; }
 export function immutableBindingValue<T>(value: T): T { return immutableValue(structuredClone(value)); }
+/** Freeze a newly-created internal value without copying an already immutable graph. */
+export function freezeBindingValue<T>(value: T): T { return immutableValue(value); }
 
 const OMIT_KEYS = new Set(['raw', 'rawResponse', 'rawPayload', 'sourcePayload', 'voltageMap', 'temperatureMap', 'timestampMap', 'balancingMap']);
 const VOLATILE_FINGERPRINT_KEYS = new Set(['publishedAt', 'generatedAt', 'publicationTimestamp']);

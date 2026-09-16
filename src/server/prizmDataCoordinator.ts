@@ -2906,9 +2906,15 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();
       coordinatorProfiler.withSyncPhase("Route Notifications", { waitState: "NORMALIZATION", blocking: true }, () => recordTelemetrySample(emsCacheRaw || {}, featherCacheRaw));
-      await canonicalPublicationRuntime.publish(context.cycleId).catch((error: unknown) => {
-          console.error("[Data Coordinator] Canonical publication failed", error instanceof Error ? error.message : String(error));
-      });
+      // The canonical engineering graph is substantially heavier than the
+      // operational browser views and is not required by the normal portal.
+      // Keep it opt-in for continuous engineering diagnostics; workspace
+      // routes build it on demand without delaying every telemetry cycle.
+      if (process.env.PRIZM_CANONICAL_PUBLICATION_MODE === "continuous") {
+          await canonicalPublicationRuntime.publish(context.cycleId).catch((error: unknown) => {
+              console.error("[Data Coordinator] Canonical publication failed", error instanceof Error ? error.message : String(error));
+          });
+      }
 
   } catch (err: any) {
       cycleSucceeded = false;

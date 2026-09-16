@@ -2,15 +2,24 @@ import express from 'express';
 import { isLoopbackRequest } from '../telemetry/metrics/TelemetryMetricsRoutes';
 import { serializedBytes } from './ProjectionHelpers';
 import { workspaceProjectionRuntime } from './WorkspaceProjectionRuntime';
+import { canonicalPublicationRuntime } from '../telemetry/publication/CanonicalPublicationRuntime';
+import { getWorkspaceProjectionSource } from '../prizmDataCoordinator';
 
 export const workspaceProjectionRouter = express.Router();
 export const workspaceProjectionDebugRouter = express.Router();
 
-function route(path: string, loader: () => Promise<unknown>) { return async (_req: express.Request, res: express.Response) => { const started = performance.now(); try { const payload = await loader(); workspaceProjectionRuntime.metrics.route(path, performance.now() - started, serializedBytes(payload)); res.json(payload); } catch (error) { res.status(503).json({ error: error instanceof Error ? error.message : String(error) }); } }; }
+async function ensureWorkspaceProjection() {
+  if (workspaceProjectionRuntime.report().ready) return;
+  const cycleId = Number(getWorkspaceProjectionSource()?.cycleId || 0);
+  if (!Number.isSafeInteger(cycleId) || cycleId < 1) throw new Error('canonical-source-warming');
+  await canonicalPublicationRuntime.publish(cycleId);
+}
+
+function route(path: string, loader: () => Promise<unknown>) { return async (_req: express.Request, res: express.Response) => { const started = performance.now(); try { await ensureWorkspaceProjection(); const payload = await loader(); workspaceProjectionRuntime.metrics.route(path, performance.now() - started, serializedBytes(payload)); res.json(payload); } catch (error) { res.status(503).json({ error: error instanceof Error ? error.message : String(error) }); } }; }
 
 workspaceProjectionRouter.get('/operator', route('operator', () => workspaceProjectionRuntime.get('operator')));
 workspaceProjectionRouter.get('/technician', route('technician', () => workspaceProjectionRuntime.get('technician')));
-workspaceProjectionRouter.get('/technician/strings/:array/:string', async (req, res) => { const arrayIndex = Number(req.params.array); const stringIndex = Number(req.params.string); if (!Number.isSafeInteger(arrayIndex) || arrayIndex < 1 || arrayIndex > 8 || !Number.isSafeInteger(stringIndex) || stringIndex < 1 || stringIndex > 40) return res.status(400).json({ error: 'array must be 1-8 and string must be 1-40' }); const started = performance.now(); try { const payload = await workspaceProjectionRuntime.technicianDetail(arrayIndex, stringIndex); if (!payload) return res.status(404).json({ error: 'string-not-found' }); workspaceProjectionRuntime.metrics.route('technician-detail', performance.now() - started, serializedBytes(payload)); res.json(payload); } catch (error) { res.status(503).json({ error: error instanceof Error ? error.message : String(error) }); } });
+workspaceProjectionRouter.get('/technician/strings/:array/:string', async (req, res) => { const arrayIndex = Number(req.params.array); const stringIndex = Number(req.params.string); if (!Number.isSafeInteger(arrayIndex) || arrayIndex < 1 || arrayIndex > 8 || !Number.isSafeInteger(stringIndex) || stringIndex < 1 || stringIndex > 40) return res.status(400).json({ error: 'array must be 1-8 and string must be 1-40' }); const started = performance.now(); try { await ensureWorkspaceProjection(); const payload = await workspaceProjectionRuntime.technicianDetail(arrayIndex, stringIndex); if (!payload) return res.status(404).json({ error: 'string-not-found' }); workspaceProjectionRuntime.metrics.route('technician-detail', performance.now() - started, serializedBytes(payload)); res.json(payload); } catch (error) { res.status(503).json({ error: error instanceof Error ? error.message : String(error) }); } });
 workspaceProjectionRouter.get('/engineering', route('engineering', () => workspaceProjectionRuntime.get('engineering')));
 for (const kind of ['topology', 'performance', 'schedulers', 'modbus', 'parity'] as const) workspaceProjectionRouter.get(`/engineering/${kind}`, route(`engineering-${kind}`, () => workspaceProjectionRuntime.engineeringSubresource(kind)));
 

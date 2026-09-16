@@ -110,6 +110,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
   const isFetchingRef = useRef(false);
   const snapshotRef = useRef<any>(null);
   const topologyLoadedRef = useRef(false);
+  const snapshotEtagRef = useRef<string | null>(null);
   const [activeView, setActiveView] = useState("overview");
 
   useEffect(() => {
@@ -139,10 +140,19 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (force) qs.set('refresh', 'true');
       const shouldFetchTopology = force || !topologyLoadedRef.current;
       const [response, topoResponse] = await Promise.all([
-        fetch(`/api/local/site-data/snapshot?${qs.toString()}`, { signal: controller.signal }),
+        fetch(`/api/local/site-data/snapshot?${qs.toString()}`, {
+          signal: controller.signal,
+          headers: snapshotEtagRef.current ? { "If-None-Match": snapshotEtagRef.current } : undefined
+        }),
         shouldFetchTopology ? fetch('/api/local/topology/active', { signal: controller.signal }) : Promise.resolve(null)
       ]);
       clearTimeout(timeoutId);
+
+      if (response.status === 304) {
+        setError(null);
+        setConsecutiveFailureCount(0);
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch site data: ${response.statusText}`);
@@ -154,6 +164,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
       
       const data = await response.json();
+      snapshotEtagRef.current = response.headers.get("etag");
       if (topoResponse?.ok) {
         const topoData = await topoResponse.json();
         if (topoData.success && topoData.profile) {
@@ -226,7 +237,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
     const fastStringRender = new URLSearchParams(window.location.search).get("fastStringRender") !== "off";
     const intervalMs = activeView === "arrays-strings"
       ? (fastStringRender ? 12000 : 5000)
-      : liveTelemetryViews.has(activeView) ? 5000 : diagnosticViews.has(activeView) ? 12000 : 30000;
+      : liveTelemetryViews.has(activeView) ? 4000 : diagnosticViews.has(activeView) ? 12000 : 30000;
     const intervalId = setInterval(() => {
       if (document.hidden) return;
       fetchSnapshot();
