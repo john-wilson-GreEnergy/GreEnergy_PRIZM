@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { gzipSync } from "node:zlib";
 import { thermalRouter } from "./thermal/thermalRoutes";
 import {
 getLatestSnapshot,
@@ -25,6 +26,71 @@ import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBr
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
 
+let cachedBrowserSnapshotSource: any = null;
+let cachedBrowserSnapshotJson = "";
+let cachedBrowserSnapshotGzip: Buffer | null = null;
+
+function withoutDiagnosticPayload(row: any) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+  const { raw: _raw, sourceDebug: _sourceDebug, ...clientRow } = row;
+  return clientRow;
+}
+
+/**
+ * The coordinator retains diagnostic and duplicated source data for server-side
+ * reports. The browser only needs the normalized records and compact rollups.
+ * Keeping those concerns separate prevents a full site poll from transferring
+ * tens of megabytes every few seconds.
+ */
+export function buildBrowserSnapshot(snapshot: any) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+
+  const normalized = snapshot.normalized || {};
+  const rollups = snapshot.rollups || {};
+  const stringSummary = rollups.stringSummary || {};
+  const featherSummary = rollups.featherSummary || {};
+  const { enhanced: _enhanced, tableRows: _tableRows, ...compactStringSummary } = stringSummary;
+  const { devices: _devices, ...compactFeatherSummary } = featherSummary;
+  const normalizedStrings = Array.isArray(normalized.strings)
+    ? normalized.strings.map(withoutDiagnosticPayload)
+    : normalized.strings;
+
+  const arrayDetailsByArray = Object.fromEntries(
+    Object.entries(normalized.arrayDetailsByArray || {}).map(([key, value]: [string, any]) => {
+      const { raw: _raw, ...arrayDetail } = value || {};
+      return [key, {
+        ...arrayDetail,
+        strings: Array.isArray(arrayDetail.strings)
+          ? arrayDetail.strings.map(withoutDiagnosticPayload)
+          : arrayDetail.strings
+      }];
+    })
+  );
+
+  return {
+    ...snapshot,
+    rawSources: undefined,
+    normalized: {
+      ...normalized,
+      strings: normalizedStrings,
+      arrays: Array.isArray(normalized.arrays) ? normalized.arrays.map(withoutDiagnosticPayload) : normalized.arrays,
+      feather: Array.isArray(normalized.feather) ? normalized.feather.map(withoutDiagnosticPayload) : normalized.feather,
+      pcs: Array.isArray(normalized.pcs) ? normalized.pcs.map(withoutDiagnosticPayload) : normalized.pcs,
+      sensors: Array.isArray(normalized.sensors) ? normalized.sensors.map(withoutDiagnosticPayload) : normalized.sensors,
+      arrayDetailsByArray
+    },
+    rollups: {
+      ...rollups,
+      // Keep the legacy tableRows alias for already-open browser sessions. It
+      // serializes compact normalized rows and avoids a false "degraded poll"
+      // while clients transition to normalized.strings.
+      stringSummary: { ...compactStringSummary, tableRows: normalizedStrings },
+      featherSummary: compactFeatherSummary,
+      arraySummary: Array.isArray(rollups.arraySummary) ? rollups.arraySummary.map(withoutDiagnosticPayload) : rollups.arraySummary
+    }
+  };
+}
+
 siteDataRouter.use(async (req, res, next) => {
   if (req.query.refresh === "true") {
     console.log(`[Site Data Routes] Refresh parameter detected for ${req.path}, pulling live data...`);
@@ -48,7 +114,24 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     if (!snap) {
       return res.json({ warming: true, message: "Site snapshot is currently warming or offline." });
     }
-    res.json(snap);
+    if (cachedBrowserSnapshotSource !== snap) {
+      const browserSnapshot = buildBrowserSnapshot(snap);
+      cachedBrowserSnapshotJson = JSON.stringify(browserSnapshot);
+      cachedBrowserSnapshotGzip = gzipSync(cachedBrowserSnapshotJson, { level: 1 });
+      cachedBrowserSnapshotSource = snap;
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("X-PRIZM-Snapshot-Bytes", String(Buffer.byteLength(cachedBrowserSnapshotJson)));
+    if (/\bgzip\b/i.test(String(req.headers["accept-encoding"] || "")) && cachedBrowserSnapshotGzip) {
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Content-Length", String(cachedBrowserSnapshotGzip.length));
+      return res.end(cachedBrowserSnapshotGzip);
+    }
+    res.setHeader("Content-Length", String(Buffer.byteLength(cachedBrowserSnapshotJson)));
+    return res.end(cachedBrowserSnapshotJson);
   } catch (err: any) {
     res.json({ warming: true, error: err.message || "Failed to retrieve site snapshot" });
   }
