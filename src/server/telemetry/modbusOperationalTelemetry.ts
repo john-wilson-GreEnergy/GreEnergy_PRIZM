@@ -111,6 +111,7 @@ const SMA_EXTENDED_PROCESS_POINTS: Record<string, number> = {
   dcCouplerStatusMask: 3630, batteryStatusMask: 3632, inverterOperatingMode: 329
 };
 const smaExtendedCache = new Map<string, { attemptedAt: number; value: Record<string, SmaProcessPoint> }>();
+const smaExtendedRefreshInFlight = new Set<string>();
 const SMA_EXTENDED_POLL_MS = Math.max(30_000, Number(process.env.PRIZM_PCS_EXTENDED_POLL_MS) || 60_000);
 let smaReadsActive = 0;
 const smaReadWaiters: Array<() => void> = [];
@@ -167,6 +168,17 @@ async function readSmaExtendedProcessData(host: string): Promise<Record<string, 
   const value = Object.fromEntries(entries);
   smaExtendedCache.set(host, { attemptedAt: Date.now(), value });
   return value;
+}
+
+function refreshSmaExtendedProcessData(host: string): Record<string, SmaProcessPoint> {
+  const cached = smaExtendedCache.get(host);
+  if (!smaExtendedRefreshInFlight.has(host) && (!cached || Date.now() - cached.attemptedAt >= SMA_EXTENDED_POLL_MS)) {
+    smaExtendedRefreshInFlight.add(host);
+    void readSmaExtendedProcessData(host)
+      .catch((error: any) => console.warn(`[SMA ${host}] Extended process data refresh failed:`, error?.message || error))
+      .finally(() => smaExtendedRefreshInFlight.delete(host));
+  }
+  return cached?.value || {};
 }
 const decodeSmaEnum = (registers: number[], index: number): number | null =>
   index + 1 < registers.length ? (((registers[index] << 16) | registers[index + 1]) >>> 0) : null;
@@ -228,7 +240,7 @@ async function readSmaAuxiliarySwitches(host: string): Promise<SmaAuxiliarySwitc
   };
 }
 
-function readSmaDiagramBitfield(host: string, timeoutMs = 1800): Promise<number> {
+function readSmaDiagramBitfield(host: string, timeoutMs = 4000): Promise<number> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ uniqueId: 6070 });
     const request = https.request({
@@ -287,12 +299,15 @@ export async function readSmaPcsSwitchTelemetry(arrayIndex: number, host = `10.0
   if (cached && Date.now() - cached.attemptedAt < PCS_SWITCH_POLL_INTERVAL_MS) return cached.value;
   const started = Date.now();
   const base = { arrayIndex, host, port: 502, unitId: 3 };
+  let webError: unknown = null;
   try {
     const [diagram, operatingState] = await Promise.all([
       readSmaDiagramBitfield(host),
       readSmaOperatingState(host).catch(() => null)
     ]);
-    const smaProcessData = await readSmaExtendedProcessData(host).catch(() => ({}));
+    // The extended point sweep can take many seconds across eight devices.
+    // Keep the switch/status snapshot independent of that background work.
+    const smaProcessData = refreshSmaExtendedProcessData(host);
     let auxiliary: SmaAuxiliarySwitchRead | null = null;
     try {
       auxiliary = await readSmaAuxiliarySwitches(host);
@@ -316,7 +331,8 @@ export async function readSmaPcsSwitchTelemetry(arrayIndex: number, host = `10.0
     };
     pcsSwitchCache.set(arrayIndex, { attemptedAt: Date.now(), value });
     return value;
-  } catch {
+  } catch (error) {
+    webError = error;
     // Fall back to the documented SMA Modbus profile when the GUI process-data endpoint is unavailable.
   }
   try {
@@ -338,7 +354,9 @@ export async function readSmaPcsSwitchTelemetry(arrayIndex: number, host = `10.0
     return value;
   } catch (error: any) {
     const value: PcsSwitchTelemetry = {
-      ...base, capturedAt: null, durationMs: Date.now() - started, stale: true, error: error?.message || String(error), addressOffset: null, source: null,
+      ...base, capturedAt: null, durationMs: Date.now() - started, stale: true,
+      error: `SMA web telemetry: ${webError instanceof Error ? webError.message : String(webError)}; Modbus fallback: ${error?.message || String(error)}`,
+      addressOffset: null, source: null,
       inverterOperatingState: null, inverterOperatingStateRaw: null,
       powerOffReason: null, smaProcessData: {},
       dcSwitch1: "UNKNOWN", dcSwitch2: "UNKNOWN", dcSwitch3: "UNKNOWN", acSwitch: "UNKNOWN",
