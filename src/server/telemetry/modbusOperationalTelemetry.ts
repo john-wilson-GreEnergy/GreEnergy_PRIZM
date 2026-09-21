@@ -71,9 +71,10 @@ export type OperationalModbusSnapshot = {
 let snapshot: OperationalModbusSnapshot = emptySnapshot();
 let timer: NodeJS.Timeout | null = null;
 let polling = false;
-let pcsSwitchRefreshInFlight = false;
+const pcsSwitchRefreshInFlight = new Set<number>();
 const pcsSwitchCache = new Map<number, { attemptedAt: number; value: PcsSwitchTelemetry }>();
 const PCS_SWITCH_POLL_INTERVAL_MS = Math.max(5_000, Number(process.env.PRIZM_PCS_SWITCH_POLL_MS) || 10_000);
+const PCS_SWITCH_STALE_MS = Math.max(20_000, PCS_SWITCH_POLL_INTERVAL_MS * 2);
 
 function emptySnapshot(): OperationalModbusSnapshot {
   return { available: false, capturedAt: null, durationMs: null, host: null, port: null, addressOffset: null, stale: true, error: null, block: {}, pcs: [], arrays: [], pcsSwitches: [] };
@@ -113,6 +114,7 @@ const SMA_EXTENDED_PROCESS_POINTS: Record<string, number> = {
 const smaExtendedCache = new Map<string, { attemptedAt: number; value: Record<string, SmaProcessPoint> }>();
 const smaExtendedRefreshInFlight = new Set<string>();
 const SMA_EXTENDED_POLL_MS = Math.max(30_000, Number(process.env.PRIZM_PCS_EXTENDED_POLL_MS) || 60_000);
+const SMA_EXTENDED_STALE_MS = Math.max(120_000, SMA_EXTENDED_POLL_MS * 2);
 let smaReadsActive = 0;
 const smaReadWaiters: Array<() => void> = [];
 const SMA_READ_CONCURRENCY = Math.max(2, Number(process.env.PRIZM_PCS_WEB_CONCURRENCY) || 6);
@@ -178,7 +180,7 @@ function refreshSmaExtendedProcessData(host: string): Record<string, SmaProcessP
       .catch((error: any) => console.warn(`[SMA ${host}] Extended process data refresh failed:`, error?.message || error))
       .finally(() => smaExtendedRefreshInFlight.delete(host));
   }
-  return cached?.value || {};
+  return cached && Date.now() - cached.attemptedAt <= SMA_EXTENDED_STALE_MS ? cached.value : {};
 }
 const decodeSmaEnum = (registers: number[], index: number): number | null =>
   index + 1 < registers.length ? (((registers[index] << 16) | registers[index + 1]) >>> 0) : null;
@@ -434,6 +436,30 @@ function sourceMapPath(): string | null {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+type ModelRead = { address: number; quantity: number };
+type ModelReadGroup = { address: number; quantity: number; indexes: number[] };
+
+// Nearby SunSpec models can be read in one Modbus transaction. Keep the
+// register limit and a small gap limit so unrelated models are not swept in.
+export function groupOperationalModelReads(reads: ModelRead[]): ModelReadGroup[] {
+  const groups: ModelReadGroup[] = [];
+  reads.forEach((read, index) => {
+    if (!Number.isInteger(read.address) || !Number.isInteger(read.quantity) || read.quantity < 1 || read.quantity > 125) {
+      throw new Error(`Invalid Modbus model read at index ${index}`);
+    }
+    const previous = groups[groups.length - 1];
+    const end = read.address + read.quantity;
+    const previousEnd = previous ? previous.address + previous.quantity : 0;
+    if (previous && read.address >= previous.address && read.address <= previousEnd + 2 && end - previous.address <= 125) {
+      previous.quantity = Math.max(previousEnd, end) - previous.address;
+      previous.indexes.push(index);
+    } else {
+      groups.push({ address: read.address, quantity: read.quantity, indexes: [index] });
+    }
+  });
+  return groups;
+}
+
 export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot> {
   if (polling) return snapshot;
   polling = true;
@@ -458,12 +484,22 @@ export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot
     const pcsExtensionNames = ["RotationState", "FaultCode", "TotalEnergy", "ImportedEnergy", "ExportedEnergy"];
     const arrayNames = ["StackCount", "StackWithOpenContactorsCount", "StackWithClosedContactorsCount", "StackInRotationCount", "StackOutOfRotationCount", "CellTmpMax", "CellTmpMin", "CellTmpAvg", "CellVoltageMax", "CellVoltageMin", "CellVoltageAvg", "StackVoltageMax", "StackVoltageMin", "StackVoltageAvg", "DcBusVoltageMax", "DcBusVoltageMin", "DcBusVoltageAvg", "ChargeThroughputWh", "DischargeThroughputWh"];
 
-    const reads = await Promise.all([
-      queryModbusReal(host, blockHeader.address, 100, 1, addressOffset),
-      ...inverterHeaders.map((header) => queryModbusReal(host, header.address, 50, 1, addressOffset)),
-      ...pcsExtensionHeaders.map((header) => queryModbusReal(host, header.address, 12, 1, addressOffset)),
-      ...arrayExtensionHeaders.map((header) => queryModbusReal(host, header.address, 32, 1, addressOffset))
-    ]);
+    const modelReads: ModelRead[] = [
+      { address: blockHeader.address, quantity: 100 },
+      ...inverterHeaders.map((header) => ({ address: header.address, quantity: 50 })),
+      ...pcsExtensionHeaders.map((header) => ({ address: header.address, quantity: 12 })),
+      ...arrayExtensionHeaders.map((header) => ({ address: header.address, quantity: 32 }))
+    ];
+    const groups = groupOperationalModelReads(modelReads);
+    const groupReads = await Promise.all(groups.map((group) => queryModbusReal(host, group.address, group.quantity, 1, addressOffset)));
+    const reads: Array<{ registers: number[]; port: number }> = new Array(modelReads.length);
+    groups.forEach((group, groupIndex) => {
+      group.indexes.forEach((index) => {
+        const model = modelReads[index];
+        const offset = model.address - group.address;
+        reads[index] = { registers: groupReads[groupIndex].registers.slice(offset, offset + model.quantity), port: groupReads[groupIndex].port };
+      });
+    });
     const blockRows = rows.filter((row) => row.address >= blockHeader.address && row.address < blockHeader.address + 100);
     const block = decodeModel(blockRows, reads[0].registers, blockHeader.address, blockNames);
     const pcsExtensionReadOffset = 1 + inverterHeaders.length;
@@ -503,19 +539,20 @@ export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot
       pcsSwitches: snapshot.pcsSwitches
     };
 
-    if (!pcsSwitchRefreshInFlight) {
-      pcsSwitchRefreshInFlight = true;
-      void Promise.all(inverterHeaders.map((_header, index) => readSmaPcsSwitchTelemetry(index + 1)))
-        .then((pcsSwitches) => {
-          snapshot = { ...snapshot, pcsSwitches };
+    inverterHeaders.forEach((_header, index) => {
+      const arrayIndex = index + 1;
+      const cached = pcsSwitchCache.get(arrayIndex);
+      if (pcsSwitchRefreshInFlight.has(arrayIndex) || (cached && Date.now() - cached.attemptedAt < PCS_SWITCH_POLL_INTERVAL_MS)) return;
+      pcsSwitchRefreshInFlight.add(arrayIndex);
+      void readSmaPcsSwitchTelemetry(arrayIndex)
+        .then((value) => {
+          const updated = [...snapshot.pcsSwitches];
+          updated[index] = value;
+          snapshot = { ...snapshot, pcsSwitches: updated };
         })
-        .catch((error: any) => {
-          console.warn("[Operational Modbus] PCS switch enrichment failed", error?.message || error);
-        })
-        .finally(() => {
-          pcsSwitchRefreshInFlight = false;
-        });
-    }
+        .catch((error: any) => console.warn(`[Operational Modbus] PCS ${arrayIndex} status refresh failed`, error?.message || error))
+        .finally(() => pcsSwitchRefreshInFlight.delete(arrayIndex));
+    });
   } catch (error: any) {
     snapshot = { ...snapshot, available: snapshot.available, durationMs: Date.now() - started, stale: true, error: error?.message || String(error) };
   } finally {
@@ -524,9 +561,22 @@ export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot
   return snapshot;
 }
 
+export function isPcsSwitchReadingStale(reading: Pick<PcsSwitchTelemetry, "stale" | "capturedAt">, nowMs = Date.now()): boolean {
+  if (reading.stale || !reading.capturedAt) return true;
+  const capturedAtMs = Date.parse(reading.capturedAt);
+  return !Number.isFinite(capturedAtMs) || nowMs - capturedAtMs > PCS_SWITCH_STALE_MS;
+}
+
 export function getOperationalModbusSnapshot(): OperationalModbusSnapshot {
   const ageMs = snapshot.capturedAt ? Date.now() - Date.parse(snapshot.capturedAt) : Infinity;
-  return { ...snapshot, stale: snapshot.stale || ageMs > 15_000 };
+  return {
+    ...snapshot,
+    stale: snapshot.stale || ageMs > 15_000,
+    pcsSwitches: snapshot.pcsSwitches.map((row) => row && ({
+      ...row,
+      stale: isPcsSwitchReadingStale(row)
+    }))
+  };
 }
 
 export function startOperationalModbusPolling(intervalMs = 1000): void {

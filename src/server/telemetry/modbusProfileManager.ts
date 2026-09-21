@@ -186,7 +186,7 @@ export function queryModbusRaw(
       return reject(new Error(`Invalid protocol address offset calculation: ${protocolAddressUsed}`));
     }
 
-    let transactionId = Math.floor(Math.random() * 65535);
+    const transactionId = Math.floor(Math.random() * 65535);
 
     socket.connect(port, host, () => {
       // Build request
@@ -210,32 +210,45 @@ export function queryModbusRaw(
       }
     };
 
+    let received = Buffer.alloc(0);
     socket.on("data", (data) => {
-      cleanup();
-      if (data.length < 9) {
-        return reject(new Error(`Response too short: ${data.length} bytes`));
+      if (finished) return;
+      received = Buffer.concat([received, data]);
+      // TCP is a byte stream: a complete Modbus frame may arrive in multiple
+      // data events, especially when adjacent models are read together.
+      if (received.length < 7) return;
+      const frameLength = 6 + received.readUInt16BE(4);
+      if (frameLength < 9 || frameLength > 260) {
+        cleanup();
+        return reject(new Error(`Invalid Modbus response length: ${frameLength}`));
       }
-      const respFuncCode = data.readUInt8(7);
+      if (received.length < frameLength) return;
+      const frame = received.subarray(0, frameLength);
+      cleanup();
+      if (frame.readUInt16BE(0) !== transactionId || frame.readUInt16BE(2) !== 0 || frame.readUInt8(6) !== unitId) {
+        return reject(new Error("Modbus response transaction, protocol, or unit mismatch"));
+      }
+      const respFuncCode = frame.readUInt8(7);
       if (respFuncCode === (functionCode | 0x80)) {
-        const exceptionCode = data.readUInt8(8);
+        const exceptionCode = frame.readUInt8(8);
         return reject(new Error(`Modbus Exception: Code ${exceptionCode}`));
       }
       if (respFuncCode !== functionCode) {
         return reject(new Error(`Unexpected Function Code response: ${respFuncCode}`));
       }
-      const byteCount = data.readUInt8(8);
-      if (data.length < 9 + byteCount) {
-        return reject(new Error("Response payload size mismatch with byte count"));
+      const byteCount = frame.readUInt8(8);
+      if (byteCount !== quantity * 2 || frameLength !== 9 + byteCount) {
+        return reject(new Error("Modbus response register count does not match request"));
       }
 
       const registers: number[] = [];
       for (let i = 0; i < quantity; i++) {
-        registers.push(data.readUInt16BE(9 + i * 2));
+        registers.push(frame.readUInt16BE(9 + i * 2));
       }
       resolve({
         registers,
         protocolAddressUsed,
-        rawBytes: data.subarray(9, 9 + byteCount)
+        rawBytes: frame.subarray(9, 9 + byteCount)
       });
     });
 
