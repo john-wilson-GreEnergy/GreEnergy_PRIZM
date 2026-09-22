@@ -151,6 +151,9 @@ function readSmaProcessPoint(host: string, id: number, timeoutMs = 5000): Promis
         } catch (error: any) { reject(new Error(`SMA point ${id}: ${error?.message || error}`)); }
       });
     });
+    const deadline = setTimeout(() => request.destroy(new Error(`SMA point ${id} deadline exceeded`)), timeoutMs);
+    deadline.unref?.();
+    request.on("close", () => clearTimeout(deadline));
     request.on("timeout", () => request.destroy(new Error(`SMA point ${id} timeout`)));
     request.on("error", reject);
     request.end(body);
@@ -160,13 +163,19 @@ function readSmaProcessPoint(host: string, id: number, timeoutMs = 5000): Promis
 async function readSmaExtendedProcessData(host: string): Promise<Record<string, SmaProcessPoint>> {
   const cached = smaExtendedCache.get(host);
   if (cached && Date.now() - cached.attemptedAt < SMA_EXTENDED_POLL_MS) return cached.value;
-  const entries = await Promise.all(Object.entries(SMA_EXTENDED_PROCESS_POINTS).map(async ([key, id]) => {
-    try { return [key, await readSmaProcessPoint(host, id)] as const; }
+  // A Sunny Central web server handles a small number of requests well, but a
+  // burst of every diagnostic point can delay the two status reads that feed
+  // the live one-line. Read one extended point per PCS at a time. The global
+  // slot queue then interleaves all PCS units fairly instead of allowing the
+  // first host to monopolize every available request slot.
+  const entries: Array<readonly [string, SmaProcessPoint]> = [];
+  for (const [key, id] of Object.entries(SMA_EXTENDED_PROCESS_POINTS)) {
+    try { entries.push([key, await readSmaProcessPoint(host, id)] as const); }
     catch {
-      try { return [key, await readSmaProcessPoint(host, id, 6500)] as const; }
-      catch { return [key, { id, value: null, quality: null, unitId: null, timestamp: null }] as const; }
+      try { entries.push([key, await readSmaProcessPoint(host, id, 6500)] as const); }
+      catch { entries.push([key, { id, value: null, quality: null, unitId: null, timestamp: null }] as const); }
     }
-  }));
+  }
   const value = Object.fromEntries(entries);
   smaExtendedCache.set(host, { attemptedAt: Date.now(), value });
   return value;
@@ -210,6 +219,22 @@ type SmaAuxiliarySwitchRead = {
     dcPrechargeSwitch: number | null;
   };
 };
+
+const smaAuxiliaryCache = new Map<string, { attemptedAt: number; value: SmaAuxiliarySwitchRead | null }>();
+const smaAuxiliaryRefreshInFlight = new Set<string>();
+const SMA_AUXILIARY_POLL_MS = 60_000;
+
+function refreshSmaAuxiliarySwitches(host: string): SmaAuxiliarySwitchRead | null {
+  const cached = smaAuxiliaryCache.get(host);
+  if (!smaAuxiliaryRefreshInFlight.has(host) && (!cached || Date.now() - cached.attemptedAt >= SMA_AUXILIARY_POLL_MS)) {
+    smaAuxiliaryRefreshInFlight.add(host);
+    void readSmaAuxiliarySwitches(host)
+      .then((value) => smaAuxiliaryCache.set(host, { attemptedAt: Date.now(), value }))
+      .catch(() => smaAuxiliaryCache.set(host, { attemptedAt: Date.now(), value: null }))
+      .finally(() => smaAuxiliaryRefreshInFlight.delete(host));
+  }
+  return cached?.value || null;
+}
 
 async function readSmaAuxiliarySwitches(host: string): Promise<SmaAuxiliarySwitchRead> {
   let primary: Awaited<ReturnType<typeof queryModbusRaw>> | null = null;
@@ -263,6 +288,9 @@ function readSmaDiagramBitfield(host: string, timeoutMs = 4000): Promise<number>
         } catch (error: any) { reject(new Error(error?.message || "Invalid SMA web telemetry response")); }
       });
     });
+    const deadline = setTimeout(() => request.destroy(new Error("SMA web telemetry deadline exceeded")), timeoutMs);
+    deadline.unref?.();
+    request.on("close", () => clearTimeout(deadline));
     request.on("timeout", () => request.destroy(new Error("SMA web telemetry timeout")));
     request.on("error", reject);
     request.end(body);
@@ -290,6 +318,9 @@ function readSmaOperatingState(host: string, timeoutMs = 4000): Promise<{ raw: n
         } catch (error: any) { reject(new Error(error?.message || "Invalid SMA operating-state response")); }
       });
     });
+    const deadline = setTimeout(() => request.destroy(new Error("SMA operating-state deadline exceeded")), timeoutMs);
+    deadline.unref?.();
+    request.on("close", () => clearTimeout(deadline));
     request.on("timeout", () => request.destroy(new Error("SMA operating-state timeout")));
     request.on("error", reject);
     request.end(body);
@@ -310,10 +341,9 @@ export async function readSmaPcsSwitchTelemetry(arrayIndex: number, host = `10.0
     // The extended point sweep can take many seconds across eight devices.
     // Keep the switch/status snapshot independent of that background work.
     const smaProcessData = refreshSmaExtendedProcessData(host);
-    let auxiliary: SmaAuxiliarySwitchRead | null = null;
-    try {
-      auxiliary = await readSmaAuxiliarySwitches(host);
-    } catch { /* the verified GUI one-line remains usable without auxiliary Modbus */ }
+    // The verified GUI one-line does not depend on an optional Modbus probe.
+    // Some PCS units never expose the auxiliary profile; publish HTTP now.
+    const auxiliary = refreshSmaAuxiliarySwitches(host);
     const value: PcsSwitchTelemetry = {
       ...base, capturedAt: new Date().toISOString(), durationMs: Date.now() - started, stale: false,
       error: null, addressOffset: auxiliary?.addressOffset ?? null, source: "SMA_WEB_PROCESS_DATA",

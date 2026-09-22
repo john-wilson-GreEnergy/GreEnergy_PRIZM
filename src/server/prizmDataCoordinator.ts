@@ -3586,11 +3586,18 @@ export function getPcsView(): any {
             telemetryCapturedAt: modbusTelemetry.capturedAt
         };
     });
+    const compactArraySummary = (snap.rollups.arraySummary || []).map((array: any) => {
+        // The PCS page only renders array identity and communication state.
+        // Exclude embedded string/raw reports; those made this endpoint exceed
+        // a megabyte and duplicated data already served by array detail routes.
+        const { raw: _raw, strings: _strings, packs: _packs, ...compact } = array || {};
+        return compact;
+    });
     return {
         cycleId: snap.cycleId,
         pcs,
         pcsSummary: snap.rollups.pcsSummary || {},
-        arraySummary: snap.rollups.arraySummary || [],
+        arraySummary: compactArraySummary,
         arrayPowerSummary,
         modbusArraySummary: modbusTelemetry.available && !modbusTelemetry.stale ? modbusTelemetry.arrays : [],
         sourceHealth: snap.rollups.sourceHealth,

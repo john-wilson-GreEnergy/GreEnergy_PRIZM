@@ -1074,7 +1074,11 @@ export default function App() {
             LINK: {emsMetadata ? (emsMetadata.activeEmsBaseUrl || 'LOCAL LAN') : 'CHECKING'}
           </span>
           <span className="hidden lg:inline text-prizm-text-muted">
-            {emsMetadata?.lastUpdated ? `LAST UPDATED: ${formatPrizmUtcTimestamp(emsMetadata.lastUpdated)}` : 'POLLING PENDING...'}
+            {emsMetadata?.lastSuccessfulAt || emsMetadata?.lastUpdated
+              ? `LAST GOOD POLL: ${formatPrizmUtcTimestamp(emsMetadata.lastSuccessfulAt || emsMetadata.lastUpdated)}`
+              : emsMetadata?.lastAttemptAt
+                ? 'AWAITING FIRST GOOD POLL'
+                : 'POLLING PENDING...'}
           </span>
         </div>
         <div className="flex gap-4">

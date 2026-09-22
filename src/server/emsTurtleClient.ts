@@ -768,7 +768,8 @@ function wrapEmsResponse(key: keyof EmsCache, getLiveVal: () => any) {
             id: p.id || `${arrayIndex}-${pcsIndex}`,
             arrayIndex: arrayIndex,
             pcsIndex: pcsIndex,
-            rotation: p.rotation ?? (p.outRotation === true ? "OUT" : "IN"),
+            // Missing rotation feedback is unknown, not evidence that the PCS is in rotation.
+            rotation: p.rotation ?? p.rotationStatus ?? (p.outRotation === true ? "OUT" : p.outRotation === false ? "IN" : "UNKNOWN"),
             state: p.state || p.status || "RUNNING",
             vDc: p.dcVoltageVolt ?? p.dcVoltage ?? p.dcVolt ?? p.dcV ?? 0,
             realPwr: p.acRealPowerKW ?? p.acRealPowerKw ?? p.acRealPower ?? p.kw ?? p.kW ?? 0,

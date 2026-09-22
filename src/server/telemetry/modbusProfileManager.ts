@@ -206,9 +206,16 @@ export function queryModbusRaw(
     const cleanup = () => {
       if (!finished) {
         finished = true;
+        clearTimeout(deadline);
         socket.destroy();
       }
     };
+    // Socket inactivity timeouts do not bound every connection/response phase.
+    const deadline = setTimeout(() => {
+      cleanup();
+      reject(new Error("Modbus TCP request deadline exceeded"));
+    }, timeoutMs);
+    deadline.unref?.();
 
     let received = Buffer.alloc(0);
     socket.on("data", (data) => {
