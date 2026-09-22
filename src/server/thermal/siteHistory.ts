@@ -156,12 +156,14 @@ export class SiteHistory {
     const retained=new Set([...this.files.keys()].filter(f=>Number(shardPattern.exec(f)![1])+HOUR>this.clock()-this.config.retentionDays*DAY).map(f=>shardPattern.exec(f)![2]));
     return [...this.devices.values()].filter(d=>retained.has(hash(d.id))).sort((a,b)=>a.array-b.array||a.segment.localeCompare(b.segment,undefined,{numeric:true})||a.unit-b.unit);
   }
-  async query(ids:string[],from:number,to:number,metric:ThermalMetric,filters:HistoryFilters={}){
+  async query(ids:string[],from:number,to:number,metric:ThermalMetric,filters:HistoryFilters={},signal?:AbortSignal){
     if(this.queries>=2)throw new Error("History reader busy; retry when the current query finishes");
     this.queries++;
-    try{return await this.readQuery(ids,from,to,metric,filters);}finally{this.queries--;}
+    try{return await this.readQuery(ids,from,to,metric,filters,signal);}finally{this.queries--;}
   }
-  private async readQuery(ids:string[],from:number,to:number,metric:ThermalMetric,filters:HistoryFilters){
+  private async readQuery(ids:string[],from:number,to:number,metric:ThermalMetric,filters:HistoryFilters,signal?:AbortSignal){
+    const checkCancelled=()=>{if(signal?.aborted)throw new Error("History request cancelled");};
+    checkCancelled();
     validateHistoryFilters(filters);
     await this.ready;if(this.fatal)throw new Error(this.fatal);
     if(ids.length>2048||!Number.isFinite(from)||!Number.isFinite(to)||from>to||!Object.prototype.hasOwnProperty.call(thermalMetrics,metric))throw new Error("Invalid site history query");
@@ -170,10 +172,29 @@ export class SiteHistory {
     type Bucket={first:SiteSample;last:SiteSample;min:SiteSample;max:SiteSample;gap?:SiteSample};
     // Bound total representatives while retaining every selected device and its extrema.
     const bucketCount=Math.max(1,Math.min(240,Math.floor(10000/(Math.max(1,new Set(ids).size)*5))));
-    const output:SiteSample[]=[];const width=Math.max(1,(end-start)/bucketCount);
-    for(const id of [...new Set(ids)]){
-      const buckets=new Map<number,Bucket>();const suffix=`-${hash(id)}.jsonl`;
-      const files=[...this.files.keys()].filter(f=>f.endsWith(suffix)&&Number(shardPattern.exec(f)![1])<=end&&Number(shardPattern.exec(f)![1])+HOUR>=start).sort();
+    const width=Math.max(1,(end-start)/bucketCount);
+    const uniqueIds=[...new Set(ids)];
+    const deviceByHash=new Map(uniqueIds.map((id,index)=>[hash(id),index]));
+    const filesByDevice=uniqueIds.map(()=>[] as string[]);
+    for(const file of this.files.keys()){
+      checkCancelled();
+      const match=shardPattern.exec(file);
+      if(!match)continue;
+      const index=deviceByHash.get(match[2]);
+      const hour=Number(match[1]);
+      if(index!==undefined&&hour<=end&&hour+HOUR>=start)filesByDevice[index].push(file);
+    }
+    // Each device has separate hourly shards. Scan a few devices concurrently
+    // so an array selection does not wait for every device's disk reads in turn.
+    // Keep the limit low to avoid flooding the recorder's disk with 336 readers.
+    const byDevice:SiteSample[][]=new Array(uniqueIds.length);
+    let nextId=0;
+    const scan=async()=>{while(nextId<uniqueIds.length){
+      checkCancelled();
+      const index=nextId++,id=uniqueIds[index];
+      const output:SiteSample[]=[];
+      const buckets=new Map<number,Bucket>();
+      const files=filesByDevice[index].sort();
       const value=(s:SiteSample)=>{const n=s.point[metric];return matchesHistory(s.point,metric,filters)&&s.point.quality==="Live"&&typeof n==="number"&&Number.isFinite(n)?n:null;};
       const consume=(s:SiteSample)=>{
         const key=Math.floor((s.point.at-start)/width),b=buckets.get(key),v=value(s);
@@ -183,12 +204,17 @@ export class SiteHistory {
       };
       let previous:SiteSample|undefined;
       for(const file of files)for await(const s of readSiteSamples(path.join(this.directory,file))){
+        checkCancelled();
         if(s.id!==id||s.point.at<start||s.point.at>end)continue;
         if(previous&&s.point.at-previous.point.at>120000)consume({...previous,gap:true,point:{...previous.point,at:previous.point.at+1,quality:"Unavailable"}});
         consume(s);previous=s;
       }
       for(const b of buckets.values())output.push(...[b.first,b.min,b.max,...(b.gap?[b.gap]:[]),b.last]);
-    }
+      byDevice[index]=output;
+    }};
+    await Promise.all(Array.from({length:Math.min(4,uniqueIds.length)},()=>scan()));
+    checkCancelled();
+    const output=byDevice.flat();
     const unique=new Map(output.map(s=>[`${s.id}:${s.point.at}:${s.point.quality}`,s]));
     return {points:[...unique.values()].sort((a,b)=>a.point.at-b.point.at).map(s=>({id:s.id,point:s.point,displayValues:thermalDisplayValues(s.point),excluded:!!s.gap||!matchesHistory(s.point,metric,filters)})),summarized:true,from:start,to:end};
   }

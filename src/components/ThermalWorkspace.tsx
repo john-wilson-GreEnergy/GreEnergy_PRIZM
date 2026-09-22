@@ -32,6 +32,7 @@ export default function ThermalWorkspace(){
   const [pinnedAt,setPinnedAt]=useState<number|null>(null);
   const [isolated,setIsolated]=useState(false);
   const [highlight,setHighlight]=useState<string|null>(null);
+  const [tracePage,setTracePage]=useState(0);
   const [focus,setFocus]=useState<string|null>(null);
   const [storageOpen,setStorageOpen]=useState(false);
   const [reviewFilters,setReviewFilters]=useState<HistoryFilters>({});
@@ -53,6 +54,11 @@ export default function ThermalWorkspace(){
   const [minutes,setMinutes]=useState(60);
   const [session,setSession]=useState(()=>initialSelection().length>8?"site":"");
   const [points,setPoints]=useState<Point[]>([]);
+  const [plottedSelection,setPlottedSelection]=useState<string[]>([]);
+  const [plottedMetric,setPlottedMetric]=useState<Metric>("space");
+  const [plottedSession,setPlottedSession]=useState("");
+  const [plottedFilters,setPlottedFilters]=useState<HistoryFilters>({});
+  const [plottedWindow,setPlottedWindow]=useState("");
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
   const [loading,setLoading]=useState(false);
@@ -71,11 +77,13 @@ export default function ThermalWorkspace(){
   },[lastUpdated,revision]);
   useEffect(()=>{if(session!=="site"||view.reviewVersion!==1)return;const controller=new AbortController();
     json(`${api}/history-devices`,{signal:controller.signal}).then(d=>{if(!controller.signal.aborted){setRecordedDevices(d.devices);setCatalogError("");}}).catch(e=>{if(!controller.signal.aborted)setCatalogError(e.message);});return()=>controller.abort();
-  },[session,lastUpdated,revision,view.reviewVersion]);
+  },[session,revision,view.reviewVersion]);
   const historyMetric=metric;
-  const historyRefresh=reviewFilters.to===undefined&&selected.length<=8?lastUpdated:null;
+  // Retained history is disk backed. Refresh it on selection/filter changes or
+  // explicit request, rather than re-reading days of shards on every live poll.
+  const historyRefresh=session==="site"?null:lastUpdated;
 
-  useEffect(()=>{const controller=new AbortController();setLoading(true);setPoints([]);
+  useEffect(()=>{const controller=new AbortController();const timer=window.setTimeout(()=>{setLoading(true);
     const query=new URLSearchParams({ids:selected.join(","),from:String(session?0:Date.now()-minutes*60000)});
     if(session==="site"){query.set("from",String(Date.now()-historyDays*86400000));query.set("metric",metric);}else if(session)query.set("session",session);
     query.set("metric",metric);
@@ -83,10 +91,10 @@ export default function ThermalWorkspace(){
     if(reviewFilters.to!==undefined)query.set("to",String(reviewFilters.to));
     for(const key of ["minimum","maximum","mode","quality","faults"] as const){const value=reviewFilters[key];if(value!==undefined)query.set(key,String(value));}
     json(session==="site"?`${api}/site-history/query`:`${api}/history?${query}`,session==="site"?{signal:controller.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...Object.fromEntries(query),ids:selected})}:{signal:controller.signal})
-      .then(h=>{if(!controller.signal.aborted){setPoints(h.points);setError("");}})
-      .catch(e=>{if(!controller.signal.aborted){setError(e.message);setPoints([]);}})
+      .then(h=>{if(!controller.signal.aborted){setPoints(h.points);setPlottedSelection(selected);setPlottedMetric(metric);setPlottedSession(session);setPlottedFilters(reviewFilters);setPlottedWindow(`${historyDays}:${minutes}`);setTracePage(0);setError("");}})
+      .catch(e=>{if(!controller.signal.aborted)setError(e.message);})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
-    return()=>controller.abort();
+  },selected.length?200:0);return()=>{window.clearTimeout(timer);controller.abort();};
   },[historyRefresh,selected,minutes,session,revision,historyDays,historyMetric,reviewFilters]);
   const reviewDevices=useMemo(()=>[...new Map([...recordedDevices,...view.units].map(d=>[d.id,d])).values()],[recordedDevices,view.units]);
   const labelFor=(id:string)=>reviewDevices.find(d=>d.id===id)?.label||id;
@@ -121,23 +129,32 @@ export default function ThermalWorkspace(){
   const graph=useMemo(()=>{
     const rows=new Map<number,Record<string,number|null>>();
     const set=(at:number,key:string,value:number|null)=>{const r=rows.get(at)||{at};r[key]=value;rows.set(at,r);};
-    selected.forEach(id=>{let previous:ThermalPoint|undefined;
-      points.filter(p=>p.id===id).sort((a,b)=>a.point.at-b.point.at).forEach(({point:p,displayValues,excluded})=>{
-        if(previous&&session!=="site"&&p.at-previous.at>120000)set(previous.at+1,id,null);
-        set(p.at,id,!excluded&&p.quality==="Live"?(displayValues?.[metric]??null):null);previous=p;
+    const selectedIds=new Set(plottedSelection);
+    const byDevice=new Map<string,Point[]>();
+    for(const item of points){if(!selectedIds.has(item.id))continue;const list=byDevice.get(item.id)||[];list.push(item);byDevice.set(item.id,list);}
+    for(const [id,samples] of byDevice){let previous:ThermalPoint|undefined;
+      samples.sort((a,b)=>a.point.at-b.point.at).forEach(({point:p,displayValues,excluded})=>{
+        if(previous&&plottedSession!=="site"&&p.at-previous.at>120000)set(previous.at+1,id,null);
+        set(p.at,id,!excluded&&p.quality==="Live"?(displayValues?.[plottedMetric]??null):null);previous=p;
       });
-    });return [...rows.values()].sort((a,b)=>Number(a.at)-Number(b.at));
-  },[points,selected,metric,session]);
-  const graphDevices=useMemo(()=>new Set(points.filter(p=>!p.excluded&&p.point.quality==="Live"&&typeof p.displayValues?.[metric]==="number"&&Number.isFinite(p.displayValues[metric])).map(p=>p.id)),[points,metric]);
-  const withData=selected.filter(id=>graphDevices.has(id)).length;
-  const highlighted=highlight&&selected.includes(highlight)?highlight:null;
-  const traceOrder=isolated&&highlighted?[highlighted]:highlighted?[...selected.filter(id=>id!==highlighted),highlighted]:selected;
-  const transitions=useMemo(()=>selected.flatMap(id=>{
+    }return [...rows.values()].sort((a,b)=>Number(a.at)-Number(b.at));
+  },[points,plottedSelection,plottedMetric,plottedSession]);
+  const graphDevices=useMemo(()=>new Set(points.filter(p=>!p.excluded&&p.point.quality==="Live"&&typeof p.displayValues?.[plottedMetric]==="number"&&Number.isFinite(p.displayValues[plottedMetric])).map(p=>p.id)),[points,plottedMetric]);
+  const traceData=useMemo(()=>{const traces=new Map<string,typeof graph>();for(const id of plottedSelection)traces.set(id,[]);for(const row of graph)for(const id of Object.keys(row)){if(id!=="at")traces.get(id)?.push(row);}return traces;},[graph,plottedSelection]);
+  const pendingPlot=loading||metric!==plottedMetric||session!==plottedSession||`${historyDays}:${minutes}`!==plottedWindow||JSON.stringify(reviewFilters)!==JSON.stringify(plottedFilters)||selected.length!==plottedSelection.length||selected.some((id,index)=>id!==plottedSelection[index]);
+  const withData=plottedSelection.filter(id=>graphDevices.has(id)).length;
+  const highlighted=highlight&&plottedSelection.includes(highlight)?highlight:null;
+  const traceOrder=isolated&&highlighted?[highlighted]:highlighted?[...plottedSelection.filter(id=>id!==highlighted),highlighted]:plottedSelection;
+  const tracePages=Math.max(1,Math.ceil(traceOrder.length/16));
+  const visibleTraceIds=traceOrder.slice(Math.min(tracePage,tracePages-1)*16,(Math.min(tracePage,tracePages-1)+1)*16);
+  const visibleTraceSet=useMemo(()=>new Set(visibleTraceIds),[visibleTraceIds.join("|")]);
+  const visibleGraph=useMemo(()=>graph.filter(row=>Object.keys(row).some(key=>key!=="at"&&visibleTraceSet.has(key))),[graph,visibleTraceSet]);
+  const transitions=useMemo(()=>plottedSelection.flatMap(id=>{
     let previous:ThermalPoint|undefined;const changes:{id:string;point:ThermalPoint;initial:boolean}[]=[];
     points.filter(p=>p.id===id&&!p.excluded).sort((a,b)=>a.point.at-b.point.at).forEach(p=>{
       if(!previous||p.point.mode!==previous.mode||p.point.quality!==previous.quality)changes.push({...p,initial:!previous});previous=p.point;
     });return changes;
-  }).sort((a,b)=>b.point.at-a.point.at).slice(0,30),[points,selected]);
+  }).sort((a,b)=>b.point.at-a.point.at).slice(0,30),[points,plottedSelection]);
   const chooseSegment=(units:Unit[])=>{
     const ids=units.map(u=>u.id);
     const removing=ids.every(id=>selected.includes(id));
@@ -154,8 +171,8 @@ export default function ThermalWorkspace(){
     setRevision(v=>v+1);
   }catch(e){setError(String(e));}finally{setBusy(false);}};
   const exportData=()=>{
-    const blob=new Blob([JSON.stringify({units:{pointTemperatures:"°C",pointCellRate:"°C/min",displayTemperatures:"°F",displayCellRate:"°F/min"},devices:reviewDevices.filter(d=>selected.includes(d.id)).map(({id,label,ip})=>({id,label,ip})),session:session||null,metric,filters:reviewFilters,summary:session==="site",points:points.filter(p=>!p.excluded)},null,2)],{type:"application/json"});
-    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`prizm-thermal-${session||"live"}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const blob=new Blob([JSON.stringify({units:{pointTemperatures:"°C",pointCellRate:"°C/min",displayTemperatures:"°F",displayCellRate:"°F/min"},devices:reviewDevices.filter(d=>plottedSelection.includes(d.id)).map(({id,label,ip})=>({id,label,ip})),session:plottedSession||null,metric:plottedMetric,filters:plottedFilters,summary:plottedSession==="site",points:points.filter(p=>!p.excluded)},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`prizm-thermal-${plottedSession||"live"}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
   return <div className="space-y-4 p-4 text-slate-800">
     {storageOpen&&<ThermalStorageModal onClose={()=>setStorageOpen(false)} onChanged={()=>setRevision(v=>v+1)}/>}
@@ -188,14 +205,15 @@ export default function ThermalWorkspace(){
     <section aria-label="Selected thermal graphs" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="mb-3 text-sm font-bold">Selected segment graphs</h2>
       {view.reviewVersion===1?<ThermalHistoryReview devices={reviewDevices} selected={selected} onSelection={setReviewSelection} filters={reviewFilters} onApply={f=>{setReviewFilters(f);setReviewError("");}} metric={metric} error={reviewError||catalogError}/>:<p className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">The history review update is ready. Restart PRIZM to enable the new device selector and recorded-data filters. Existing recording continues.</p>}
-      <div className="flex max-h-32 flex-wrap items-center gap-2 overflow-auto">{selected.map((id,i)=><span key={id} className="inline-flex items-center gap-2 rounded border px-2 py-1" style={{borderColor:traceColors[i % traceColors.length]}}><button aria-pressed={highlighted===id} title="Highlight this trace and show device details" onClick={()=>{setFocus(id);setHighlight(highlighted===id?null:id);}} className="text-xs font-semibold" style={{color:traceColors[i % traceColors.length]}}>{labelFor(id)}{!loading&&!graphDevices.has(id)?" · No plotted data":""}</button><button aria-label={`Remove ${id}`} onClick={()=>setSelected(selected.filter(v=>v!==id))}><X size={14}/></button></span>)}{!selected.length&&<p className="text-sm text-slate-500">Click segments above to add their HVAC 1 and HVAC 2 readings to the graph.</p>}</div>
+      <div className="flex max-h-32 flex-wrap items-center gap-2 overflow-auto">{selected.map((id,i)=><span key={id} className="inline-flex items-center gap-2 rounded border px-2 py-1" style={{borderColor:traceColors[i % traceColors.length]}}><button aria-pressed={highlighted===id} title="Highlight this trace and show device details" onClick={()=>{setFocus(id);setHighlight(highlighted===id?null:id);}} className="text-xs font-semibold" style={{color:traceColors[i % traceColors.length]}}>{labelFor(id)}{!pendingPlot&&!graphDevices.has(id)?" · No plotted data":""}</button><button aria-label={`Remove ${id}`} onClick={()=>setSelected(selected.filter(v=>v!==id))}><X size={14}/></button></span>)}{!selected.length&&<p className="text-sm text-slate-500">Click segments above to add their HVAC 1 and HVAC 2 readings to the graph.</p>}</div>
       <div className="my-4 flex flex-wrap items-center gap-3"><select aria-label="Graph metric" className={button} value={metric} onChange={e=>changeMetric(e.target.value as Metric)}>{Object.entries(metricNames).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select aria-label="Recording to review" className={button} value={session} onChange={e=>{setSession(e.target.value);if(e.target.value!=="site"&&selected.length>8)setSelected(selected.slice(0,8));const s=view.sessions.find(s=>s.id===e.target.value);if(s){setSelected(s.targets);setFocus(s.targets[0]);}}}><option value="">Live buffer (last hour)</option><option value="site">Whole-site retained history</option>{view.sessions.map(s=><option key={s.id} value={s.id}>{new Date(s.startedAt).toLocaleString()} · {s.state} · {s.targets.length} units</option>)}</select>{session==="site"&&<select aria-label="Site history range" className={button} value={historyDays} onChange={e=>{setHistoryDays(Number(e.target.value));setReviewFilters(f=>({...f,from:undefined,to:undefined}));}}><option value={1/24}>Last hour</option><option value={0.25}>Last 6 hours</option><option value={1}>Last 24 hours</option><option value={3}>Last 3 days</option><option value={7}>Last 7 days</option></select>}{!session&&<select aria-label="Time range" className={button} value={minutes} onChange={e=>setMinutes(Number(e.target.value))}><option value={15}>15 minutes</option><option value={60}>1 hour</option></select>}<button className={button} disabled={!points.some(p=>!p.excluded)} onClick={exportData}><Download size={13} className="mr-1 inline"/>Export shown data</button>{loading&&<span className="text-xs">Updating…</span>}</div>
       <p className="mb-3 text-xs text-slate-500">{session==="site"?"Retained site history: graph summaries preserve first/last values, extrema and quality gaps. Large selections use coarser summaries; use Refresh view for new readings. Narrow devices or the time range for detail; not every command transition is shown at this scale.":session?"Recorded history":"Live buffer resets on server restart; recordings persist."} · Temperature sensors are shared at segment level. Missing/stale samples and gaps over two minutes break the trace.</p>
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs" aria-label="Graph data availability"><span role="status">{selected.length} selected · {loading?"Checking plotted data…":`${withData} with data · ${selected.length-withData} without data`}</span><span>Counts reflect this metric, time range and filters. Equal readings overlap. Click the graph to pin a time and browse devices.</span><button className={button} disabled={!graph.length} onClick={()=>setPinnedAt(Number(graph[graph.length-1].at))}>Inspect latest point</button>{highlighted?<><strong>Highlighted: {labelFor(highlighted)}</strong><button className={button} onClick={()=>setHighlight(null)}>Clear trace highlight</button></>:<span>Click a device label above to highlight its trace.</span>}</div>
-      <div className="h-72" onClick={event=>{if(!graph.length)return;const bounds=event.currentTarget.getBoundingClientRect();const fraction=Math.max(0,Math.min(1,(event.clientX-bounds.left-75)/Math.max(1,bounds.width-80)));const start=Number(graph[0].at),end=Number(graph[graph.length-1].at);setPinnedAt(Math.round(start+fraction*(end-start)));}}>{graph.length?<ResponsiveContainer width="100%" height="100%"><LineChart data={graph}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="at" type="number" domain={["dataMin","dataMax"]} tickFormatter={v=>new Date(v).toLocaleTimeString()} tick={{fontSize:10}}/><YAxis width={70} tick={{fontSize:10}} domain={["auto","auto"]} tickFormatter={value=>`${Number(value).toFixed(1)} ${thermalMetrics[metric].unit}`}/><Tooltip formatter={(value)=>`${Number(value).toFixed(metric==="cellRate"?2:1)} ${thermalMetrics[metric].unit}`} labelFormatter={v=>new Date(Number(v)).toLocaleString()}/>{selected.length<=16&&<Legend wrapperStyle={{fontSize:11}}/>}{traceOrder.map(id=><Line key={id} data={graph.filter(row=>id in row)} dataKey={id} name={labelFor(id)} stroke={traceColors[selected.indexOf(id) % traceColors.length]} strokeOpacity={highlighted&&highlighted!==id?0.12:1} strokeWidth={highlighted===id?4:2} dot={highlighted===id?{r:3}:false} connectNulls={false} isAnimationActive={false}/>)}</LineChart></ResponsiveContainer>:<div className="grid h-full place-items-center rounded bg-slate-50 text-sm text-slate-500">{selected.length?"No samples in this range yet. Recording does not backfill older data.":"Select equipment to view trends"}</div>}</div>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs" aria-label="Graph data availability"><span role="status">{selected.length} selected · {pendingPlot?`Updating graph; showing previous ${plottedSelection.length} device(s)…`:`${withData} with data · ${plottedSelection.length-withData} without data`}</span><span>Counts reflect this metric, time range and filters. Equal readings overlap. Click the graph to pin a time and browse devices.</span><button className={button} disabled={!graph.length} onClick={()=>setPinnedAt(Number(graph[graph.length-1].at))}>Inspect latest point</button>{highlighted?<><strong>Highlighted: {labelFor(highlighted)}</strong><button className={button} onClick={()=>setHighlight(null)}>Clear trace highlight</button></>:<span>Click a device label above to highlight its trace.</span>}</div>
+      {tracePages>1&&<div className="mb-2 flex items-center gap-2 text-xs"><span>Showing traces {Math.min(tracePage,tracePages-1)*16+1}–{Math.min((Math.min(tracePage,tracePages-1)+1)*16,traceOrder.length)} of {traceOrder.length}</span><button className={button} disabled={tracePage===0} onClick={()=>setTracePage(page=>Math.max(0,page-1))}>Previous traces</button><button className={button} disabled={tracePage>=tracePages-1} onClick={()=>setTracePage(page=>Math.min(tracePages-1,page+1))}>Next traces</button></div>}
+      <div className="h-72" onClick={event=>{if(!visibleGraph.length)return;const bounds=event.currentTarget.getBoundingClientRect();const fraction=Math.max(0,Math.min(1,(event.clientX-bounds.left-75)/Math.max(1,bounds.width-80)));const start=Number(visibleGraph[0].at),end=Number(visibleGraph[visibleGraph.length-1].at);setPinnedAt(Math.round(start+fraction*(end-start)));}}>{visibleGraph.length?<ResponsiveContainer width="100%" height="100%"><LineChart data={visibleGraph}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="at" type="number" domain={["dataMin","dataMax"]} tickFormatter={v=>new Date(v).toLocaleTimeString()} tick={{fontSize:10}}/><YAxis width={70} tick={{fontSize:10}} domain={["auto","auto"]} tickFormatter={value=>`${Number(value).toFixed(1)} ${thermalMetrics[plottedMetric].unit}`}/><Tooltip formatter={(value)=>`${Number(value).toFixed(plottedMetric==="cellRate"?2:1)} ${thermalMetrics[plottedMetric].unit}`} labelFormatter={v=>new Date(Number(v)).toLocaleString()}/><Legend wrapperStyle={{fontSize:11}}/>{visibleTraceIds.map(id=><Line key={id} data={traceData.get(id)||[]} dataKey={id} name={labelFor(id)} stroke={traceColors[plottedSelection.indexOf(id) % traceColors.length]} strokeOpacity={highlighted&&highlighted!==id?0.12:1} strokeWidth={highlighted===id?4:2} dot={highlighted===id?{r:3}:false} connectNulls={false} isAnimationActive={false}/>)}</LineChart></ResponsiveContainer>:<div className="grid h-full place-items-center rounded bg-slate-50 text-sm text-slate-500">{selected.length?"No samples in this range yet. Recording does not backfill older data.":"Select equipment to view trends"}</div>}</div>
       <p className="mt-2 text-xs text-slate-600">{points.filter(p=>!p.excluded).length} shown samples · filtered observations are excluded from the table and export.</p>
-      {pinnedAt!==null&&<ThermalPointInspector at={pinnedAt} points={points} selected={selected} metric={metric} highlighted={highlighted} label={labelFor} onChoose={id=>{setHighlight(id);setFocus(id);}} onClose={()=>{setPinnedAt(null);setIsolated(false);}} isolated={isolated&&!!highlighted} onIsolate={setIsolated}/>}
-      <ThermalHistoryTable points={points} metric={metric} label={labelFor}/>
+      {pinnedAt!==null&&<ThermalPointInspector at={pinnedAt} points={points} selected={plottedSelection} metric={plottedMetric} highlighted={highlighted} label={labelFor} onChoose={id=>{setHighlight(id);setFocus(id);}} onClose={()=>{setPinnedAt(null);setIsolated(false);}} isolated={isolated&&!!highlighted} onIsolate={setIsolated}/>}
+      <ThermalHistoryTable points={points} metric={plottedMetric} label={labelFor}/>
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-slate-200 p-4"><h2 className="text-sm font-bold">{detail?.label||"Equipment details"} · Current readings</h2>{detail&&<><p className="my-2 text-xs">{detail.ip} · {detail.point.quality} · {detail.point.mode} · last success {new Date(detail.point.at).toLocaleTimeString()}</p><div className="mb-3 grid grid-cols-2 gap-2 text-xs">{view.units.filter(u=>u.ip===detail.ip).map(u=><p key={u.id}><strong>HVAC {u.unit} amperage</strong><br/>{u.readings.current.text}</p>)}</div><dl className="grid grid-cols-2 gap-2 text-xs">{Object.entries(thermalMetrics).map(([key,m])=><div key={key}><dt className="text-slate-500">{m.label}</dt><dd className="font-semibold">{detail.readings[key as Metric].text}</dd></div>)}</dl><p className="mt-3 text-xs font-semibold">Supply-air assessment: {detail.response}</p><p className="mt-2 text-xs text-slate-500">Command-based assessment, not proof of equipment performance. Thresholds ported from HVAC Intelligence.</p>{detail.faults.map(f=><p key={f} className="mt-2 rounded bg-yellow-100 p-2 text-xs text-yellow-950">{f}</p>)}</>}</div>
         <div className="rounded-lg border border-slate-200 p-4"><h2 className="text-sm font-bold">Observed mode / quality changes</h2><div className="mt-2 max-h-52 overflow-auto text-xs">{transitions.map((t,i)=><p className="border-b py-2" key={`${t.id}-${t.point.at}-${i}`}><strong>{labelFor(t.id)}</strong><br/>{new Date(t.point.at).toLocaleString()} · {t.point.mode} · {t.point.quality}{t.initial?" (first observed)":""}</p>)}{!transitions.length&&<p>No observations in this range.</p>}</div></div>
