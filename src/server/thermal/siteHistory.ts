@@ -1,10 +1,12 @@
 import {matchesHistory,validateHistoryFilters,type HistoryFilters,type HistoryDevice} from "./historyReview";
+import {reviewReading} from "./thermalReviewPresentation";
 import * as fs from "node:fs/promises";
 import {createReadStream} from "node:fs";
 import {createInterface} from "node:readline";
 import {createHash,randomUUID} from "node:crypto";
 import path from "node:path";
 import type {ThermalUnit, ThermalPoint} from "./thermalModel";
+import {applicableThermalPoint, thermalSegmentType} from "./thermalModel";
 import {thermalDisplayValues, thermalMetrics, type ThermalMetric} from "./thermalMetrics";
 
 const HOUR=3600000, DAY=24*HOUR, GiB=1024**3;
@@ -197,6 +199,7 @@ export class SiteHistory {
       const files=filesByDevice[index].sort();
       const value=(s:SiteSample)=>{const n=s.point[metric];return matchesHistory(s.point,metric,filters)&&s.point.quality==="Live"&&typeof n==="number"&&Number.isFinite(n)?n:null;};
       const consume=(s:SiteSample)=>{
+        s={...s,point:applicableThermalPoint(s.point,thermalSegmentType(s.segment,s.point.segmentType))};
         const key=Math.floor((s.point.at-start)/width),b=buckets.get(key),v=value(s);
         if(!b){buckets.set(key,{first:s,last:s,min:s,max:s,...(v===null?{gap:s}:{})});return;}
         b.last=s;if(v===null){b.gap=s;return;}
@@ -216,7 +219,10 @@ export class SiteHistory {
     checkCancelled();
     const output=byDevice.flat();
     const unique=new Map(output.map(s=>[`${s.id}:${s.point.at}:${s.point.quality}`,s]));
-    return {points:[...unique.values()].sort((a,b)=>a.point.at-b.point.at).map(s=>({id:s.id,point:s.point,displayValues:thermalDisplayValues(s.point),excluded:!!s.gap||!matchesHistory(s.point,metric,filters)})),summarized:true,from:start,to:end};
+    return {points:[...unique.values()].sort((a,b)=>a.point.at-b.point.at).map(s=>{
+      const excluded=!!s.gap||!matchesHistory(s.point,metric,filters);
+      return {id:s.id,point:s.point,displayValues:thermalDisplayValues(s.point),excluded,review:reviewReading(s.point,metric,excluded)};
+    }),summarized:true,from:start,to:end};
   }
   async flush(){await this.ready;await this.tail;}
   async close(){if(this.timer)clearInterval(this.timer);await this.flush();if(this.lockToken){const file=path.join(this.directory,"writer-lock.json");const owner=JSON.parse(await fs.readFile(file,"utf8"));if(owner.token===this.lockToken)await fs.unlink(file);this.lockToken=null;}}

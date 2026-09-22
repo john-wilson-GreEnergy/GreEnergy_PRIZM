@@ -1,6 +1,18 @@
 // Canonical Feather fields only: no raw payload parsing or device acquisition.
 export type ThermalMode = "Heating" | "Cooling" | "Idle" | "Unknown";
+export type ThermalSegmentType = "CS" | "ES" | "UNKNOWN";
+// Use mapped segment identity, never an IP suffix or a temperature threshold.
+export function thermalSegmentType(label: string, declared?: string): ThermalSegmentType {
+  if (declared === "CS" || declared === "ES") return declared;
+  if (/\bCS(?:\s*\d+)?\b|\bCollection\s+Segment\b/i.test(label)) return "CS";
+  if (/\bES(?:\s*\d+)?\b|\bEnergy\s+Segment\b/i.test(label)) return "ES";
+  return "UNKNOWN";
+}
+export function applicableThermalPoint(point: ThermalPoint, segmentType = point.segmentType): ThermalPoint {
+  return segmentType === "CS" ? {...point, segmentType, cell:null, cellRate:null} : {...point, segmentType};
+}
 export type ThermalPoint = {
+  segmentType?: ThermalSegmentType;
   at: number; space: number | null; supply: number | null; current: number | null;
   cell?: number | null; control?: number | null; outside?: number | null; humidity?: number | null; cellRate?: number | null;
   rpm: number | null; cooling: number | null; heating: number | null;
@@ -16,6 +28,7 @@ type Hvac = { controlsValid?: boolean; dataValid?: boolean; compressorOn?: boole
   electricHeatOn?: boolean; fanLowOn?:boolean; fanHighOn?:boolean; reversingValveOn?: boolean; currentA?: number;
   fanSpeedRpm?: number; freezeDetected?: boolean };
 export type ThermalDevice = {
+  topology?: {segmentType?: string}; segmentType?: string;
   ip?: string; arrayIndex?: number; segmentLabel?: string; lastSuccessUtc?: string;
   reachable?: boolean; communicating?: boolean; hvac1?: Hvac; hvac2?: Hvac;
   spaceTemperatureC?: number; supplyAirTempC?: number; coolingSetpointC?: number;
@@ -27,6 +40,7 @@ const finite = (v: unknown): number | null => typeof v === "number" && Number.is
 export function thermalUnits(devices: ThermalDevice[], now: number): ThermalUnit[] {
   return devices.filter(d => d.ip && d.arrayIndex && d.segmentLabel).flatMap(d => [1, 2].map(unit => {
     const h = unit === 1 ? d.hvac1 : d.hvac2;
+    const segmentType = thermalSegmentType(d.segmentLabel!, d.topology?.segmentType ?? d.segmentType);
     const at = Date.parse(d.lastSuccessUtc ?? "");
     const quality: ThermalPoint["quality"] = !h || d.reachable === false || d.communicating === false || h.controlsValid === false || h.dataValid === false
       ? "Unavailable" : !Number.isFinite(at) || now - at > 120000 || at > now + 30000 ? "Stale" : "Live";
@@ -39,8 +53,8 @@ export function thermalUnits(devices: ThermalDevice[], now: number): ThermalUnit
       label: `Array ${d.arrayIndex} · ${d.segmentLabel} · HVAC ${unit}`,
       point: { commands:{compressor:h?.compressorOn??null,electricHeat:h?.electricHeatOn??null,reversingValve:h?.reversingValveOn??null,fanLow:h?.fanLowOn??null,fanHigh:h?.fanHighOn??null}, faults:[...(h?.freezeDetected?["Freeze detected"]:[]),...(d.faultMessages??[])], at: Number.isFinite(at) ? at : now, quality, mode,
         space: finite(d.spaceTemperatureC), supply: finite(d.supplyAirTempC),
-        cell: finite(d.avgCellTemperatureC), control: finite(d.controlTemperatureC), outside: finite(d.outsideTemperatureC),
-        humidity: finite(d.spaceHumidityPct), cellRate: finite(d.avgCellTemperatureRateCPerMin),
+        segmentType, cell: segmentType === "CS" ? null : finite(d.avgCellTemperatureC), control: finite(d.controlTemperatureC), outside: finite(d.outsideTemperatureC),
+        humidity: finite(d.spaceHumidityPct), cellRate: segmentType === "CS" ? null : finite(d.avgCellTemperatureRateCPerMin),
         current: finite(h?.currentA), rpm: finite(h?.fanSpeedRpm),
         cooling: finite(d.coolingSetpointC), heating: finite(d.heatingSetpointC) },
       faults: [...(h?.freezeDetected ? ["Freeze detected"] : []), ...(d.faultMessages ?? []).map(m => `Controller: ${m}`)]

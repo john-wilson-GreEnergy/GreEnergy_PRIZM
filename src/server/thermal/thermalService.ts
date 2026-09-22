@@ -1,11 +1,13 @@
-import {matchesHistory,validateHistoryFilters,type HistoryFilters} from "./historyReview";
+import {matchesHistory,validateHistoryFilters,type HistoryFilters,type HistoryDevice} from "./historyReview";
 import type {ThermalMetric} from "./thermalMetrics";
 import {SiteHistory, type SiteIdentity} from "./siteHistory";
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { thermalUnits, supplyResponse, type ThermalDevice, type ThermalUnit, type ThermalPoint } from "./thermalModel";
+import { thermalUnits, supplyResponse, applicableThermalPoint, thermalSegmentType, type ThermalDevice, type ThermalUnit, type ThermalPoint } from "./thermalModel";
 import { thermalReadings, thermalDisplayValues } from "./thermalMetrics";
+import {selectThermalTargets,type TargetQuery} from "./thermalTargets";
+import {reviewReading} from "./thermalReviewPresentation";
 
 type Session = { id: string; targets: string[]; labels: string[]; startedAt: number; endsAt: number;
   state: "Recording" | "Waiting for data" | "Stopped" | "Complete" | "Paused"; samples: number; error?: string };
@@ -120,6 +122,13 @@ export class ThermalService {
       await this.save(session); this.sessions.push(session); this.lastStored.clear(); return session;
     });
   }
+  async targets(query:TargetQuery) {
+    const view=await this.view();
+    let recorded:HistoryDevice[]=[],warning:string|undefined;
+    try{recorded=await this.siteHistory.historyDevices();}catch(e){warning=`Recorded device catalogue unavailable: ${String(e)}`;}
+    const devices=[...new Map([...recorded,...view.units].map(({id,array,segment,unit,label,ip})=>[id,{id,array,segment,unit,label,ip}])).values()];
+    return {...selectThermalTargets(devices,view.units,query),warning};
+  }
   stop(id:string) {
     return this.queue(async()=>{const s=this.sessions.find(s=>s.id===id);if(!s)throw new Error("Unknown recording");s.state="Stopped";await this.save(s);return s;});
   }
@@ -135,7 +144,15 @@ export class ThermalService {
   }
   async displayPoints(ids:string[], from:number, sessionId?:string,metric:ThermalMetric="space",filters:HistoryFilters={}) {
     validateHistoryFilters(filters);
-    return (await this.points(ids,from,sessionId)).filter(s=>filters.to===undefined||s.point.at<=filters.to).map(sample=>({...sample,displayValues:thermalDisplayValues(sample.point),excluded:!matchesHistory(sample.point,metric,filters)}));
+    const samples=await this.points(ids,from,sessionId);
+    const session=this.sessions.find(s=>s.id===sessionId);
+    return samples.filter(s=>filters.to===undefined||s.point.at<=filters.to).map(sample=>{
+      const unit=this.units.find(u=>u.id===sample.id);
+      const label=unit?.segment ?? session?.labels[session.targets.indexOf(sample.id)] ?? "";
+      const point=applicableThermalPoint(sample.point,thermalSegmentType(label,sample.point.segmentType));
+      const excluded=!matchesHistory(point,metric,filters);
+      return {...sample,point,displayValues:thermalDisplayValues(point),excluded,review:reviewReading(point,metric,excluded)};
+    });
   }
   async flush() { await this.tail; }
 }

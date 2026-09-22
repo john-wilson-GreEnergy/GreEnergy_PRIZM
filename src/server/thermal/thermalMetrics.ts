@@ -21,7 +21,7 @@ export type ThermalDisplayValues = Record<ThermalMetric, number | null>;
 // Canonical/history storage remains Celsius; only the page projection uses Fahrenheit.
 export function thermalDisplayValues(point: ThermalPoint): ThermalDisplayValues {
   return Object.fromEntries(Object.entries(thermalMetrics).map(([key, definition])=>{
-    const raw=point[key as ThermalMetric];
+    const raw=point.segmentType === "CS" && (key === "cell" || key === "cellRate") ? null : point[key as ThermalMetric];
     const value=typeof raw!=="number"||!Number.isFinite(raw)?null
       : definition.unit==="°F"?raw*9/5+32:definition.unit==="°F/min"?raw*9/5:raw;
     return [key,value];
@@ -31,7 +31,8 @@ export function thermalReadings(point: ThermalPoint): ThermalReadings {
   const values=thermalDisplayValues(point);
   return Object.fromEntries(Object.entries(thermalMetrics).map(([key, definition]) => {
     const value = values[key as ThermalMetric];
-    const state = point.quality !== "Live" ? point.quality : value === null ? "Not reported" : "Live";
+    const notApplicable = point.segmentType === "CS" && (key === "cell" || key === "cellRate");
+    const state = notApplicable ? "Not applicable" : point.quality !== "Live" ? point.quality : value === null ? "Not reported" : "Live";
     let color = "#f1f5f9";
     if (state === "Live" && value !== null) {
       if (key === "space") {
@@ -44,6 +45,6 @@ export function thermalReadings(point: ThermalPoint): ThermalReadings {
         color = `hsl(${145 - fraction * 105} 52% ${92 - fraction * 28}%)`;
       }
     }
-    return [key, {value, state, color, text: state === "Live" ? `${value!.toFixed(key === "cellRate" ? 2 : 1)} ${definition.unit}` : state}];
+    return [key, {value, state, color, text: notApplicable ? "N/A — no cells" : state === "Live" ? `${value!.toFixed(key === "cellRate" ? 2 : 1)} ${definition.unit}` : state}];
   })) as ThermalReadings;
 }

@@ -18,6 +18,8 @@ async function sendHistory(req:Request,res:Response,result:unknown){
 }
 thermalRouter.use((_req,res,next)=>{res.setHeader("Cache-Control","no-store");if(process.env.PRIZM_THERMAL_ENABLED==="false")return res.status(503).json({error:"Thermal workspace disabled"});next();});
 thermalRouter.get("/",async(_req,res)=>{try{res.json(await thermalService().view());}catch(e){res.status(500).json({error:String(e)});}});
+// Read-only selection/ranking of the same cached snapshot used by the workspace.
+thermalRouter.post("/targets/query",async(req,res)=>{try{res.json(await thermalService().targets(req.body));}catch(e){res.status(400).json({error:String(e)});}});
 thermalRouter.get("/history",async(req,res)=>{try{
   const ids=String(req.query.ids??"").split(",").filter(Boolean);
   const points=await thermalService().displayPoints(ids,Number(req.query.from??0),req.query.session?String(req.query.session):undefined,String(req.query.metric??"space") as ThermalMetric,{...historyFiltersFromQuery(req.query),to:req.query.to===undefined?undefined:Number(req.query.to)});
