@@ -382,15 +382,31 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       }
       const result = await res.json();
       if (result?.success !== true) {
-          const failed = Array.isArray(result?.results) ? result.results.filter((item: any) => item?.accepted !== true) : [];
-          throw new Error(failed.map((item: any) => item?.error || item?.responseText || 'EMS rejected a balancing target').join('; ') || 'One or more balancing targets were not accepted');
+          const failed = Array.isArray(result?.results) ? result.results.filter((item: any) => item?.success !== true) : [];
+          throw new Error(failed.map((item: any) => item?.error || item?.responseText || 'Balancing target was not verified').join('; ') || 'One or more balancing targets were not verified');
       }
       const statuses = Array.isArray(result?.results) ? result.results.map((item: any) => item?.readbackStatus).filter(Boolean) : [];
+      const settings = Array.isArray(result?.results) ? result.results.map((item: any) => item?.settingsReadback?.status) : [];
+      const settingsStatus = settings.includes('mismatch') ? 'BPC deadband mismatch' : settings.length > 0 && settings.every((status: string) => status === 'matched') ? 'BPC deadbands matched' : 'BPC deadbands not yet verified';
       setCommandNotice({
-          status: result?.readbackConfirmed === true ? "success" : "warning",
-          title: result?.readbackConfirmed === true ? "Balancing verified" : "Balancing accepted — activity pending",
-          detail: statuses.join('; ') || 'EMS accepted the balancing command; direct activity telemetry is not yet conclusive.'
+          status: settingsStatus === 'BPC deadbands matched' ? "success" : "warning",
+          title: settingsStatus === 'BPC deadbands matched' ? "Balancing settings matched" : "Balancing accepted — readback pending",
+          detail: `${settingsStatus}. ${statuses.join('; ') || 'Balancing activity is not yet conclusive.'} ${result?.verificationId ? 'Persistence recheck scheduled after 65 seconds.' : ''}`
       });
+      if (result?.verificationId) {
+          window.setTimeout(async () => {
+              try {
+                  const response = await fetch(`/api/local/balancing/verification/${encodeURIComponent(result.verificationId)}`);
+                  if (!response.ok) return;
+                  const check = await response.json();
+                  setCommandNotice({
+                      status: check.status === 'persisted' ? 'success' : 'warning',
+                      title: check.status === 'persisted' ? 'Balancing settings persisted' : check.status === 'changed' ? 'Balancing settings changed' : 'Balancing persistence unverified',
+                      detail: check.status === 'persisted' ? 'BPC deadbands still match after the delayed recheck.' : check.status === 'changed' ? 'At least one BPC no longer matches the commanded deadbands; check ADB and rotation state.' : 'The delayed BPC readback was incomplete.'
+                  });
+              } catch { /* The delayed result remains available through the verification endpoint. */ }
+          }, 67_000);
+      }
       setBalancingModalOpen(false);
       setSelectedIds(new Set());
       void handleManualRefresh();

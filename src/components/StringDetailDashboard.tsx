@@ -44,19 +44,19 @@ async function fetchStringNotificationEngineView(arrayNumber: number, stringNumb
 function mergeNotificationEngineIntoDetail(detail: any, notificationView: any | null): any {
   if (!notificationView?.success) return detail;
 
-  const notifications = Array.isArray(notificationView.notifications)
-    ? notificationView.notifications
-    : [];
+  const engineNotifications = Array.isArray(notificationView.notifications) ? notificationView.notifications : [];
+  const detailNotifications = Array.isArray(detail?.notifications) ? detail.notifications : [];
+  const notifications = engineNotifications.length > 0 ? engineNotifications : detailNotifications;
 
-  const groupedNotifications = Array.isArray(notificationView.groupedNotifications)
+  const groupedNotifications = engineNotifications.length > 0 && Array.isArray(notificationView.groupedNotifications)
     ? notificationView.groupedNotifications
     : notifications;
 
-  const alarms = Array.isArray(notificationView.alarms)
+  const alarms = engineNotifications.length > 0 && Array.isArray(notificationView.alarms)
     ? notificationView.alarms
     : notifications.filter((n: any) => String(n?.severity || n?.level || "").toLowerCase().includes("alarm"));
 
-  const warnings = Array.isArray(notificationView.warnings)
+  const warnings = engineNotifications.length > 0 && Array.isArray(notificationView.warnings)
     ? notificationView.warnings
     : notifications.filter((n: any) => String(n?.severity || n?.level || "").toLowerCase().includes("warning"));
 
@@ -77,22 +77,22 @@ function mergeNotificationEngineIntoDetail(detail: any, notificationView: any | 
     alarms,
     warnings,
 
-    notificationCount: notificationView.notificationCount ?? notifications.length,
-    alarmCount: notificationView.alarmCount ?? alarms.length,
-    warningCount: notificationView.warningCount ?? warnings.length,
-    highestSeverity: notificationView.highestSeverity ?? "none",
+    notificationCount: notifications.length,
+    alarmCount: alarms.length,
+    warningCount: warnings.length,
+    highestSeverity: alarms.length > 0 ? "alarm" : warnings.length > 0 ? "warning" : "none",
 
-    groupedNotificationCount: notificationView.groupedNotificationCount ?? groupedNotifications.length,
-    groupedAlarmCount: notificationView.groupedAlarmCount,
-    groupedWarningCount: notificationView.groupedWarningCount,
-    groupedHighestSeverity: notificationView.groupedHighestSeverity,
+    groupedNotificationCount: groupedNotifications.length,
+    groupedAlarmCount: groupedNotifications.filter((n: any) => String(n?.severity || n?.level || '').toLowerCase().includes('alarm')).length,
+    groupedWarningCount: groupedNotifications.filter((n: any) => String(n?.severity || n?.level || '').toLowerCase().includes('warn')).length,
+    groupedHighestSeverity: alarms.length > 0 ? 'alarm' : warnings.length > 0 ? 'warning' : 'none',
 
     alertSummary: {
       ...(detail?.alertSummary || {}),
-      notificationCount: notificationView.notificationCount ?? notifications.length,
-      alarmCount: notificationView.alarmCount ?? alarms.length,
-      warningCount: notificationView.warningCount ?? warnings.length,
-      highestSeverity: notificationView.highestSeverity ?? "none",
+      notificationCount: notifications.length,
+      alarmCount: alarms.length,
+      warningCount: warnings.length,
+      highestSeverity: alarms.length > 0 ? "alarm" : warnings.length > 0 ? "warning" : "none",
       notifications,
       groupedNotifications,
       alarms,
@@ -137,9 +137,11 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
           const mergedDetail = {
             ...json,
             normalizedRow,
-            notificationList: normalizedRow?.notificationList || json.notificationList || [],
-            activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
-            faults: normalizedRow?.faults || normalizedRow?.notificationList || json.faults || [],
+            notificationList: json.notificationList?.length ? json.notificationList : (normalizedRow?.notificationList || []),
+            activeNotifications: json.activeNotifications?.length ? json.activeNotifications : (normalizedRow?.activeNotifications || normalizedRow?.notificationList || []),
+            notifications: json.notifications?.length ? json.notifications : (normalizedRow?.notificationList || []),
+            faults: json.faults?.length ? json.faults : (normalizedRow?.faults || normalizedRow?.notificationList || []),
+            balancingDetails: json.balancingDetails?.length ? json.balancingDetails : (normalizedRow?.balanceDetails || []),
             warnings: normalizedRow?.warnings || json.warnings || [],
             alarms: normalizedRow?.alarms || json.alarms || [],
             warningCount: normalizedRow?.warningCount ?? json.warningCount ?? 0,
@@ -188,9 +190,11 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
         const mergedDetail = {
           ...json,
           normalizedRow,
-          notificationList: normalizedRow?.notificationList || json.notificationList || [],
-          activeNotifications: normalizedRow?.activeNotifications || normalizedRow?.notificationList || json.activeNotifications || [],
-          faults: normalizedRow?.faults || normalizedRow?.notificationList || json.faults || [],
+          notificationList: json.notificationList?.length ? json.notificationList : (normalizedRow?.notificationList || []),
+          activeNotifications: json.activeNotifications?.length ? json.activeNotifications : (normalizedRow?.activeNotifications || normalizedRow?.notificationList || []),
+          notifications: json.notifications?.length ? json.notifications : (normalizedRow?.notificationList || []),
+          faults: json.faults?.length ? json.faults : (normalizedRow?.faults || normalizedRow?.notificationList || []),
+          balancingDetails: json.balancingDetails?.length ? json.balancingDetails : (normalizedRow?.balanceDetails || []),
           warnings: normalizedRow?.warnings || json.warnings || [],
           alarms: normalizedRow?.alarms || json.alarms || [],
           warningCount: normalizedRow?.warningCount ?? json.warningCount ?? 0,
@@ -266,6 +270,14 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const safeNotificationMatrix = safeMatrix(notificationMatrix);
   const safeBpcs = safeArray(bpcs);
   const safeBalancingDetails = safeArray(balancingDetails);
+  const chargeDeadbands = Array.from(new Set(safeBalancingDetails
+    .map((detail: any) => finite(detail?.chargeDeadband))
+    .filter((value: number | null): value is number => value !== null)));
+  const dischargeDeadbands = Array.from(new Set(safeBalancingDetails
+    .map((detail: any) => finite(detail?.dischargeDeadband))
+    .filter((value: number | null): value is number => value !== null)));
+  const commandedChargeDeadband = chargeDeadbands.length === 1 ? `${chargeDeadbands[0]} mV` : chargeDeadbands.length > 1 ? "Mixed" : "--";
+  const commandedDischargeDeadband = dischargeDeadbands.length === 1 ? `${dischargeDeadbands[0]} mV` : dischargeDeadbands.length > 1 ? "Mixed" : "--";
   const safeNotifications = safeArray(notifications);
   const safeEventLogs = safeArray(eventLogs);
   const safeSourceHealth = safeObject(sourceHealth);
@@ -714,6 +726,16 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                  <h3 className="font-mono text-xs font-bold text-prizm-info flex items-center gap-2 mb-4 uppercase tracking-wide">
                     <Activity size={14} /> Array {s.arrayNumber} - String {s.stringNumber} - Balancing Details
                  </h3>
+                 <div className="mb-3 grid grid-cols-2 gap-2 rounded border border-prizm-info/30 bg-prizm-info/5 p-3 font-mono text-[10px]">
+                    <div>
+                       <div className="text-prizm-text-muted uppercase tracking-wide">Commanded charge deadband</div>
+                       <div className="mt-1 text-prizm-info font-bold text-sm">{commandedChargeDeadband}</div>
+                    </div>
+                    <div>
+                       <div className="text-prizm-text-muted uppercase tracking-wide">Commanded discharge deadband</div>
+                       <div className="mt-1 text-prizm-info font-bold text-sm">{commandedDischargeDeadband}</div>
+                    </div>
+                 </div>
                  {balancingDetails.length > 0 ? (
                      <div className="overflow-x-auto no-scrollbar">
                         <table className="w-full text-left text-[10px] font-mono whitespace-nowrap">
@@ -724,7 +746,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                  <th className="p-2 border-b border-prizm-border font-bold">STATE</th>
                                  <th className="p-2 border-b border-prizm-border font-bold">BAL CG</th>
                                  <th className="p-2 border-b border-prizm-border font-bold">TARGET V</th>
-                                 <th className="p-2 border-b border-prizm-border font-bold">SOURCE</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">ACTIVE CELL (mV)</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">CHARGE DB (mV)</th>
+                                 <th className="p-2 border-b border-prizm-border font-bold">DISCHARGE DB (mV)</th>
                               </tr>
                            </thead>
                            <tbody className="divide-y divide-prizm-border/20">
@@ -758,7 +782,9 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                        </td>
                                        <td className="p-2 font-mono text-prizm-warning">{b.balancingCellGroupIndex !== null && b.balancingCellGroupIndex !== undefined ? b.balancingCellGroupIndex : (b.targetCellGroup !== undefined ? b.targetCellGroup : "--")}</td>
                                        <td className="p-2 text-prizm-info font-bold font-mono">{b.targetVoltage !== undefined && b.targetVoltage !== null ? b.targetVoltage : "--"}</td>
-                                       <td className="p-2 font-mono text-[9px] text-[#B2C6FF]/80 select-all truncate max-w-[200px]" title={b.sourcePath}>{b.sourcePath || "--"}</td>
+                                       <td className="p-2 text-emerald-400 font-bold font-mono">{b.activeCellVoltage !== undefined && b.activeCellVoltage !== null ? b.activeCellVoltage : "--"}</td>
+                                       <td className="p-2 font-mono text-prizm-text">{b.chargeDeadband ?? "--"}</td>
+                                       <td className="p-2 font-mono text-prizm-text">{b.dischargeDeadband ?? "--"}</td>
                                     </tr>
                                )})}
                            </tbody>
@@ -799,7 +825,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
                                {notifications.map((n: any, i: number) => {
                                    const severityText = String(n.level || n.severity || "WARNING").toUpperCase();
                                    const isAlarm = severityText.includes("ALARM");
-                                   const src = n.source || {};
+                                   const src = n.source || n.raw?.notificationSource || n.notificationSource || n;
                                    const message =
                                      n.name ||
                                      n.description ||

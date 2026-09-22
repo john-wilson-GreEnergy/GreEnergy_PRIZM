@@ -1,8 +1,14 @@
 import { Router } from "express";
-import { executeBalancingWorkflow, getBalancingCapabilities, executePreflightCheck, BalancingPreflightRequest, BalancingExecuteRequest } from "./balancingControlService";
+import { executeBalancingWorkflow, getBalancingCapabilities, executePreflightCheck, getBalancingVerificationJob, BalancingPreflightRequest, BalancingExecuteRequest } from "./balancingControlService";
 import { isDemoActive } from "./emsTurtleClient";
 
 export const balancingRouter = Router();
+
+balancingRouter.get('/verification/:id', (req, res) => {
+    const job = getBalancingVerificationJob(String(req.params.id));
+    if (!job) return res.status(404).json({ error: "Verification result is unavailable or expired" });
+    res.json(job);
+});
 
 balancingRouter.get('/capabilities', async (req, res) => {
     try {

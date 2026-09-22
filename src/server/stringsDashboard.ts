@@ -3545,7 +3545,8 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                             notificationsSourceHealth.ok = r.ok;
                             if (r.ok) {
                                 const payload = await r.json();
-                                rawNotifications = Array.isArray(payload) ? payload : (payload?.rows || payload?.notifications || []);
+                                const entries = Array.isArray(payload) ? payload : (payload?.notification ?? payload?.rows ?? payload?.notifications);
+                                rawNotifications = Array.isArray(entries) ? entries : [];
                             }
                             else notificationsSourceHealth.error = `HTTP ${r.status}`;
                         } catch(e: any) {
@@ -3571,6 +3572,18 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                     stringData: reportData.stringData || null,
                     timeStamp: reportData.timeStamp,
                 };
+                finalData.balancingDetails = finalData.batteryPackReportList.map((pack: any, index: number) => {
+                    const balance = extractBpcBalancing(pack, index);
+                    return {
+                        bpcNumber: balance.bpIndex,
+                        mode: balance.mode,
+                        state: balance.state,
+                        balancingCellGroupIndex: balance.balancingCellGroup,
+                        targetVoltage: balance.providedVoltageTarget,
+                        chargeDeadband: balance.chargeDeadband,
+                        dischargeDeadband: balance.dischargeDeadband
+                    };
+                });
             } else {
                 finalData = {
                     arrayIndex: arrayNumber,
@@ -3591,6 +3604,24 @@ router.get("/:arrayNumber/:stringNumber/detail", async (req, res) => {
                     bpcs: normalizedMonitor.bpcs,
                     stringViewerMonitorDataModel: normalizedMonitor.stringViewerMonitorDataModel
                 };
+
+                if (Array.isArray(finalData.balancingDetails)) {
+                    finalData.balancingDetails = finalData.balancingDetails.map((detail: any) => {
+                        const state = String(detail?.state ?? "").toLowerCase();
+                        const isActivelyBalancing = state.includes("charging") || state.includes("discharging") || state === "on" || state === "active";
+                        const bpcNumber = Number(detail?.bpcNumber);
+                        const cellGroupIndex = Number(detail?.balancingCellGroupIndex);
+                        const bpc = normalizedMonitor.bpcs.find((candidate: any) => Number(candidate?.bpcNumber ?? candidate?.batteryPackIndex) === bpcNumber);
+                        const cell = Array.isArray(bpc?.cellGroups)
+                            ? bpc.cellGroups.find((candidate: any) => Number(candidate?.cellGroupIndex) === cellGroupIndex)
+                            : null;
+                        const voltage = Number(cell?.voltage);
+                        return {
+                            ...detail,
+                            activeCellVoltage: isActivelyBalancing && Number.isFinite(voltage) ? voltage : null
+                        };
+                    });
+                }
             }
 
             // Filter and map notifications for this specific string.

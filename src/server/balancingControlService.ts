@@ -4,6 +4,7 @@ import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { setStringRotation } from "./rotationControlService";
 import { appendEvent } from "./history/prizmHistory";
 import { ProfileStore } from "./profiles/profileStore";
+import { buildBalancingCommand } from "./balancingCommandProto";
 
 async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<{ ok: boolean, status: number, text: string }> {
     const controller = new AbortController();
@@ -18,8 +19,121 @@ async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<
     }
 }
 
+function prepareBalancingCommands(req: BalancingExecuteRequest): Buffer[] {
+    const active = ProfileStore.getActiveProfile();
+    const cached = getEmsCachedBlock()?.data;
+    const block = cached?.blockReport ?? cached;
+    const topology = block?.topology ?? {};
+    const stationCode = String(active?.stationCode || "").trim();
+    const blockIndex = Number(active?.blockIndex);
+    if (!stationCode || !Number.isSafeInteger(blockIndex) || blockIndex < 1
+        || String(topology.stationCode ?? block?.stationCode ?? "").trim() !== stationCode
+        || Number(topology.blockIndex ?? block?.blockIndex) !== blockIndex) {
+        throw new Error("Native balancing blocked: active profile and live EMS block identity do not match");
+    }
+    return req.targets.map((target) => buildBalancingCommand({
+        stationCode, blockIndex, array: Number(target.array),
+        string: target.allStrings === true ? undefined : Number(target.string),
+        mode: req.mode as "avg" | "provided", providedMv: req.providedMv,
+        chargingDeadband: Number(req.chargingDeadband),
+        dischargingDeadband: Number(req.dischargingDeadband),
+        requestedBy: req.requestedBy
+    }).buffer);
+}
+
+async function postBalancingCommand(hostBase: string, buffer: Buffer) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+        const response = await fetch(`${hostBase}/tools/controls/ems/command`, {
+            method: "POST", headers: { "Content-Type": "application/octet-stream" },
+            body: buffer as any, signal: controller.signal
+        });
+        return { ok: response.ok, status: response.status, text: await response.text() };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 const BALANCING_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_BALANCING_VERIFY_DEADLINE_MS) || 15_000;
 const BALANCING_VERIFY_INTERVAL_MS = 750;
+const BALANCING_PERSISTENCE_DELAY_MS = 65_000;
+const balancingVerificationJobs = new Map<string, any>();
+
+function numericOrNull(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+export function extractBpcBalancingSettings(report: any): Array<{ bpc: number; mode: string | null; chargeDeadband: number | null; dischargeDeadband: number | null; providedVoltageTarget: number | null }> {
+    const packs = report?.batteryPackReportList ?? report?.stringData?.batteryPackReportList;
+    if (!Array.isArray(packs)) return [];
+    return packs.map((pack: any, index: number) => {
+        const data = pack?.batteryPackData ?? pack;
+        const config = data?.batteryPackBalancingConfiguration ?? pack?.batteryPackBalancingConfiguration ?? data?.balancingConfiguration ?? pack?.balancingConfiguration ?? {};
+        return {
+            bpc: Number(pack?.bpIndex ?? pack?.batteryPackIndex ?? index + 1),
+            mode: config?.balancingMode == null ? null : String(config.balancingMode),
+            chargeDeadband: numericOrNull(config?.chargeDeadband),
+            dischargeDeadband: numericOrNull(config?.dischargeDeadband),
+            providedVoltageTarget: numericOrNull(config?.providedVoltageTarget)
+        };
+    });
+}
+
+export function bpcSettingsMatchRequest(
+    bpcs: ReturnType<typeof extractBpcBalancingSettings>,
+    req: Pick<BalancingPreflightRequest, "mode" | "chargingDeadband" | "dischargingDeadband" | "providedMv">
+): boolean {
+    if (req.mode === "stop" || bpcs.length === 0) return false;
+    const deadbandsMatch = bpcs.every((bpc) => bpc.chargeDeadband === req.chargingDeadband
+        && bpc.dischargeDeadband === req.dischargingDeadband);
+    if (!deadbandsMatch) return false;
+    if (req.mode === "provided") return bpcs.every((bpc) => bpc.mode === "BALANCE_TO_PROVIDED"
+        && bpc.providedVoltageTarget === req.providedMv);
+
+    // EMS resolves BALANCE_TO_AVERAGE into one computed per-string voltage
+    // target before the BMS publishes its BPC settings. Accept either the
+    // original mode or that resolved representation, but only when every BPC
+    // reports the same plausible computed target.
+    if (bpcs.every((bpc) => bpc.mode === "BALANCE_TO_AVERAGE")) return true;
+    const resolvedTargets = new Set(bpcs.map((bpc) => bpc.providedVoltageTarget));
+    return resolvedTargets.size === 1 && bpcs.every((bpc) => bpc.mode === "BALANCE_TO_PROVIDED"
+        && bpc.providedVoltageTarget !== null
+        && bpc.providedVoltageTarget >= 2500
+        && bpc.providedVoltageTarget <= 3800);
+}
+
+async function readBalancingSettings(hostBase: string, req: BalancingPreflightRequest, target: BalancingPreflightRequest["targets"][number]) {
+    const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
+    const stringNumbers = target.allStrings === true
+        ? Array.from({ length: stringsPerArray }, (_, index) => index + 1)
+        : [Number(target.string)];
+    const readings: any[] = [];
+    for (let offset = 0; offset < stringNumbers.length; offset += 12) {
+        readings.push(...await Promise.all(stringNumbers.slice(offset, offset + 12).map(async (string) => {
+            const result = await fetchWithTimeout(`${hostBase}/tools/report/ems/array/${target.array}/string/${string}/report.json`, 5000);
+            if (!result.ok) return { array: target.array, string, status: "unavailable", bpcs: [], httpStatus: result.status };
+            try {
+                const bpcs = extractBpcBalancingSettings(JSON.parse(result.text));
+                const hasExpectedFields = bpcs.length > 0 && bpcs.every((bpc) => bpc.mode !== null && bpc.chargeDeadband !== null && bpc.dischargeDeadband !== null);
+                const matched = hasExpectedFields && bpcSettingsMatchRequest(bpcs, req);
+                return { array: target.array, string, status: req.mode === "stop" ? "not-checked" : !hasExpectedFields ? "unavailable" : matched ? "matched" : "mismatch", bpcs };
+            } catch {
+                return { array: target.array, string, status: "unavailable", bpcs: [] };
+            }
+        })));
+    }
+    const status = readings.some((reading) => reading.status === "mismatch") ? "mismatch"
+        : readings.length === stringNumbers.length && readings.every((reading) => reading.status === "matched") ? "matched"
+        : "unavailable";
+    return { status, checkedAt: new Date().toISOString(), strings: readings };
+}
+
+export function getBalancingVerificationJob(id: string) {
+    return balancingVerificationJobs.get(id) ?? null;
+}
 
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,43 +252,29 @@ export function buildBalancingCommandUrl(hostBase: string, req: BalancingPreflig
         : `/tools/controls/ems/array/${target.array}/string/${target.string}`;
 
     if (req.mode === "stop") return `${hostBase}${targetPath}/balance/stop`;
-
-    const chargingDeadband = req.chargingDeadband;
-    const dischargingDeadband = req.dischargingDeadband;
-    if (!Number.isFinite(chargingDeadband) || Number(chargingDeadband) < 0) {
-        throw new Error("A non-negative charging deadband is required");
-    }
-    if (!Number.isFinite(dischargingDeadband) || Number(dischargingDeadband) < 0) {
-        throw new Error("A non-negative discharging deadband is required");
-    }
-
-    const params = new URLSearchParams({
-        chargingDeadband: String(chargingDeadband),
-        dischargingDeadband: String(dischargingDeadband)
-    });
-    if (req.mode === "avg") return `${hostBase}${targetPath}/balance/avg?${params.toString()}`;
-    return `${hostBase}${targetPath}/balance/provided/${req.providedMv}?${params.toString()}`;
+    throw new Error("Legacy balancing URLs discard deadbands; use native protobuf delivery");
 }
 
 export async function getBalancingCapabilities() {
+    const nativeEnabled = process.env.PRIZM_BALANCING_PROTO_ENABLED === "true";
     return {
         strings: {
-            avg: true,
-            providedMv: true,
+            avg: nativeEnabled,
+            providedMv: nativeEnabled,
             stop: true,
             highest: false,
             lowest: false
         },
         arrays: {
-            avg: true,
-            providedMv: true,
+            avg: nativeEnabled,
+            providedMv: nativeEnabled,
             stop: true,
             highest: false,
             lowest: false
         },
         adbPreflight: true,
-        executor: "turtle-controls-ems",
-        method: "GET-wrapped-by-local-POST"
+        executor: nativeEnabled ? "turtle-native-protobuf" : "native-balancing-disabled",
+        method: "POST-binary-command-for-active-balancing; legacy-GET-for-stop"
     };
 }
 
@@ -291,6 +391,9 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     if (!["avg", "provided", "stop"].includes(req.mode)) throw new Error("Invalid balancing mode");
     if (req.mode === "provided" && typeof req.providedMv !== "number") throw new Error("Numeric providedMv required for provided mode");
     validateTargets(req);
+    if (req.mode !== "stop" && process.env.PRIZM_BALANCING_PROTO_ENABLED !== "true") {
+        throw new Error("Balancing is blocked: native deadband command delivery has not been enabled for this deployment");
+    }
     
     // conservative range is 2500 - 3800
     if (req.mode === "provided" && req.providedMv !== undefined && (req.providedMv < 2500 || req.providedMv > 3800)) {
@@ -298,6 +401,8 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     }
 
     const hostBase = getEmsBaseUrl();
+    // Check identity and encode every command before ADB or rotation can change.
+    const preparedCommands = req.mode === "stop" ? [] : prepareBalancingCommands(req);
 
     // Repeat preflight at execution time so a stale or hand-crafted client
     // cannot bypass the ADB/rotation checks performed by the dialog.
@@ -352,16 +457,23 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     let successes = 0;
     let failures = 0;
 
-    for (const target of req.targets) {
+    for (const [index, target] of req.targets.entries()) {
         try {
-            const url = buildBalancingCommandUrl(hostBase, req, target);
-
-            const response = await fetchWithTimeout(url, 15000);
+            const response = req.mode === "stop"
+                ? await fetchWithTimeout(buildBalancingCommandUrl(hostBase, req, target), 15000)
+                : await postBalancingCommand(hostBase, preparedCommands[index]);
             
             if (response.ok) {
                 const verification = await verifyBalancingTarget(hostBase, req, target);
-                results.push({ target, success: true, accepted: true, responseStatus: response.status, responseText: response.text, chargingDeadband: req.mode === "stop" ? null : req.chargingDeadband, dischargingDeadband: req.mode === "stop" ? null : req.dischargingDeadband, readbackConfirmed: verification.confirmed, readbackState: verification.state, readbackStatus: verification.status, verification });
-                successes++;
+                const settingsReadback = await readBalancingSettings(hostBase, req, target);
+                const verified = req.mode === "stop" ? verification.confirmed === true : settingsReadback.status === "matched";
+                const error = verified ? undefined : req.mode === "stop"
+                    ? "Turtle returned OK, but fresh telemetry did not confirm balancing stopped."
+                    : settingsReadback.status === "mismatch"
+                        ? "Turtle returned OK, but BPC mode or deadbands do not match the request. Balancing delivery is not verified."
+                        : "Turtle returned OK, but BPC settings readback is unavailable. Balancing delivery is not verified.";
+                results.push({ target, success: verified, accepted: true, responseStatus: response.status, responseText: response.text, chargingDeadband: req.mode === "stop" ? null : req.chargingDeadband, dischargingDeadband: req.mode === "stop" ? null : req.dischargingDeadband, readbackConfirmed: verified, readbackState: verification.state, readbackStatus: verification.status, verification, settingsReadback, error });
+                if (verified) successes++; else failures++;
             } else {
                  results.push({ target, success: false, accepted: false, responseStatus: response.status, responseText: response.text, error: response.text });
                  failures++;
@@ -384,9 +496,28 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         metadata: { request: req, results, rotationActionTaken, adbDisableActionTaken }
     });
 
+    const acceptedTargets = results.filter((result: any) => result.accepted === true).map((result: any) => result.target);
+    const verificationId = acceptedTargets.length && req.mode !== "stop" ? crypto.randomUUID() : null;
+    if (verificationId) {
+        balancingVerificationJobs.set(verificationId, { id: verificationId, status: "pending", dueAt: new Date(Date.now() + BALANCING_PERSISTENCE_DELAY_MS).toISOString(), targets: acceptedTargets });
+        const timer = setTimeout(async () => {
+            const checks = await Promise.all(acceptedTargets.map(async (target: any) => {
+                try { return { target, ...await readBalancingSettings(hostBase, req, target) }; }
+                catch (error: any) { return { target, status: "unavailable", error: error?.message || String(error) }; }
+            }));
+            const status = checks.some((check) => check.status === "mismatch") ? "changed"
+                : checks.every((check) => check.status === "matched") ? "persisted"
+                : "unavailable";
+            balancingVerificationJobs.set(verificationId, { id: verificationId, status, checkedAt: new Date().toISOString(), targets: checks });
+        }, BALANCING_PERSISTENCE_DELAY_MS);
+        timer.unref?.();
+        if (balancingVerificationJobs.size > 100) balancingVerificationJobs.delete(balancingVerificationJobs.keys().next().value!);
+    }
+
     return {
         success: successes === req.targets.length && failures === 0,
         results,
+        verificationId,
         readbackConfirmed: results.length > 0 && results.every((result: any) => result.readbackConfirmed === true)
     };
 }

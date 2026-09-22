@@ -23,7 +23,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
     const [pending, setPending] = useState(false);
     const [error, setError] = useState('');
     const [preflightData, setPreflightData] = useState<any>(null);
-    const [showAdbPreflight, setShowAdbPreflight] = useState(false);
+    const [selectedChoice, setSelectedChoice] = useState<'balance-directly' | 'move-targets-out-of-rotation-then-balance' | 'disable-adb-then-balance'>('balance-directly');
     const [adbConfirmation, setAdbConfirmation] = useState('');
 
     useEffect(() => {
@@ -37,7 +37,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
             setError('');
             setPending(false);
             setPreflightData(null);
-            setShowAdbPreflight(false);
+            setSelectedChoice('balance-directly');
             setAdbConfirmation('');
         }
     }, [isOpen]);
@@ -70,13 +70,11 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
             };
             const result = await onPreflight(req);
             setPreflightData(result);
+            setSelectedChoice(result.adb?.enabled && !result.okToBalanceDirectly
+                ? 'move-targets-out-of-rotation-then-balance'
+                : 'balance-directly');
             if (!result.adb?.statusKnown) {
                 setError('ADB status could not be verified. Balancing is blocked until the EMS app state is available.');
-            } else if (!result.okToBalanceDirectly && result.adb?.enabled) {
-                setShowAdbPreflight(true);
-            } else {
-                // Skip directly to execute
-                await proceedToExecute('balance-directly');
             }
         } catch (e: any) {
             setError(e.message || 'Failed preflight check');
@@ -115,7 +113,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
         }
     };
 
-    if (showAdbPreflight) {
+    if (preflightData) {
         return (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="bg-prizm-surface border border-prizm-border rounded shadow-xl w-full max-w-lg overflow-hidden flex flex-col relative saturate-150">
@@ -124,15 +122,18 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                     </button>
                     <div className="p-4 border-b border-prizm-border bg-prizm-surface-strong">
                         <h2 className="text-sm font-bold font-mono text-prizm-warning uppercase tracking-widest flex items-center gap-2">
-                             ADB App Is Enabled
+                             Review Balancing Plan — No Command Sent
                         </h2>
                     </div>
                     <div className="p-4 flex flex-col gap-4 text-xs font-mono">
                          <div className="text-prizm-text-muted">
-                            The Auto Discharge Balancer app is currently enabled. Manual balancing may be overridden while ADB is active unless selected targets are out of rotation or ADB is disabled.
+                            ADB is {preflightData.adb?.statusKnown ? (preflightData.adb.enabled ? 'enabled' : 'disabled') : 'unknown'}. When ADB is enabled, manual balancing on in-rotation strings may be cleared after about a minute. Review the preparation choice before sending a live command.
                          </div>
                          
                          <div className="bg-prizm-surface-strong border border-prizm-border rounded p-3">
+                             <div className="mb-2 font-bold">{targets.length} selected target(s) · {mode === 'avg' ? 'Average Balancing' : mode === 'provided' ? `Balance to ${providedMv} mV` : 'Stop Balancing'}</div>
+                             <div className="mb-2 max-h-20 overflow-y-auto">{targets.map((target, index) => <div key={index}>Array {target.array} / {target.allStrings ? 'All Strings' : `String ${target.string}`}</div>)}</div>
+                             {mode !== 'stop' && <div>Charge deadband: {chargingDeadband} mV · Discharge deadband: {dischargingDeadband} mV</div>}
                              <div className="mb-2 uppercase tracking-wide font-bold">Target Rotation Status:</div>
                              <div>Total Selected: {preflightData.targetRotation.total}</div>
                              <div className="text-prizm-danger">In Rotation: {preflightData.targetRotation.inRotationCount}</div>
@@ -143,25 +144,14 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                          {error && <div className="p-2 bg-prizm-danger/10 border border-prizm-danger/30 text-prizm-danger rounded mb-2">{error}</div>}
 
                          <div className="flex flex-col gap-2 mt-4">
-                              <button 
-                                  onClick={() => proceedToExecute('move-targets-out-of-rotation-then-balance')}
-                                  disabled={pending}
-                                  className="w-full px-4 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30 rounded uppercase tracking-wider font-bold"
-                              >
-                                  {pending ? 'Executing...' : 'Move Selected Target(s) Out of Rotation, Then Balance'}
-                              </button>
+                              <label className="flex items-center gap-2"><input type="radio" checked={selectedChoice === 'balance-directly'} onChange={() => setSelectedChoice('balance-directly')} disabled={pending || !preflightData.adb?.statusKnown || !preflightData.okToBalanceDirectly} /> Send balancing without preparation</label>
+                              <label className="flex items-center gap-2"><input type="radio" checked={selectedChoice === 'move-targets-out-of-rotation-then-balance'} onChange={() => setSelectedChoice('move-targets-out-of-rotation-then-balance')} disabled={pending || !preflightData.adb?.statusKnown} /> Move selected strings out of rotation, then balance</label>
                               
-                              <div className="flex flex-col gap-1 border border-red-500/30 rounded p-2 bg-red-500/5 mt-2">
+                              {preflightData.adb?.enabled && <div className="flex flex-col gap-1 border border-red-500/30 rounded p-2 bg-red-500/5 mt-2">
                                    <label className="text-prizm-text-muted uppercase font-bold tracking-wider mb-1 text-[10px]">Type <span className="text-white">DISABLE ADB0001</span> to disable app:</label>
                                    <input type="text" className="bg-black/50 border border-prizm-border text-prizm-text p-2 rounded" value={adbConfirmation} onChange={e => setAdbConfirmation(e.target.value)} disabled={pending} placeholder="DISABLE ADB0001" />
-                                   <button 
-                                      onClick={() => proceedToExecute('disable-adb-then-balance')}
-                                      disabled={pending || adbConfirmation !== 'DISABLE ADB0001'}
-                                      className="w-full px-4 py-2 bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30 rounded uppercase tracking-wider font-bold mt-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                                  >
-                                      {pending ? 'Executing...' : 'Disable ADB App, Then Balance'}
-                                  </button>
-                              </div>
+                                   <label className="flex items-center gap-2 text-red-500"><input type="radio" checked={selectedChoice === 'disable-adb-then-balance'} onChange={() => setSelectedChoice('disable-adb-then-balance')} disabled={pending || !preflightData.adb?.statusKnown || !preflightData.adb?.enabled} /> Disable ADB for the block, then balance</label>
+                              </div>}
 
                               <button 
                                   onClick={onClose}
@@ -170,6 +160,12 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                               >
                                   Cancel
                               </button>
+                              <button onClick={() => { setPreflightData(null); setError(''); }} disabled={pending} className="w-full px-4 py-2 rounded border border-prizm-border text-prizm-text">Back to settings</button>
+                              <button
+                                  onClick={() => proceedToExecute(selectedChoice)}
+                                  disabled={pending || !preflightData.adb?.statusKnown || (selectedChoice === 'disable-adb-then-balance' && adbConfirmation !== 'DISABLE ADB0001')}
+                                  className="w-full px-4 py-2 rounded border border-prizm-danger bg-prizm-danger/10 text-prizm-danger font-bold disabled:opacity-30"
+                              >{pending ? 'Sending live command...' : 'Confirm and send live balancing command'}</button>
                          </div>
                     </div>
                 </div>
@@ -263,9 +259,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                         </div>
                     </div>
                     
-                    <div className="text-prizm-warning font-bold mt-2">
-                        This will send a live EMS command to the selected target(s).
-                    </div>
+                    <div className="text-prizm-warning font-bold mt-2">Review Preflight only reads EMS state. No control command is sent until the separate confirmation step.</div>
                 </div>
 
                 <div className="p-4 border-t border-prizm-border bg-prizm-surface-strong flex justify-end gap-3 font-mono text-xs">
