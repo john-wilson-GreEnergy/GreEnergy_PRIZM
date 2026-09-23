@@ -8,6 +8,8 @@ import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
 import { normalizeVoltage, normalizeDeltaVoltage } from '../lib/voltageNormalizer';
 import type { RotationTarget } from './RotationModal';
 import BalancingModal from './BalancingModal';
+import BalancingVerificationPanel from './BalancingVerificationPanel';
+import {observeBalancingVerification, type VerificationView} from '../lib/balancingVerificationClient';
 import { useSiteData } from '../context/SiteDataContext';
 
 function getContactorVisualState(row: any) {
@@ -324,6 +326,15 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   const [commandNotice, setCommandNotice] = useState<{ status: "success" | "warning" | "error"; title: string; detail: string } | null>(null);
   
   const [balancingModalOpen, setBalancingModalOpen] = useState(false);
+  const [balancingVerificationId, setBalancingVerificationId] = useState(() => sessionStorage.getItem("prizm-balancing-verification"));
+  const [balancingVerification, setBalancingVerification] = useState<VerificationView | null>(null);
+  const [balancingVerificationError, setBalancingVerificationError] = useState("");
+  useEffect(() => {
+    if (!balancingVerificationId) return;
+    return observeBalancingVerification(balancingVerificationId, job => {
+      setBalancingVerification(job); setBalancingVerificationError("");
+    }, setBalancingVerificationError);
+  }, [balancingVerificationId]);
 
   const [isAdvancedMode, setIsAdvancedMode] = useState(() => localStorage.getItem("prizm_advanced_mode") === "true");
   useEffect(() => {
@@ -381,31 +392,18 @@ export default function StringDashboard({ active = true }: { active?: boolean })
           throw new Error(err.error || "Failed to execute balancing");
       }
       const result = await res.json();
-      if (result?.success !== true) {
-          const failed = Array.isArray(result?.results) ? result.results.filter((item: any) => item?.success !== true) : [];
-          throw new Error(failed.map((item: any) => item?.error || item?.responseText || 'Balancing target was not verified').join('; ') || 'One or more balancing targets were not verified');
-      }
-      const statuses = Array.isArray(result?.results) ? result.results.map((item: any) => item?.readbackStatus).filter(Boolean) : [];
-      const settings = Array.isArray(result?.results) ? result.results.map((item: any) => item?.settingsReadback?.status) : [];
-      const settingsStatus = settings.includes('mismatch') ? 'BPC deadband mismatch' : settings.length > 0 && settings.every((status: string) => status === 'matched') ? 'BPC deadbands matched' : 'BPC deadbands not yet verified';
-      setCommandNotice({
-          status: settingsStatus === 'BPC deadbands matched' ? "success" : "warning",
-          title: settingsStatus === 'BPC deadbands matched' ? "Balancing settings matched" : "Balancing accepted — readback pending",
-          detail: `${settingsStatus}. ${statuses.join('; ') || 'Balancing activity is not yet conclusive.'} ${result?.verificationId ? 'Persistence recheck scheduled after 65 seconds.' : ''}`
-      });
+      // Do not leave a submitted command in a dialog that invites resending.
       if (result?.verificationId) {
-          window.setTimeout(async () => {
-              try {
-                  const response = await fetch(`/api/local/balancing/verification/${encodeURIComponent(result.verificationId)}`);
-                  if (!response.ok) return;
-                  const check = await response.json();
-                  setCommandNotice({
-                      status: check.status === 'persisted' ? 'success' : 'warning',
-                      title: check.status === 'persisted' ? 'Balancing settings persisted' : check.status === 'changed' ? 'Balancing settings changed' : 'Balancing persistence unverified',
-                      detail: check.status === 'persisted' ? 'BPC deadbands still match after the delayed recheck.' : check.status === 'changed' ? 'At least one BPC no longer matches the commanded deadbands; check ADB and rotation state.' : 'The delayed BPC readback was incomplete.'
-                  });
-              } catch { /* The delayed result remains available through the verification endpoint. */ }
-          }, 67_000);
+          sessionStorage.setItem("prizm-balancing-verification", result.verificationId);
+          setBalancingVerification(result.verification ?? null);
+          setBalancingVerificationError("");
+          setBalancingVerificationId(result.verificationId);
+      } else {
+          setCommandNotice({
+              status: result?.readbackConfirmed === true ? "success" : "warning",
+              title: result?.readbackConfirmed === true ? "Balancing stop verified" : "Balancing command unverified",
+              detail: (result?.results ?? []).map((item: any) => item.error || item.readbackStatus || "EMS acceptance not confirmed").join("; ") + ". No command was automatically retried."
+          });
       }
       setBalancingModalOpen(false);
       setSelectedIds(new Set());
@@ -913,6 +911,10 @@ const handleManualRefresh = async () => {
       </div>
 
       {/* Source Debug Panel */}
+      <BalancingVerificationPanel job={balancingVerification} error={balancingVerificationError} onDismiss={() => {
+        sessionStorage.removeItem("prizm-balancing-verification"); setBalancingVerificationId(null);
+        setBalancingVerification(null); setBalancingVerificationError("");
+      }}/>
       <details className="mb-6 bg-prizm-surface border border-prizm-border rounded-lg text-xs font-mono group">
         <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold uppercase tracking-wider">
            Source Debug Information

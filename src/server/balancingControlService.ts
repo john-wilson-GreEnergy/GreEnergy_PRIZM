@@ -4,7 +4,9 @@ import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { setStringRotation } from "./rotationControlService";
 import { appendEvent } from "./history/prizmHistory";
 import { ProfileStore } from "./profiles/profileStore";
+import {getStringsView} from "./prizmDataCoordinator";
 import { buildBalancingCommand } from "./balancingCommandProto";
+import {assessBalancingReport, runBalancingVerification, summarizeBalancingVerification, type BalancingVerificationJob, type StringVerification} from "./balancingVerification";
 
 async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<{ ok: boolean, status: number, text: string }> {
     const controller = new AbortController();
@@ -57,82 +59,27 @@ async function postBalancingCommand(hostBase: string, buffer: Buffer) {
 
 const BALANCING_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_BALANCING_VERIFY_DEADLINE_MS) || 15_000;
 const BALANCING_VERIFY_INTERVAL_MS = 750;
-const BALANCING_PERSISTENCE_DELAY_MS = 65_000;
-const balancingVerificationJobs = new Map<string, any>();
+const balancingVerificationJobs = new Map<string, BalancingVerificationJob>();
+export {extractBpcBalancingSettings, bpcSettingsMatchRequest} from "./balancingVerification";
 
-function numericOrNull(value: unknown): number | null {
-    if (value === null || value === undefined || value === "") return null;
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
+async function readStringSettings(hostBase: string, req: BalancingPreflightRequest, row: StringVerification) {
+    const result = await fetchWithTimeout(`${hostBase}/tools/report/ems/array/${row.array}/string/${row.string}/report.json`, 5000);
+    if (!result.ok) return {status: "unavailable" as const, detail: `BPC report unavailable (HTTP ${result.status})`};
+    try {return assessBalancingReport(JSON.parse(result.text), req, row, Date.now());}
+    catch {return {status: "unavailable" as const, detail: "Invalid BPC settings report"};}
 }
 
-export function extractBpcBalancingSettings(report: any): Array<{ bpc: number; mode: string | null; chargeDeadband: number | null; dischargeDeadband: number | null; providedVoltageTarget: number | null }> {
-    const packs = report?.batteryPackReportList ?? report?.stringData?.batteryPackReportList;
-    if (!Array.isArray(packs)) return [];
-    return packs.map((pack: any, index: number) => {
-        const data = pack?.batteryPackData ?? pack;
-        const config = data?.batteryPackBalancingConfiguration ?? pack?.batteryPackBalancingConfiguration ?? data?.balancingConfiguration ?? pack?.balancingConfiguration ?? {};
-        return {
-            bpc: Number(pack?.bpIndex ?? pack?.batteryPackIndex ?? index + 1),
-            mode: config?.balancingMode == null ? null : String(config.balancingMode),
-            chargeDeadband: numericOrNull(config?.chargeDeadband),
-            dischargeDeadband: numericOrNull(config?.dischargeDeadband),
-            providedVoltageTarget: numericOrNull(config?.providedVoltageTarget)
-        };
-    });
-}
-
-export function bpcSettingsMatchRequest(
-    bpcs: ReturnType<typeof extractBpcBalancingSettings>,
-    req: Pick<BalancingPreflightRequest, "mode" | "chargingDeadband" | "dischargingDeadband" | "providedMv">
-): boolean {
-    if (req.mode === "stop" || bpcs.length === 0) return false;
-    const deadbandsMatch = bpcs.every((bpc) => bpc.chargeDeadband === req.chargingDeadband
-        && bpc.dischargeDeadband === req.dischargingDeadband);
-    if (!deadbandsMatch) return false;
-    if (req.mode === "provided") return bpcs.every((bpc) => bpc.mode === "BALANCE_TO_PROVIDED"
-        && bpc.providedVoltageTarget === req.providedMv);
-
-    // EMS resolves BALANCE_TO_AVERAGE into one computed per-string voltage
-    // target before the BMS publishes its BPC settings. Accept either the
-    // original mode or that resolved representation, but only when every BPC
-    // reports the same plausible computed target.
-    if (bpcs.every((bpc) => bpc.mode === "BALANCE_TO_AVERAGE")) return true;
-    const resolvedTargets = new Set(bpcs.map((bpc) => bpc.providedVoltageTarget));
-    return resolvedTargets.size === 1 && bpcs.every((bpc) => bpc.mode === "BALANCE_TO_PROVIDED"
-        && bpc.providedVoltageTarget !== null
-        && bpc.providedVoltageTarget >= 2500
-        && bpc.providedVoltageTarget <= 3800);
-}
-
-async function readBalancingSettings(hostBase: string, req: BalancingPreflightRequest, target: BalancingPreflightRequest["targets"][number]) {
-    const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
-    const stringNumbers = target.allStrings === true
-        ? Array.from({ length: stringsPerArray }, (_, index) => index + 1)
-        : [Number(target.string)];
-    const readings: any[] = [];
-    for (let offset = 0; offset < stringNumbers.length; offset += 12) {
-        readings.push(...await Promise.all(stringNumbers.slice(offset, offset + 12).map(async (string) => {
-            const result = await fetchWithTimeout(`${hostBase}/tools/report/ems/array/${target.array}/string/${string}/report.json`, 5000);
-            if (!result.ok) return { array: target.array, string, status: "unavailable", bpcs: [], httpStatus: result.status };
-            try {
-                const bpcs = extractBpcBalancingSettings(JSON.parse(result.text));
-                const hasExpectedFields = bpcs.length > 0 && bpcs.every((bpc) => bpc.mode !== null && bpc.chargeDeadband !== null && bpc.dischargeDeadband !== null);
-                const matched = hasExpectedFields && bpcSettingsMatchRequest(bpcs, req);
-                return { array: target.array, string, status: req.mode === "stop" ? "not-checked" : !hasExpectedFields ? "unavailable" : matched ? "matched" : "mismatch", bpcs };
-            } catch {
-                return { array: target.array, string, status: "unavailable", bpcs: [] };
-            }
-        })));
-    }
-    const status = readings.some((reading) => reading.status === "mismatch") ? "mismatch"
-        : readings.length === stringNumbers.length && readings.every((reading) => reading.status === "matched") ? "matched"
-        : "unavailable";
-    return { status, checkedAt: new Date().toISOString(), strings: readings };
+function expectedBpcs(array: number, string: number): number {
+    const rows = getStringsView()?.strings ?? [];
+    const row = rows.find((r: any) => Number(r.arrayNumber) === array && Number(r.stringNumber) === string);
+    // Do not infer complete coverage from the same potentially partial readback.
+    const count = Number(row?.bpcs?.expectedCount ?? row?.bpcCount);
+    return Number.isInteger(count) && count > 0 ? count : 0;
 }
 
 export function getBalancingVerificationJob(id: string) {
-    return balancingVerificationJobs.get(id) ?? null;
+    const job = balancingVerificationJobs.get(id);
+    return job ? {...job, summary: summarizeBalancingVerification(job)} : null;
 }
 
 function sleep(ms: number) {
@@ -335,7 +282,7 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
     let outOfRotationCount = 0;
     let unknownCount = 0;
     
-    const enrichedTargets = req.targets.flatMap(t => {
+    const enrichedTargets = req.targets.flatMap<BalancingPreflightRequest["targets"][number] & {rotationStatus: "IN" | "OUT" | "UNKNOWN"}>(t => {
         const candidateRows = t.allStrings === true
             ? rawData.filter((r: any) => Number(r.arrayIndex ?? r.array) === Number(t.array))
             : [rawData.find((r: any) => Number(r.arrayIndex ?? r.array) === Number(t.array) && Number(r.stringIndex ?? r.string) === Number(t.string))].filter(Boolean);
@@ -464,16 +411,15 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
                 : await postBalancingCommand(hostBase, preparedCommands[index]);
             
             if (response.ok) {
-                const verification = await verifyBalancingTarget(hostBase, req, target);
-                const settingsReadback = await readBalancingSettings(hostBase, req, target);
-                const verified = req.mode === "stop" ? verification.confirmed === true : settingsReadback.status === "matched";
-                const error = verified ? undefined : req.mode === "stop"
-                    ? "Turtle returned OK, but fresh telemetry did not confirm balancing stopped."
-                    : settingsReadback.status === "mismatch"
-                        ? "Turtle returned OK, but BPC mode or deadbands do not match the request. Balancing delivery is not verified."
-                        : "Turtle returned OK, but BPC settings readback is unavailable. Balancing delivery is not verified.";
-                results.push({ target, success: verified, accepted: true, responseStatus: response.status, responseText: response.text, chargingDeadband: req.mode === "stop" ? null : req.chargingDeadband, dischargingDeadband: req.mode === "stop" ? null : req.dischargingDeadband, readbackConfirmed: verified, readbackState: verification.state, readbackStatus: verification.status, verification, settingsReadback, error });
-                if (verified) successes++; else failures++;
+                // Acceptance is not application. Active commands get a read-only
+                // background job; do not block dispatch behind every array's reads.
+                const verification = req.mode === "stop" ? await verifyBalancingTarget(hostBase, req, target) : null;
+                const verified = verification?.confirmed === true;
+                results.push({target, success: verified, accepted: true, acceptedAt: Date.now(),
+                    responseStatus: response.status, chargingDeadband: req.chargingDeadband,
+                    dischargingDeadband: req.dischargingDeadband, readbackConfirmed: req.mode === "stop" ? verified : null,
+                    readbackState: verification?.state ?? "pending", readbackStatus: verification?.status ?? "Accepted; waiting for fresh BPC settings"});
+                if (verified) successes++; else if (req.mode === "stop") failures++;
             } else {
                  results.push({ target, success: false, accepted: false, responseStatus: response.status, responseText: response.text, error: response.text });
                  failures++;
@@ -496,28 +442,40 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         metadata: { request: req, results, rotationActionTaken, adbDisableActionTaken }
     });
 
-    const acceptedTargets = results.filter((result: any) => result.accepted === true).map((result: any) => result.target);
+    const acceptedTargets = results.filter(result => result.accepted === true);
     const verificationId = acceptedTargets.length && req.mode !== "stop" ? crypto.randomUUID() : null;
     if (verificationId) {
-        balancingVerificationJobs.set(verificationId, { id: verificationId, status: "pending", dueAt: new Date(Date.now() + BALANCING_PERSISTENCE_DELAY_MS).toISOString(), targets: acceptedTargets });
-        const timer = setTimeout(async () => {
-            const checks = await Promise.all(acceptedTargets.map(async (target: any) => {
-                try { return { target, ...await readBalancingSettings(hostBase, req, target) }; }
-                catch (error: any) { return { target, status: "unavailable", error: error?.message || String(error) }; }
-            }));
-            const status = checks.some((check) => check.status === "mismatch") ? "changed"
-                : checks.every((check) => check.status === "matched") ? "persisted"
-                : "unavailable";
-            balancingVerificationJobs.set(verificationId, { id: verificationId, status, checkedAt: new Date().toISOString(), targets: checks });
-        }, BALANCING_PERSISTENCE_DELAY_MS);
-        timer.unref?.();
-        if (balancingVerificationJobs.size > 100) balancingVerificationJobs.delete(balancingVerificationJobs.keys().next().value!);
+        const createdAt = Date.now();
+        const strings: StringVerification[] = results.flatMap(result => {
+            const target = result.target;
+            const count = Number(ProfileStore.getActiveProfile()?.stringsPerArray) || 40;
+            const numbers = target.allStrings ? Array.from({length: count}, (_, i) => i + 1) : [Number(target.string)];
+            return numbers.map(string => ({array: Number(target.array), string, expectedBpcs: expectedBpcs(Number(target.array), string),
+                acceptedAt: result.acceptedAt ?? createdAt, status: result.accepted === true ? "pending" as const : "not-accepted" as const,
+                detail: result.accepted === true ? "EMS accepted; waiting for settings to propagate" : "EMS acceptance not confirmed; not automatically retried"}));
+        });
+        const job: BalancingVerificationJob = {id: verificationId, status: "pending", createdAt, updatedAt: createdAt,
+            request: {mode: req.mode, chargingDeadband: req.chargingDeadband, dischargingDeadband: req.dischargingDeadband, providedMv: req.providedMv}, strings};
+        balancingVerificationJobs.set(verificationId, job);
+        // Keep pending jobs; prune only completed ones.
+        for (const [id, old] of balancingVerificationJobs) {
+            if (balancingVerificationJobs.size <= 100) break;
+            if (old.status === "complete") balancingVerificationJobs.delete(id);
+        }
+        void runBalancingVerification(job, row => readStringSettings(hostBase, req, row)).catch(() => {
+            for (const row of job.strings) if (row.status === "pending" || row.status === "matched") {
+                row.status = "unavailable"; row.detail = "Verification interrupted; do not assume failure or resend";
+            }
+            job.status = "complete"; job.updatedAt = Date.now();
+        });
     }
 
     return {
         success: successes === req.targets.length && failures === 0,
         results,
         verificationId,
+        verification: verificationId ? getBalancingVerificationJob(verificationId) : null,
+        accepted: results.every(result => result.accepted === true),
         readbackConfirmed: results.length > 0 && results.every((result: any) => result.readbackConfirmed === true)
     };
 }

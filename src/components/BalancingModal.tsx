@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Activity, X } from "lucide-react";
 import { RotationTarget } from "./RotationModal";
 
@@ -21,6 +21,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
     
     // Workflow States
     const [pending, setPending] = useState(false);
+    const submitting = useRef(false);
     const [error, setError] = useState('');
     const [preflightData, setPreflightData] = useState<any>(null);
     const [selectedChoice, setSelectedChoice] = useState<'balance-directly' | 'move-targets-out-of-rotation-then-balance' | 'disable-adb-then-balance'>('balance-directly');
@@ -84,6 +85,8 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
     };
 
     const proceedToExecute = async (choice: string) => {
+        if (submitting.current) return;
+        submitting.current = true;
         try {
             setError('');
             if (choice === 'disable-adb-then-balance' && adbConfirmation !== 'DISABLE ADB0001') {
@@ -109,6 +112,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
         } catch (e: any) {
             setError(e.message || 'Failed to execute balancing');
         } finally {
+            submitting.current = false;
             setPending(false);
         }
     };
@@ -122,7 +126,7 @@ export default function BalancingModal({ isOpen, onClose, onPreflight, onConfirm
                     </button>
                     <div className="p-4 border-b border-prizm-border bg-prizm-surface-strong">
                         <h2 className="text-sm font-bold font-mono text-prizm-warning uppercase tracking-widest flex items-center gap-2">
-                             Review Balancing Plan — No Command Sent
+                             {pending ? "Submitting — do not resend" : "Review Balancing Plan — No Command Sent"}
                         </h2>
                     </div>
                     <div className="p-4 flex flex-col gap-4 text-xs font-mono">

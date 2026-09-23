@@ -1,0 +1,11 @@
+import React from "react";
+import assert from "node:assert/strict";
+import {renderToStaticMarkup} from "react-dom/server";
+import BalancingVerificationPanel from "./BalancingVerificationPanel";
+import type {VerificationView} from "../lib/balancingVerificationClient";
+const job: VerificationView = {id: "fixture", createdAt: 1, updatedAt: 2, status: "complete", request: {mode: "avg", chargingDeadband: 5, dischargingDeadband: 10}, summary: {total: 320, verified: 319, persisted: 319, pending: 0, unresolved: 1}, strings: [{array: 7, string: 26, acceptedAt: 1, expectedBpcs: 14, status: "mismatch", detail: "Observed NO_BALANCE: 0/0 mV"}]};
+const html = renderToStaticMarkup(<BalancingVerificationPanel job={job} error="" onDismiss={() => {}}/>);
+for (const text of ["319/320", "1 unresolved", "Array 7 / String 26", "NO_BALANCE", "No automatic command retries", "Settings do not prove active shunting"]) assert(html.includes(text), text);
+assert(!html.includes("Confirm and send"));
+assert(renderToStaticMarkup(<BalancingVerificationPanel job={null} error="Server restarted" onDismiss={() => {}}/>).includes("Server restarted"));
+console.log("Balancing persistent per-string results presentation passed");

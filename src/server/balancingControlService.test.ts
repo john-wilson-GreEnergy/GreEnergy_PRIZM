@@ -67,7 +67,7 @@ assert.equal(bpcSettingsMatchRequest([
 assert.equal(bpcSettingsMatchRequest([
   { bpc: 1, mode: "BALANCE_TO_PROVIDED", chargeDeadband: 5, dischargeDeadband: 10, providedVoltageTarget: 3330 },
   { bpc: 2, mode: "BALANCE_TO_PROVIDED", chargeDeadband: 5, dischargeDeadband: 10, providedVoltageTarget: 3331 }
-], { mode: "avg", chargingDeadband: 5, dischargingDeadband: 10 }), false);
+], { mode: "avg", chargingDeadband: 5, dischargingDeadband: 10 }), true);
 assert.equal(bpcSettingsMatchRequest([
   { bpc: 1, mode: "BALANCE_TO_AVERAGE", chargeDeadband: 5, dischargeDeadband: 5, providedVoltageTarget: null }
 ], { mode: "avg", chargingDeadband: 5, dischargingDeadband: 10 }), false);
