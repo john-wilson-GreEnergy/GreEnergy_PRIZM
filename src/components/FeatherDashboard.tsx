@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { jsPDF } from "jspdf";
 import { formatFeatherDiagnosticValue } from "../lib/featherErrorFormatter";
 import {
   Activity,
@@ -6,6 +7,7 @@ import {
   CheckCircle2,
   XCircle,
   Download,
+  FileText,
   Filter,
   RefreshCw,
   Search,
@@ -947,6 +949,159 @@ function getHvacSampleDetails(hvac: any) {
     document.body.removeChild(downloadAnchor);
   };
 
+
+  const exportNormalizedPDF = () => {
+    if (filteredDevices.length === 0) {
+      setAlertMessage({ type: "warn", text: "No rows available to export." });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 10;
+    const tableTop = 41;
+    const rowHeight = 5.5;
+    const footerY = pageHeight - 7;
+    const activeProfile = cacheDetails.activeProfileId || "active";
+    const generatedAt = new Date();
+
+    const statusFor = (d: FeatherHvacDevice) =>
+      d.reachable
+        ? d.alarmCount
+          ? "ALARM"
+          : d.warningCount
+            ? "WARNING"
+            : "NORMAL"
+        : d.sourceCoverage?.directFeather
+          ? "OFFLINE"
+          : "NOT REPORTING";
+
+    const value = (v: unknown) =>
+      v === undefined || v === null || v === "" ? "N/A" : String(v);
+
+    const truncate = (text: unknown, max = 22) => {
+      const str = value(text);
+      return str.length > max ? `${str.slice(0, Math.max(0, max - 1))}…` : str;
+    };
+
+    const counts = filteredDevices.reduce(
+      (acc, d) => {
+        const status = statusFor(d);
+        if (status === "NORMAL") acc.normal += 1;
+        else if (status === "WARNING") acc.warning += 1;
+        else if (status === "ALARM") acc.alarm += 1;
+        else acc.offline += 1;
+        return acc;
+      },
+      { normal: 0, warning: 0, alarm: 0, offline: 0 }
+    );
+
+    const columns = [
+      { label: "IP Address", x: 10 },
+      { label: "State", x: 38 },
+      { label: "Array", x: 58 },
+      { label: "String", x: 70 },
+      { label: "Entity", x: 83 },
+      { label: "Firmware", x: 126 },
+      { label: "Warn", x: 151 },
+      { label: "Alarm", x: 163 },
+      { label: "Space C", x: 176 },
+      { label: "Cell C", x: 194 },
+      { label: "Supply C", x: 211 },
+      { label: "Source", x: 231 }
+    ];
+
+    const drawPageHeader = (continued = false) => {
+      doc.setFillColor(20, 30, 45);
+      doc.rect(0, 0, pageWidth, 24, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("Helvetica", "Bold");
+      doc.setFontSize(15);
+      doc.text("GreEnergy PRIZM", marginX, 10);
+      doc.setFontSize(9);
+      doc.setFont("Helvetica", "Normal");
+      doc.text(
+        `HVAC HEALTH DIAGNOSTIC REPORT${continued ? " - CONTINUED" : ""}`,
+        marginX,
+        17
+      );
+
+      doc.setTextColor(70, 80, 90);
+      doc.setFontSize(8);
+      doc.text(
+        `Profile: ${activeProfile}  |  Generated: ${generatedAt.toLocaleString()}  |  Rows: ${filteredDevices.length} of ${devices.length}`,
+        marginX,
+        30
+      );
+      doc.text(
+        `Normal: ${counts.normal}  Warning: ${counts.warning}  Alarm: ${counts.alarm}  Offline/Not Reporting: ${counts.offline}`,
+        marginX,
+        35
+      );
+
+      doc.setFillColor(238, 241, 244);
+      doc.rect(marginX, tableTop - 5, pageWidth - marginX * 2, 6, "F");
+      doc.setTextColor(20, 30, 45);
+      doc.setFont("Helvetica", "Bold");
+      doc.setFontSize(7);
+      columns.forEach(col => doc.text(col.label, col.x, tableTop - 1));
+      doc.setFont("Helvetica", "Normal");
+    };
+
+    drawPageHeader(false);
+    let y = tableTop + 5;
+
+    filteredDevices.forEach(d => {
+      if (y > footerY - 4) {
+        doc.addPage("a4", "landscape");
+        drawPageHeader(true);
+        y = tableTop + 5;
+      }
+
+      const row = [
+        truncate(d.ip, 18),
+        truncate(statusFor(d), 14),
+        value(d.arrayIndex),
+        value(d.stringIndex),
+        truncate(d.entityDescription ?? "Unknown Node", 24),
+        truncate(d.firmwareVersion, 14),
+        value(d.warningCount),
+        value(d.alarmCount),
+        value(d.temperatureSupplyC),
+        value(d.temperatureCellC),
+        value(d.supplyAirTemp),
+        truncate(d.discoveryMethod, 16)
+      ];
+
+      doc.setTextColor(45, 55, 65);
+      doc.setFontSize(7);
+      row.forEach((cell, idx) => doc.text(String(cell), columns[idx].x, y));
+      doc.setDrawColor(232, 235, 238);
+      doc.line(marginX, y + 1.5, pageWidth - marginX, y + 1.5);
+      y += rowHeight;
+    });
+
+    const totalPages = doc.getNumberOfPages();
+    for (let page = 1; page <= totalPages; page += 1) {
+      doc.setPage(page);
+      doc.setTextColor(130, 140, 150);
+      doc.setFontSize(7);
+      doc.text(
+        `GreEnergy PRIZM HVAC Health  |  Page ${page} of ${totalPages}`,
+        marginX,
+        footerY
+      );
+    }
+
+    const stamp = generatedAt
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace("T", "_")
+      .slice(0, 13);
+    doc.save(`GreEnergy_PRIZM_HVAC_Health_${activeProfile}_${stamp}.pdf`);
+  };
+
   // Filter computation
   const filteredDevices = devices.filter(d => {
     // 1. IP search
@@ -1365,6 +1520,13 @@ function getHvacSampleDetails(hvac: any) {
             >
               <Download size={11} />
               Export CSV
+            </button>
+            <button
+              onClick={exportNormalizedPDF}
+              className="px-3 py-1.5 border border-prizm-border hover:border-prizm-border hover:bg-black/5 rounded text-prizm-text font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileText size={11} />
+              Export PDF
             </button>
             <button
               onClick={exportFullJSON}
