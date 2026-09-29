@@ -985,44 +985,20 @@ function getHvacSampleDetails(hvac: any) {
       return str.length > max ? `${str.slice(0, Math.max(0, max - 1))}…` : str;
     };
 
-    const commandedStateFor = (hvac: FeatherHvacDevice["hvac1"]) => {
-      if (!hvac) return "N/A";
-
-      const commands = [
-        ["FanL", hvac.fanLowOn],
-        ["FanH", hvac.fanHighOn],
-        ["Comp", hvac.compressorOn],
-        ["Rev.V", hvac.reversingValveOn],
-        ["Heat", hvac.electricHeatOn]
-      ] as const;
-      const knownCommands = commands.filter(([, commanded]) => commanded !== undefined && commanded !== null);
-      if (knownCommands.length === 0) return "N/A";
-
-      const activeCommands = knownCommands
-        .filter(([, commanded]) => commanded)
-        .map(([label]) => label);
-      return activeCommands.length > 0 ? activeCommands.join("+") : "OFF";
-    };
+    const commandState = (commanded: boolean | null | undefined) =>
+      commanded === undefined || commanded === null ? "N/A" : commanded ? "ON" : "OFF";
 
     const amperageFor = (hvac: FeatherHvacDevice["hvac1"]) =>
       hvac?.currentA === undefined || hvac.currentA === null
         ? "N/A"
         : `${hvac.currentA.toFixed(1)} A`;
 
-    const rpmFor = (hvac: FeatherHvacDevice["hvac1"]) =>
-      hvac?.fanSpeedRpm === undefined || hvac.fanSpeedRpm === null
-        ? "N/A"
-        : String(hvac.fanSpeedRpm);
-
-    const reportRows = filteredDevices.flatMap(d => {
-      const segment = resolveFeatherSegment(d);
-      const stage = d.thermostatStage || d.hvacRuntimeState || d.hvacMode || d.hvacStatus || "N/A";
-
-      return [
-        { device: d, hvacNumber: "HVAC 1", hvac: d.hvac1, segment: segment.displayLabel, stage },
-        { device: d, hvacNumber: "HVAC 2", hvac: d.hvac2, segment: segment.displayLabel, stage }
-      ];
-    });
+    const compactEntity = (entity: string | undefined, segment: string) => {
+      if (!entity) return segment;
+      return entity
+        .replace(/^Feather\s+ES\b/i, "ES")
+        .replace(/^Feather\s+CS\b/i, "CS");
+    };
 
     const counts = filteredDevices.reduce(
       (acc, d) => {
@@ -1038,18 +1014,21 @@ function getHvacSampleDetails(hvac: any) {
 
     const columns = [
       { label: "IP Address", x: 10 },
-      { label: "Array", x: 36 },
-      { label: "Segment", x: 51 },
-      { label: "Entity", x: 68 },
-      { label: "HVAC #", x: 111 },
-      { label: "Commanded State", x: 128 },
-      { label: "Amperage", x: 169 },
-      { label: "RPM", x: 190 },
-      { label: "Stage", x: 205 },
-      { label: "Health", x: 229 },
-      { label: "Warn", x: 250 },
-      { label: "Alarm", x: 264 },
-      { label: "Source", x: 278 }
+      { label: "Array", x: 34 },
+      { label: "Segment", x: 47 },
+      { label: "Entity", x: 62 },
+      { label: "Health", x: 83 },
+      { label: "Stage", x: 102 },
+      { label: "H1 FanL", x: 126 },
+      { label: "H1 FanH", x: 143 },
+      { label: "H1 Comp", x: 160 },
+      { label: "H1 Rev.V", x: 177 },
+      { label: "H1 Amps", x: 194 },
+      { label: "H2 FanL", x: 214 },
+      { label: "H2 FanH", x: 231 },
+      { label: "H2 Comp", x: 248 },
+      { label: "H2 Rev.V", x: 265 },
+      { label: "H2 Amps", x: 282 }
     ];
 
     const drawPageHeader = (continued = false) => {
@@ -1070,7 +1049,7 @@ function getHvacSampleDetails(hvac: any) {
       doc.setTextColor(70, 80, 90);
       doc.setFontSize(8);
       doc.text(
-        `Profile: ${activeProfile}  |  Generated: ${generatedAt.toLocaleString()}  |  Devices: ${filteredDevices.length} of ${devices.length}  |  HVAC rows: ${reportRows.length}`,
+        `Profile: ${activeProfile}  |  Generated: ${generatedAt.toLocaleString()}  |  Devices: ${filteredDevices.length} of ${devices.length}`,
         marginX,
         30
       );
@@ -1092,31 +1071,36 @@ function getHvacSampleDetails(hvac: any) {
     drawPageHeader(false);
     let y = tableTop + 5;
 
-    reportRows.forEach(({ device: d, hvacNumber, hvac, segment, stage }) => {
+    filteredDevices.forEach(d => {
       if (y > footerY - 4) {
         doc.addPage("a4", "landscape");
         drawPageHeader(true);
         y = tableTop + 5;
       }
 
+      const segment = resolveFeatherSegment(d).displayLabel;
+      const stage = d.thermostatStage || d.hvacRuntimeState || d.hvacMode || d.hvacStatus || "N/A";
       const row = [
         truncate(d.ip, 16),
         value(d.arrayIndex),
         segment,
-        truncate(d.entityDescription ?? "Unknown Node", 23),
-        hvacNumber,
-        truncate(commandedStateFor(hvac), 22),
-        amperageFor(hvac),
-        rpmFor(hvac),
-        truncate(stage, 13),
+        truncate(compactEntity(d.entityDescription, segment), 11),
         truncate(statusFor(d), 12),
-        value(d.warningCount ?? 0),
-        value(d.alarmCount ?? 0),
-        truncate(d.discoveryMethod, 10)
+        truncate(stage, 12),
+        commandState(d.hvac1?.fanLowOn),
+        commandState(d.hvac1?.fanHighOn),
+        commandState(d.hvac1?.compressorOn),
+        commandState(d.hvac1?.reversingValveOn),
+        amperageFor(d.hvac1),
+        commandState(d.hvac2?.fanLowOn),
+        commandState(d.hvac2?.fanHighOn),
+        commandState(d.hvac2?.compressorOn),
+        commandState(d.hvac2?.reversingValveOn),
+        amperageFor(d.hvac2)
       ];
 
       doc.setTextColor(45, 55, 65);
-      doc.setFontSize(7);
+      doc.setFontSize(6.5);
       row.forEach((cell, idx) => doc.text(String(cell), columns[idx].x, y));
       doc.setDrawColor(232, 235, 238);
       doc.line(marginX, y + 1.5, pageWidth - marginX, y + 1.5);
