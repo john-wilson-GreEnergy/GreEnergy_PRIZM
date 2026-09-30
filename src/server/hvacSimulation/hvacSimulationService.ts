@@ -11,6 +11,7 @@ import { validateHvacReport, HVAC_VALIDATION_DEFAULTS } from "./hvacSimulationVa
 import { ProfileStore } from "../profiles/profileStore";
 import { discoverTopologyCandidates } from "../feather/featherDiscovery";
 import { getFeatherCache } from "../feather/featherClient";
+import { DiscoveryCandidate, FeatherNormalizedStatus } from "../feather/featherTypes";
 import { isDemoActive } from "../emsTurtleClient";
 
 const AUDIT_FILE = path.join(process.cwd(), "data", "hvac_simulation_audit.json");
@@ -72,74 +73,74 @@ export function getActiveOverrides(): Map<string, SimStateOverride> {
 /**
  * Get targets combined from active topology & Feather discovery
  */
-export function getHvacTargets(): HvacSimulationTarget[] {
-  const result: HvacSimulationTarget[] = [];
+export function buildHvacTargetsFromSources(
+  candidates: DiscoveryCandidate[],
+  cachedDevices: FeatherNormalizedStatus[] = [],
+  cacheLastUpdatedAt?: string
+): HvacSimulationTarget[] {
   const ipMap = new Map<string, HvacSimulationTarget>();
 
-  const activeProfile = ProfileStore.getActiveProfile();
-  const activeProfileName = activeProfile ? activeProfile.profileName : "PRIZM Core Hardware Bess Profile";
+  // The topology/discovery layer is authoritative for physical HVAC targets.
+  // String controllers and inferred non-Feather hosts are explicitly excluded there.
+  for (const cand of candidates) {
+    if (!cand.deviceIp || cand.excluded) continue;
 
-  // 1. Load candidates from topology discovery
+    const parts = cand.deviceIp.split(".");
+    const lastOctet = parts.length === 4 ? Number(parts[3]) : NaN;
+    const isCol = cand.isCollectionSegment === true || lastOctet === 3 || (cand.entityName || "").toLowerCase().includes("collection");
+
+    ipMap.set(cand.deviceIp, {
+      ip: cand.deviceIp,
+      blockId: cand.blockId,
+      blockName: cand.blockName,
+      blockIndex: cand.blockIndex,
+      arrayIndex: cand.arrayIndex ?? undefined,
+      stringIndex: cand.stringIndex ?? undefined,
+      segment: cand.segment,
+      entityName: cand.entityName || `Feather controller at ${cand.deviceIp}`,
+      reachable: false,
+      source: "active-topology",
+      isCollectionSegment: isCol
+    });
+  }
+
+  // Cache data may contain stale or misclassified string controllers. It may
+  // enrich an authorized topology target, but it cannot create a new target.
+  for (const d of cachedDevices) {
+    if (!d.deviceIp) continue;
+    const existing = ipMap.get(d.deviceIp);
+    if (!existing) continue;
+
+    existing.reachable = d.reachable;
+    existing.lastUpdatedAt = cacheLastUpdatedAt;
+    existing.source = "feather-cache";
+    if (d.entityName) existing.entityName = d.entityName;
+    if (d.arrayIndex !== null && d.arrayIndex !== undefined) existing.arrayIndex = d.arrayIndex;
+    if (d.stringIndex !== null && d.stringIndex !== undefined) existing.stringIndex = d.stringIndex;
+  }
+
+  return Array.from(ipMap.values());
+}
+
+export function getHvacTargets(): HvacSimulationTarget[] {
+  let candidates: DiscoveryCandidate[] = [];
   try {
-    const candidates = discoverTopologyCandidates();
-    for (const cand of candidates) {
-      if (!cand.deviceIp) continue;
-      
-      const parts = (cand.deviceIp || "").split(".");
-      const lastOctet = parts.length === 4 ? Number(parts[3]) : NaN;
-      const isCol = cand.isCollectionSegment === true || lastOctet === 3 || (cand.entityName || "").toLowerCase().includes("collection");
-
-      const target: HvacSimulationTarget = {
-        ip: cand.deviceIp,
-        arrayIndex: cand.arrayIndex ?? undefined,
-        stringIndex: cand.stringIndex ?? undefined,
-        entityName: cand.entityName || `Feather controller at ${cand.deviceIp}`,
-        reachable: !cand.excluded, // placeholder
-        source: "active-topology",
-        isCollectionSegment: isCol
-      };
-      ipMap.set(cand.deviceIp, target);
-    }
+    candidates = discoverTopologyCandidates();
   } catch (e) {
     console.error("[HvacSimulationService] Error fetching topology candidates:", e);
   }
 
-  // 2. Load from cached dynamic feather devices (if available)
   try {
     const cached = getFeatherCache();
-    if (cached && cached.devices) {
-      for (const d of cached.devices) {
-        if (!d.deviceIp) continue;
-        const parts = (d.deviceIp || "").split(".");
-        const lastOctet = parts.length === 4 ? Number(parts[3]) : NaN;
-        const isCol = (d as any).isCollectionSegment === true || lastOctet === 3 || (d.entityName || "").toLowerCase().includes("collection");
-
-        const existing = ipMap.get(d.deviceIp);
-        if (existing) {
-          existing.reachable = d.reachable;
-          existing.lastUpdatedAt = cached.lastUpdatedAt || undefined;
-          if (existing.source === "active-topology") {
-            existing.source = "feather-cache";
-          }
-        } else {
-          ipMap.set(d.deviceIp, {
-            ip: d.deviceIp,
-            arrayIndex: d.arrayIndex ?? undefined,
-            stringIndex: d.stringIndex ?? undefined,
-            entityName: d.entityName || `Feather cache device ${d.deviceIp}`,
-            reachable: d.reachable,
-            lastUpdatedAt: cached.lastUpdatedAt || undefined,
-            source: "feather-cache",
-            isCollectionSegment: isCol
-          });
-        }
-      }
-    }
+    return buildHvacTargetsFromSources(
+      candidates,
+      cached?.devices || [],
+      cached?.lastUpdatedAt || undefined
+    );
   } catch (e) {
     console.error("[HvacSimulationService] Error retrieving feather cache:", e);
+    return buildHvacTargetsFromSources(candidates);
   }
-
-  return Array.from(ipMap.values());
 }
 
 /**
