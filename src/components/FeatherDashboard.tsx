@@ -960,7 +960,7 @@ function getHvacSampleDetails(hvac: any) {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 10;
-    const tableTop = 41;
+    const tableTop = 49;
     const rowHeight = 5.5;
     const footerY = pageHeight - 7;
     const activeProfile = cacheDetails.activeProfileId || "active";
@@ -1000,6 +1000,20 @@ function getHvacSampleDetails(hvac: any) {
         .replace(/^Feather\s+CS\b/i, "CS");
     };
 
+    const reportDevices = [...filteredDevices].sort((a, b) => {
+      const arrayA = Number.isFinite(Number(a.arrayIndex)) ? Number(a.arrayIndex) : Number.MAX_SAFE_INTEGER;
+      const arrayB = Number.isFinite(Number(b.arrayIndex)) ? Number(b.arrayIndex) : Number.MAX_SAFE_INTEGER;
+      if (arrayA !== arrayB) return arrayA - arrayB;
+
+      const segmentA = resolveFeatherSegment(a);
+      const segmentB = resolveFeatherSegment(b);
+      const rankA = segmentA.segmentType === "CS" ? 0 : segmentA.segmentType === "ES" ? segmentA.segmentIndex : Number.MAX_SAFE_INTEGER;
+      const rankB = segmentB.segmentType === "CS" ? 0 : segmentB.segmentType === "ES" ? segmentB.segmentIndex : Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+
+      return a.ip.localeCompare(b.ip, undefined, { numeric: true });
+    });
+
     const counts = filteredDevices.reduce(
       (acc, d) => {
         const status = statusFor(d);
@@ -1032,14 +1046,19 @@ function getHvacSampleDetails(hvac: any) {
     ];
 
     const drawPageHeader = (continued = false) => {
-      doc.setFillColor(20, 30, 45);
+      doc.setFillColor(255, 255, 255);
       doc.rect(0, 0, pageWidth, 24, "F");
-      doc.setTextColor(255, 255, 255);
+      doc.setFillColor(22, 163, 74);
+      doc.rect(0, 23, pageWidth, 1, "F");
+      doc.setTextColor(22, 163, 74);
       doc.setFont("Helvetica", "Bold");
       doc.setFontSize(15);
-      doc.text("GreEnergy PRIZM", marginX, 10);
+      doc.text("GreEnergy", marginX, 10);
+      doc.setTextColor(15, 23, 42);
+      doc.text("PRIZM", marginX + 28, 10);
       doc.setFontSize(9);
       doc.setFont("Helvetica", "Normal");
+      doc.setTextColor(71, 85, 105);
       doc.text(
         `HVAC HEALTH DIAGNOSTIC REPORT${continued ? " - CONTINUED" : ""}`,
         marginX,
@@ -1059,19 +1078,31 @@ function getHvacSampleDetails(hvac: any) {
         35
       );
 
-      doc.setFillColor(238, 241, 244);
-      doc.rect(marginX, tableTop - 5, pageWidth - marginX * 2, 6, "F");
-      doc.setTextColor(20, 30, 45);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(marginX, tableTop - 11, 116, 11, "F");
+      doc.setFillColor(220, 252, 231);
+      doc.rect(126, tableTop - 11, 85, 11, "F");
+      doc.setFillColor(224, 242, 254);
+      doc.rect(211, tableTop - 11, pageWidth - marginX - 211, 11, "F");
+      doc.setTextColor(21, 128, 61);
       doc.setFont("Helvetica", "Bold");
+      doc.setFontSize(6.5);
+      doc.text("SEGMENT IDENTITY / HEALTH", marginX + 2, tableTop - 7);
+      doc.text("HVAC 1 COMMANDS / FEEDBACK", 128, tableTop - 7);
+      doc.setTextColor(2, 132, 199);
+      doc.text("HVAC 2 COMMANDS / FEEDBACK", 213, tableTop - 7);
+      doc.setTextColor(15, 23, 42);
       doc.setFontSize(7);
       columns.forEach(col => doc.text(col.label, col.x, tableTop - 1));
+      doc.setDrawColor(203, 213, 225);
+      doc.line(marginX, tableTop, pageWidth - marginX, tableTop);
       doc.setFont("Helvetica", "Normal");
     };
 
     drawPageHeader(false);
     let y = tableTop + 5;
 
-    filteredDevices.forEach(d => {
+    reportDevices.forEach((d, rowIndex) => {
       if (y > footerY - 4) {
         doc.addPage("a4", "landscape");
         drawPageHeader(true);
@@ -1099,10 +1130,31 @@ function getHvacSampleDetails(hvac: any) {
         amperageFor(d.hvac2)
       ];
 
-      doc.setTextColor(45, 55, 65);
+      if (rowIndex % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(marginX, y - 3.5, pageWidth - marginX * 2, rowHeight, "F");
+      }
       doc.setFontSize(6.5);
-      row.forEach((cell, idx) => doc.text(String(cell), columns[idx].x, y));
-      doc.setDrawColor(232, 235, 238);
+      row.forEach((cell, idx) => {
+        const cellText = String(cell);
+        if (idx === 4) {
+          if (cellText === "NORMAL") doc.setTextColor(21, 128, 61);
+          else if (cellText === "WARNING") doc.setTextColor(217, 119, 6);
+          else doc.setTextColor(220, 38, 38);
+        } else if ([6, 7, 8, 9].includes(idx) && cellText === "ON") {
+          doc.setTextColor(21, 128, 61);
+        } else if ([11, 12, 13, 14].includes(idx) && cellText === "ON") {
+          doc.setTextColor(2, 132, 199);
+        } else if (idx === 10) {
+          doc.setTextColor(21, 128, 61);
+        } else if (idx === 15) {
+          doc.setTextColor(2, 132, 199);
+        } else {
+          doc.setTextColor(51, 65, 85);
+        }
+        doc.text(cellText, columns[idx].x, y);
+      });
+      doc.setDrawColor(226, 232, 240);
       doc.line(marginX, y + 1.5, pageWidth - marginX, y + 1.5);
       y += rowHeight;
     });
@@ -1110,6 +1162,8 @@ function getHvacSampleDetails(hvac: any) {
     const totalPages = doc.getNumberOfPages();
     for (let page = 1; page <= totalPages; page += 1) {
       doc.setPage(page);
+      doc.setDrawColor(22, 163, 74);
+      doc.line(marginX, footerY - 3, pageWidth - marginX, footerY - 3);
       doc.setTextColor(130, 140, 150);
       doc.setFontSize(7);
       doc.text(
