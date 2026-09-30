@@ -627,7 +627,7 @@ function generateMockFeatherRaw(deviceIp: string): any {
 
 export async function refreshFeatherCache(opts: { timeoutMs?: number, force?: boolean } = {}) {
     try {
-        const candidates = discoverTopologyCandidates();
+        const candidates = discoverTopologyCandidates().filter(candidate => !candidate.excluded);
         if (candidates.length > 0) {
             // increased limit to 2000 to cleanly support multi-block site topologies without truncation
             const limit = 2000; 
@@ -652,7 +652,7 @@ export async function bootstrapFeatherDiscoveryAndSeedCache(options?: {
   }
   
   console.log("[Feather Bootstrap] Starting topology-based Feather discovery...");
-  const candidates = discoverTopologyCandidates();
+  const candidates = discoverTopologyCandidates().filter(candidate => !candidate.excluded);
   const candidateCount = candidates.length;
   console.log(`[Feather Bootstrap] Candidate IPs discovered: ${candidateCount}`);
   

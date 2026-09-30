@@ -158,11 +158,11 @@ test('native HTTP emits explicit length, compatible header casing and binary mul
 });
 function simulation(options: { after?: Partial<DeviceReading>; before?: Partial<DeviceReading>; uploadError?: boolean; offline?: boolean; stuck?: boolean } = {}) {
   let now = 0, uploads = 0, watchdogs = 0, reads = 0;
-  const client = {    
+  const client = {
 discover: async () => true, login: async () => { if (options.offline) throw new IoLogikError('device_connection_failed'); },
     read: async () => { reads++; return { ...reading, ...options.before, ...(uploads && !options.stuck ? { firmware: '4.0.1', ...options.after } : {}) }; },
     readConfiguration:async()=>currentConfig,
-    upload: async () => { uploads++; if (options.uploadError) throw new IoLogikError('device_connection_failed'); }, setWatchdog: async () => { watchdogs++; }  
+    upload: async () => { uploads++; if (options.uploadError) throw new IoLogikError('device_connection_failed'); }, setWatchdog: async () => { watchdogs++; }
 };
   const fleet = new NativeIoLogikFleet({ client: () => client, now: () => now, sleep: async ms => { now += ms; }, recoveryMs: 9000 });
   return { fleet, counts: () => ({ uploads, watchdogs, reads }) };

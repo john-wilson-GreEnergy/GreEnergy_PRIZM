@@ -25,10 +25,10 @@ export function uploadForm(html: string): { action: string; field: string; hidde
   for (const form of html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form\s*>/gi)) {
     const controls = inputs(form[2]), field = controls.find(input => input.type?.toLowerCase() === 'file')?.name;
     if (!field) continue;
-    return {      
+    return {
 action: attributes(form[1]).action || '', field, hidden: Object.fromEntries(controls
         .filter(input => input.type?.toLowerCase() === 'hidden' && input.name)
-        .map(input => [input.name, input.value || '']))    
+        .map(input => [input.name, input.value || '']))
 };
   }
   throw new IoLogikError('upload_form_missing');
@@ -39,10 +39,10 @@ export function parseReading(info: string, config: string): DeviceReading {
   const firmware = firmwareRaw?.match(/\b[Vv]?(\d+\.\d+(?:\.\d+)*)/)?.[1] || null;
   const model = config.match(/^\s*MOD_TYPE\s*=\s*(.+)$/m)?.[1]?.trim() || row('Model(?: Name)?');
   const watchdog = config.match(/^\s*CONNECTION_WATCHDOG\s*=\s*(\d+)/m)?.[1];
-  return {    
+  return {
 model, firmware, firmwareRaw, do00Safe: config.match(/^\s*DO00=.*?DO00_SAFE=(\d+)/m)?.[1] ?? null,
     do00PeerSafe: peerSafeValue(config),
-    watchdogSeconds: watchdog === undefined ? null : Number(watchdog)  
+    watchdogSeconds: watchdog === undefined ? null : Number(watchdog)
 };
 }
 const peerSafeLines = (text: string) => text.match(/^[ \t]*Peer_DO_SM_STATUS00[^\r\n]*/gm) || [];
@@ -164,11 +164,11 @@ export class IoLogikClient {
         if (!response.ok) { await response.body?.cancel(); throw new IoLogikError(`http_${response.status}`); }
         const reader = response.body?.getReader(); if (!reader) return '';
         const chunks: Uint8Array[] = []; let size = 0;
-        try {          
-while (true) {            
+        try {
+while (true) {
 const { done, value } = await reader.read(); if (done) break; size += value.byteLength;
-            if (size > 2 * 1024 * 1024) { await reader.cancel(); throw new IoLogikError('device_response_too_large'); } chunks.push(value);          
-}        
+            if (size > 2 * 1024 * 1024) { await reader.cancel(); throw new IoLogikError('device_response_too_large'); } chunks.push(value);
+}
 }
         finally { reader.releaseLock(); }
         return Buffer.concat(chunks).toString('utf8');

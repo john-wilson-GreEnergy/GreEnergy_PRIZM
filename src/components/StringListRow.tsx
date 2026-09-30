@@ -184,7 +184,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                   const contDot3 = negativeMatchesRequest
                     ? "bg-emerald-500 border border-emerald-600 shadow-[0_0_5px_rgba(16,185,129,0.5)]"
                     : "bg-prizm-danger border border-prizm-danger shadow-[0_0_5px_rgba(255,51,102,0.5)]";
-                  
+
                   // Fans logic & color mapping
                   const MAX_FAN_RPM = 7500;
                   const FAN_MATCH_TOLERANCE_PERCENT = 5;
@@ -310,7 +310,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                         ...lines
                       ].join("\n");
                   }
-                  
+
                   let borderClass = "";
                   if (s.alarmCount > 0) borderClass = "border-l-[3px] border-l-prizm-danger/60";
                   else if (s.warningCount > 0) borderClass = "border-l-[3px] border-l-prizm-warning/60";
@@ -320,14 +320,14 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                   <tr key={s.id} onClick={() => onOpen(s)} className="group hover:bg-prizm-primary/5 cursor-pointer transition-colors relative">
 <td className={"px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center " + borderClass}>
    {isArrFirst ? (
-     <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+     <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer"
        checked={isArrAllSelected}
        ref={el => { if(el) el.indeterminate = isArrIndeterminate; }}
        onChange={() => {}}
        onClick={(e) => {
          e.stopPropagation();
          onToggleArray(JSON.parse(arraySelectionIds));
-       }} 
+       }}
      />
    ) : null}
 </td>
@@ -335,13 +335,13 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
    {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{s.arrayNumber}</span> : null}
 </td>
 <td className="px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-[84px] sm:left-[94px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center">
-   <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer" 
+   <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer"
      checked={selected}
      onChange={() => {}}
      onClick={(e) => {
        e.stopPropagation();
        onToggleRow(s.id);
-     }} 
+     }}
    />
 </td>
 <td className="px-1.5 py-0.5 border-r border-prizm-border/20 sticky left-[114px] sm:left-[124px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 font-bold text-prizm-primary font-mono text-center min-w-[48px]">
@@ -349,7 +349,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
    <StringCommunicationIndicator row={s}/>
 </td>
 <td className="px-1.5 py-0.5">
-                       <div 
+                       <div
                          className="flex items-center gap-1 cursor-help"
                          title={`Request: ${requestedClosed ? "CLOSED" : "OPEN"} | Positive actual: ${positiveClosed ? "CLOSED" : "OPEN"} (${positiveMatchesRequest ? "matches" : "does not match"}) | Negative actual: ${negativeClosed ? "CLOSED" : "OPEN"} (${negativeMatchesRequest ? "matches" : "does not match"}) | Reclose Count: ${s.recloseCount ?? "--"}`}
                        >
@@ -360,7 +360,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                        </div>
                     </td>
                     <td className="px-1.5 py-0.5">
-                       <div 
+                       <div
                          className="flex items-center gap-1 cursor-help"
                          title={`Comm: ${commState.toUpperCase()} | Rotation: ${rotationDisplayState} | Notification: ${alertsState.toUpperCase()}`}
                        >
@@ -405,7 +405,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                         {locStr}
                     </td>
                     <td className="px-1.5 py-0.5">
-                       <div 
+                       <div
                            title={fanTooltip}
                            className={`w-2.5 h-2.5 rounded-full cursor-help ${fanDotClass}`}
                        ></div>
@@ -421,4 +421,3 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
 
 }
 export const MemoStringListRow = React.memo(StringListRow);
-

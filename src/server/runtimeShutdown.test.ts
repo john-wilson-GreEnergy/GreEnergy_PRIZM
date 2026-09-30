@@ -32,6 +32,13 @@ if (process.argv[2] === "child") {
   history.ingest(thermalUnits(devices(at+1),at+1),site);
   thermal.ingest(devices(at+1),at+1,site);
   timeline.ingest({site,observations:[{array:1,entity:"1:1",label:"PCS 1",stream:"electrical",source:"fixture",sourceAt:at,observedAt:at,quality:"live",values:{kw:5}}]});
+  // The rollback case tests recovery of an established writer, not termination
+  // halfway through lock creation (which correctly fails closed on restart).
+  // Normal shutdown cases deliberately retain their queued observations.
+  if (process.env.PRIZM_GRACEFUL_SHUTDOWN === "false") {
+    await timeline.flush();
+    assert.equal(timeline.status().error, null);
+  }
   let closeCount = 0;
   const lifecycle = new RuntimeShutdown({
     stop: () => {

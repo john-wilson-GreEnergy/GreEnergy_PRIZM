@@ -41,3 +41,15 @@ PRIZM is currently suitable for controlled development and supervised site valid
 ## Evidence rule
 
 Unit tests and HTTP `OK` responses are not proof of field actuation. A control passes only when the intended target changes, independent authoritative telemetry confirms the requested state within the approved window, non-targets remain unchanged, and the audit record is complete.
+
+## Local/remote integration validation — 2026-09-30
+
+The local application checkpoint `70499a0` is integrated with the four commits through `32e150c` on `feature/hvac-health-pdf-export`. The integration retains the existing network-guarded test setup and adds the incoming HVAC target test. Runtime profiles, account storage, audit logs, caches, history and generated bundles are not part of this update.
+
+- Passed locally on macOS: type checking, the complete `npm test` sequence, ioLogik, history-worker, site-loading, timeline, local-access and isolated shutdown tests; production build succeeded. Windows/Linux execution remains a CI/deployment check, not evidence from this Mac run.
+- Corrected the shutdown fixture to wait for an established writer before its abrupt-stop recovery scenario. Added a regression asserting that an incomplete writer lock is retained and fails closed.
+- Restarted the local production application after confirming no active fan holds, balancer tests or ioLogik jobs. Browser telemetry returned live. Read-only discovery returned 168 eligible HVAC targets and excluded 320 string-controller candidates. No equipment control or firmware command was issued.
+- Reviewed all three pages of a 60-device PDF fixture from the report exporter. Corrected unsupported font-style casing and aligned the final HVAC columns within the page margin. The browser invoked the export, but its automated download event timed out; file delivery through the in-app browser remains unverified.
+- Rollback of the incoming feature merge can use a reviewed revert of the merge's first-parent changes, retaining checkpoint `70499a0`; rebuild and restart during an approved idle window. Preserve site data separately. Do not reset the working tree or remove live history.
+
+This is integration evidence, not OT certification or authorization to enable remote controls. Existing release gates above remain applicable.
