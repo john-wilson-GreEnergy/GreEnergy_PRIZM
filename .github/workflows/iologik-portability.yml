@@ -1,0 +1,23 @@
+name: Native ioLogik portability
+on:
+  push:
+    paths: ['src/server/iologik/**', 'src/lib/subscribeIoLogikOperation*', 'src/components/IoLogikFleetManager.tsx', 'package*.json', '.github/workflows/iologik-portability.yml']
+  pull_request:
+    paths: ['src/server/iologik/**', 'src/lib/subscribeIoLogikOperation*', 'src/components/IoLogikFleetManager.tsx', 'package*.json', '.github/workflows/iologik-portability.yml']
+  workflow_dispatch:
+jobs:
+  native-protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: node --require ./scripts/test-network-guard.cjs --import tsx src/server/iologik/nativeIoLogik.test.ts
+      - run: node --require ./scripts/test-network-guard.cjs --import tsx src/lib/subscribeIoLogikOperation.test.ts

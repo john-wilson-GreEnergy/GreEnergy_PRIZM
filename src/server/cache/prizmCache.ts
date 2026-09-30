@@ -4,6 +4,32 @@ import { getEmsConnectionStatus } from "../emsTurtleClient";
 import { isHistoricalSnapshotAllowed, runStorageCleanup } from "../storage/storageMaintenance";
 import { getTelemetryCycleId } from "../telemetry/TelemetryCycleContext";
 import { coordinatorProfiler } from "../telemetry/profiler";
+import {serializeTelemetryCache} from './serializeTelemetryCache';
+import {AsyncCacheWriter, writeAtomicCache} from './AsyncCacheWriter';
+import {prepareSnapshotTransfer, type SnapshotTransfer} from './snapshotTransfer';
+import {SnapshotCacheWorker} from './SnapshotCacheWorker';
+
+// Fixed for the process lifetime: switching modes requires an idle restart so
+// synchronous and queued writes can never race on the same destination.
+const asyncSnapshotCacheEnabled = process.env.PRIZM_ASYNC_SNAPSHOT_CACHE !== 'false';
+// Opt-in until the live serialization parity/performance gate has passed.
+const snapshotWorkerEnabled = asyncSnapshotCacheEnabled && process.env.PRIZM_SNAPSHOT_WORKER === 'true';
+const asyncSnapshotKeys = new Set(['prizm-site-snapshot', 'site-operations-summary']);
+const snapshotWorker = new SnapshotCacheWorker();
+let lastCacheWarningAt = 0;
+const snapshotCacheWriter = new AsyncCacheWriter<string | SnapshotTransfer>({
+  write: (file, content) => typeof content === 'string' ? writeAtomicCache(file, content) : snapshotWorker.write(file, content),
+  estimateBytes: content => typeof content === 'string' ? content.length * 2 + Buffer.byteLength(content) : content.bytes.byteLength * 3,
+  onError: message => {
+  if (Date.now() - lastCacheWarningAt >= 30_000) {
+    lastCacheWarningAt = Date.now();
+    console.warn('[Snapshot Cache] Persistence degraded:', message);
+  }
+}});
+export const getSnapshotCachePersistenceStatus = () => ({enabled: asyncSnapshotCacheEnabled, workerEnabled: snapshotWorkerEnabled, worker: snapshotWorker.status(), ...snapshotCacheWriter.status()});
+export const closeSnapshotCachePersistence = async () => {
+  try {await snapshotCacheWriter.close();} finally {await snapshotWorker.close();}
+};
 
 export const CACHE_ROOT = process.env.PRIZM_CACHE_DIR || path.resolve(process.cwd(), ".prizm-cache");
 export const HISTORY_ROOT = process.env.PRIZM_HISTORY_DIR || path.resolve(process.cwd(), ".prizm-history");
@@ -456,7 +482,8 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
   memoryCache.set(key, entry);
 
   const p = getActiveSiteCachePath();
-  if (!fs.existsSync(p)) {
+  const asyncPersistence = asyncSnapshotCacheEnabled && asyncSnapshotKeys.has(key) && !options?.isRaw;
+  if (!asyncPersistence && !fs.existsSync(p)) {
       try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
       try { fs.mkdirSync(path.join(p, 'raw'), { recursive: true }); } catch (e) {}
   }
@@ -487,9 +514,24 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
           fs.writeFileSync(path.join(p, 'raw', `${key}${options.rawExt || '.json'}`), outData as any);
           diskEntry.data = null as any; 
       }
-      fs.writeFileSync(path.join(p, `${key}.json`), JSON.stringify(diskEntry, null, 2));
-      updateManifest(key, true, options?.sourceUrl || '', ttlMs);
-  } catch(e) {}
+      const phaseOptions = {waitState: 'CACHE' as const, blocking: true, parentPhaseId: profilerPhase.phaseId, metadata: {key}};
+      const useWorker = asyncPersistence && snapshotWorkerEnabled;
+      const serialized = useWorker
+        ? coordinatorProfiler.withSyncPhase('Cache Snapshot Capture', phaseOptions, () => prepareSnapshotTransfer(diskEntry))
+        : coordinatorProfiler.withSyncPhase('Cache Serialization', phaseOptions, () => serializeTelemetryCache(diskEntry));
+      if (asyncPersistence) {
+          // Capture now to freeze the value/identity. The writer never reads
+          // mutable telemetry or the active profile after this point.
+          coordinatorProfiler.withSyncPhase('Cache Enqueue', phaseOptions, () => snapshotCacheWriter.enqueue(path.resolve(p, `${key}.json`), serialized));
+      } else {
+          coordinatorProfiler.withSyncPhase('Cache File Write', phaseOptions, () => fs.writeFileSync(path.join(p, `${key}.json`), serialized as string));
+      }
+      // This manifest describes acquisition, not proof of disk durability.
+      // Persistence completion/failure is reported separately in diagnostics.
+      coordinatorProfiler.withSyncPhase('Cache Manifest', phaseOptions, () => updateManifest(key, true, options?.sourceUrl || '', ttlMs));
+  } catch(e) {
+      if (asyncPersistence) snapshotCacheWriter.recordPreparationFailure(path.resolve(p, `${key}.json`), e);
+  }
   
   profilerPhase.finish({ success: true });
   return entry;

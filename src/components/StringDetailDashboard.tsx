@@ -2,7 +2,7 @@ import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
-import { useSiteData } from "../context/SiteDataContext";
+import { useSiteDataFields } from "../context/SiteDataContext";
 import CellTelemetryHeatmap from "./CellTelemetryHeatmap";
 import PhysicalEnergySegmentHeatmap from "./PhysicalEnergySegmentHeatmap";
 import { buildPhysicalSlotsFromRichDetail } from "../lib/physicalEnergySegmentLayout";
@@ -13,6 +13,10 @@ import { stringNumberToEnergySegment } from "../lib/stringToEsMapper";
 
 async function fetchNormalizedStringRowForDetails(arrayNumber: number, stringNumber: number): Promise<any | null> {
   try {
+    if (new URLSearchParams(window.location.search).get('stringPayload') !== 'legacy') {
+      const response = await fetch(`/api/local/site-data/strings-canonical/${arrayNumber}/${stringNumber}`, {cache: 'no-store'});
+      return response.ok ? await response.json() : null;
+    }
     const res = await fetch("/api/local/strings/dashboard?maxAgeMs=5000");
     if (!res.ok) return null;
 
@@ -102,7 +106,7 @@ function mergeNotificationEngineIntoDetail(detail: any, notificationView: any | 
 }
 
 export default function StringDetailDashboard({ stringData, onBack }: { stringData: any, onBack: () => void }) {
-  const { snapshot } = useSiteData();
+  const { snapshot } = useSiteDataFields(['snapshot']);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -488,7 +492,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       const arrD = snapshot?.normalized?.arrayDetailsByArray?.[String(s.arrayNumber)] ??
                    snapshot?.normalized?.arrayDetailsByArray?.[s.arrayNumber];
       const arrStrings = Array.isArray(arrD?.strings) ? arrD.strings : [];
-      const strD = arrStrings.find((st: any) => 
+      const strD = data?.normalizedRow?.detailArrayFallback ?? arrStrings.find((st: any) =>
         Number(st.stringNumber ?? st.stringIndex) === Number(s.stringNumber ?? s.stringIndex)
       );
       if (strD) {
@@ -508,7 +512,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
       temperatures: temps,
       isCompact
     };
-  }, [safeBpcs, safeVoltageMatrix, safeTemperatureMatrix, snapshot, s.arrayNumber, s.stringNumber, s.stringIndex]);
+  }, [safeBpcs, safeVoltageMatrix, safeTemperatureMatrix, snapshot, data?.normalizedRow?.detailArrayFallback, s.arrayNumber, s.stringNumber, s.stringIndex]);
 
   const heatmapGridColumns =
     safeArray(safeBpcs?.[0]?.cellGroups).length ||

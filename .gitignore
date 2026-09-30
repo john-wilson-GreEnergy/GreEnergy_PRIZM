@@ -28,6 +28,7 @@ src/components/*.rollback-*.tsx
 deployment/windows/artifacts/
 
 # PRIZM local runtime cache/history
+.prizm-security/
 .prizm-cache/
 .prizm-history/
 *.sqlite

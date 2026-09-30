@@ -41,7 +41,9 @@ import {
   HvacSimulationMode, 
   HvacValidationStatus, 
   HvacSimulationTarget, 
-  HvacValidationResult, 
+  HvacValidationResult,
+  HvacStatusDetails,
+  HvacMetrics,
   HvacAuditEntry 
 } from "../server/hvacSimulation/hvacSimulationTypes";
 
@@ -480,9 +482,9 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
 
     const cols = ["IP", "Mode", "Status", "Flags", "H1_Amps", "H1_Fan", "H1_Comp", "H2_Amps", "H2_Fan", "H2_Comp", "SpaceTemp_C", "Supply_C", "RemMin", "Timestamp"];
     const rows = listToExport.map(r => {
-      const h1 = r.hvac1 ?? {};
-      const h2 = r.hvac2 ?? {};
-      const metrics = r.metrics ?? {};
+      const h1: Partial<HvacStatusDetails> = r.hvac1 ?? {};
+      const h2: Partial<HvacStatusDetails> = r.hvac2 ?? {};
+      const metrics: Partial<HvacMetrics> = r.metrics ?? {};
       const flags = Array.isArray(r.flags) ? r.flags : [];
       return [
         r.ip ?? "",
@@ -1811,9 +1813,9 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
                     </thead>
                     <tbody className="divide-y divide-prizm-border/25">
                       {latestResults.map(r => {
-                        const h1 = r.hvac1 ?? {};
-                        const h2 = r.hvac2 ?? {};
-                        const metrics = r.metrics ?? {};
+                        const h1: Partial<HvacStatusDetails> = r.hvac1 ?? {};
+                        const h2: Partial<HvacStatusDetails> = r.hvac2 ?? {};
+                        const metrics: Partial<HvacMetrics> = r.metrics ?? {};
                         const flags = Array.isArray(r.flags) ? r.flags : [];
 
                         const sClass = r.status === "PASS"
@@ -1954,8 +1956,8 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
             ) : (
               <div className="space-y-2 max-h-[220px] overflow-y-auto no-scrollbar font-mono text-[10.5px]">
                 {displayDiagnostics.map(row => {
-                  const h1 = row.hvac1 ?? {};
-                  const h2 = row.hvac2 ?? {};
+                  const h1: Partial<HvacStatusDetails> = row.hvac1 ?? {};
+                  const h2: Partial<HvacStatusDetails> = row.hvac2 ?? {};
                   const flags = Array.isArray(row.flags) ? row.flags : [];
 
                   let borderCol = "border-l-4 border-green-500 bg-green-500/5";
@@ -2106,9 +2108,9 @@ export default function HvacSimulationDashboard({ active = true }: { active?: bo
             <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar">
               
               {(() => {
-                const sH1 = selectedResultDetail.hvac1 ?? {};
-                const sH2 = selectedResultDetail.hvac2 ?? {};
-                const sMetrics = selectedResultDetail.metrics ?? {};
+                const sH1: Partial<HvacStatusDetails> = selectedResultDetail.hvac1 ?? {};
+                const sH2: Partial<HvacStatusDetails> = selectedResultDetail.hvac2 ?? {};
+                const sMetrics: Partial<HvacMetrics> = selectedResultDetail.metrics ?? {};
                 const sFlags = Array.isArray(selectedResultDetail.flags) ? selectedResultDetail.flags : [];
                 return (
                   <>

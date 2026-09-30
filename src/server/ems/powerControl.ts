@@ -3,8 +3,9 @@ import path from "path";
 import protobuf from "protobufjs";
 import { randomUUID } from "crypto";
 import { getEmsCachedBlock, getEmsCachedLastCall } from "../emsTurtleClient";
-import { ProfileStore } from "../profiles/profileStore";
-import { buildEmsBaseUrl } from "../profiles/profileManager";
+import { resolveControlDestination } from "../controls/controlDestination";
+import { boundedControlRequest } from "../controls/boundedRequest";
+import {beginBlockTimelineCommand} from "../history/commandTimeline";
 
 export interface SetPowerControlInput {
   stationCode: string;
@@ -38,7 +39,8 @@ export function parsePowerControlStatus(value: unknown) {
   };
 }
 
-export function buildSetPowerControlCommand(input: SetPowerControlInput, enabled = true) {
+export function buildSetPowerControlCommand(input: SetPowerControlInput, enabled: boolean) {
+  if (typeof enabled !== "boolean") throw new Error("Known app enabled state is required; power commands must not implicitly enable an app");
   const Command = root.lookupType("phoenixtongue.Command");
   const commandId = randomUUID();
   const endpoint = { endpointType: 3, stationCode: input.stationCode.trim(), blockIndex: input.blockIndex };
@@ -100,33 +102,45 @@ export async function setPowerControl(input: SetPowerControlInput) {
   if (!app || station !== input.stationCode || Number(block) !== Number(input.blockIndex) || Number(app.priority ?? app.applicationPriority) !== Number(input.priority)) {
     return { success: false, error: "LIVE_TARGET_MISMATCH", message: "PC00001 target could not be matched to current live EMS data." };
   }
-  const enabled = app.enabled !== false;
-  const built = buildSetPowerControlCommand(input, enabled);
-  const profile = ProfileStore.getActiveProfile();
-  if (!profile) return { success: false, error: "NO_ACTIVE_PROFILE", message: "No active EMS profile." };
-  const baseUrl = buildEmsBaseUrl(profile);
-  let responseText = ""; let status = 0;
-  try {
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(`${baseUrl}/tools/controls/ems/command`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: built.commandBytes as any, signal: controller.signal });
-    clearTimeout(timeout); status = response.status; responseText = await response.text();
-    if (!response.ok) { audit({ accepted: false, status, responseText }); return { success: false, error: "EMS_REJECTED", message: `EMS rejected the command (${status}).` }; }
-  } catch (error: any) {
-    audit({ accepted: false, error: error.message }); return { success: false, error: "API_ERROR", message: error.message };
+  const enabled = app.enabled ?? app.applicationEnabled;
+  if (typeof enabled !== "boolean" || (app.enabled !== undefined && app.applicationEnabled !== undefined && app.enabled !== app.applicationEnabled)) {
+    return { success: false, error: "APP_STATE_UNKNOWN", message: "Power Control enabled state is unknown or conflicting. Refresh EMS app state before changing setpoints." };
   }
-  for (let attempt = 1; attempt <= 12; attempt++) {
+  const built = buildSetPowerControlCommand(input, enabled);
+  let destination: ReturnType<typeof resolveControlDestination>;
+  try { destination = resolveControlDestination(); }
+  catch (error) { return { success: false, error: "DESTINATION_UNVERIFIED", message: String(error) }; }
+  if (destination.stationCode !== input.stationCode || destination.blockIndex !== input.blockIndex) return { success: false, error: "LIVE_TARGET_MISMATCH", message: "Requested site does not match active profile." };
+  const baseUrl = destination.baseUrl;
+  let responseText = ""; let status = 0;
+  const timeline = beginBlockTimelineCommand(baseUrl, input, `Power Control / priority ${input.priority}: requested ${input.realPowerkW} kW, ${input.reactivePowerkVAr} kVAR; app enabled in payload: ${enabled}`);
+  try {
+    destination.assertCurrent();
+    const response = await boundedControlRequest(`${baseUrl}/tools/controls/ems/command`, 15000, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: built.commandBytes as any });
+    status = response.status; responseText = response.text;
+    if (!response.ok) { timeline.result({accepted: false, readbackConfirmed: null}); audit({ accepted: false, status, responseText }); return { success: false, error: "EMS_REJECTED", message: `EMS rejected the command (${status}).` }; }
+  } catch (error: any) {
+    timeline.result({accepted: undefined, readbackConfirmed: null});
+    audit({ accepted: null, error: error.message }); return { success: false, accepted: null, error: "DELIVERY_UNKNOWN", message: error.message };
+  }
+  const deadline = Date.now() + 15000;
+  for (let attempt = 1; attempt <= 12 && Date.now() < deadline; attempt++) {
     try {
-      const response = await fetch(`${baseUrl}/tools/report/ems/lastCall.json?powerVerify=${Date.now()}-${attempt}`, { headers: { "Cache-Control": "no-cache" } });
+      destination.assertCurrent();
+      const response = await boundedControlRequest(`${baseUrl}/tools/report/ems/lastCall.json?powerVerify=${Date.now()}-${attempt}`, Math.min(2500, deadline - Date.now()), { headers: { "Cache-Control": "no-cache" } });
       if (response.ok) {
-        const live = findApp(await response.json()); const readback = parsePowerControlStatus(live?.appStatus);
-        if (readback.realPowerkW === input.realPowerkW && readback.reactivePowerkVAr === input.reactivePowerkVAr) {
+        destination.assertCurrent();
+        const live = findApp(JSON.parse(response.text)); const readback = parsePowerControlStatus(live?.appStatus);
+        if (Number(live?.priority ?? live?.applicationPriority) === input.priority && (live?.enabled ?? live?.applicationEnabled) === enabled && readback.realPowerkW === input.realPowerkW && readback.reactivePowerkVAr === input.reactivePowerkVAr) {
+          timeline.result({accepted: true, readbackConfirmed: true});
           audit({ accepted: true, verified: true, commandId: built.commandId, ...built.config });
           return { success: true, verified: true, auditId, commandId: built.commandId, readback, message: "Power Control setpoints verified by EMS readback." };
         }
       }
     } catch {}
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (attempt < 12 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, Math.min(1000, deadline - Date.now())));
   }
   audit({ accepted: true, verified: false, commandId: built.commandId, ...built.config });
+  timeline.result({accepted: true, readbackConfirmed: false});
   return { success: true, queued: true, verified: false, auditId, commandId: built.commandId, message: "EMS accepted the setpoints; fresh matching readback is still pending." };
 }

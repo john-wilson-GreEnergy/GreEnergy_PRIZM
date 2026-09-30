@@ -1,7 +1,8 @@
 export type FingerprintAlgorithm = 'sha256';
 export type FingerprintEncoding = 'hex';
 
-export type FingerprintValue = null | boolean | number | string | readonly FingerprintValue[] | Readonly<Record<string, FingerprintValue>>;
+export interface FingerprintObject { readonly [key:string]:FingerprintValue }
+export type FingerprintValue = null | boolean | number | string | readonly FingerprintValue[] | FingerprintObject;
 export type FingerprintInput = string | Uint8Array | ArrayBuffer | FingerprintValue;
 
 export interface FingerprintOptions {

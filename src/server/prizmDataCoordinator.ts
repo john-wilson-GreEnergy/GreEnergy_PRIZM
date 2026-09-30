@@ -1,5 +1,18 @@
 import { thermalService } from "./thermal/thermalService";
+import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
+import {stringViewerBackground} from './telemetry/stringviewer/StringViewerBackground';
+import {normalizeBpcVoltageSnapshot} from './normalizers/bpcVoltageSnapshot';
+import {attachBpcVoltageOutliers,isPackDeltaCode} from './notifications/bpcVoltageOutliers';
+import {pairedAcquisition} from './telemetry/pairedAcquisition';
+import {createCooperativeCheckpoint, cooperativeProcessingEnabled} from './telemetry/cooperativeCheckpoint';
 import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCachedLastCall, getEmsCachedRawStrings, getEmsCachedStatusCodes, getEmsSourcesDebugInfo, pollEmsTurtle, isDemoActive, getEmsCachedArrayPcsReports, getEmsCachedArrayReports, getEmsCachedArrayNotifications, updateNotificationHybridTelemetry } from "./emsTurtleClient";
+import {emsPrimaryReader} from './emsTurtleClient';
+import {primaryReaderEnabled} from './telemetry/emsPrimaryReader';
+import {emsStageTiming} from './telemetry/EmsStageTiming';
+import {readSummarySource} from './telemetry/summarySnapshotSelection';
+import {readSnapshotCycleId} from './telemetry/snapshotCycleSelection';
+import { EncodedJsonCache } from './telemetry/EncodedJsonCache';
+import {compactStringView} from './telemetry/compactStringList';
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./siteOperations";
@@ -20,11 +33,21 @@ import { telemetryMetrics } from "./telemetry/metrics";
 import { CoordinatorCycleOutcome, CoordinatorRuntime } from "./telemetry/CoordinatorRuntime";
 import { canonicalPublicationRuntime } from "./telemetry/publication/CanonicalPublicationRuntime";
 import { triggerContactorRefresh } from "./contactorStateEngine";
+import { getContactorStateView } from "./domainBrokers/contactorStateView";
+import { analyzeContactorStates } from "./correctiveActionsEngine";
+import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
+import { buildNotificationReview, buildRotationStatusFindings, type NotificationReview } from "./notifications/notificationReview";
+import { contactorStateFromCanonicalRow } from "./domainBrokers/contactorStateView";
+import { assessContactorOpen } from "./notifications/contactorOpenAssessment";
 import { coordinatorProfiler } from "./telemetry/profiler";
 import { featherScheduler } from "./telemetry/feather";
 import { publishBulkStringRows, stringDomainBroker } from "./domainBrokers/stringDomainBroker";
 import { publishOperationalDomains } from "./domainBrokers/operationalDomainBrokers";
+import {finiteReading, type TimelineObservation, type TimelineBatch} from "./history/operationalTimelineModel";
+import {projectStringTimeline} from "./history/stringTimelineProjection";
+import {projectEmsAppTimeline} from "./history/emsAppTimelineProjection";
 import { getOperationalModbusSnapshot } from "./telemetry/modbusOperationalTelemetry";
+import { pcsSourceLabel } from "./telemetry/pcsDataQuality";
 
 
 
@@ -118,6 +141,7 @@ export type PrizmSiteSnapshot = {
     pcs: NormalizedPcsSummary[];
     feather: NormalizedFeatherDevice[];
     correctiveActions: CorrectiveAction[];
+    notificationReview?: NotificationReview;
     emsApps: any[];
     sensors?: any[];
     arrayDetailsByArray?: Record<string, any>;
@@ -1985,8 +2009,11 @@ let lastPollStartedAt: string | null = null;
 let lastPollFinishedAt: string | null = null;
 let lastPollDurationMs: number | null = null;
 let latestFastStringsView: any | null = null;
+const fastStringsResponseCache = new EncodedJsonCache();
+const compactStringsResponseCache = new EncodedJsonCache();
 
 let featherInterval: NodeJS.Timeout | null = null;
+let snapshotInvalidation = 0;
 
 async function executeCoordinatorCycle(context: { cycleId: number; reasons: string[] }): Promise<CoordinatorCycleOutcome<PrizmSiteSnapshot>> {
   let cycleSucceeded = true;
@@ -2016,24 +2043,24 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           });
       }
   };
-  try {
-      await coordinatorProfiler.withPhase("EMS Acquisition", { waitState: "NETWORK", blocking: true }, () => pollEmsTurtle(publishFastStrings), (result) => ({ success: result.success }));
-  } catch (err: any) {
-      latestError = err;
+  const startup = context.reasons.includes('coordinator-start');
+  const needsFeather = startup || context.reasons.includes('feather-15s-schedule');
+  const [emsResult, featherResult] = await pairedAcquisition(
+      () => coordinatorProfiler.withPhase("EMS Acquisition", { waitState: "NETWORK", blocking: true }, () => pollEmsTurtle(publishFastStrings), (result) => ({ success: result.success })),
+      needsFeather ? () => coordinatorProfiler.withPhase("Feather Acquisition", { waitState: "NETWORK", blocking: true }, async () => {
+          if (featherScheduler.config.mode === "scheduled") await featherScheduler.runCycle(undefined, context.cycleId);
+          else await refreshFeatherCache({ force: false });
+      }) : null,
+      !startup && process.env.PRIZM_PARALLEL_FEATHER_ACQUISITION !== 'false'
+  );
+  if (emsResult.status === 'rejected') {
+      latestError = emsResult.reason;
       cycleSucceeded = false;
-      console.error("[Data Coordinator] EMS Turtle poll failed", err.message);
+      console.error("[Data Coordinator] EMS Turtle poll failed", emsResult.reason?.message);
   }
-
-  if (context.reasons.some((reason) => reason === "coordinator-start" || reason === "feather-15s-schedule")) {
-      try {
-          await coordinatorProfiler.withPhase("Feather Acquisition", { waitState: "NETWORK", blocking: true }, async () => {
-            if (featherScheduler.config.mode === "scheduled") await featherScheduler.runCycle(undefined, context.cycleId);
-            else await refreshFeatherCache({ force: false });
-          });
-      } catch (err: any) {
-          cycleSucceeded = false;
-          console.error("[Data Coordinator] Feather refresh failed", err.message);
-      }
+  if (featherResult?.status === 'rejected') {
+      cycleSucceeded = false;
+      console.error("[Data Coordinator] Feather refresh failed", featherResult.reason?.message);
   }
   if (context.reasons.includes("coordinator-start")) {
       await coordinatorProfiler.withPhase("Contactor Startup Acquisition", { waitState: "NETWORK", blocking: true }, () => triggerContactorRefresh({ ttlMs: 5000, timeoutMs: 5000, concurrency: 12 })).catch((err: any) => {
@@ -2043,13 +2070,20 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
   
   const normalizationPhase = coordinatorProfiler.beginPhase("Normalization", { waitState: "NORMALIZATION", blocking: true });
   try {
+      const processingSiteKey = prizmCache.getSiteCacheKey();
+      const processingInvalidation = snapshotInvalidation;
+      const checkpoint = createCooperativeCheckpoint(() =>
+          snapshotInvalidation === processingInvalidation && prizmCache.getSiteCacheKey() === processingSiteKey);
+      await checkpoint();
       console.time("buildSiteOperationsSummaryFromCache");
       // 2. We use the existing siteOperations logic to build everything
       const siteNormalizationStartedAt = performance.now();
       const parsed = await coordinatorProfiler.withPhase("Site Operations", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildSiteOperationsSummaryFromCache());
+      await checkpoint();
       prizmCache.set('site-operations-summary', { ...parsed, cycleId: context.cycleId }, { ttlMs: 15000 });
       telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "site-operations-normalization", { normalizationDurationMs: performance.now() - siteNormalizationStartedAt });
       console.timeEnd("buildSiteOperationsSummaryFromCache");
+      await checkpoint();
       
       const connStatus = getEmsConnectionStatus();
       
@@ -2118,12 +2152,14 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       });
 
       // 3. Query safety firstresponder telemetry structure
+      await checkpoint();
       const sensorsData = await coordinatorProfiler.withPhase("First Responder Normalization", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildNormalizedResponderSummary(false)).catch((err: any) => {
          console.error("[Data Coordinator] Site safety analysis execution failed:", err.message);
          return { rows: [], totalCentipedeLineups: 8, totalHealthyLineups: 8, totalFaultyLineups: 0 };
       });
 
       // Fetch UI-ready normalized string details
+      await checkpoint();
       const stringNormalizationStartedAt = performance.now();
       const stringsResult = await coordinatorProfiler.withPhase("String Normalization", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: normalizationPhase.phaseId }, () => buildNormalizedStringsData(true)).catch((err: any) => {
          console.error("[Data Coordinator] Strings normalization fell back due to error:", err.message);
@@ -2131,7 +2167,9 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       });
       telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "strings-normalization", { normalizationDurationMs: performance.now() - stringNormalizationStartedAt });
       normalizationPhase.finish({ success: true });
+      await checkpoint();
       const snapshotGenerationPhase = coordinatorProfiler.beginPhase("Snapshot Generation", { waitState: "NORMALIZATION", blocking: true });
+      const snapshotAssemblyPhase = coordinatorProfiler.beginPhase("Snapshot Assembly", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
 
       // Normalization Stage 2 additions
       const rawPcsReports = getEmsCachedArrayPcsReports() || {};
@@ -2768,6 +2806,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       (newSnap.rollups as any).safetySummary = parsed.safetySummary || {};
 
       // Part 1 & 4 & 5: Repair array summary
+      snapshotAssemblyPhase.finish({ success: true });
       const siteDistributionPhase = coordinatorProfiler.beginPhase("Site Distribution", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
       const repairSuccess = repairFinalArraySummary(newSnap, centralSnapshot);
       if (repairSuccess) {
@@ -2834,6 +2873,36 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           };
       }
       coordinatorProfiler.withSyncPhase("Route Notifications", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId }, () => repairFinalCorrectiveActionsFromSnapshot(newSnap));
+      const contactorReview = getContactorStateView();
+      newSnap.normalized.notificationReview = buildNotificationReview([
+          ...newSnap.normalized.correctiveActions,
+          ...buildRotationStatusFindings(newSnap.normalized.strings, newSnap.normalized.pcs),
+          ...analyzeContactorStates(contactorReview.states).map(finding => ({...finding, evidence: {...finding.evidence, capturedAt: contactorReview.summary.fetchedAt, quality: contactorReview.ageMs == null || contactorReview.ageMs > 30000 ? 'stale / verify before action' : finding.evidence.quality}})),
+          ...normalizeFeatherHvacCorrectiveFindings(newSnap.rawSources.featherDevices, {profile:'dometic'})
+      ], new Date().toISOString(), {
+          strings:newSnap.normalized.strings,blockIndex:newSnap.siteIdentity.blockIndex,stale:newSnap.liveStatus.stale
+      });
+      newSnap.normalized.notificationReview.sourceNotes = [
+          `Contactor source: ${contactorReview.hasSnapshot ? `last acquired ${contactorReview.summary.fetchedAt}` : 'not available; contactor analysis is incomplete'}`,
+          'HVAC uses the existing per-device feedback profile with Dometic fallback. Snapshot time is not a device observation timestamp.'
+      ];
+      if (process.env.PRIZM_BPC_OUTLIERS !== 'false') {
+          const review = newSnap.normalized.notificationReview;
+          const affected = new Set(review.groups.filter(g => isPackDeltaCode(g.code)).flatMap(g => g.targets
+              .filter(t => t.location?.block === newSnap.siteIdentity.blockIndex)
+              .map(t => `${t.array}:${t.location?.string}`)));
+          const rows = newSnap.normalized.strings.filter(row => affected.has(`${row.arrayNumber}:${row.stringNumber}`));
+          const profile = ProfileStore.getActiveProfile();
+          const base = newSnap.siteIdentity.emsBaseUrl;
+          const scope = JSON.stringify([profile?.id,profile?.stationCode,profile?.blockIndex,base]);
+          const sameSite = profile?.id === newSnap.siteIdentity.activeProfileId && profile?.blockIndex === newSnap.siteIdentity.blockIndex;
+          const entries = sameSite ? stringViewerBackground.peek(rows,base,scope) : new Map();
+          attachBpcVoltageOutliers(review,[...entries.values()].map(entry => normalizeBpcVoltageSnapshot(entry,Date.parse(review.capturedAt))),newSnap.siteIdentity.blockIndex,newSnap.liveStatus.stale);
+      }
+      newSnap.normalized.notificationReview.sourceWarnings = [
+          ...(!contactorReview.hasSnapshot ? ['Contactor feedback is not yet available. Notification coverage is incomplete.'] : contactorReview.stale ? ['Some contactor feedback is stale or unavailable. Retained findings require fresh verification.'] : []),
+          ...(newSnap.rawSources.featherDevices.length === 0 ? ['HVAC source data is not yet available. Notification coverage is incomplete.'] : [])
+      ];
 
       let acceptSnapshot = true;
       let rejectionReason = "";
@@ -2846,6 +2915,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       }
 
       if (acceptSnapshot) {
+          const publicationPhase = coordinatorProfiler.beginPhase("Snapshot Publication", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
           centralSnapshot = newSnap;
           publishOperationalDomains(newSnap, newSnap.liveStatus?.lastUpdated || new Date().toISOString());
           if (process.env.PRIZM_THERMAL_ENABLED !== "false") {
@@ -2856,6 +2926,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           prizmCache.set('prizm-site-snapshot', centralSnapshot, { ttlMs: 15000 });
           telemetryMetrics.registry.recordEndpointProcessing("prizm-data-coordinator", "snapshot-cache", { cacheWriteDurationMs: performance.now() - cacheWriteStartedAt });
           if (prizmCache.writeTelemetryHistoryIfEnabled) prizmCache.writeTelemetryHistoryIfEnabled('prizm-site-snapshot', centralSnapshot);
+          publicationPhase.finish({ success: true });
       } else {
           telemetryMetrics.registry.recordRetainedLastKnownGood();
           console.warn(`[Data Coordinator] Rejected degraded snapshot. Reason: ${rejectionReason}`);
@@ -2902,6 +2973,8 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           }
       }
       snapshotGenerationPhase.finish({ success: true });
+      // The completed snapshot and dependent brokers are now published together.
+      await checkpoint();
       
       const emsCacheRaw = prizmCache.get('ems-turtle') as any;
       const featherCacheRaw = getFeatherCache();
@@ -2930,7 +3003,10 @@ const coordinatorRuntime = new CoordinatorRuntime<PrizmSiteSnapshot>(executeCoor
 
 export function startCoordinator() {
     console.log("[Prizm Data Coordinator] Starting central data coordinator...");
-    coordinatorRuntime.start(2000);
+    emsPrimaryReader.start();
+    // The primary reader supplies timely evidence independently. Do not turn
+    // shorter page-preparation cycles into more frequent optional EMS requests.
+    coordinatorRuntime.start(primaryReaderEnabled()?4000:2000);
 
     if (featherInterval) clearInterval(featherInterval);
     featherInterval = setInterval(() => {
@@ -2940,11 +3016,21 @@ export function startCoordinator() {
 
 export function stopCoordinator() {
     coordinatorRuntime.stop();
+    emsPrimaryReader.stop();
     if (featherInterval) clearInterval(featherInterval);
 }
+export async function drainCoordinator(){await Promise.all([coordinatorRuntime.waitForIdle(),emsPrimaryReader.drain()]);}
 
 export function getLatestSnapshot(): PrizmSiteSnapshot | null {
     return coordinatorRuntime.getCurrentSnapshot() || centralSnapshot;
+}
+
+export function getSiteOperationsSummarySource() {
+    return readSummarySource(coordinatorRuntime, centralSnapshot);
+}
+
+export function getLatestSnapshotCycleId(): number | null {
+    return readSnapshotCycleId(coordinatorRuntime, centralSnapshot);
 }
 
 export function getFastStringsView(): any {
@@ -2958,6 +3044,25 @@ export function getFastStringsView(): any {
         });
     }
     return latestFastStringsView ? structuredClone(latestFastStringsView) : { warming: true };
+}
+
+/** Lossless transport projection of the existing fast publication; no acquisition. */
+export function getEncodedFastStringsView(compact = false) {
+    if (!latestFastStringsView) return Promise.resolve(null);
+    return (compact ? compactStringsResponseCache : fastStringsResponseCache).read(
+        latestFastStringsView, stringDomainBroker.getVersion(),
+        () => compact ? compactStringView(getFastStringsView()) : getFastStringsView());
+}
+
+/** Full canonical details for one target, without device acquisition or fleet copies. */
+export function getCanonicalStringDetailRow(arrayNumber: number, stringNumber: number) {
+    const row = stringDomainBroker.read(`${arrayNumber}:${stringNumber}`);
+    if (!row) return null;
+    const detail = centralSnapshot?.normalized?.arrayDetailsByArray?.[String(arrayNumber)]?.strings?.find(
+        (entry: {stringNumber?: number; stringIndex?: number}) => Number(entry.stringNumber ?? entry.stringIndex) === stringNumber);
+    return {...row, detailArrayFallback: detail ? structuredClone({
+        millivolts: detail.millivolts, temperatures: detail.temperatures
+    }) : null};
 }
 
 /** Internal read-only source for compact projections; callers must never mutate it. */
@@ -3375,7 +3480,7 @@ export function getBlockSummaryView(): any {
         lastPollDurationMs: snap.debug?.lastPollDurationMs,
         normalizedStringRowCount: snap.debug?.normalizedStringRowCount,
         arraySummarySource: snap.debug?.arraySummarySource,
-        stringSummarySource: snap.debug?.stringSummarySource,
+        stringSummarySource: snap.rollups.stringSummary?.source,
         correctiveActionsCount: snap.debug?.correctiveActionsCount,
         sourceHealthSummary: healthSummary,
         errors: snap.debug?.errors || []
@@ -3428,6 +3533,7 @@ export function getBlockSummaryView(): any {
         stale: snap.liveStatus.stale,
         cacheUsed: snap.liveStatus.cacheUsed,
         correctiveActions: snap.normalized.correctiveActions,
+        notificationReview: snap.normalized.notificationReview,
         activeIssueGroups: snap.normalized.correctiveActions, // activeIssueGroups maps directly to correctiveActions array in modern snapshot
         bessFleetSummary: snap.rollups.bessFleetSummary,
         stringSummary: {
@@ -3548,10 +3654,25 @@ export function getPcsView(): any {
     const modbusTelemetry = getOperationalModbusSnapshot();
     const modbusByArray = new Map((modbusTelemetry.pcs || []).map((row: any) => [Number(row.arrayIndex), row]));
     const switchByArray = new Map((modbusTelemetry.pcsSwitches || []).map((row: any) => [Number(row.arrayIndex), row]));
+    const observedAt = Date.now();
+    const historyObservations: TimelineObservation[] = projectStringTimeline(snap.normalized.strings || [], observedAt, snap.liveStatus?.stale !== true);
+    historyObservations.push(...projectEmsAppTimeline(snap.normalized.emsApps || [], snap.siteIdentity.emsBaseUrl, snap.siteIdentity.blockIndex, observedAt));
+    let historySiteMatches = false;
+    try { historySiteMatches = new URL(snap.siteIdentity.emsBaseUrl).hostname === modbusTelemetry.host; } catch {}
     const pcs = (snap.normalized.pcs || []).map((row: any) => {
         const arrayIndex = Number(row.arrayIndex ?? row.pcsIndex);
         const live: any = modbusTelemetry.available && !modbusTelemetry.stale ? modbusByArray.get(arrayIndex) : null;
         const switchTelemetry: any = switchByArray.get(arrayIndex) || null;
+        const identity = {entity: `${arrayIndex}:${row.pcsIndex ?? 1}`, array: arrayIndex, label: `Array ${arrayIndex} · PCS ${row.pcsIndex ?? 1}`, observedAt};
+        const sourceAt = modbusTelemetry.capturedAt ? Date.parse(modbusTelemetry.capturedAt) : null;
+        historyObservations.push({...identity, stream: "electrical", source: "EMS Modbus", sourceAt,
+            quality: historySiteMatches && live ? "live" : "unavailable",
+            values: {kw: live?.Watts == null ? null : finiteReading(live.Watts / 1000), kvar: live?.VAr == null ? null : finiteReading(live.VAr / 1000), dcV: finiteReading(live?.DCVoltage), dcA: finiteReading(live?.DCAmps)}});
+        historyObservations.push({...identity, stream: "pcs-status", source: switchTelemetry?.source || "Direct PCS", sourceAt: switchTelemetry?.capturedAt ? Date.parse(switchTelemetry.capturedAt) : null,
+            quality: historySiteMatches && switchTelemetry?.stale === false ? "live" : "unavailable",
+            values: {"Inverter state": switchTelemetry?.inverterOperatingState ?? null,
+                "DC 1": switchTelemetry?.dcSwitch1 ?? null, "DC 2": switchTelemetry?.dcSwitch2 ?? null, "DC 3": switchTelemetry?.dcSwitch3 ?? null,
+                "AC switch": switchTelemetry?.acSwitch ?? null, "Grid switch": switchTelemetry?.mvSwitch ?? null}});
         if (!live && !switchTelemetry) return row;
         return {
             ...row,
@@ -3580,9 +3701,7 @@ export function getPcsView(): any {
             importedEnergyWh: live?.ImportedEnergy,
             exportedEnergyWh: live?.ExportedEnergy,
             pcsSwitches: switchTelemetry,
-            telemetrySource: live
-                ? (switchTelemetry?.stale === false ? "EMS Modbus + direct PCS Modbus" : "EMS Modbus")
-                : (switchTelemetry?.stale === false ? "Direct PCS Modbus" : row.telemetrySource),
+            telemetrySource: pcsSourceLabel(Boolean(live), switchTelemetry?.source, switchTelemetry?.stale === false, row.telemetrySource),
             telemetryCapturedAt: modbusTelemetry.capturedAt
         };
     });
@@ -3595,6 +3714,7 @@ export function getPcsView(): any {
     });
     return {
         cycleId: snap.cycleId,
+        historyBatch: snap.siteIdentity.emsBaseUrl ? {site: {id: JSON.stringify([snap.siteIdentity.stationCode, snap.siteIdentity.blockIndex, snap.siteIdentity.emsBaseUrl]), label: `${snap.siteIdentity.stationCode || "Site"} · Block ${snap.siteIdentity.blockIndex ?? "unknown"}`}, observations: historyObservations} satisfies TimelineBatch : null,
         pcs,
         pcsSummary: snap.rollups.pcsSummary || {},
         arraySummary: compactArraySummary,
@@ -3681,6 +3801,7 @@ export function getSensorsView(): any {
 }
 
 export function clearSnapshot() {
+    snapshotInvalidation++;
     centralSnapshot = null;
     coordinatorRuntime.setCurrentSnapshot(null);
     prizmCache.set('prizm-site-snapshot', null, { ttlMs: 0 });
@@ -3695,7 +3816,11 @@ export async function triggerImmediatePoll(reason = "legacy-triggerImmediatePoll
 }
 
 export function getCoordinatorDebugState() {
-    return coordinatorRuntime.getDebugState();
+    return {...coordinatorRuntime.getDebugState(),cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
+        sequenceKind:primaryReaderEnabled()?'primary-acquisition':'coordinator-cycle',
+        mode:process.env.PRIZM_RECOVERY_EARLY_TELEMETRY === 'false' ? 'full-snapshot' : 'early',
+        ...recoveryTelemetryBroker.diagnostics(),fullSnapshotCycleId:centralSnapshot?.cycleId ?? null
+    }};
 }
 
 function isCollectionSegmentDevice(device: any) {
@@ -3798,9 +3923,9 @@ function getFaultFamilyKey(code: number | null, label: string): string {
 function shouldIgnoreFaultForDevice(faultLabel: string, deviceType: "CS" | "ES", ip: string | null, device: any): boolean {
   const lower = faultLabel.toLowerCase();
   
-  if (lower.match(/out of rotation|rotation|contactor open|contactors open|string disabled due to rotation/)) return true;
+  if (lower.match(/out of rotation|rotation|string disabled due to rotation/)) return true;
   const code = extractNumericFaultCode(faultLabel);
-  if (code === 2534 || code === 2561) return true;
+  if (code === 2561) return true;
 
   if (deviceType === "CS") {
     if (lower.match(/battery enclosure door open|battery door open/)) return true;
@@ -4261,12 +4386,6 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       const category = row.notificationType?.notificationCategory;
       const code = String(row.notificationType?.notificationId ?? "");
       
-      if (code === "2534") {
-        arrayNotificationEventsIgnored++;
-        ignoredCodeCounts[code] = (ignoredCodeCounts[code] || 0) + 1;
-        continue;
-      }
-      
       const source = row.notificationSource || {};
       const endpointType = source.endpointType;
       
@@ -4354,7 +4473,27 @@ export function repairFinalCorrectiveActionsFromSnapshot(snapshot: any) {
       }
     }
   }
-  const dedupedEvents = Array.from(uniqueEventsMap.values());
+  const contactorStates = new Map<string, ReturnType<typeof contactorStateFromCanonicalRow>>(stringRows.map((row: any) => {
+    const state = contactorStateFromCanonicalRow(row);
+    return [state.stringKey, state];
+  }));
+  const allDedupedEvents = Array.from(uniqueEventsMap.values());
+  const contactorAssessments: any[] = [];
+  const assessmentTime = Date.now();
+  const dedupedEvents = allDedupedEvents.filter(ev => {
+    // Never downgrade an alarm. Unknown/stale feedback cannot dismiss a warning.
+    if (ev.code !== "2534" || ev.severity === "alarm") return true;
+    const hasAlarm = allDedupedEvents.some(other => other.severity === "alarm" && other.arrayIndex === ev.arrayIndex && other.stringIndex === ev.stringIndex);
+    const state = contactorStates.get(`A${ev.arrayIndex}-S${ev.stringIndex}`);
+    const assessment = assessContactorOpen(state, assessmentTime, hasAlarm);
+    contactorAssessments.push({ arrayIndex: ev.arrayIndex, stringIndex: ev.stringIndex, ...assessment,
+      requestedState: state?.requestedState ?? "unknown", actualState: state?.actualState ?? "unknown",
+      voltageDelta: state?.stringToBusDeltaVoltage ?? null, observedAt: state?.fetchedAt ?? null });
+    ev.rawEvent.contactorAssessment = assessment;
+    return assessment.actionable;
+  });
+  // Expected/waiting events remain in rawSources and the diagnostic breakdown.
+  snapshot.debug.contactorOpenAssessments = contactorAssessments;
 
   const suppressedRows: any[] = [];
 

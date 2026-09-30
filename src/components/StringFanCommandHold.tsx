@@ -77,25 +77,8 @@ interface ActiveHold {
   targets: FanCommandTargetStatus[];
 }
 
-interface FanCommandVerificationRow {
-  holdId: string;
-  targetId: string;
-  controller: "ems" | "bms";
-  arrayNumber: number;
-  stringNumber: number;
-  energySegmentNumber: number | null;
-  label: string;
-  commandedSpeedPercent: number;
-  commandedState: "OFF" | "ON";
-  actualFanState?: "OFF" | "ON" | "UNKNOWN";
-  actualFanSpeedPercent?: number | null;
-  actualFanRpm?: number | null;
-  actualFanRpmByFan?: number[] | null;
-  feedbackTimestamp?: string | null;
-  telemetryAgeMs?: number | null;
-  result: "PASS" | "WARN_ZERO_RPM" | "FAIL_NO_RESPONSE" | "WARN_UNDER_COMMAND" | "WARN_OVER_COMMAND" | "FAIL_STALE_TELEMETRY" | "UNKNOWN_NO_TELEMETRY";
-  notes: string[];
-}
+// The UI consumes the same verification contract returned by the server.
+type FanCommandVerificationRow = import("../server/fanControl/fanControlTypes").FanCommandVerificationRow;
 
 export default function StringFanCommandHold({ active = true }: { active?: boolean }) {
   const siteData = useOptionalSiteData();

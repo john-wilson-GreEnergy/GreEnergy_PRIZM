@@ -8,6 +8,11 @@ import { telemetryMetrics } from "./telemetry/metrics";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
 import { getTelemetryCycleId } from "./telemetry/TelemetryCycleContext";
 import { coordinatorPhaseNameForEndpoint, coordinatorProfiler } from "./telemetry/profiler";
+import {stampEmsAppResponse} from "./ems/emsAppProvenance";
+import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
+import type {EnrolledTelemetrySite} from '../core/security/readOnlyTelemetry';
+import {createEmsPrimaryReader, primaryReaderEnabled} from './telemetry/emsPrimaryReader';
+import {emsStageTiming} from './telemetry/EmsStageTiming';
 
 const DEFAULT_EMS_BASE_URL = "http://10.0.0.3:8080/turtle";
 
@@ -1066,6 +1071,8 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
   const metric = telemetryMetrics.registry.beginEndpoint("ems-turtle", endpoint);
   const profilerPhase = coordinatorProfiler.beginPhase(coordinatorPhaseNameForEndpoint("ems-turtle", endpoint), { waitState: "NETWORK", blocking: true });
   let parseDurationMs = 0;
+  const stages=endpoint==='/tools/report/ems/lastCall.json'?emsStageTiming.begin(getTelemetryCycleId()):null;
+  let stageSuccess=false,stageBytes:number|null=null;
   const debugItem = getOrInitEndpointDebug(endpoint);
   debugItem.lastAttemptAt = new Date().toISOString();
   debugItem.lastPollTime = debugItem.lastAttemptAt;
@@ -1076,7 +1083,7 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
   const tryAcquire = async (targetUrl: string): Promise<EmsRestAcquisitionResult> => {
     const result = await emsRestAcquisitionManager.acquire(
       { name: endpoint, kind: "rest", config: { timeoutMs } },
-      { name: endpoint, kind: "rest", url: targetUrl, timeoutMs }
+      { name: endpoint, kind: "rest", url: targetUrl, timeoutMs, onTiming:stages?.observe }
     );
 
     const resultPayload = result.payload as { status?: number } | undefined;
@@ -1170,6 +1177,7 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
     }
 
     const responseBytes = typeof (finalAttempt.payload as any)?.body === "string" ? Buffer.byteLength((finalAttempt.payload as any).body) : null;
+    stageSuccess=finalAttempt.success;stageBytes=responseBytes;
     const observation = finalAttempt.data?.timestamp ?? finalAttempt.data?.timeStamp ?? finalAttempt.data?.capturedAt ?? null;
     metric.finish({
       success: finalAttempt.success,
@@ -1213,6 +1221,8 @@ export async function acquireEmsEndpointWithRestProvider(endpoint: string, timeo
       fallbackUsed: !!debugItem.fallbackUsed,
       fallbackUrl: debugItem.fallbackUrl || null,
     };
+  } finally {
+    stages?.finish({success:stageSuccess,parseMs:parseDurationMs,bytes:stageBytes,fallback:!!debugItem.fallbackUsed});
   }
 }
 
@@ -1409,6 +1419,23 @@ function getSimulatedPcsReport(arrayNum: number, pcsNum: number) {
   };
 }
 
+function currentRecoverySite(): EnrolledTelemetrySite | null {
+  const profile = ProfileStore.getActiveProfile();
+  return profile ? {profileId: profile.id, stationCode: profile.stationCode, blockIndex: profile.blockIndex, emsBaseUrl: getNormalizedBaseUrl()} : null;
+}
+
+export const emsPrimaryReader = createEmsPrimaryReader(currentRecoverySite, sample=>{
+  const debug=getOrInitEndpointDebug('/tools/report/ems/lastCall.json');
+  debug.success=sample.success;
+  debug.lastAttemptAt=new Date(sample.startedAt).toISOString();
+  debug.lastPollTime=new Date(sample.acquiredAt).toISOString();
+  debug.durationMs=sample.acquiredAt-sample.startedAt;
+  debug.lastError=sample.error;
+  debug.sourceUsed='primary';debug.fallbackUsed=false;debug.fallbackUrl=null;
+  debug.statusCode=sample.success?200:null;
+  if(sample.success)debug.lastSuccessAt=debug.lastPollTime;else debug.lastFailureAt=debug.lastPollTime;
+},()=>telemetryMetrics.registry);
+
 export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): Promise<{ success: boolean; error: string | null }> {
   // A transient slow probe must not permanently reroute production telemetry to
   // localhost mock endpoints. Every live cycle gets a fresh chance to reach EMS.
@@ -1438,14 +1465,28 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
   // 2.5s fast timeout. Start it concurrently, but do not make basic String
   // List electrical updates wait for it. Publish again when its authoritative
   // BPC balancing tree is available.
-  const lastCallFetch = acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_SLOW_TIMEOUT_MS)
+  const recoverySite = currentRecoverySite(), recoveryStartedAt = Date.now(), recoveryCycleId = emsCache.cycleId ?? 0;
+  const lastCallFetch = primaryReaderEnabled()
+    ? emsPrimaryReader.read().then(sample=>{emsCache.lastCall=sample.data;return sample.data;})
+    : acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_SLOW_TIMEOUT_MS)
     .then(result => {
+      // Publish exact source-time evidence before optional work/full snapshot normalization.
+      // This is the existing acquisition, not an additional poll or route-side read.
+      recoveryTelemetryBroker.publish({cycleId: recoveryCycleId, startedAt: recoveryStartedAt, acquiredAt: Date.now(),
+        site: recoverySite, success: result.success, fallbackUsed: result.fallbackUsed !== false,
+        attemptUrl: result.attemptUrl, data: result.data}, currentRecoverySite());
       if (!result.success) {
         throw new Error(result.error || 'lastCall acquisition failed');
       }
       emsCache.lastCall = result.data;
       return result.data;
+    }).catch(error => {
+      recoveryTelemetryBroker.publish({cycleId: recoveryCycleId, startedAt: recoveryStartedAt, acquiredAt: Date.now(),
+        site: recoverySite, success: false, fallbackUsed: false, data: null}, currentRecoverySite());
+      throw error;
     });
+  // A large/failed response can settle before critical endpoints finish.
+  void lastCallFetch.catch(() => {});
 
   const criticalFetches = coordinatorProfiler.withParallelGroup("EMS Critical Acquisition", 4, () => Promise.allSettled([
     fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 
@@ -1462,6 +1503,8 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
         if (!result.success) {
           throw new Error(result.error || 'blockviewer acquisition failed');
         }
+        const appSourceBase = result.attemptUrl?.replace(/\/tools\/monitor\/ems\/blockviewer\/data$/, "") || "";
+        stampEmsAppResponse(result.data, new Date().toISOString(), appSourceBase, !result.fallbackUsed && !isDemoActive());
         setEmsCachedBlock(result.data);
 
         // Preserve legacy raw endpoint cache behavior for diagnostics and parity checks.
@@ -1856,7 +1899,8 @@ export async function bootstrapEmsAndSeedCache() {
   console.log('[EMS Bootstrap] Fetching priority feeds in parallel with optimized timeout...');
   await Promise.allSettled(priority1.map(async (ep) => {
     try {
-      await fetchAndRecord(ep, 3000);
+      if(primaryReaderEnabled() && ep === '/tools/report/ems/lastCall.json') await emsPrimaryReader.read();
+      else await fetchAndRecord(ep, 3000);
       cacheSeedState.completedKeys.push(ep);
     } catch(e) {
       cacheSeedState.failedKeys.push(ep);

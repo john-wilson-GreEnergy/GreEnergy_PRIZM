@@ -25,7 +25,7 @@ import {
 import { ManualScanConfig } from "../server/feather/featherTypes";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { sortByIPv4 } from "../lib/ipUtils";
-import { useSiteData } from '../context/SiteDataContext';
+import { useSiteDataFields } from '../context/SiteDataContext';
 import { formatTemperatureF } from "../utils/temperatureScale";
 import { normalizeVoltage } from "../lib/voltageNormalizer";
 import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
@@ -44,7 +44,7 @@ import {
 } from "recharts";
 
 export default function FeatherDashboard({ active = true }: { active?: boolean }) {
-  const { snapshot, activeTopologyProfile, isInitialLoading, isPollingEnabled, refreshNow } = useSiteData();
+  const { snapshot, activeTopologyProfile, isInitialLoading, isPollingEnabled, refreshNow } = useSiteDataFields(['snapshot','activeTopologyProfile','isInitialLoading','isPollingEnabled','refreshNow']);
   
   // Extract feather data locally to maintain backwards compatibility
   const featherData = useMemo(() => {
@@ -152,7 +152,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
       if (targetIp) {
         setIpSearchParams(targetIp);
         if (devices && devices.length > 0) {
-          const dev = devices.find(d => d.ip === targetIp || d.deviceIp === targetIp);
+          const dev = devices.find(d => d.ip === targetIp);
           if (dev) {
             setSelectedDevice(dev);
           }
@@ -186,8 +186,8 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
   // Keep the selected detail record current and add one trend point per shared site snapshot.
   useEffect(() => {
     if (!selectedDevice || !featherData?.devices?.length) return;
-    const selectedIp = selectedDevice.ip || selectedDevice.deviceIp;
-    const currentDevice = featherData.devices.find(device => (device.ip || device.deviceIp) === selectedIp);
+    const selectedIp = selectedDevice.ip;
+    const currentDevice = featherData.devices.find(device => device.ip === selectedIp);
     if (!currentDevice) return;
 
     setSelectedDevice(currentDevice);
@@ -661,7 +661,7 @@ export default function FeatherDashboard({ active = true }: { active?: boolean }
       (d.reachable ? (d.alarmCount ? 'ALARM' : d.warningCount ? 'WARNING' : 'NORMAL') : (d.sourceCoverage?.directFeather ? 'OFFLINE' : 'Not reporting')),
       d.temperatureSupplyC || "N/A",
       d.temperatureCellC || "N/A",
-      d.supplyAirTemp || "N/A",
+      d.supplyAirTempC ?? "N/A",
       (d.raw?.directFeather as any)?.hydrogen1PPM || "N/A",
       (d.raw?.directFeather as any)?.lostComms ?? "none"
     ]);

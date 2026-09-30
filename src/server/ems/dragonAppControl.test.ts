@@ -86,7 +86,7 @@ async function runTests() {
   assert.strictEqual(powerControl.interaction, "powerControl");
   assert.deepStrictEqual(powerControl.fields, ["enabled", "kW", "kVAr"]);
   assert.strictEqual(powerControl.supportedLocally, true, "Power Control payload is validated against StackOS command logging");
-  const power = buildSetPowerControlCommand({ stationCode: "BHE0020", blockIndex: 1, priority: 40, realPowerkW: -5, reactivePowerkVAr: -1 });
+  const power = buildSetPowerControlCommand({ stationCode: "BHE0020", blockIndex: 1, priority: 40, realPowerkW: -5, reactivePowerkVAr: -1 }, true);
   assert.ok(power.commandBytes.includes(Buffer.from("PC00001")));
   assert.ok(power.commandBytes.includes(Buffer.from('"realPowerkW":-5')));
   assert.deepStrictEqual(parsePowerControlStatus("Real Power: -5 kW\r\nReactive Power: -1 kVAr\r\nGrid Mode: GRID_FOLLOWING"), { realPowerkW: -5, reactivePowerkVAr: -1, gridMode: "GRID_FOLLOWING" });

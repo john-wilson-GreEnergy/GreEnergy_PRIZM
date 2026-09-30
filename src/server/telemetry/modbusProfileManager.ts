@@ -1198,10 +1198,12 @@ String 2 Min Cell Temp, 40117, 1 word, INT16, R, 0.1, C, Cold group temp`;
 // Polling Loop / Scheduler
 // ------------------------------------------------------------
 export function startModbusScheduler() {
+  if (isRuntimeStopping()) return;
   stopModbusScheduler();
 
   discoveryStatus.isPollingActive = true;
   pollIntervalRef = setInterval(async () => {
+    if (isRuntimeStopping()) return;
     fastPollCount++;
     try {
       // 1-3s fast poll
@@ -1530,3 +1532,4 @@ export async function runStringModbusParity() {
   const eligibleForAggregatePromotion = arrays.every((array) => array.matches.contactors && array.matches.rotation);
   return { host, port: discoveredPort, unitId: 1, addressOffset, capturedAt: new Date().toISOString(), eligibleForAggregatePromotion, arrays };
 }
+import {isRuntimeStopping} from "../runtimeShutdown";

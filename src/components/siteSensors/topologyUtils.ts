@@ -1,4 +1,7 @@
 export interface TopologySensorPoint {
+  monitoredByProfile?: boolean;
+  contributesToHealth?: boolean;
+  displayState?: NormalizedSensorCell["displayState"];
   stationCode: string | null;
   blockIndex: number | null;
   sourceEndpoint: string;
@@ -131,6 +134,9 @@ export interface TopologySensorSummary {
   pcsEntityCount: number;
   upsOrEStopCount: number;
   groupedEnclosureCount: number;
+  profileActivePointCount?: number;
+  profileUnavailablePointCount?: number;
+  rawActivePointCount?: number;
   activePointCount: number;
   unavailablePointCount: number;
   unknownPointCount: number;
@@ -452,4 +458,3 @@ export function isPhysicalSensorEnclosureRow(row: any): boolean {
 
   return true;
 }
-

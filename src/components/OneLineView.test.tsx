@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {ArrayCellReadings} from './OneLineView';
+import {buildArrayCellMetrics} from '../server/telemetry/arrayCellMetrics';
+const [metrics] = buildArrayCellMetrics([{arrayNumber:1,stringNumber:1,minCellTempC:0,avgCellTempC:5,maxCellTempC:10,minCellVoltageMv:3200,avgCellVoltageMv:3250,maxCellVoltageMv:3300}], [{arrayNumber:1,stringCount:2}]);
+const html=renderToStaticMarkup(<ArrayCellReadings metrics={metrics}/>);
+assert.match(html,/Cell temp/);
+assert.match(html,/Cell voltage/);
+assert.match(html,/Array Δ/);
+assert.match(html,/100\.0/);
+assert.match(html,/1\/2 strings · Partial/);
+assert.match(html,/mean of string averages/);
+assert.match(renderToStaticMarkup(<ArrayCellReadings/>),/Not reported/);
+assert.doesNotMatch(renderToStaticMarkup(<ArrayCellReadings/>),/NaN/);
+console.log('One-line array metrics render units, partial coverage and unknown values');

@@ -1,0 +1,10 @@
+import React from "react";
+import assert from "node:assert/strict";
+import {renderToStaticMarkup} from "react-dom/server";
+import BalancingProgressReview from "./BalancingProgressReview";
+const empty = renderToStaticMarkup(<BalancingProgressReview report={{rows: [], points: [], adb: "Unknown / stale"}}/>);
+assert.match(empty, /No balancing progress observations/); assert.match(empty, /not proof they match/); assert.match(empty, /Unknown \/ stale/);
+const html = renderToStaticMarkup(<BalancingProgressReview selectedString={2} report={{adb: "Enabled", points: [], rows: [{string: 2, at: Date.now(), fresh: false, mode: "Provided", rotation: "IN", sample: null, trend: "Telemetry unavailable / stale", baselineAt: null, baselineMv: null, changeMv: null}]}}/>);
+assert.match(html, /Stale \/ unavailable/); assert.match(html, /Mode: Unknown/); assert.match(html, /does not prove balancing caused it/); assert(!html.includes("Mode: Provided"));
+assert.match(html, /Zero active BPCs is not a failure/); assert(!html.includes("<button"));
+console.log("Balancing progress uncertainty and read-only presentation passed");

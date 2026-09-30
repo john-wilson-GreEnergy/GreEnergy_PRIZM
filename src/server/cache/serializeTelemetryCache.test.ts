@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {serializeTelemetryCache} from './serializeTelemetryCache';
+const fixture={cacheMeta:{fetchedAt:'2026-09-25T14:00:00.000Z',ttlMs:15000,cycleId:42,sourceUrl:'http://fixture.invalid/turtle',sourceOk:false},data:{strings:[{arrayNumber:1,stringNumber:2,positiveContactorClosed:false,voltage:0,missing:null,unavailable:undefined,invalid:NaN}],unicode:'Δ mV',raw:{value:1}}};
+const legacy=JSON.stringify(fixture,null,2),compact=serializeTelemetryCache(fixture);
+assert.deepEqual(JSON.parse(compact),JSON.parse(legacy));
+assert.equal(serializeTelemetryCache(fixture,'false'),legacy,'Rollback preserves original formatting');
+assert(compact.length<legacy.length);
+assert.equal(fixture.data.strings[0].positiveContactorClosed,false);
+assert.equal(fixture.cacheMeta.fetchedAt,'2026-09-25T14:00:00.000Z');
+console.log('Telemetry cache: exact JSON/schema/value/provenance parity and formatted rollback passed.');

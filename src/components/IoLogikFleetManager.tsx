@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { subscribeIoLogikOperation } from '../lib/subscribeIoLogikOperation';
+import { matchesIoLogikResult, type IoLogikResultFilter } from '../lib/ioLogikTableFilter';
+import type { getIoLogikOperation } from '../server/iologik/iologikFleetService';
+type FleetState = ReturnType<typeof getIoLogikOperation>;
 import {
   CheckCircle2,
   Cpu,
@@ -18,21 +22,31 @@ type Target = {
   label: string;
 };
 type Row = Target & {
-  reachable?: boolean;
-  pingOk?: boolean;
-  httpOk?: boolean;
+  observedAt?: string;
+  observationSource?: 'scan' | 'verified-update';
+  reachable?: boolean | null;
+  pingOk?: boolean | null;
+  httpOk?: boolean | null;
   firmware?: string | null;
   firmwareRaw?: string | null;
+  firmwareStatus?: 'ok' | 'mismatch' | 'unknown';
+  firmwareDetail?: string;
   result?: string;
   do00Safe?: string | null;
+  do00PeerSafe?: string | null;
   watchdogSeconds?: number | null;
   configurationStatus?: "ok" | "mismatch" | "unknown";
   configurationDetail?: string | null;
 };
+type DeviceResult = Target & { success: boolean; action?: string; detail?: string; before?: Row; after?: Row };
+type Operation = { id: string; inventoryWarning?: string; kind: string; state: string; startedAt: string; results: DeviceResult[]; targetIps: string[] };
 
 export default function IoLogikFleetManager({ active }: { active: boolean }) {
   const [targets, setTargets] = useState<Target[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
+  const [lastScan, setLastScan] = useState<{scannedAt:string;kind:string;targetIps:string[]} | null>(null);
+  const publishedAt = useRef(0);
+  const [scan, setScan] = useState<FleetState['scan']>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<
@@ -40,6 +54,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
   >(null);
   const [query, setQuery] = useState("");
   const [arrayFilter, setArrayFilter] = useState("all");
+  const [resultFilter, setResultFilter] = useState<IoLogikResultFilter>('all');
   const [assets, setAssets] = useState<any>(null);
   const [message, setMessage] = useState<any>(null);
   const [confirming, setConfirming] = useState<"config" | "firmware" | null>(
@@ -48,16 +63,29 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
   const [firmwareImporting, setFirmwareImporting] = useState(false);
   const [watchdogDraft, setWatchdogDraft] = useState("300");
   const [savingGoldenRule, setSavingGoldenRule] = useState(false);
+  const [operation, setOperation] = useState<Operation | null>(null);
+  const [results, setResults] = useState<DeviceResult[]>([]);
+  const [configImporting, setConfigImporting] = useState(false);
+  const updating = !!busy || operation?.state === 'running' || scan?.state === 'running';
+  const acceptState = (state: FleetState) => {
+    if (state.publishedAt < publishedAt.current) return;
+    publishedAt.current = state.publishedAt;
+    setRows(state.inventory);
+    setLastScan(state.lastScan);
+    setScan(state.scan);
+    setOperation(state.operation);
+    setResults(state.operation?.results || []);
+  };
 
   const request = async (url: string, body?: any) => {
     const response = await fetch(
       url,
       body
         ? {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
         : undefined,
     );
     const data = await response.json();
@@ -71,6 +99,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
       const data = await request("/api/local/iologik/targets");
       setTargets(data.targets || []);
       setAssets(data.assets);
+      acceptState(data.fleetState);
       if (data.assets?.configurationProfile?.deploymentTargets?.watchdogSeconds)
         setWatchdogDraft(
           String(
@@ -85,6 +114,10 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
   };
   useEffect(() => {
     if (active) loadTargets();
+  }, [active]);
+  useEffect(() => {
+    if (!active) return;
+    return subscribeIoLogikOperation(acceptState);
   }, [active]);
   useEffect(() => () => setPassword(""), []);
   const scope = selected.size ? Array.from(selected) : undefined;
@@ -101,16 +134,17 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
           password: kind === "firmware" ? password : undefined,
         },
       );
-      setRows(data.rows || []);
+      acceptState(await request('/api/local/iologik/operations'));
       const drift = (data.rows || []).filter(
         (row: Row) => row.configurationStatus === "mismatch",
       ).length;
+      const firmwareDrift = (data.rows || []).filter((row: Row) => row.firmwareStatus === 'mismatch').length;
       setMessage({
-        ok: drift === 0,
-        error: drift
-          ? `${drift} target(s) do not match the Golden Rule.`
+        ok: drift === 0 && firmwareDrift === 0,
+        error: drift || firmwareDrift
+          ? `${drift} configuration mismatch(es) · ${firmwareDrift} firmware mismatch(es).`
           : null,
-        text: `${kind === "discover" ? "Discovery" : "Firmware and configuration scan"} completed for ${(data.rows || []).length} responding target(s).`,
+        text: `${kind === "discover" ? "Discovery" : "Firmware and configuration scan"} completed for ${(data.rows || []).length} target(s), including unavailable devices.`,
       });
     } catch (error: any) {
       setMessage({ error: error.message });
@@ -137,12 +171,11 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
           : null,
         text: `${data.results.length - failed} configured · ${failed} failed`,
       });
-      setConfirming(false);
-      await run("firmware");
+      setConfirming(null);
+      acceptState(await request('/api/local/iologik/operations'));
     } catch (error: any) {
       setMessage({ error: error.message });
-      setBusy(null);
-    }
+    } finally { setBusy(null); }
   };
   const applyFirmware = async () => {
     setBusy("config");
@@ -170,7 +203,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
         text: `${updated} updated · ${skipped} already current · ${failed} unresolved`,
       });
       setConfirming(null);
-      setRows(data.before || []);
+      acceptState(await request('/api/local/iologik/operations'));
     } catch (error: any) {
       setMessage({ error: error.message });
     } finally {
@@ -182,13 +215,13 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
     setFirmwareImporting(true);
     setMessage(null);
     try {
-      if (!/\.kp$/i.test(file.name))
-        throw new Error("Select a Moxa .kp firmware package.");
+      if (!/kp$/i.test(file.name) || !/e1242/i.test(file.name))
+        throw new Error("Select a versioned Moxa E1242 firmware package ending in kp.");
       if (file.size > 25 * 1024 * 1024)
         throw new Error("Firmware package exceeds the 25 MB safety limit.");
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 0x8000)
+      for (let offset = 0;offset < bytes.length;offset += 0x8000)
         binary += String.fromCharCode(
           ...bytes.subarray(offset, offset + 0x8000),
         );
@@ -197,9 +230,10 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
         base64: btoa(binary),
       });
       setAssets(data.assets);
+      await loadTargets(); // Reassess saved readings against the newly imported package without a device scan.
       setMessage({
         ok: true,
-        text: `Firmware ${data.firmware.originalName} imported and ready for preflight.`,
+        text: data.firmware.verified ? `Firmware v${data.firmware.version} Build ${data.firmware.build} imported. Review upgrade prerequisites before deployment.` : 'Firmware imported for inspection. Vendor identity is unverified; deployment is blocked.',
       });
     } catch (error: any) {
       setMessage({ error: error.message });
@@ -225,6 +259,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
       });
       setAssets(data.assets);
       setRows([]);
+      setLastScan(null);
       setMessage({
         ok: true,
         text: `${seconds} seconds is now the site Golden Rule. Rescan targets to refresh compliance.`,
@@ -235,6 +270,18 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
       setSavingGoldenRule(false);
     }
   };
+  const importConfiguration = async (file?: File) => {
+    if (!file) return;
+    setConfigImporting(true);
+    try {
+      if (file.size > 1024 * 1024) throw new Error('Configuration must be smaller than 1 MB.');
+      const data = await request('/api/local/iologik/configuration/import', { text: await file.text() });
+      setAssets(data.assets); setWatchdogDraft(String(data.configurationProfile.deploymentTargets.watchdogSeconds)); setRows([]);
+      setLastScan(null);
+      setMessage({ ok: true, text: 'Golden configuration imported. No device settings were changed.' });
+    } catch (error) { setMessage({ error: error instanceof Error ? error.message : 'Import failed.' }); }
+    finally { setConfigImporting(false); }
+  };
   const arrays = useMemo<number[]>(
     () =>
       Array.from(new Set<number>(targets.map((item) => item.arrayIndex))).sort(
@@ -243,15 +290,19 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
     [targets],
   );
   const shown = useMemo(
-    () =>
-      (rows.length ? rows : targets).filter(
+    () => {
+      const readings = new Map(rows.map(row => [row.ip, row]));
+      const candidates: Row[] = targets.map(target => readings.get(target.ip) || target);
+      return candidates.filter(
         (item) =>
           (arrayFilter === "all" || item.arrayIndex === Number(arrayFilter)) &&
+          matchesIoLogikResult(item, resultFilter) &&
           `${item.label} ${item.ip} ${item.firmware || ""} ${item.result || ""}`
             .toLowerCase()
             .includes(query.toLowerCase()),
-      ),
-    [rows, targets, arrayFilter, query],
+      );
+    },
+    [rows, targets, arrayFilter, query, resultFilter],
   );
   const toggle = (ips: string[]) =>
     setSelected((current) => {
@@ -262,6 +313,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
     });
   const reachable = rows.filter((row) => row.reachable).length;
   const unavailable = rows.filter((row) => row.reachable === false).length;
+  const hiddenSelected = selected.size - shown.filter(row => selected.has(row.ip)).length;
 
   return (
     <div className="space-y-4 font-sans">
@@ -277,6 +329,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
               the proven golden configuration without changing device network
               settings.
             </p>
+            <p className="mt-1 text-xs text-prizm-text-muted">Backend: {assets?.backend === 'native' ? 'Native PRIZM · no standalone script required' : assets?.backend || 'Loading…'}</p>
           </div>
           <button
             onClick={loadTargets}
@@ -369,7 +422,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
             <div className="mt-2 grid gap-2">
               <button
                 onClick={() => run("discover")}
-                disabled={!!busy || !targets.length}
+                disabled={updating || !targets.length}
                 className="rounded bg-prizm-primary px-3 py-2 text-xs font-bold text-black disabled:opacity-40"
               >
                 {busy === "discover"
@@ -388,7 +441,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
               </label>
               <button
                 onClick={() => run("firmware")}
-                disabled={!!busy || !assets?.scriptAvailable}
+                disabled={updating || !assets?.backendAvailable}
                 className="rounded border border-prizm-primary px-3 py-2 text-xs font-bold text-prizm-primary disabled:opacity-40"
               >
                 {busy === "firmware"
@@ -403,7 +456,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
               3. Update
             </h3>
             <p className="mt-2 text-xs text-prizm-text-muted">
-              Configuration deployment strips all network settings. Firmware
+              Configuration deployment preserves each device’s network settings. Firmware
               deployment inventories versions first, skips current devices, and
               refuses unknown versions.
             </p>
@@ -414,8 +467,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                 : "Import firmware package"}
               <input
                 type="file"
-                accept=".kp"
-                disabled={firmwareImporting || !!busy}
+                disabled={firmwareImporting || updating}
                 onChange={(event) => {
                   void importFirmware(event.target.files?.[0]);
                   event.currentTarget.value = "";
@@ -430,8 +482,11 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                 </strong>
                 <span className="text-prizm-text-muted">
                   Version {assets.firmwareMetadata.version || "unverified"} ·{" "}
+                  {assets.firmwareMetadata.build && <>Build {assets.firmwareMetadata.build} · </>}
                   {(assets.firmwareMetadata.sizeBytes / 1048576).toFixed(2)} MB
                 </span>
+                <p className="mt-2 text-xs">{assets.firmwareMetadata.verified ? 'Vendor SHA-512 matched' : 'Firmware deployment blocked'}</p>
+                <p className="mt-1 text-xs text-prizm-text-muted">{assets.firmwareMetadata.upgradeNotice}</p>
                 <span className="mt-1 block truncate font-mono text-[10px] text-prizm-text-muted">
                   SHA-256 {assets.firmwareMetadata.sha256}
                 </span>
@@ -439,7 +494,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
             )}
             <button
               onClick={() => setConfirming("config")}
-              disabled={!!busy || !selected.size || !assets?.configAvailable}
+              disabled={updating || !selected.size || !assets?.configAvailable}
               className="mt-3 w-full rounded bg-amber-500 px-3 py-2 text-xs font-bold text-black disabled:opacity-40"
             >
               <Upload size={13} className="mr-2 inline" />
@@ -447,16 +502,15 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
             </button>
             <button
               onClick={() => setConfirming("firmware")}
-              disabled={!!busy || !selected.size || !assets?.firmwareAvailable}
+              disabled={updating || !selected.size || !assets?.firmwareAvailable || !assets?.firmwareMetadata?.verified || assets?.backend === 'legacy'}
               className="mt-2 w-full rounded bg-prizm-danger px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
             >
               <Upload size={13} className="mr-2 inline" />
               Review firmware update
             </button>
-            {assets && (!assets.scriptAvailable || !assets.configAvailable) && (
+            {assets && (!assets.backendAvailable || !assets.configAvailable) && (
               <p className="mt-2 text-xs text-prizm-danger">
-                Required local script or golden configuration is unavailable.
-                Check the PRIZM ioLogik tool path.
+                Import a golden configuration to enable configuration deployment. Native firmware updates are independent. The legacy backend, if selected, also requires its standalone script.
               </p>
             )}
           </div>
@@ -465,8 +519,12 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
           <section className="rounded-lg border border-prizm-border bg-prizm-surface p-4">
             <h3 className="flex items-center gap-2 text-sm font-bold">
               <FileCheck2 size={17} className="text-prizm-primary" />
-              Golden configuration
+              Golden Rule settings
             </h3>
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded border border-prizm-border p-2 text-xs">
+              <Upload size={14} />{configImporting ? 'Importing…' : 'Import E1242 configuration'}
+              <input type="file" accept=".txt" className="sr-only" disabled={configImporting || updating} onChange={event => { void importConfiguration(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+            </label>
             {assets?.configurationProfile?.available ? (
               <>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -480,7 +538,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                   </div>
                   <div>
                     <span className="text-xs text-prizm-text-muted">
-                      Device profile
+                      Rule source firmware (reference only)
                     </span>
                     <strong className="block text-sm">
                       E1242 · firmware{" "}
@@ -539,10 +597,10 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                         <button
                           onClick={saveGoldenRule}
                           disabled={
-                            savingGoldenRule ||
+                            savingGoldenRule || updating ||
                             Number(watchdogDraft) ===
-                              assets.configurationProfile.deploymentTargets
-                                ?.watchdogSeconds
+                            assets.configurationProfile.deploymentTargets
+                              ?.watchdogSeconds
                           }
                           className="rounded bg-prizm-primary px-3 py-1.5 text-xs font-bold text-black disabled:opacity-40"
                         >
@@ -557,12 +615,12 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                   </div>
                 </div>
                 <div className="mt-3 rounded border border-emerald-400/40 bg-emerald-500/5 p-3 text-xs text-emerald-800">
-                  <strong>Verified deployment safeguards:</strong> DO-00 Off and
-                  the saved site watchdog are enforced during staging. IP
-                  address, subnet mask, gateway, MAC address, and network
-                  overwrite are removed before every upload.
+                  <strong>Deployment safeguards:</strong>{' '}
+                  {assets.configurationProfile.applicationMode === 'device-native-policy'
+                    ? 'Only DO-00 safe state and watchdog timeout are applied to each device’s own export. Firmware metadata, authentication, network settings and all other I/O settings are preserved. Network overwrite is disabled. A different firmware version does not require a firmware update; unsupported configuration formats are blocked.'
+                    : 'Legacy full-configuration import. DO-00 Off and the site watchdog are enforced; network overwrite is disabled.'}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-prizm-text-muted">
+                {assets.configurationProfile.applicationMode !== 'device-native-policy' && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-prizm-text-muted">
                   <span>AI00–01: 4–20 mA</span>
                   <span>AI02–03: 0–10 V</span>
                   <span>
@@ -571,7 +629,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                       ? "enabled"
                       : "disabled"}
                   </span>
-                </div>
+                </div>}
                 <p className="mt-2 truncate font-mono text-[10px] text-prizm-text-muted">
                   SHA-256 {assets.configurationProfile.sha256}
                 </p>
@@ -582,7 +640,23 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
               </p>
             )}
           </section>
+          {operation && <section className="rounded-lg border border-prizm-border bg-prizm-surface p-3 text-xs">
+            <strong>Last {operation.kind} update · {operation.state}</strong>
+            <p>{operation.results.length} / {operation.targetIps.length} target results · {new Date(operation.startedAt).toLocaleString()}</p>
+            {operation.state === 'complete' && <p className="mt-1 text-prizm-text-muted">Historical results from the last run, not a new preflight. A new update checks the current package policy and device state again.</p>}
+            {operation.state === 'interrupted' && <p className="text-amber-700">PRIZM restarted before completion. Inspect the device states before retrying; no updates were automatically resumed.</p>}
+            {operation.inventoryWarning && <p className="text-amber-700">{operation.inventoryWarning}</p>}
+          </section>}
+          {scan && <section aria-label="Scan progress" className="rounded-lg border border-prizm-border bg-prizm-surface p-3 text-xs" role="status">
+            <strong>{scan.state === 'running' ? 'Scanning' : scan.state === 'complete' ? 'Scan complete' : 'Scan failed'} · {scan.completed} / {scan.targetIps.length} devices</strong>
+            {scan.state === 'running' && <><progress aria-label="Devices scanned" className="mt-2 block w-full" value={scan.completed} max={scan.targetIps.length} /><p className="mt-1">Completed rows appear automatically. Pending rows retain their previous reading and timestamp. No device settings are changed.</p></>}
+            {scan.error && <p className="text-amber-700">{scan.error} Previous saved inventory retained.</p>}
+          </section>}
           <section className="overflow-hidden rounded-lg border border-prizm-border bg-prizm-surface">
+            <div className="border-b border-prizm-border p-3 text-xs text-prizm-text-muted">
+              <p className="mb-1">Firmware comparison: {assets?.firmwareMetadata?.verified ? `v${assets.firmwareMetadata.version} Build${assets.firmwareMetadata.build}` : 'No verified package — firmware status is not verified'}. Mismatch filtering does not select devices or authorize updates.</p>
+              {lastScan ? <><strong className="text-prizm-text">Last saved {lastScan.kind === 'discover' ? 'discovery' : 'firmware + configuration scan'}</strong> · {new Date(lastScan.scannedAt).toLocaleString()} · {lastScan.targetIps.length} target(s). Saved observations, not live readings. Verified updates refresh individual inventory rows without changing this scan report. The next completed scan replaces the inventory scope.</> : 'No saved scan for the current site and Golden Rule. Verified update readings appear individually; run a scan to save a scan report.'}
+            </div>
             <div className="flex flex-wrap gap-2 border-b border-prizm-border p-3">
               <div className="relative min-w-[220px] flex-1">
                 <Search
@@ -597,6 +671,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                 />
               </div>
               <select
+                aria-label="Filter by array"
                 value={arrayFilter}
                 onChange={(event) => setArrayFilter(event.target.value)}
                 className="rounded border border-prizm-border bg-prizm-surface-strong px-3 py-2 text-xs"
@@ -608,17 +683,43 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                   </option>
                 ))}
               </select>
-              {(query || arrayFilter !== "all") && (
+              <select
+                aria-label="Filter by scan result"
+                value={resultFilter}
+                onChange={event => setResultFilter(event.target.value as IoLogikResultFilter)}
+                className="rounded border border-prizm-border bg-prizm-surface-strong px-3 py-2 text-xs"
+              >
+                <option value="all">All results</option>
+                <option value="any_mismatch">Any mismatch (configuration or firmware)</option>
+                <option value="mismatch">Configuration mismatches</option>
+                <option value="firmware_mismatch">Firmware mismatches</option>
+                <option value="firmware_ok">Firmware matches (OK)</option>
+                <option value="firmware_unknown">Firmware not verified</option>
+                <option value="ok">Configuration matches (OK)</option>
+                <option value="unknown">Not verified</option>
+                <option value="unavailable">Unavailable devices</option>
+                <option value="unscanned">Not scanned</option>
+              </select>
+              {(query || arrayFilter !== "all" || resultFilter !== 'all') && (
                 <button
+                  aria-label="Clear device filters"
                   onClick={() => {
                     setQuery("");
                     setArrayFilter("all");
+                    setResultFilter('all');
                   }}
                   className="rounded border border-prizm-border px-3"
                 >
                   <X size={14} />
                 </button>
               )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 border-b border-prizm-border px-3 py-2 text-xs">
+              <button disabled={!shown.length || updating} onClick={() => setSelected(new Set(shown.map(row => row.ip)))} className="font-bold text-prizm-primary disabled:opacity-40">
+                Select only shown ({shown.length})
+              </button>
+              <span>{selected.size} selected{hiddenSelected > 0 ? ` · ${hiddenSelected} hidden by filters` : ''}</span>
+              <span className="text-prizm-text-muted">Filtering does not change the selected update targets.</span>
             </div>
             <div className="max-h-[650px] overflow-auto">
               <table className="w-full text-left text-xs">
@@ -632,9 +733,12 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                     <th className="p-2">Firmware</th>
                     <th className="p-2">Configuration</th>
                     <th className="p-2">Result</th>
+                    <th className="p-2">Last observed</th>
+                    <th className="p-2">Last update</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {shown.length === 0 && <tr><td colSpan={10} className="p-6 text-center text-prizm-text-muted">No devices match these filters. Only scanned, confirmed differences appear under Configuration mismatches; unverified devices are listed separately.</td></tr>}
                   {shown.map((item) => (
                     <tr
                       key={item.ip}
@@ -648,21 +752,21 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                         />
                       </td>
                       <td className="p-2 font-bold">
-                        A{item.arrayIndex} /{" "}
+                        Array {item.arrayIndex} /{" "}
                         {item.segmentIndex === 0
                           ? "CS"
                           : `ES${item.segmentIndex}`}
                       </td>
                       <td className="p-2 font-mono">{item.ip}</td>
                       <td className="p-2">
-                        {item.pingOk === undefined
-                          ? "—"
+                        {item.pingOk == null
+                          ? "Not tested"
                           : item.pingOk
                             ? "OK"
                             : "No"}
                       </td>
                       <td className="p-2">
-                        {item.httpOk === undefined
+                        {item.httpOk == null
                           ? "—"
                           : item.httpOk
                             ? "OK"
@@ -670,6 +774,9 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                       </td>
                       <td className="p-2 font-mono font-bold">
                         {item.firmware || "—"}
+                        {item.firmwareStatus && <span title={item.firmwareDetail} className={`mt-1 block text-[10px] ${item.firmwareStatus === 'mismatch' ? 'text-prizm-danger' : item.firmwareStatus === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {item.firmwareStatus === 'ok' ? 'Firmware OK' : item.firmwareStatus === 'mismatch' ? 'Firmware mismatch' : 'Firmware not verified'}
+                        </span>}
                       </td>
                       <td className="p-2">
                         {item.configurationStatus ? (
@@ -690,13 +797,23 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                           <span className="mt-1 block whitespace-nowrap text-[10px] text-prizm-text-muted">
                             DO-00 {item.do00Safe ?? "?"} · Watchdog{" "}
                             {item.watchdogSeconds ?? "?"}s
+                            {item.do00PeerSafe != null && item.do00PeerSafe !== item.do00Safe && (
+                              <span className="block text-prizm-danger">Conflicting companion safe state: {item.do00PeerSafe === '2' ? 'Hold Last' : item.do00PeerSafe === '1' ? 'On' : 'Off'}</span>
+                            )}
                           </span>
                         )}
                       </td>
                       <td
-                        className={`p-2 font-bold ${item.reachable === false ? "text-prizm-danger" : item.result === "ok" || item.reachable ? "text-emerald-600" : "text-prizm-text-muted"}`}
+                        className={`p-2 font-bold ${item.reachable === false ? "text-prizm-danger" : item.result === "ok" || item.result === "reachable" ? "text-emerald-600" : "text-prizm-text-muted"}`}
                       >
                         {item.result || "Not scanned"}
+                        {scan?.state === 'running' && scan.targetIps.includes(item.ip) && !scan.completedIps.includes(item.ip) && <span className="block text-amber-700">Pending scan · previous reading</span>}
+                      </td>
+                      <td className="p-2 whitespace-nowrap text-[10px] text-prizm-text-muted">
+                        {item.observedAt ? <><time dateTime={item.observedAt}>{new Date(item.observedAt).toLocaleString()}</time><span className="block">{item.observationSource === 'verified-update' ? 'Verified update readback' : 'Scan reading'}</span></> : 'Not observed'}
+                      </td>
+                      <td className="p-2 min-w-[190px]">
+                        {results.filter(result => result.ip === item.ip).map(result => <div key={result.ip} className={result.success ? 'text-emerald-700' : 'text-amber-700'}><strong>{result.action || (result.success ? 'Verified' : 'Not verified')}</strong><p className="font-normal">{result.detail}</p></div>)}
                       </td>
                     </tr>
                   ))}
@@ -704,8 +821,8 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
               </table>
             </div>
             <p className="border-t border-prizm-border p-2 text-xs text-prizm-text-muted">
-              Showing {shown.length} of {rows.length || targets.length} topology
-              targets. “OK” means DO-00 is Off and the communication watchdog
+              Showing {shown.length} of {targets.length} topology
+              targets. “OK” means both reported DO-00 safe-state fields are Off and the communication watchdog
               matches the saved site Golden Rule. A scan never changes device
               state.
             </p>
@@ -748,14 +865,17 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
             </p>
             {confirming === "config" ? (
               <div className="mt-3 rounded border border-emerald-500/30 bg-emerald-500/5 p-3 text-[11px] text-emerald-700">
-                <strong>Network safeguard:</strong> IP, subnet mask, gateway,
-                MAC, and network overwrite settings are removed before upload.
+                {assets?.configurationProfile?.applicationMode === 'device-native-policy' && <p className="mb-2">Apply DO-00 safe state Off and watchdog {assets.configurationProfile.deploymentTargets?.watchdogSeconds} seconds only. Firmware and all other settings remain unchanged.</p>}
+                <strong>Network safeguard:</strong> The target’s own network settings
+                are preserved and network overwrite is disabled. A successful import
+                restarts the device; do not interrupt its power or network.
               </div>
             ) : (
               <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-amber-700">
                 <strong>Restart expected:</strong> Updated devices reboot.
                 Devices already current are skipped; unknown versions are not
                 flashed.
+                <p className="mt-2">Target: v{assets?.firmwareMetadata?.version} Build {assets?.firmwareMetadata?.build}. {assets?.firmwareMetadata?.upgradeNotice}</p>
               </div>
             )}
             <div className="mt-5 flex justify-end gap-2">
@@ -769,7 +889,7 @@ export default function IoLogikFleetManager({ active }: { active: boolean }) {
                 onClick={
                   confirming === "config" ? applyConfiguration : applyFirmware
                 }
-                disabled={busy === "config"}
+                disabled={updating}
                 className={`rounded px-4 py-2 text-xs font-bold disabled:opacity-50 ${confirming === "config" ? "bg-amber-500 text-black" : "bg-prizm-danger text-white"}`}
               >
                 {busy === "config"

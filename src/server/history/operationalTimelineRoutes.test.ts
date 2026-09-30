@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import express from "express";
+import {operationalTimeline} from "./operationalTimeline";
+import {operationalTimelineRouter} from "./operationalTimelineRoutes";
+process.env.PRIZM_OPERATIONAL_TIMELINE_DIR = await fs.mkdtemp("/tmp/prizm-timeline-api-");
+const recorder = operationalTimeline(), now = Date.now();
+recorder.ingest({site: {id: "api", label: "API Fixture"}, observations: [{entity: "1:1", array: 1, label: "Array 1 · PCS 1", stream: "electrical", source: "EMS Modbus", sourceAt: now, observedAt: now, quality: "live", values: {kw: 0, kvar: -1, dcV: 1370, dcA: 0}}]});
+await recorder.flush();
+const app = express(); app.use("/timeline", operationalTimelineRouter);
+const server = app.listen(0, "127.0.0.1"); await new Promise<void>(resolve => server.once("listening", resolve));
+const address = server.address(); assert(address && typeof address !== "string");
+const base = `http://127.0.0.1:${address.port}/timeline`;
+try {
+  assert.equal((await (await fetch(base)).json()).enabled, true);
+  assert.equal((await fetch(`${base}/review?array=1&hours=7`)).status, 400);
+  assert.equal((await fetch(`${base}/review?array=NaN&hours=1`)).status, 400);
+  assert.equal((await fetch(`${base}/review?array=1&hours=1&string=0`)).status, 400);
+  assert.equal((await fetch(`${base}/review?array=1&hours=1&string=NaN`)).status, 400);
+  const filtered = await (await fetch(`${base}/review?array=1&hours=1&string=2`)).json();
+  assert.equal(filtered.selectedString, 2); assert.equal(filtered.samples, 1, "Single-string reviews retain PCS context");
+  const response = await fetch(`${base}/review?array=1&hours=1`), report = await response.json();
+  assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(report.samples, 1); assert.equal(report.points[0].kw, 0); assert.equal(report.points[0].kvar, -1);
+  assert.equal(report.coverage[0].coverage, "0.0%");
+  const bytes = recorder.status().usedBytes;
+  await fetch(`${base}/review?array=1&hours=1`); assert.equal(recorder.status().usedBytes, bytes, "Review endpoint does not write or acquire telemetry");
+  process.env.PRIZM_OPERATIONAL_TIMELINE_ENABLED = "false";
+  assert.equal((await (await fetch(base)).json()).enabled, false);
+  assert.equal((await fetch(`${base}/review?array=1&hours=1`)).status, 400);
+  assert.equal(recorder.status().usedBytes, bytes);
+} finally {delete process.env.PRIZM_OPERATIONAL_TIMELINE_ENABLED; await recorder.close(); server.close();}
+console.log("Timeline API, request validation, read-only review and rollback passed");

@@ -443,7 +443,7 @@ MAP
   # If nothing printed (no rows), show an empty shell with header and a dash row.
   if ! [ -s "$tmp_grouped" ]; then
     printf "Array\tString\tBPC\tCategory\tFault\tName\tCells\tCount\n"
-    printf "-\t-\t-\t-\t-\tUNKNOWN\t-\t0\n"
+    printf -- "-\t-\t-\t-\t-\tUNKNOWN\t-\t0\n"
   fi
 }
 

@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { matchesIoLogikResult } from './ioLogikTableFilter';
+
+const mismatch = { configurationStatus: 'mismatch' as const, reachable: true };
+const ok = { configurationStatus: 'ok' as const, reachable: true };
+const unknown = { configurationStatus: 'unknown' as const, reachable: false };
+const discovered = { reachable: true };
+const unscanned = {};
+const rows = [mismatch, ok, unknown, discovered, unscanned];
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'mismatch')), [mismatch]);
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'ok')), [ok]);
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'unknown')), [unknown, discovered]);
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'unavailable')), [unknown]);
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'unscanned')), [unscanned]);
+assert.deepEqual(rows.filter(row => matchesIoLogikResult(row, 'all')), rows);
+assert.equal(matchesIoLogikResult({ reachable: null }, 'unavailable'), false);
+const firmwareMismatch = {configurationStatus:'ok' as const,firmwareStatus:'mismatch' as const,reachable:true};
+const bothMismatch = {...mismatch,firmwareStatus:'mismatch' as const};
+const firmwareOk = {...ok,firmwareStatus:'ok' as const};
+const firmwareUnknown = {...unknown,firmwareStatus:'unknown' as const};
+const firmwareRows = [firmwareMismatch,bothMismatch,firmwareOk,firmwareUnknown,unscanned];
+assert.deepEqual(firmwareRows.filter(row=>matchesIoLogikResult(row,'firmware_mismatch')),[firmwareMismatch,bothMismatch]);
+assert.deepEqual(firmwareRows.filter(row=>matchesIoLogikResult(row,'any_mismatch')),[firmwareMismatch,bothMismatch]);
+assert.deepEqual(firmwareRows.filter(row=>matchesIoLogikResult(row,'mismatch')),[bothMismatch]);
+assert.deepEqual(firmwareRows.filter(row=>matchesIoLogikResult(row,'firmware_ok')),[firmwareOk]);
+assert.deepEqual(firmwareRows.filter(row=>matchesIoLogikResult(row,'firmware_unknown')),[firmwareUnknown]);
+console.log('ioLogik result filters: mismatch, OK, unknown, discovery-only, unavailable and unscanned passed.');

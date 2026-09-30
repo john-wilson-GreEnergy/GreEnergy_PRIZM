@@ -1,4 +1,19 @@
 import * as prizmCache from "./src/server/cache/prizmCache";
+import {RuntimeShutdown} from "./src/server/runtimeShutdown";
+import {accessPilotFromEnvironment} from "./src/server/security/accessPilotRuntime";
+import {stopDiagnosticSessionPolling} from "./src/server/diagnosticSession/diagnosticSessionRoutes";
+import {closeThermalService} from "./src/server/thermal/thermalService";
+import {closeOperationalTimeline} from "./src/server/history/operationalTimeline";
+import {FanControlService} from "./src/server/fanControl/fanControlService";
+import {LightbarService} from "./src/server/lightbar/lightbarService";
+import {stringViewerBackground} from "./src/server/telemetry/stringviewer/StringViewerBackground";
+import {stopBackgroundPolling} from "./src/server/startup/prizmBootOrchestrator";
+import {stopModbusScheduler} from "./src/server/telemetry/modbusProfileManager";
+import {stopOperationalModbusPolling} from "./src/server/telemetry/modbusOperationalTelemetry";
+import {stopPublishedViewCache} from "./src/server/siteDataRoutes";
+import {stopPreparedReportSnapshotCache} from "./src/server/reports/siteSnapshotEngine";
+import {stopFirmwareInventoryAutomation} from "./src/server/firmware/firmwareInventoryService";
+import {stopLocalStorageMaintenance} from "./src/server/storage/storageMaintenance";
 import AdmZip from "adm-zip";
 import PDFDocument from "pdfkit";
 import { getCorrectiveActionsFromNormalizedFaults } from "./src/server/faults/normalizedFaultSource";
@@ -97,7 +112,41 @@ import { canonicalPublicationRouter } from "./src/server/telemetry/publication";
 
 
 
+import {pilotUi} from './src/server/security/pilotUi';
+
 const app = express();
+// Must precede every legacy API route and the large legacy body parser.
+// Opt-in restricted pilot; no authenticated request falls through this gate.
+const accessPilot = accessPilotFromEnvironment();
+if (accessPilot) {
+  app.use('/api', accessPilot);
+  // Only the dedicated sign-in entry and compiled assets are public. This handler
+  // denies everything else, including legacy control aliases and the operational UI.
+  app.use(pilotUi(path.join(process.cwd(),'dist')));
+}
+app.get('/api/access/config',(_req,res) => res.set('Cache-Control','no-store').json({mode:'disabled'}));
+const shutdown=new RuntimeShutdown({
+  stop:()=>{
+    const errors: unknown[] = [];
+    for (const stop of [
+      stopBackgroundPolling, stopModbusScheduler, stopOperationalModbusPolling,
+      stopPublishedViewCache, stopPreparedReportSnapshotCache, stopFirmwareInventoryAutomation,
+      stopLocalStorageMaintenance, stopDiagnosticSessionPolling,
+      () => featherScheduler.shutdown(), () => stringViewerBackground.stop(),
+      () => FanControlService.shutdown(), () => LightbarService.stopLiveFaultVisualizer(),
+    ]) {
+      try { stop(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, "Some background work could not be stopped");
+  },
+  drain:async()=>{await Promise.all([prizmDataCoordinator.drainCoordinator(),stringViewerBackground.drain()]);},
+  close:async()=>{
+    const results=await Promise.allSettled([closeThermalService(),closeOperationalTimeline(),prizmCache.closeSnapshotCachePersistence()]);
+    const errors=results.filter((r):r is PromiseRejectedResult=>r.status==="rejected");
+    if(errors.length)throw new AggregateError(errors.map(r=>r.reason),"Recorder shutdown failed");
+  }
+});
+app.use(shutdown.middleware);
 const PORT = Number(process.env.PORT) || 3000;
 
 telemetryMetrics.setGraphIdentityMetrics(() => graphIdentityResolver.report(), () => graphIdentityResolver.resetMetrics());
@@ -3612,6 +3661,7 @@ server.on('error', (e: any) => {
     process.exit(1);
   }
 });
+shutdown.install(server);
 
 let reports: any[] = [];
 let logs: any[] = [];

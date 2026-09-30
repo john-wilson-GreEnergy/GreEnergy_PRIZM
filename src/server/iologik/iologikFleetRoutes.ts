@@ -8,20 +8,32 @@ import {
   importIoLogikFirmware,
   scanIoLogikFirmware,
   updateIoLogikGoldenRule,
+  getIoLogikOperation,
+  getIoLogikLastScan,
+  importIoLogikConfiguration,
 } from "./iologikFleetService";
 
 const router = Router();
+router.get('/operations', (_req, res) => res.json(getIoLogikOperation()));
+router.post('/configuration/import', (req, res) => {
+  try {
+    const configurationProfile = importIoLogikConfiguration({ text: req.body?.text });
+    res.json({ success: true, configurationProfile, assets: getIoLogikAssets() });
+  } catch (error) { res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Configuration import failed.' }); }
+});
 router.get("/targets", (_req, res) =>
   res.json({
     success: true,
     ...getIoLogikTopology(),
     assets: getIoLogikAssets(),
+    lastScan: getIoLogikLastScan(),
+    fleetState: getIoLogikOperation(),
   }),
 );
 router.post("/discover", async (req, res) => {
   try {
     const rows = await discoverIoLogik(req.body?.targetIps);
-    res.json({ success: true, scannedAt: new Date().toISOString(), rows });
+    res.json({ success: true, scannedAt: getIoLogikLastScan()?.scannedAt, rows, lastScan: getIoLogikLastScan() });
   } catch (error: any) {
     res
       .status(400)
@@ -34,7 +46,7 @@ router.post("/firmware/scan", async (req, res) => {
       targetIps: req.body?.targetIps,
       password: req.body?.password,
     });
-    res.json({ success: true, scannedAt: new Date().toISOString(), rows });
+    res.json({ success: true, scannedAt: getIoLogikLastScan()?.scannedAt, rows, lastScan: getIoLogikLastScan() });
   } catch (error: any) {
     res
       .status(400)

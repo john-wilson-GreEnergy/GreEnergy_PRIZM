@@ -35,6 +35,7 @@ import { getSystemSocAndSource } from "../lib/socUtils";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 import HvacQuickReference from "./HvacQuickReference";
+import NotificationReviewPanel from "./NotificationReviewPanel";
 import { getHvacFeedbackProfile, supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
 
 
@@ -418,6 +419,7 @@ function formatRuntimeCorrectiveLocation(finding: any): string {
 }
 
 function mapRuntimeCorrectiveFindingToLegacyIssue(finding: any): any {
+  const displayFaultCode=finding?.nativeFaultCode ?? finding?.faultCode ?? finding?.evidence?.nativeFaultCode ?? finding?.evidence?.faultCode ?? finding?.evidence?.code ?? finding?.normalizedFaultCode ?? finding?.code ?? "PRIZM-NORMALIZED-FAULT";
   const categoryLabel = correctiveCategoryLabel(finding?.category);
   const location = formatRuntimeCorrectiveLocation(finding);
   const target = {
@@ -2148,6 +2150,7 @@ export default function SiteOperationsDashboard({
   });
 
   const [isAdvancedMode, setIsAdvancedMode] = useState(false);
+  const [legacyNotificationView] = useState(() => new URLSearchParams(window.location.search).get('notificationView') === 'legacy');
   const [expandedCorrectiveActions, setExpandedCorrectiveActions] = useState<
     Record<string, boolean>
   >({});
@@ -2221,6 +2224,14 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
     const loadRuntimeCorrectiveActions = async () => {
       setRuntimeCorrectiveLoading(true);
       try {
+        if (!legacyNotificationView) {
+          // Quick-reference equipment only; notification decisions now arrive in the server snapshot.
+          const response = await fetch('/api/feather/devices?cache=cache-first&maxAgeMs=60000');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (!cancelled) runtimeFeatherDevicesRef.current = Array.isArray(data.devices) ? data.devices : [];
+          return;
+        }
         const res = await fetch("/api/local/strings/dashboard/corrective-actions");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -2293,7 +2304,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, hvacUseFanRpmForFaults]);
+  }, [active, hvacUseFanRpmForFaults, legacyNotificationView]);
 
   const exportCorrectiveActionsPdf = async (
     pdfFormat: "field-work-order" | "field-handoff" | "checklist-report"
@@ -2929,7 +2940,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
   const safetyEligible = sum?.safetySummary?.clearableCount || 0;
   const safetyNotEligible = 0; // Not eligible faults no longer primarily tracked here
   const topologyEntities = Array.isArray(sum?.topology) ? sum.topology : [];
-  const topologyTypes = Array.from(new Set(topologyEntities.map((entity: any) => String(entity?.entityType || "Unknown")))).sort();
+  const topologyTypes = Array.from(new Set<string>(topologyEntities.map((entity: any) => String(entity?.entityType || "Unknown")))).sort();
   const filteredTopologyEntities = topologyEntities.filter((entity: any) => {
     const healthy = entity?.enabled !== false && entity?.ready !== false && entity?.communicating !== false;
     if (topologyTypeFilter !== "all" && String(entity?.entityType || "Unknown") !== topologyTypeFilter) return false;
@@ -3216,13 +3227,13 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-warning uppercase">Fault Warnings</span>
                     <span className="font-bold text-prizm-warning">
-                      {displayedCorrectiveWarningCount}
+                      {legacyNotificationView ? displayedCorrectiveWarningCount : sum?.notificationReview?.totals.warning ?? '—'}
                     </span>
                   </div>
                   <div className="flex justify-between pb-1 border-b border-prizm-border/50">
                     <span className="text-prizm-danger uppercase">Fault Alarms</span>
                     <span className="font-bold text-prizm-danger">
-                      {displayedCorrectiveAlarmCount}
+                      {legacyNotificationView ? displayedCorrectiveAlarmCount : sum?.notificationReview?.totals.alarm ?? '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -3753,6 +3764,12 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
     </div>
 
     {/* FULL-WIDTH CORRECTIVE ACTIONS CARD */}
+    {!legacyNotificationView ? <NotificationReviewPanel review={sum?.notificationReview} stale={sum?.stale || sum?.liveStatus?.stale} onEditGuidance={entryId=>{
+      if(entryId) localStorage.setItem('prizm_troubleshooting_selected_entry',entryId);
+      else localStorage.removeItem('prizm_troubleshooting_selected_entry');
+      localStorage.setItem('prizm_troubleshooting_open_matrix','true');
+      navigate('troubleshooting-library');
+    }}/> : (
     <div className="bg-prizm-surface border border-prizm-border rounded-lg flex flex-col w-full">
       <h3 className="text-prizm-text-muted text-[10px] font-bold uppercase tracking-wider p-3 flex items-center justify-between border-b border-prizm-border">
         <span className="flex items-center gap-2">
@@ -4211,6 +4228,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       </div>
     </div>
 
+    )}
       <HvacQuickReference
         devices={runtimeFeatherDevicesRef.current}
         fallbackUseRpm={hvacUseFanRpmForFaults}

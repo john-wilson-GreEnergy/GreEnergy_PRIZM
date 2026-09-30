@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useSyncExternalStore, ReactNode, useCallback, useRef, useMemo } from 'react';
+import { SiteDataRequests } from '../lib/siteDataRequests';
+import { SelectedStore } from '../lib/selectedStore';
 
 export interface SiteDataContextType {
   snapshot: any | null;
@@ -11,6 +13,7 @@ export interface SiteDataContextType {
   lastUpdated: string | null;
   refreshNow: (force?: boolean) => Promise<void>;
   error: Error | null;
+  topologyError: Error | null;
   dataQualityWarning: string | null;
   isPollingEnabled: boolean;
   isTerminated: boolean;
@@ -24,7 +27,7 @@ export interface SiteDataContextType {
   setActiveView: (view: string) => void;
 }
 
-const SiteDataContext = createContext<SiteDataContextType | null>(null);
+const SiteDataContext = createContext<SelectedStore<SiteDataContextType> | null>(null);
 
 function countArrayDetailStrings(snapshot: any): number {
   return (Object.values(snapshot?.normalized?.arrayDetailsByArray || {}) as any[])
@@ -44,6 +47,8 @@ function getSnapshotQuality(snapshot: any) {
 }
 
 const STRING_HEAVY_VIEWS = new Set(["arrays-strings", "site-health", "one-line"]);
+// Must match the deliberately compact heartbeat views in siteDataRoutes.
+const HEARTBEAT_VIEWS = new Set(["overview", "pcs-dashboard", "thermal-controls"]);
 
 function isRenderableSnapshot(snapshot: any, view = "overview"): boolean {
   const q = getSnapshotQuality(snapshot);
@@ -61,7 +66,7 @@ function hasArrayZeroFallback(snapshot: any): boolean {
   return false;
 }
 
-function isDegradedComparedToPrevious(next: any, previous: any, view = "overview"): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
+export function isDegradedComparedToPrevious(next: any, previous: any, view = "overview", compactAware = true): { degraded: boolean; reason: string; previousQuality: any; nextQuality: any } {
   const previousQuality = getSnapshotQuality(previous);
   const nextQuality = getSnapshotQuality(next);
 
@@ -85,7 +90,7 @@ function isDegradedComparedToPrevious(next: any, previous: any, view = "overview
     return { degraded: true, reason: "string summary rows collapsed", previousQuality, nextQuality };
   }
 
-  if (previousQuality.arraySummaryRows > 0 && nextQuality.arraySummaryRows === 0) {
+  if ((!compactAware || !HEARTBEAT_VIEWS.has(view)) && previousQuality.arraySummaryRows > 0 && nextQuality.arraySummaryRows === 0) {
     return { degraded: true, reason: "array summary rows collapsed to zero", previousQuality, nextQuality };
   }
 
@@ -98,6 +103,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
+  const [topologyError, setTopologyError] = useState<Error | null>(null);
 
   const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
   const [isPollingEnabled, setIsPollingEnabled] = useState(true);
@@ -107,10 +113,10 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [consecutiveFailureCount, setConsecutiveFailureCount] = useState<number>(0);
   const [consecutiveDegradedCount, setConsecutiveDegradedCount] = useState<number>(0);
 
-  const isFetchingRef = useRef(false);
+  const isFetchingRef = useRef<{view:string;token:number} | null>(null);
+  const requestToken = useRef(0);
+  const [requests] = useState(()=>new SiteDataRequests());
   const snapshotRef = useRef<any>(null);
-  const topologyLoadedRef = useRef(false);
-  const snapshotEtagRef = useRef<string | null>(null);
   const [activeView, setActiveView] = useState("overview");
 
   useEffect(() => {
@@ -122,31 +128,26 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       console.warn("[SiteDataContext] Fetch skipped: connection is manually terminated");
       return;
     }
-    if (isFetchingRef.current) {
+    if (!force && isFetchingRef.current?.view === activeView) {
       console.warn("[SiteDataContext] Fetch skipped: overlapping request in progress");
       return;
     }
 
-    isFetchingRef.current = true;
+    const token=++requestToken.current;
+    isFetchingRef.current = {view:activeView,token};
     setLastPollAttemptedAt(new Date().toISOString());
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 10000); // 10 second timeout
+    const topologyJob = requests.topology(force).then(result=>{
+      if(!result)return;
+      setTopologyError(result.error);
+      if(!result.error)setActiveTopologyProfile(result.profile);
+    });
 
     try {
-      const qs = new URLSearchParams({ view: activeView });
-      if (force) qs.set('refresh', 'true');
-      const shouldFetchTopology = force || !topologyLoadedRef.current;
-      const [response, topoResponse] = await Promise.all([
-        fetch(`/api/local/site-data/snapshot?${qs.toString()}`, {
-          signal: controller.signal,
-          headers: snapshotEtagRef.current ? { "If-None-Match": snapshotEtagRef.current } : undefined
-        }),
-        shouldFetchTopology ? fetch('/api/local/topology/active', { signal: controller.signal }) : Promise.resolve(null)
-      ]);
-      clearTimeout(timeoutId);
+      const query=new URLSearchParams(window.location.search);
+      const snapshotJob=requests.snapshot(activeView,force,query.get('stringPayload')!=='legacy');
+      // Rollback/comparison switch retains coupled waiting without duplicating acquisition.
+      const response=query.get('siteLoading')==='legacy' ? (await Promise.all([snapshotJob,topologyJob]))[0] : await snapshotJob;
+      if(!response || token!==requestToken.current)return;
 
       if (response.status === 304) {
         // An unchanged published snapshot is still a successful polling
@@ -156,38 +157,21 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
         const nowStr = new Date().toISOString();
         setLastGoodSnapshotAt(nowStr);
         setError(null);
-        setDataQualityWarning(null);
         setConsecutiveFailureCount(0);
-        setConsecutiveDegradedCount(0);
         return;
       }
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch site data: ${response.statusText}`);
-      }
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("text/html")) {
-        // NGINX Proxy or Vite SPA fallback during restart/warming
-        throw new Error("Server is restarting or unreachable");
-      }
-      
-      const data = await response.json();
-      snapshotEtagRef.current = response.headers.get("etag");
-      if (topoResponse?.ok) {
-        const topoData = await topoResponse.json();
-        if (topoData.success && topoData.profile) {
-          setActiveTopologyProfile(topoData.profile);
-          topologyLoadedRef.current = true;
-        }
-      }
+      const data = response.data;
       const previous = snapshotRef.current;
-      const { degraded, reason } = isDegradedComparedToPrevious(data, previous, activeView);
+      const compactAware = new URLSearchParams(window.location.search).get('snapshotQuality') !== 'legacy';
+      const { degraded, reason } = isDegradedComparedToPrevious(data, previous, activeView, compactAware);
 
       if (degraded && previous && isRenderableSnapshot(previous, activeView)) {
         setDataQualityWarning("Latest poll degraded; displaying last known good data.");
         setConsecutiveDegradedCount(prev => prev + 1);
         setError(null); // Clear error since we have a good renderable snapshot
       } else {
+        requests.accept(response);
+        snapshotRef.current=data;
         setSnapshot(data);
         const nowStr = new Date().toISOString();
         setLastGoodSnapshotAt(nowStr);
@@ -198,15 +182,14 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
         setConsecutiveDegradedCount(0);
       }
     } catch (err: any) {
-      clearTimeout(timeoutId);
+      if(token!==requestToken.current)return;
       console.warn("[SiteDataContext] Could not get latest snapshot", err.message || err);
       setError(err instanceof Error ? err : new Error(String(err)));
       setConsecutiveFailureCount(prev => prev + 1);
     } finally {
-      isFetchingRef.current = false;
-      setIsInitialLoading(false);
+      if(token===requestToken.current){isFetchingRef.current = null;setIsInitialLoading(false);}
     }
-  }, [isTerminated, activeView]);
+  }, [isTerminated, activeView, requests]);
 
   const pausePolling = useCallback(() => {
     setIsPollingEnabled(false);
@@ -222,9 +205,12 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [fetchSnapshot, isTerminated]);
 
   const terminateConnection = useCallback(() => {
+    requestToken.current++; requests.cancel(); isFetchingRef.current=null;
     setIsPollingEnabled(false);
     setIsTerminated(true);
-  }, []);
+  }, [requests]);
+
+  useEffect(()=>()=>{requestToken.current++;requests.cancel();isFetchingRef.current=null;},[requests]);
 
   // Initial fetch
   useEffect(() => {
@@ -286,6 +272,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
     lastUpdated,
     refreshNow: fetchSnapshot,
     error,
+    topologyError,
     dataQualityWarning,
     isPollingEnabled,
     isTerminated,
@@ -299,8 +286,10 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
     setActiveView
   };
 
+  const [store] = useState(()=>new SelectedStore(value));
+  useLayoutEffect(()=>{store.publish(value);});
   return (
-    <SiteDataContext.Provider value={value}>
+    <SiteDataContext.Provider value={store}>
       {children}
     </SiteDataContext.Provider>
   );
@@ -311,17 +300,30 @@ export const useSiteData = () => {
   if (!context) {
     throw new Error('useSiteData must be used within a SiteDataProvider');
   }
-  return context;
+  return useSyncExternalStore(context.subscribe,context.get,context.get);
 };
+
+/** Page-level subscriptions exclude unrelated polling bookkeeping changes. */
+export function useSiteDataFields<K extends keyof SiteDataContextType>(keys: readonly K[]): Pick<SiteDataContextType,K> {
+  const context=useContext(SiteDataContext);
+  if(!context)throw new Error('useSiteDataFields must be used within a SiteDataProvider');
+  const legacy=typeof window!=='undefined' && new URLSearchParams(window.location.search).get('siteSubscriptions')==='legacy';
+  const selection=useMemo(()=>context.select(legacy ? Object.keys(context.get()) as K[] : keys),[context,keys.join('|'),legacy]);
+  return useSyncExternalStore(selection.subscribe,selection.get,selection.get);
+}
 
 const INERT_SITE_DATA: SiteDataContextType = {
   snapshot: null, activeTopologyProfile: null, siteIdentity: null, liveStatus: null, sourceHealth: null,
   sourceHealthSummary: null, isInitialLoading: false, lastUpdated: null, refreshNow: async () => undefined,
-  error: null, dataQualityWarning: null, isPollingEnabled: false, isTerminated: false,
+  error: null, topologyError: null, dataQualityWarning: null, isPollingEnabled: false, isTerminated: false,
   pausePolling: () => undefined, resumePolling: () => undefined, terminateConnection: () => undefined,
   consecutiveFailureCount: 0, consecutiveDegradedCount: 0, lastPollAttemptedAt: null, lastGoodSnapshotAt: null,
   setActiveView: () => undefined,
 };
 
 /** Preview workspaces use this non-throwing view so the legacy polling provider can remain unmounted. */
-export const useOptionalSiteData = (): SiteDataContextType => useContext(SiteDataContext) ?? INERT_SITE_DATA;
+const inertStore=new SelectedStore(INERT_SITE_DATA);
+export const useOptionalSiteData = (): SiteDataContextType => {
+  const store=useContext(SiteDataContext) ?? inertStore;
+  return useSyncExternalStore(store.subscribe,store.get,store.get);
+};

@@ -1,7 +1,10 @@
 import { triggerImmediatePoll } from "./prizmDataCoordinator";
 import { appendEvent } from "./history/prizmHistory";
+import {beginTimelineCommand} from "./history/commandTimeline";
 import { getContactorStateForString, getContactorStatesForAllStrings, type NormalizedContactorState } from "./contactorStateEngine";
 import { ProfileStore } from "./profiles/profileStore";
+import { resolveControlDestination } from './controls/controlDestination';
+import { boundedControlRequest } from './controls/boundedRequest';
 import { publishBusVoltageToStringBroker, publishContactorStateToStringBroker } from "./domainBrokers/stringDomainBroker";
 import { compactFullArrayStringTargets } from "./controlTargetOptimizer";
 import { readModbusStringContactorState } from "./telemetry/modbusStringTelemetry";
@@ -25,7 +28,7 @@ export interface ContactorControlRequest {
   note?: string;
 }
 
-type ContactorControlResponse = {
+export type ContactorControlResponse = {
   success: boolean;
   acceptedCount: number;
   verifiedCount: number;
@@ -34,7 +37,14 @@ type ContactorControlResponse = {
   results: ContactorTargetResult[];
 };
 
-const recentCommands = new Map<string, Promise<ContactorControlResponse>>();
+/** Trusted server adapter only; never constructed from request JSON. */
+export interface ContactorExecutionGuard {
+  actor: string;
+  namespace: string;
+  beforeDispatch(target: Readonly<ContactorTarget>): Promise<void>;
+}
+
+const recentCommands = new Map<string, {fingerprint: string; operation: Promise<ContactorControlResponse>}>();
 const lockedTargets = new Map<string, string>();
 const IDEMPOTENCY_WINDOW_MS = 30_000;
 
@@ -96,10 +106,6 @@ export interface ContactorTargetResult {
   error: string | null;
 }
 
-function getEmsBase(): string {
-  return (process.env.PRIZM_EMS_TURTLE_BASE || "http://10.0.0.3:8080/turtle").replace(/\/$/, "");
-}
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // EMS can accept the mutation immediately while StringViewer continues to
@@ -110,7 +116,8 @@ const FAST_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_CONTACTOR_VERIFY_DEADLI
 const ARRAY_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_ARRAY_CONTACTOR_VERIFY_DEADLINE_MS) || 60_000;
 const STRINGVIEWER_READ_TIMEOUT_MS = 3_000;
 
-async function refreshArrayBusVoltages(arrayNumbers: number[]): Promise<void> {
+async function refreshArrayBusVoltages(arrayNumbers: number[], assertCurrent: () => void): Promise<void> {
+  assertCurrent();
   const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
   const arrays = [...new Set(arrayNumbers.filter((array) => Number.isInteger(array) && array > 0))];
   if (arrays.length === 0) return;
@@ -124,6 +131,7 @@ async function refreshArrayBusVoltages(arrayNumbers: number[]): Promise<void> {
     concurrency: 16,
     timeoutMs: STRINGVIEWER_READ_TIMEOUT_MS,
     onState: (state) => {
+      assertCurrent();
       if (state.quality === "live" && Number.isFinite(Number(state.dcBusVoltage))) {
         publishBusVoltageToStringBroker(state);
       }
@@ -141,7 +149,8 @@ function normalizedReadbackMatches(row: NormalizedContactorState, action: "open"
 
 async function verifyTargetFromStringviewer(
   target: ContactorTarget,
-  action: "open" | "close"
+  action: "open" | "close",
+  assertCurrent: () => void
 ): Promise<{ confirmed: boolean | null; status: string; state?: NormalizedContactorState | null }> {
   const deadline = Date.now() + (target.allStrings === true ? ARRAY_VERIFY_DEADLINE_MS : FAST_VERIFY_DEADLINE_MS);
   let consecutiveMatches = 0;
@@ -154,6 +163,7 @@ async function verifyTargetFromStringviewer(
   let lastState: NormalizedContactorState | null = null;
 
   while (Date.now() < deadline) {
+    assertCurrent();
     if (target.allStrings === true) {
       const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
       const sample = await getContactorStatesForAllStrings({
@@ -163,11 +173,13 @@ async function verifyTargetFromStringviewer(
         concurrency: 12,
         timeoutMs: STRINGVIEWER_READ_TIMEOUT_MS,
         onState: (state) => {
+          assertCurrent();
           if (state.quality === "live" && Number.isFinite(Number(state.dcBusVoltage))) {
             publishBusVoltageToStringBroker(state);
           }
         }
       });
+      assertCurrent();
       const live = sample.states.filter((state) => state.quality === "live");
       const matches = live.filter((state) => normalizedReadbackMatches(state, action) === true).length;
       const mismatches = live.filter((state) => normalizedReadbackMatches(state, action) === false).length;
@@ -188,6 +200,7 @@ async function verifyTargetFromStringviewer(
       // failure falls through to the established StringViewer verifier.
       try {
         const modbusState = await readModbusStringContactorState(Number(target.array), Number(target.string));
+        assertCurrent();
         const modbusMatches = action === "close"
           ? modbusState.actualState === "closed"
           : modbusState.actualState === "open";
@@ -215,10 +228,12 @@ async function verifyTargetFromStringviewer(
         // StringViewer remains the authoritative fallback when Modbus is not
         // mapped, unavailable, or not yet reporting the requested state.
       }
+      assertCurrent();
       const state = await getContactorStateForString(Number(target.array), Number(target.string), {
         refresh: true,
         timeoutMs: STRINGVIEWER_READ_TIMEOUT_MS
       });
+      assertCurrent();
       lastState = state;
       lastResult = normalizedReadbackMatches(state, action);
       lastMatchCount = lastResult === true ? 1 : 0;
@@ -283,7 +298,7 @@ export function contactorReadbackMatches(row: any, action: "open" | "close"): bo
   return null;
 }
 
-async function executeContactorControlOnce(req: ContactorControlRequest): Promise<ContactorControlResponse> {
+async function executeContactorControlOnce(req: ContactorControlRequest, guard?: ContactorExecutionGuard): Promise<ContactorControlResponse> {
   // 1. Validation
   if (!req.action || (req.action !== "open" && req.action !== "close")) {
     throw new Error("Action must be 'open' or 'close'");
@@ -301,19 +316,34 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
   const ignoreLow = req.ignoreLowCgVoltAlarm === true;
   const ignoreHigh = req.ignoreHighCgVoltAlarm === true;
   const ignoreVoltageDelta = req.ignoreStringDcBusVoltageDeltaLimit === true;
+  // Ordinary contactor authority is not permission to bypass electrical protection.
+  // Re-enable only through a separately reviewed safety/authorization adapter.
+  for (const flag of [req.ignoreLowCgVoltAlarm, req.ignoreHighCgVoltAlarm, req.ignoreStringDcBusVoltageDeltaLimit]) {
+    if (flag !== undefined && flag !== false) throw new Error('Contactor protection overrides are not supported by this control workflow');
+  }
   const recloseCount = Number(req.recloseCount ?? 6);
   if (!Number.isInteger(recloseCount) || recloseCount < 0 || recloseCount > 20) {
     throw new Error("Reclose count must be a whole number between 0 and 20");
   }
 
   const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
+  // Validate the entire original selection before optimization or any dispatch.
+  for (const target of req.targets) {
+    if (!target || !Number.isSafeInteger(target.array) || target.array < 1 || target.array > 8 ||
+        (target.allStrings !== undefined && typeof target.allStrings !== 'boolean') ||
+        (target.allStrings !== true && (!Number.isSafeInteger(target.string) || Number(target.string) < 1 || Number(target.string) > stringsPerArray))) {
+      throw new Error('Invalid contactor target; no commands were sent');
+    }
+  }
+  const destination = resolveControlDestination();
   const optimizedTargets = compactFullArrayStringTargets(req.targets, stringsPerArray) as ContactorTarget[];
   const results: ContactorTargetResult[] = [];
+  const timelineCommands = new Map<ContactorTarget, ReturnType<typeof beginTimelineCommand>>();
 
   // 2. Loop and execute targets
   for (const t of optimizedTargets) {
     const array = Number(t.array);
-    if (isNaN(array) || array < 1 || array > 8) {
+    if (!Number.isSafeInteger(array) || array < 1 || array > 8) {
       throw new Error(`Invalid array: ${t.array}. Array must be between 1 and 8.`);
     }
 
@@ -322,7 +352,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
 
     if (!isAll) {
       stringNum = Number(t.string);
-      if (isNaN(stringNum) || stringNum < 1 || stringNum > 40) {
+      if (!Number.isSafeInteger(stringNum) || stringNum < 1 || stringNum > stringsPerArray) {
         throw new Error(`Invalid string: ${t.string}. String must be between 1 and 40 for single string target.`);
       }
     }
@@ -331,7 +361,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
     // momentarily actuate the device while leaving EMS's requested state open;
     // EMS then immediately wins and the close never persists. This is the same
     // control authority used by the legacy EMS tools and Kobold workflow.
-    const base = getEmsBase();
+    const base = destination.baseUrl;
     const phoenixUrl = buildEmsContactorUrl(base, { ...t, array, string: stringNum }, {
       action: req.action,
       ignoreLowCgVoltAlarm: ignoreLow,
@@ -345,30 +375,29 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
     let responseText = "";
     let responseWarning: string | null = null;
     let error: string | null = null;
+    // A rejected authorization must stop the workflow, not become a per-target
+    // transport error that lets subsequent targets continue dispatching.
+    if (guard) await guard.beforeDispatch(t);
+    destination.assertCurrent();
+    timelineCommands.set(t, beginTimelineCommand(base, t, `Contactors ${req.action.toUpperCase()}`));
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const res = await fetch(phoenixUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
+      destination.assertCurrent();
+      const res = await boundedControlRequest(phoenixUrl, 5000);
 
       responseStatus = res.status;
-      responseText = await res.text();
+      responseText = res.text;
       const lowerBody = responseText.toLowerCase();
 
-      accepted = res.ok ||
-                 res.status === 200 ||
-                 lowerBody.includes("setting contactor state without flags") ||
-                 lowerBody.includes("does not support voltage alarm flags") ||
-                 lowerBody.includes("ok");
+      accepted = res.ok;
 
       if (lowerBody.includes("does not support voltage alarm flags")) {
         responseWarning = responseText;
       }
-    } catch (err: any) {
-      error = err.message || "Timeout or network failure";
-      responseText = error;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Timeout or network failure";
+      error = message;
+      responseText = message;
     }
 
     results.push({
@@ -395,7 +424,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
     const affectedArrays = results
       .filter((result) => result.accepted)
       .map((result) => Number(result.target.array));
-    void refreshArrayBusVoltages(affectedArrays).catch((err) => {
+    void refreshArrayBusVoltages(affectedArrays, destination.assertCurrent).catch((err) => {
       console.error("[Contactor Control] Array bus-voltage refresh failed", err);
     });
 
@@ -405,12 +434,16 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
         res.readbackStatus = "Command not accepted; skipping readback";
         return;
       }
-      const verification = await verifyTargetFromStringviewer(res.target, req.action);
-      res.readbackConfirmed = verification.confirmed;
-      res.readbackStatus = verification.status;
-      res.readbackState = verification.state ?? null;
-      if (verification.state?.quality === "live") {
-        publishContactorStateToStringBroker(verification.state);
+      try {
+        const verification = await verifyTargetFromStringviewer(res.target, req.action, destination.assertCurrent);
+        destination.assertCurrent();
+        res.readbackConfirmed = verification.confirmed;
+        res.readbackStatus = verification.status;
+        res.readbackState = verification.state ?? null;
+        if (verification.state?.quality === "live") publishContactorStateToStringBroker(verification.state);
+      } catch (error) {
+        res.readbackConfirmed = null;
+        res.readbackStatus = `Command accepted; verification unavailable: ${String(error)}`;
       }
     }));
 
@@ -427,6 +460,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
   }
 
   const acceptedCount = results.filter(r => r.accepted).length;
+  for (const result of results) timelineCommands.get(result.target)?.result(result);
   const confirmedCount = results.filter(r => r.readbackConfirmed === true).length;
   const mismatchCount = results.filter(r => r.readbackConfirmed === false).length;
   const unknownCount = results.filter(r => r.readbackConfirmed === null).length;
@@ -439,7 +473,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
     level: "warning",
     category: "Control",
     details: `Requested contactor ${req.action.toUpperCase()} for ${req.targets.length} selected target(s), optimized to ${optimizedTargets.length} EMS command target(s). Reclose count: ${recloseCount}. Voltage-delta limit ignored: ${ignoreVoltageDelta}. Alarms ignored - Low: ${ignoreLow}, High: ${ignoreHigh}. Reason: ${req.reason}. Note: ${req.note || 'None'}. Accepted: ${acceptedCount}/${optimizedTargets.length}, Confirmed: ${confirmedCount}/${optimizedTargets.length}.`,
-    user: "LocalOperator",
+    user: guard?.actor ?? "LocalOperator",
     metadata: {
       request: req,
       results
@@ -460,10 +494,18 @@ async function executeContactorControlOnce(req: ContactorControlRequest): Promis
   };
 }
 
-export function executeContactorControl(req: ContactorControlRequest): Promise<ContactorControlResponse> {
-  const commandId = String(req.commandId || "").trim();
+export function executeContactorControl(req: ContactorControlRequest, guard?: ContactorExecutionGuard): Promise<ContactorControlResponse> {
+  // A cached response belongs to the same site AND exact submitted plan.
+  // It must not bypass validation by reusing another request's identifier.
+  const requestedId = String(req.commandId || "").trim();
+  const profile = ProfileStore.getActiveProfile();
+  const commandId = requestedId ? JSON.stringify([guard?.namespace ?? 'legacy', profile?.id, profile?.stationCode, profile?.blockIndex, profile?.emsHost, profile?.emsPort, profile?.turtlePath, requestedId]) : '';
+  const fingerprint = JSON.stringify(req);
   if (commandId && recentCommands.has(commandId)) {
-    return recentCommands.get(commandId)!;
+    const previous = recentCommands.get(commandId)!;
+    if (previous.fingerprint !== fingerprint) return Promise.reject(new Error('Command ID was already used for a different plan; no command was sent'));
+    resolveControlDestination().assertCurrent();
+    return previous.operation;
   }
 
   const keys = commandTargetKeys(Array.isArray(req.targets) ? req.targets : []);
@@ -474,13 +516,13 @@ export function executeContactorControl(req: ContactorControlRequest): Promise<C
 
   const lockOwner = commandId || `server-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   keys.forEach((key) => lockedTargets.set(key, lockOwner));
-  const operation = executeContactorControlOnce(req).finally(() => {
+  const operation = executeContactorControlOnce(req, guard).finally(() => {
     keys.forEach((key) => {
       if (lockedTargets.get(key) === lockOwner) lockedTargets.delete(key);
     });
   });
   if (commandId) {
-    recentCommands.set(commandId, operation);
+    recentCommands.set(commandId, {fingerprint, operation});
     const timer = setTimeout(() => recentCommands.delete(commandId), IDEMPOTENCY_WINDOW_MS);
     timer.unref?.();
   }

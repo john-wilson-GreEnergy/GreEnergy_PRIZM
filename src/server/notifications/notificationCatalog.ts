@@ -1,3 +1,4 @@
+import {STRING_CONTROLLER_FAULT_CATALOG} from './stringControllerFaultCatalog';
 export type NotificationSummaryVisibility = "show" | "rollupOnly" | "suppress";
 
 export type NotificationCatalogEntry = {
@@ -5,11 +6,38 @@ export type NotificationCatalogEntry = {
   name: string;
   family?: string;
   component?: string;
+  description?: string;
+  defaultSeverity?: 'alarm' | 'warning' | 'info';
+  clearBehavior?: 'manual' | 'condition' | 'permanent-record';
+  clearingDescription?: string;
+  warranty?: boolean;
+  source?: {document:string; section:string; page:number};
+  sourceNotes?: string[];
   summaryVisibility?: NotificationSummaryVisibility;
   exportVisibility?: "include" | "exclude";
 };
 
-export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
+const EXISTING_CATALOG: Record<string, NotificationCatalogEntry> = {
+  "1003": {
+    code: "1003", name: "String High Voltage Alarm", family: "string-high-voltage",
+    component: "String", summaryVisibility: "show", exportVisibility: "include",
+    description: "The source reports string voltage above its configured alarm threshold."
+  },
+  "2003": {
+    code: "2003", name: "String High Voltage Warning", family: "string-high-voltage",
+    component: "String", summaryVisibility: "show", exportVisibility: "include",
+    description: "The source reports string voltage above its configured warning threshold."
+  },
+  "1008": {
+    code: "1008", name: "Battery Pack Voltage Delta Alarm", family: "battery-pack-voltage-delta",
+    component: "BPC", summaryVisibility: "show", exportVisibility: "include",
+    description: "The source reports battery pack voltage delta above its configured alarm threshold."
+  },
+  "2008": {
+    code: "2008", name: "Battery Pack Voltage Delta Warning", family: "battery-pack-voltage-delta",
+    component: "BPC", summaryVisibility: "show", exportVisibility: "include",
+    description: "The source reports battery pack voltage delta above its configured warning threshold."
+  },
   "1023": {
     code: "1023",
     name: "CGC Disconnect Alarm",
@@ -95,8 +123,8 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
     name: "Contactor Open Warning",
     family: "contactor-open",
     component: "String",
-    summaryVisibility: "rollupOnly",
-    exportVisibility: "exclude"
+    summaryVisibility: "show",
+    exportVisibility: "include"
   },
   "2561": {
     code: "2561",
@@ -107,6 +135,15 @@ export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {
     exportVisibility: "exclude"
   }
 };
+
+// Preserve established visibility/export policies and legacy families, while enriching
+// the definitions from the supplied manual. Codes absent from that manual remain intact.
+export const NOTIFICATION_CATALOG: Record<string, NotificationCatalogEntry> = {...EXISTING_CATALOG};
+for (const [code, documented] of Object.entries(STRING_CONTROLLER_FAULT_CATALOG)) {
+  const existing = EXISTING_CATALOG[code];
+  NOTIFICATION_CATALOG[code] = {...documented,
+    ...(existing ? {family:existing.family,summaryVisibility:existing.summaryVisibility,exportVisibility:existing.exportVisibility} : {})};
+}
 
 export function getNotificationCatalogEntry(code: string | number | null | undefined): NotificationCatalogEntry | null {
   if (code === null || code === undefined) return null;

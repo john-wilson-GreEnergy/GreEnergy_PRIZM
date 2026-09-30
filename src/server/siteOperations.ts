@@ -274,7 +274,7 @@ export type NormalizedStringRow = {
   commandMatchesContactors?: boolean | null;
 };
 
-export function buildStringBucketSummary(stringsData: any[]) {
+export function buildStringBucketSummary(stringsData: readonly any[]) {
     function bool(v: any) {
         if (v === true || v === false) return v;
         if (typeof v === 'string') return v.toLowerCase() === 'true' || v.toLowerCase() === '1' || v.toLowerCase() === 'yes';
@@ -2125,11 +2125,11 @@ router.get("/summary", async (req, res) => {
         }
 
         if (!responseData) responseData = {};
-        const sameCycleSnapshot = (await import('./prizmDataCoordinator')).getLatestSnapshot();
-        if (sameCycleSnapshot?.rawSources?.strings?.length) {
+        const sameCycleSnapshot = (await import('./prizmDataCoordinator')).getSiteOperationsSummarySource();
+        if (sameCycleSnapshot?.strings?.length) {
             responseData = {
                 ...responseData,
-                stringSummary: buildStringBucketSummary(structuredClone(sameCycleSnapshot.rawSources.strings)),
+                stringSummary: buildStringBucketSummary(sameCycleSnapshot.strings),
                 cycleId: sameCycleSnapshot.cycleId
             };
         }

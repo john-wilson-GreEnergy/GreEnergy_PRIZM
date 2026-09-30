@@ -49,6 +49,10 @@ export interface CoordinatorDebugState {
 
 type CycleExecutor<TSnapshot> = (context: { cycleId: number; reasons: string[]; refreshRequestCount: number }) => Promise<CoordinatorCycleOutcome<TSnapshot>>;
 
+export type SnapshotReadOnly<T> = T extends object
+  ? { readonly [K in keyof T]: SnapshotReadOnly<T[K]> }
+  : T;
+
 export class CoordinatorRuntime<TSnapshot> {
   private state: CoordinatorRuntimeState = "IDLE";
   private currentSnapshot: TSnapshot | null = null;
@@ -103,6 +107,7 @@ export class CoordinatorRuntime<TSnapshot> {
   }
 
   requestRefresh(reason: string): void {
+    if(this.stopping)return;
     const normalizedReason = String(reason || "unspecified").trim() || "unspecified";
     const requestedAt = new Date().toISOString();
     this.refreshRequestCount += 1;
@@ -145,6 +150,12 @@ export class CoordinatorRuntime<TSnapshot> {
 
   getCurrentSnapshot(): TSnapshot | null { return cloneValue(this.currentSnapshot); }
   getLastSuccessfulSnapshot(): TSnapshot | null { return cloneValue(this.lastSuccessfulSnapshot); }
+
+  // Trusted, synchronous selectors only: never expose the owned publication or
+  // accept request-provided callbacks. Copy only their result before returning it.
+  getCurrentProjection<TProjection>(select: (snapshot: SnapshotReadOnly<TSnapshot>) => TProjection): TProjection | null {
+    return this.currentSnapshot === null ? null : cloneValue(select(this.currentSnapshot as SnapshotReadOnly<TSnapshot>));
+  }
 
   setCurrentSnapshot(snapshot: TSnapshot | null): void {
     this.currentSnapshot = cloneValue(snapshot);

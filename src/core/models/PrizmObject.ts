@@ -1,3 +1,4 @@
+import type {Metadata} from "./Metadata";
 export interface PrizmObject {
   id: string;
   type: string;

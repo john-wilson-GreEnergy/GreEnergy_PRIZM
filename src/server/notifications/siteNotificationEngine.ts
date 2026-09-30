@@ -75,6 +75,10 @@ function normalizeSeverity(action: any, code: string): "alarm" | "warning" | "in
 
   if (raw.includes("ALARM") || raw.includes("FAULT") || raw.includes("CRITICAL")) return "alarm";
   if (raw.includes("WARN")) return "warning";
+  if (raw.includes("INFO")) return "info";
+
+  const documented = getNotificationCatalogEntry(code)?.defaultSeverity;
+  if (documented) return documented;
 
   const numericCode = Number(code);
   if (Number.isFinite(numericCode)) {
@@ -168,6 +172,7 @@ function normalizeFromAction(action: any, target: any, targetIndex: number): Nor
     action?.description ??
     action?.summary ??
     action?.message ??
+    catalogEntry?.description ??
     name
   );
 

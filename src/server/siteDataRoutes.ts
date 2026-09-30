@@ -1,9 +1,16 @@
 import { Router } from "express";
 import { gzipSync } from "node:zlib";
+import { buildArrayCellMetrics } from './telemetry/arrayCellMetrics';
+import {compactStringRow, compactStringView, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
+import { fastStringsTransportEnabled, sendFastStringsResponse } from './telemetry/fastStringsTransport';
 import { thermalRouter } from "./thermal/thermalRoutes";
+import {operationalTimelineRouter} from "./history/operationalTimelineRoutes";
+import {operationalTimeline} from "./history/operationalTimeline";
 import {
   getSnapshotOrNull,
   getFastStringsView,
+  getEncodedFastStringsView,
+  getCanonicalStringDetailRow,
   getSiteDataStatusView,
   getBlockSummaryView,
   getStringsView,
@@ -25,6 +32,7 @@ import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBr
 
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
+siteDataRouter.use("/operational-timeline", operationalTimelineRouter);
 
 const cachedBrowserSnapshots = new Map<string, {
   source: any;
@@ -49,9 +57,12 @@ let cachedPcsHttpView: {
   etag: string;
 } | null = null;
 
-function publishPcsHttpView(): boolean {
-  const view = getPcsView();
-  if (!view || view.warming) return false;
+function publishPcsHttpView(recordHistory = false): boolean {
+  const projected = getPcsView();
+  if (!projected || projected.warming) return false;
+  const {historyBatch, ...view} = projected;
+  // Consume the existing background projection, never browser demand or a new device poll.
+  if (recordHistory) operationalTimeline().ingest(historyBatch);
   const signature = `${view.cycleId || 0}:${view.modbusTelemetry?.capturedAt || "none"}`;
   if (cachedPcsHttpView?.signature === signature) return false;
   const json = JSON.stringify(view);
@@ -68,6 +79,7 @@ function publishPcsHttpView(): boolean {
 
 type PublishedViewDefinition = {
   key: string;
+  compactStringList?: boolean;
   heartbeatOnly?: boolean;
   includeArrayDetails?: boolean;
   includeStringDiagnostics?: boolean;
@@ -75,6 +87,7 @@ type PublishedViewDefinition = {
 };
 
 const PUBLISHED_VIEW_DEFINITIONS: PublishedViewDefinition[] = [
+  { key: "string-list-v1", compactStringList: true, includeStrings: true },
   { key: "heartbeat", heartbeatOnly: true },
   { key: "standard:compact-strings:with-strings", includeStrings: true },
   { key: "details:compact-strings:with-strings", includeArrayDetails: true, includeStrings: true },
@@ -88,7 +101,8 @@ function serializePublishedView(source: any, definition: PublishedViewDefinition
     : buildBrowserSnapshot(source, {
         includeArrayDetails: definition.includeArrayDetails,
         includeStringDiagnostics: definition.includeStringDiagnostics,
-        includeStrings: definition.includeStrings
+        includeStrings: definition.includeStrings,
+        compactStringList: definition.compactStringList
       });
   const json = JSON.stringify(browserSnapshot);
   const publishedAt = new Date().toISOString();
@@ -142,7 +156,7 @@ export function startPublishedViewCache(): void {
   publishedViewTimer = setInterval(refresh, PUBLISHED_VIEW_INTERVAL_MS);
   publishedViewTimer.unref?.();
   const refreshPcs = () => {
-    try { publishPcsHttpView(); }
+    try { publishPcsHttpView(true); }
     catch (error: any) { console.warn("[Published PCS] Background preparation failed", error?.message || error); }
   };
   refreshPcs();
@@ -198,6 +212,7 @@ function withoutDiagnosticPayload(row: any, includeStringDiagnostics = false) {
  * tens of megabytes every few seconds.
  */
 export function buildBrowserSnapshot(snapshot: any, options: {
+  compactStringList?: boolean;
   includeArrayDetails?: boolean;
   includeStringDiagnostics?: boolean;
   includeStrings?: boolean;
@@ -211,7 +226,7 @@ export function buildBrowserSnapshot(snapshot: any, options: {
   const { enhanced: _enhanced, tableRows: _tableRows, ...compactStringSummary } = stringSummary;
   const { devices: _devices, ...compactFeatherSummary } = featherSummary;
   const normalizedStrings = options.includeStrings !== false && Array.isArray(normalized.strings)
-    ? normalized.strings.map((row: any) => withoutDiagnosticPayload(row, options.includeStringDiagnostics))
+    ? normalized.strings.map((row: any) => options.compactStringList ? compactStringRow(row) : withoutDiagnosticPayload(row, options.includeStringDiagnostics))
     : [];
 
   const arrayDetailsByArray = options.includeArrayDetails
@@ -244,6 +259,7 @@ export function buildBrowserSnapshot(snapshot: any, options: {
       ...rollups,
       stringSummary: compactStringSummary,
       featherSummary: compactFeatherSummary,
+      arrayCellMetrics: buildArrayCellMetrics(normalized.strings, rollups.arraySummary),
       arraySummary: Array.isArray(rollups.arraySummary) ? rollups.arraySummary.map(withoutDiagnosticPayload) : rollups.arraySummary
     }
   };
@@ -317,7 +333,8 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     // repeatedly transferring string rows there can starve the heartbeat request.
     const includeStrings = view === "arrays-strings" || view === "site-health" || view === "one-line";
     const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls";
-    const cacheKey = heartbeatOnly
+    const compactStringList = view === "arrays-strings" && req.query.shape === "list";
+    const cacheKey = compactStringList ? "string-list-v1" : heartbeatOnly
       ? "heartbeat"
       : `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
     demandedViewKeys.set(cacheKey, Date.now());
@@ -388,11 +405,30 @@ siteDataRouter.get("/strings", (req, res) => {
   }
 });
 
-siteDataRouter.get("/strings-fast", (_req, res) => {
-  const view = getFastStringsView();
-  if (view?.warming) return res.status(503).json(view);
+siteDataRouter.get("/strings-fast", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(view);
+  try {
+    if (fastStringsTransportEnabled()) {
+      const encoded = await getEncodedFastStringsView(req.query.shape === "list");
+      if (!encoded) return res.status(503).json({ warming: true });
+      return sendFastStringsResponse(req, res, encoded);
+    }
+    const view = getFastStringsView();
+    if (view?.warming) return res.status(503).json(view);
+    return res.json(req.query.shape === "list" ? compactStringView(view) : view);
+  } catch {
+    return res.status(503).json({ error: 'Fast string publication unavailable' });
+  }
+});
+
+siteDataRouter.get("/strings-canonical/:array/:string", (req, res) => {
+  const array = Number(req.params.array), string = Number(req.params.string);
+  if (![array, string].every(value => Number.isSafeInteger(value) && value > 0)) {
+    return res.status(400).json({error: "Invalid string target"});
+  }
+  res.setHeader("Cache-Control", "no-store");
+  const row = getCanonicalStringDetailRow(array, string);
+  return row ? res.json(row) : res.status(404).json({error: "String telemetry unavailable"});
 });
 
 siteDataRouter.get("/strings-stream", (req, res) => {
@@ -401,10 +437,10 @@ siteDataRouter.get("/strings-stream", (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
-  res.write(`event: ready\ndata: ${JSON.stringify({ version: stringDomainBroker.snapshot().version })}\n\n`);
+  res.write(`event: ready\ndata: ${JSON.stringify({ version: stringDomainBroker.getVersion(), transportEpoch: stringTransportEpoch })}\n\n`);
 
   const unsubscribe = stringDomainBroker.subscribe((publication) => {
-    res.write(`event: strings\ndata: ${JSON.stringify(publication)}\n\n`);
+    res.write(`event: strings\ndata: ${JSON.stringify(req.query.shape === "list" ? compactStringPublication(publication) : publication)}\n\n`);
   });
   const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15_000);
   req.on("close", () => {

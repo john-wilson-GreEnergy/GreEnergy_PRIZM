@@ -22,7 +22,7 @@ const devices=Array.from({length:5},(_,i)=>({ip:`10.0.1.${i+1}`,arrayIndex:i===4
   hvac1:{currentA:i===2?undefined:i*2,compressorOn:true,reversingValveOn:false},hvac2:{currentA:0,compressorOn:false,electricHeatOn:false},
   faultMessages:i===1?["Fixture fault"]:[]}));
 thermalService().ingest(devices,now,fixtureSite);await thermalService().flush();
-await build({stdin:{contents:'import React from "react"; import {createRoot} from "react-dom/client"; import Workspace from "./src/components/ThermalWorkspace"; createRoot(document.getElementById("root")).render(<Workspace/>);',loader:"tsx",resolveDir:process.cwd()},bundle:true,format:"esm",outfile:path.join(directory,"app.js"),plugins:[{name:"isolated-refresh",setup(b){b.onResolve({filter:/SiteDataContext$/},()=>({path:"refresh",namespace:"test"}));b.onLoad({filter:/.*/,namespace:"test"},()=>({contents:'export const useSiteData=()=>({lastUpdated:"fixture"});'}));}}]});
+await build({stdin:{contents:'import React from "react"; import {createRoot} from "react-dom/client"; import Workspace from "./src/components/ThermalWorkspace"; createRoot(document.getElementById("root")).render(<Workspace/>);',loader:"tsx",resolveDir:process.cwd()},bundle:true,format:"esm",outfile:path.join(directory,"app.js"),plugins:[{name:"isolated-refresh",setup(b){b.onResolve({filter:/SiteDataContext$/},()=>({path:"refresh",namespace:"test"}));b.onLoad({filter:/.*/,namespace:"test"},()=>({contents:'export const useSiteDataFields=()=>({lastUpdated:"fixture"});'}));}}]});
 const assets=await fs.readdir("dist/assets");
 const css=assets.find(name=>name.startsWith("index-")&&name.endsWith(".css"));
 const app=express();app.use(express.json());app.use("/api/local/site-data/thermal",thermalRouter);

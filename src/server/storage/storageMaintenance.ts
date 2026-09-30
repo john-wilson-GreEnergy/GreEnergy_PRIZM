@@ -1,4 +1,6 @@
 import fs from "fs";
+let maintenanceTimer:ReturnType<typeof setInterval>|undefined;
+export function stopLocalStorageMaintenance(){if(maintenanceTimer)clearInterval(maintenanceTimer);maintenanceTimer=undefined;}
 import path from "path";
 import { execSync } from "child_process";
 import { loadStoragePolicy, saveStoragePolicy, StoragePolicy } from "./storagePolicy";
@@ -418,7 +420,8 @@ export function initLocalStorageMaintenance() {
 
   // 5. Start periodic cleanup loop
   const intervalMins = Math.min(policy.history.cleanupIntervalMinutes, policy.runtimeCache.cleanupIntervalMinutes) || 30;
-  setInterval(() => {
+  stopLocalStorageMaintenance();
+  maintenanceTimer=setInterval(() => {
     try {
       const p = loadStoragePolicy();
       checkAndEnforceLowDisk(p);

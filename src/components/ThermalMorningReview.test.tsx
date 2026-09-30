@@ -1,0 +1,13 @@
+import React from "react";
+import assert from "node:assert/strict";
+import {renderToStaticMarkup} from "react-dom/server";
+import ThermalMorningReview from "./ThermalMorningReview";
+import {ThermalReviewAccumulator,finishThermalReview} from "../server/thermal/thermalMorningReview";
+const device={id:"x",array:1,segment:"ES1",unit:1,ip:"10.0.1.10",label:"Array 1 · ES1 · HVAC 1"};
+const report=finishThermalReview([new ThermalReviewAccumulator(device,0,3600000).finish()],"fixture","Fixture",0,3600000,3600000);
+report.rows[0].faultObservations=["Fixture fault"];
+report.rows[0].performanceCandidate=true;
+const html=renderToStaticMarkup(<ThermalMorningReview job={{state:"ready",completed:1,total:1,report}} onChanged={()=>{}} onInspect={()=>{}}/>);
+assert.match(html,/What happened overnight/);assert.match(html,/No live saved observations/);assert.match(html,/Commanded on.*Unknown/);assert.match(html,/not a live alarm list/);assert.match(html,/Review this unit/);
+assert.equal(renderToStaticMarkup(<ThermalMorningReview job={{state:"disabled",completed:0,total:0}} onChanged={()=>{}} onInspect={()=>{}}/>),"");
+console.log("Morning review rendering and disabled state passed");

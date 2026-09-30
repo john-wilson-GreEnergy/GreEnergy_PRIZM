@@ -1,6 +1,9 @@
 import fs from "fs";
+import {isRuntimeStopping} from "../runtimeShutdown";
 import path from "path";
 import https from "https";
+import { qualifyPcsProcessPoint, mergePcsReading } from "./pcsDataQuality";
+import { pcsNumber } from "../../lib/pcsReading";
 import { getActiveProfile, detectMapAddressOffset, queryModbusRaw, queryModbusReal } from "./modbusProfileManager";
 
 export type PcsSwitchState = "OPEN" | "CLOSED" | "UNKNOWN" | "UNRECOGNIZED";
@@ -40,6 +43,8 @@ type SmaProcessPoint = {
   quality: number | null;
   unitId: number | null;
   timestamp: number | null;
+  receivedAt?: number;
+  isConfiguration?: boolean;
 };
 
 type MapRow = {
@@ -114,7 +119,6 @@ const SMA_EXTENDED_PROCESS_POINTS: Record<string, number> = {
 const smaExtendedCache = new Map<string, { attemptedAt: number; value: Record<string, SmaProcessPoint> }>();
 const smaExtendedRefreshInFlight = new Set<string>();
 const SMA_EXTENDED_POLL_MS = Math.max(30_000, Number(process.env.PRIZM_PCS_EXTENDED_POLL_MS) || 60_000);
-const SMA_EXTENDED_STALE_MS = Math.max(120_000, SMA_EXTENDED_POLL_MS * 2);
 let smaReadsActive = 0;
 const smaReadWaiters: Array<() => void> = [];
 const SMA_READ_CONCURRENCY = Math.max(2, Number(process.env.PRIZM_PCS_WEB_CONCURRENCY) || 6);
@@ -122,7 +126,7 @@ const SMA_READ_CONCURRENCY = Math.max(2, Number(process.env.PRIZM_PCS_WEB_CONCUR
 async function withSmaReadSlot<T>(work: () => Promise<T>): Promise<T> {
   if (smaReadsActive >= SMA_READ_CONCURRENCY) await new Promise<void>((resolve) => smaReadWaiters.push(resolve));
   smaReadsActive++;
-  try { return await work(); }
+  try { if(isRuntimeStopping())throw new Error("PRIZM is shutting down");return await work(); }
   finally {
     smaReadsActive--;
     smaReadWaiters.shift()?.();
@@ -142,12 +146,14 @@ function readSmaProcessPoint(host: string, id: number, timeoutMs = 5000): Promis
       response.on("end", () => {
         try {
           if ((response.statusCode || 500) >= 400) throw new Error(`HTTP ${response.statusCode}`);
-          const point = JSON.parse(payload)?.data;
+          const parsed = JSON.parse(payload);
+          if (parsed?.error === true) throw new Error("SMA returned an error");
+          const point = parsed?.data;
           if (!point || Array.isArray(point)) throw new Error("point unavailable");
           resolve({ id, value: point.quality === undefined || point.quality === null || point.quality === 0 ? point.value ?? null : null,
-            quality: Number.isFinite(Number(point.quality)) ? Number(point.quality) : null,
-            unitId: Number.isFinite(Number(point.unitId)) ? Number(point.unitId) : null,
-            timestamp: Number.isFinite(Number(point.timestamp)) ? Number(point.timestamp) : null });
+            quality: pcsNumber(point.quality),
+            unitId: pcsNumber(point.unitId),
+            timestamp: pcsNumber(point.timestamp), receivedAt: Date.now(), isConfiguration: point._isProcessData === false });
         } catch (error: any) { reject(new Error(`SMA point ${id}: ${error?.message || error}`)); }
       });
     });
@@ -189,7 +195,9 @@ function refreshSmaExtendedProcessData(host: string): Record<string, SmaProcessP
       .catch((error: any) => console.warn(`[SMA ${host}] Extended process data refresh failed:`, error?.message || error))
       .finally(() => smaExtendedRefreshInFlight.delete(host));
   }
-  return cached && Date.now() - cached.attemptedAt <= SMA_EXTENDED_STALE_MS ? cached.value : {};
+  // Preserve last-known values; qualify every point by its own observation time
+  // when publishing. A completed sweep must never renew older point timestamps.
+  return cached?.value || {};
 }
 const decodeSmaEnum = (registers: number[], index: number): number | null =>
   index + 1 < registers.length ? (((registers[index] << 16) | registers[index + 1]) >>> 0) : null;
@@ -345,11 +353,11 @@ export async function readSmaPcsSwitchTelemetry(arrayIndex: number, host = `10.0
     // Some PCS units never expose the auxiliary profile; publish HTTP now.
     const auxiliary = refreshSmaAuxiliarySwitches(host);
     const value: PcsSwitchTelemetry = {
-      ...base, capturedAt: new Date().toISOString(), durationMs: Date.now() - started, stale: false,
+      ...base, port: 443, capturedAt: new Date().toISOString(), durationMs: Date.now() - started, stale: false,
       error: null, addressOffset: auxiliary?.addressOffset ?? null, source: "SMA_WEB_PROCESS_DATA",
       inverterOperatingState: operatingState?.label ?? null,
       inverterOperatingStateRaw: operatingState?.raw ?? null,
-      powerOffReason: (() => { const raw = Number(smaProcessData.powerOffReason?.value); return Number.isInteger(raw) ? (SMA_POWER_OFF_REASONS[raw] || `Reason ${raw}`) : null; })(),
+      powerOffReason: (() => { const raw = pcsNumber(smaProcessData.powerOffReason?.value); return raw !== null && Number.isInteger(raw) ? (SMA_POWER_OFF_REASONS[raw] || `Reason ${raw}`) : null; })(),
       smaProcessData,
       dcSwitch1: bitfieldSwitch(diagram, 17, 16), dcSwitch2: bitfieldSwitch(diagram, 20, 19),
       dcSwitch3: bitfieldSwitch(diagram, 23, 22), acSwitch: bitfieldSwitch(diagram, 26, 25),
@@ -491,7 +499,7 @@ export function groupOperationalModelReads(reads: ModelRead[]): ModelReadGroup[]
 }
 
 export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot> {
-  if (polling) return snapshot;
+  if (polling || isRuntimeStopping()) return snapshot;
   polling = true;
   const started = Date.now();
   try {
@@ -576,8 +584,7 @@ export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot
       pcsSwitchRefreshInFlight.add(arrayIndex);
       void readSmaPcsSwitchTelemetry(arrayIndex)
         .then((value) => {
-          const updated = [...snapshot.pcsSwitches];
-          updated[index] = value;
+          const updated = mergePcsReading(snapshot.pcsSwitches, value);
           snapshot = { ...snapshot, pcsSwitches: updated };
         })
         .catch((error: any) => console.warn(`[Operational Modbus] PCS ${arrayIndex} status refresh failed`, error?.message || error))
@@ -602,16 +609,20 @@ export function getOperationalModbusSnapshot(): OperationalModbusSnapshot {
   return {
     ...snapshot,
     stale: snapshot.stale || ageMs > 15_000,
-    pcsSwitches: snapshot.pcsSwitches.map((row) => row && ({
-      ...row,
-      stale: isPcsSwitchReadingStale(row)
-    }))
+    pcsSwitches: snapshot.pcsSwitches.filter((row) => row != null).map((row) => {
+      const smaProcessData = Object.fromEntries(Object.entries(row.smaProcessData || {}).map(([key, point]) => [key, qualifyPcsProcessPoint(point)]));
+      const reason = smaProcessData.powerOffReason;
+      const raw = reason?.readingState === "live" ? pcsNumber(reason.value) : null;
+      return { ...row, stale: isPcsSwitchReadingStale(row), smaProcessData,
+        powerOffReason: raw !== null && Number.isInteger(raw) ? (SMA_POWER_OFF_REASONS[raw] || `Reason ${raw}`) : null };
+    })
   };
 }
 
 export function startOperationalModbusPolling(intervalMs = 1000): void {
-  if (timer) return;
+  if (timer || isRuntimeStopping()) return;
   void pollOperationalModbus();
   timer = setInterval(() => void pollOperationalModbus(), Math.max(500, intervalMs));
   timer.unref?.();
 }
+export function stopOperationalModbusPolling(){if(timer)clearInterval(timer);timer=null;}

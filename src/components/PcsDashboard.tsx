@@ -2,7 +2,10 @@ import { markPerf } from '../lib/perf';
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Zap, Activity, CheckCircle2, XOctagon, AlertTriangle, PanelTop } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
-import { useSiteData } from "../context/SiteDataContext";
+import { requireVerifiedRotation } from '../lib/rotationCommandResult';
+import { useSiteDataFields } from "../context/SiteDataContext";
+import PcsOperationalTimeline from "./PcsOperationalTimeline";
+import { pcsNumber, formatPcsProcessReading } from "../lib/pcsReading";
 
 const hasVal = (v: any) => v !== undefined && v !== null && v !== "" && v !== "--";
 function PcsSwitchOneLine({ telemetry }: { telemetry: any }) {
@@ -141,7 +144,7 @@ export async function fetchJsonWithTimeout(url: string, options: RequestInit & {
 
 
 export default function PcsDashboard({ active = true }: { active?: boolean }) {
-    const { snapshot, isInitialLoading } = useSiteData();
+    const { snapshot, isInitialLoading } = useSiteDataFields(['snapshot','isInitialLoading']);
     const [pcsList, setPcsList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -290,18 +293,16 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         setSelectedPcsId(pcsList[next].id);
     };
     const oneLineValue = (value: any, unit: string, digits = 1) => {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? `${numeric.toFixed(digits)} ${unit}` : "Not reported";
+        const numeric = pcsNumber(value);
+        return numeric !== null ? `${numeric.toFixed(digits)} ${unit}` : "Not reported";
     };
     const smaPoints = oneLinePcs?.pcsSwitches?.smaProcessData || {};
     const smaValue = (key: string) => smaPoints[key]?.value;
     const smaNumber = (key: string) => {
-        const value = Number(smaValue(key));
-        return Number.isFinite(value) ? value : null;
+        return smaPoints[key]?.readingState === "live" ? pcsNumber(smaValue(key)) : null;
     };
     const smaDisplay = (key: string, unit = "", digits = 1) => {
-        const value = smaNumber(key);
-        return value === null ? "Not reported" : `${value.toFixed(digits)}${unit ? ` ${unit}` : ""}`;
+        return formatPcsProcessReading(smaPoints[key], unit, digits);
     };
     const smaAvailablePower = (puKey: string, ratingKey: string, unit: string) => {
         const pu = smaNumber(puKey);
@@ -491,6 +492,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
            throw new Error(err.error || "Failed to execute PCS rotation");
         }
         
+        requireVerifiedRotation(await res.json());
         setModalOpen(false);
         setSelectedIds(new Set());
         await refreshData();
@@ -1050,6 +1052,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
             </div>
         </div>
 
+        <PcsOperationalTimeline arrays={[...new Set(pcsList.map(p => Number(p.arrayIndex)).filter(Number.isFinite))].sort((a, b) => a - b)} />
         {/* PCS fleet selector and on-demand one-line drill-down */}
         <div className="mt-6 rounded-lg border border-prizm-border bg-prizm-surface font-mono">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-prizm-border bg-prizm-surface-strong/50 p-3">
@@ -1086,7 +1089,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     {pcsList.map((pcs: any) => {
                         const isOpen = selectedPcsId === pcs.id;
                         const directOnline = pcs.pcsSwitches?.stale === false;
-                        const communicating = directOnline || pcs.communicating === true || pcs.sourceOk === true || Number(pcs.dcVoltage) > 0;
+                        const communicating = directOnline || (pcs.stale === false && (pcs.communicating === true || pcs.sourceOk === true));
                         const operatingState = pcs.pcsSwitches?.inverterOperatingState || pcs.state || pcs.modbusOperatingState || "Unknown";
                         const hasFault = Number(pcs.modbusFaultCode || 0) !== 0 || String(operatingState).toUpperCase() === "ERROR";
                         const statusColor = hasFault ? "bg-red-500" : communicating ? "bg-emerald-500" : "bg-amber-500";
@@ -1137,7 +1140,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                             Array {oneLinePcs.arrayIndex} · PCS {oneLinePcs.pcsIndex}
                             <span className="text-prizm-text-muted">· {oneLinePcs.pcsSwitches?.inverterOperatingState || oneLinePcs.state || "Unknown"} · {oneLinePcs.rotation || "Unknown rotation"}</span>
                         </div>
-                        <span className="text-[7px] font-bold uppercase text-prizm-text-muted">{oneLinePcs.pcsSwitches?.capturedAt ? `Updated ${new Date(oneLinePcs.pcsSwitches.capturedAt).toLocaleTimeString()}` : "Awaiting direct sample"}</span>
+                        <span className="text-[7px] font-bold uppercase text-prizm-text-muted">{oneLinePcs.pcsSwitches?.capturedAt ? `Switch/status ${oneLinePcs.pcsSwitches.stale ? "STALE · " : ""}${new Date(oneLinePcs.pcsSwitches.capturedAt).toLocaleTimeString()}` : "Awaiting direct sample"} · Extended HTTP freshness shown per reading</span>
                     </div>
                 )}
                 {oneLinePcs && (

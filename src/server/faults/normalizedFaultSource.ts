@@ -430,7 +430,7 @@ export function getCorrectiveActionsFromNormalizedFaults(ignoredPatterns: string
     const label = `Block ${f.blockIndex} / Array ${arrayNum} / ES${stringNum}`;
 
     // Skip faults matching structural OOR codes in corrective actions
-    const hasIgnoredFilterCode = (msg: string) => /oor|out of rotation|outrotation|contactor open|contactors open/i.test(msg) || msg.includes("2534") || msg.includes("2561");
+    const hasIgnoredFilterCode = (msg: string) => /oor|out of rotation|outrotation/i.test(msg) || msg.includes("2561");
 
     rAlarmsLoop:
     for (const rawA of f.normalizedAlarms) {

@@ -23,6 +23,7 @@ import { classifyStringOperationalState } from "../lib/stringClassifier";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 import { applyCanonicalStringSnapshot } from "./normalizers/canonicalStringSnapshot";
 import { getLatestContactorSnapshot, triggerContactorRefresh, mergeContactorStateIntoStringRow } from "./contactorStateEngine";
+import { getContactorStateView } from "./domainBrokers/contactorStateView";
 import { analyzeContactorStates, analyzeHvacDevices, summarizeCorrectiveActions } from "./correctiveActionsEngine";
 import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
 import { getTelemetryCycleId } from "./telemetry/TelemetryCycleContext";
@@ -34,6 +35,7 @@ import {
   registerCanonicalStringIndexes,
 } from "./telemetry/normalization";
 import { stringViewerScheduler, StringViewerCacheEntry } from "./telemetry/stringviewer";
+import {stringViewerBackground, useBackgroundStringViewer} from './telemetry/stringviewer/StringViewerBackground';
 import { telemetryMetrics } from "./telemetry/metrics";
 import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
@@ -939,13 +941,16 @@ async function runLegacyStringViewerFanout(rows: any[], baseUrl: string): Promis
 }
 
 async function runScheduledStringViewerEnrichment(rows: any[], baseUrl: string, cycleId: number | null): Promise<void> {
-    const result = await stringViewerScheduler.runCycle(rows, cycleId, baseUrl);
+    const profile = ProfileStore.getActiveProfile();
+    const scope = JSON.stringify([profile?.id, profile?.stationCode, profile?.blockIndex, baseUrl]);
+    const entries = await stringViewerBackground.read(rows, cycleId, baseUrl, scope,
+        useBackgroundStringViewer(process.env.PRIZM_STRINGVIEWER_BACKGROUND));
     const mergeStartedAt = performance.now();
     for (const row of rows) {
         const arrayIndex = Number(row?.arrayNumber ?? row?.arrayIndex);
         const stringIndex = Number(row?.stringNumber ?? row?.stringIndex);
         const key = String(row?.stringKey || row?.canonicalKey || `A${arrayIndex}-S${stringIndex}`);
-        const entry = result.entries.get(key);
+        const entry = entries.get(key);
         if (entry?.value != null) mergeStringViewerMonitorFields(row, entry.value, entry);
         else stringViewerProvenance.set(row, {
             baselineSource: "strings.csv",
@@ -3260,15 +3265,9 @@ router.get("/corrective-actions", async (req, res) => {
     }
 });
 
-router.get("/contactors/state", async (req, res) => {
+router.get("/contactors/state", (_req, res) => {
     try {
-        const result = await getContactorStatesForAllStrings({
-            refresh: req.query.refresh === "true",
-            ttlMs: req.query.maxAgeMs ? Number(req.query.maxAgeMs) : 2500,
-            timeoutMs: req.query.timeoutMs ? Number(req.query.timeoutMs) : 1800,
-            concurrency: req.query.concurrency ? Number(req.query.concurrency) : 40
-        });
-        res.json({ success: true, ...result });
+        res.json(getContactorStateView());
     } catch (err: any) {
         res.status(500).json({ success: false, error: err?.message || String(err) });
     }

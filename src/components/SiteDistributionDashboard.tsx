@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import SiteSensorsDashboard from "./SiteSensorsDashboard";
 import FirmwareInventoryPanel from "./FirmwareInventoryPanel";
-import { useSiteData } from "../context/SiteDataContext";
+import { useSiteDataFields } from "../context/SiteDataContext";
 import ArrayCellHeatmapGrid from "./ArrayCellHeatmapGrid";
 import { formatTemperatureF, celsiusToFahrenheit, fahrenheitToCelsius } from "../utils/temperatureScale";
 import { jsPDF } from "jspdf";
@@ -179,7 +179,7 @@ export interface SiteHealthGraphResponse {
 }
 
 export default function SiteDistributionDashboard({ active = true }: { active?: boolean }) {
-  const { snapshot } = useSiteData();
+  const { snapshot } = useSiteDataFields(['snapshot']);
 
   const [data, setData] = useState<DistributionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -512,7 +512,7 @@ export default function SiteDistributionDashboard({ active = true }: { active?: 
     const includedCount = filteredStrings.length;
     const excludedCount = totalCount - includedCount;
     const alarmCount = filteredStrings.filter(s => s.statusColor === "red").length;
-    const warningCount = filteredStrings.filter(s => s.statusColor === "amber" || s.statusColor === "yellow").length;
+    const warningCount = filteredStrings.filter(s => s.statusColor === "yellow").length;
     const idealCount = filteredStrings.filter(s => s.statusColor === "green").length;
 
     return {

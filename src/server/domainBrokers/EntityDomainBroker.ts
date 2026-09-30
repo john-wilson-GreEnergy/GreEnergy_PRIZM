@@ -20,6 +20,15 @@ export class EntityDomainBroker<T extends Record<string, any>> {
 
   constructor(readonly domain: string, private readonly keyOf: (row: T) => string | null) {}
 
+  /** Revision metadata without copying all rows; never a telemetry read or poll. */
+  getVersion(): number { return this.version; }
+
+  /** One canonical row without copying the entire fleet. */
+  read(key: string): T | null {
+    const stored = this.rows.get(key);
+    return stored ? structuredClone(stored.row) : null;
+  }
+
   publish(rows: T[], capturedAt = new Date().toISOString()): DomainPublication<T> {
     const updatedAtMs = Date.parse(capturedAt) || Date.now();
     const changes: DomainChange<T>[] = [];

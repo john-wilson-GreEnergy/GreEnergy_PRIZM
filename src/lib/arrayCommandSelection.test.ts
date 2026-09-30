@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {configuredArraySelectionIsComplete as complete} from "./arrayCommandSelection";
+const profile = {layoutFamily:"stack750_800", assumptions:{arrayCount:8,energySegmentsPerArray:20,stringsPerEnergySegment:2}};
+const all = Array.from({length:40}, (_, i) => i + 1);
+assert(complete(profile, 1, all));
+assert(complete(profile, 8, [...all, 1]));
+assert(!complete(profile, 1, all.slice(1)));
+assert(!complete(profile, 1, all.map(n => n + 1)));
+assert(!complete(profile, 1, [...all, 41]));
+assert(!complete(profile, 9, all));
+assert(!complete(null, 1, all));
+assert(!complete({...profile,layoutFamily:"unknown"},1,all));
+assert(!complete({...profile,assumptions:{...profile.assumptions,energySegmentsPerArray:21}},1,all));
+assert(!complete({...profile,assumptions:{...profile.assumptions,energySegmentsPerArray:0}},1,all));
+console.log("Array command selection checks passed");

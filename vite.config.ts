@@ -9,9 +9,14 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
+    define: { __PRIZM_RENDER_PROFILE__: JSON.stringify(process.env.PRIZM_REACT_PROFILE === 'true') },
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {input: {workspace: path.resolve(__dirname, 'index.html'), signin: path.resolve(__dirname, 'signin.html')}},
+    },
     resolve: {
       alias: {
+        ...(process.env.PRIZM_REACT_PROFILE === 'true' ? { 'react-dom/client': 'react-dom/profiling' } : {}),
         '@': path.resolve(__dirname, '.'),
       },
     },

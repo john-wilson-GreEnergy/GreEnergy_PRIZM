@@ -2,6 +2,8 @@ import { ProfileStore } from "../profiles/profileStore";
 import { buildEmsBaseUrl } from "../profiles/profileManager";
 import { isDemoActive, getEmsCachedBlock } from "../emsTurtleClient";
 import { EMS_APP_INTERACTION_REGISTRY, DRAGON_APP_CODE_NAME_MAP, getAppInteraction } from "./emsAppInteractionRegistry";
+import {emsAppProvenance} from "./emsAppProvenance";
+import {parsePowerControlStatus} from "./powerControl";
 
 export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], status: string, rawLastCall: any, cacheEntry: any }> {
     const blockCache = getEmsCachedBlock();
@@ -60,6 +62,8 @@ export async function fetchLiveEmsApps(fast = false): Promise<{ apps: any[], sta
         const interactionMeta = getAppInteraction(appCode);
 
         return {
+            ...emsAppProvenance(app),
+            powerControlSetpoints: appCode === "PC00001" ? parsePowerControlStatus(app.appStatus) : null,
             priority: app.priority ?? app.applicationPriority ?? null,
             appCode: appCode,
             appName: appName,

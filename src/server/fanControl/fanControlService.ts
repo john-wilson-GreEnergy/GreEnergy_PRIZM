@@ -1,4 +1,5 @@
 import { ProfileStore } from "../profiles/profileStore";
+import {isRuntimeStopping} from "../runtimeShutdown";
 import { FanControlAudit } from "./fanControlAudit";
 import * as fs from "fs";
 import * as path from "path";
@@ -35,18 +36,12 @@ export class FanControlService {
   // Maximum consecutive failures allowed before target automatic abort
   private static CONSECUTIVE_ERROR_THRESHOLD = 3;
 
-  static {
-    // Graceful shutdown: clear all intervals on process exit
-    const cleanup = () => {
+  public static shutdown() {
       console.log("[FanControlService] Cleaning up active fan command intervals...");
       for (const interval of this.activeIntervals.values()) {
         clearInterval(interval);
       }
       this.activeIntervals.clear();
-    };
-
-    process.on("SIGTERM", cleanup);
-    process.on("SIGINT", cleanup);
   }
 
   public static getCapabilities(): FanControlCapabilities {
@@ -64,6 +59,7 @@ export class FanControlService {
   }
 
   public static async startHold(req: FanControlHoldRequest): Promise<FanControlHoldResponse> {
+    if(isRuntimeStopping())throw new Error("PRIZM is shutting down");
     const holdId = "hold-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
     const auditId = "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
 
@@ -967,6 +963,7 @@ export class FanControlService {
   ): Promise<{ ok: boolean; status: number | null; response: string | null; url: string }> {
     const baseUrl = getEmsBaseUrl();
     const url = `${baseUrl}/tools/controls/${controller}/array/${arrayNumber}/string/${stringNumber}/fanCtlAll/${fanSpeedPercent}`;
+    if(isRuntimeStopping())return {ok:false,status:null,response:"PRIZM is shutting down; no command sent",url};
 
     try {
       const abortController = new AbortController();

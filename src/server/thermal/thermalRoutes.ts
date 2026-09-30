@@ -18,6 +18,10 @@ async function sendHistory(req:Request,res:Response,result:unknown){
 }
 thermalRouter.use((_req,res,next)=>{res.setHeader("Cache-Control","no-store");if(process.env.PRIZM_THERMAL_ENABLED==="false")return res.status(503).json({error:"Thermal workspace disabled"});next();});
 thermalRouter.get("/",async(_req,res)=>{try{res.json(await thermalService().view());}catch(e){res.status(500).json({error:String(e)});}});
+// Local analysis only: these routes never issue equipment commands or acquire device data.
+thermalRouter.post("/morning-review",async(req,res)=>{try{res.status(202).json(await thermalService().startMorningReview(Number(req.body.hours)));}catch(e){res.status(400).json({error:String(e)});}});
+thermalRouter.get("/morning-review",(_req,res)=>res.json(thermalService().siteHistory.reviewStatus()));
+thermalRouter.post("/morning-review/cancel",(_req,res)=>res.json(thermalService().siteHistory.cancelReview()));
 // Read-only selection/ranking of the same cached snapshot used by the workspace.
 thermalRouter.post("/targets/query",async(req,res)=>{try{res.json(await thermalService().targets(req.body));}catch(e){res.status(400).json({error:String(e)});}});
 thermalRouter.get("/history",async(req,res)=>{try{

@@ -3,6 +3,14 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { NativeIoLogikFleet, type IoLogikResult } from './nativeIoLogikFleet';
+import { stageConfiguration } from './ioLogikClient';
+import { identifyFirmware, type FirmwareSource } from './firmwareIdentity';
+import { IoLogikScanStore } from './ioLogikScanStore';
+import { ProfileStore } from '../profiles/profileStore';
+import { buildEmsBaseUrl } from '../profiles/profileManager';
+import { assessIoLogikFirmware } from './firmwareAssessment';
+import { IoLogikInventory, projectIoLogikInventory, type IoLogikScanProgress } from './ioLogikInventory';
 
 export type IoLogikTarget = {
   ip: string;
@@ -11,13 +19,18 @@ export type IoLogikTarget = {
   label: string;
 };
 export type IoLogikInventoryRow = IoLogikTarget & {
-  pingOk: boolean;
-  httpOk: boolean;
-  reachable: boolean;
+  observedAt?: string;
+  observationSource?: 'scan' | 'verified-update';
+  pingOk: boolean | null;
+  httpOk: boolean | null;
+  reachable: boolean | null;
   firmware: string | null;
   firmwareRaw: string | null;
+  firmwareStatus?: 'ok' | 'mismatch' | 'unknown';
+  firmwareDetail?: string;
   result: string;
   do00Safe?: string | null;
+  do00PeerSafe?: string | null;
   watchdogSeconds?: number | null;
   configurationStatus?: "ok" | "mismatch" | "unknown";
   configurationDetail?: string | null;
@@ -58,7 +71,7 @@ const firmwarePath = () => {
       path.basename(String(manifest.storedName || "")),
     );
     if (fs.existsSync(managed)) return managed;
-  } catch {}
+  } catch { }
   return bundledFirmwarePath();
 };
 const intEnv = (name: string, fallback: number) =>
@@ -69,14 +82,14 @@ export function getIoLogikTopology() {
   const segments = intEnv("PRIZM_IOLOGIK_ES_PER_ARRAY", 20);
   const prefix = process.env.PRIZM_IOLOGIK_SUBNET_PREFIX || "10.0";
   const targets: IoLogikTarget[] = [];
-  for (let arrayIndex = 1; arrayIndex <= arrays; arrayIndex += 1) {
+  for (let arrayIndex = 1;arrayIndex <= arrays;arrayIndex += 1) {
     targets.push({
       ip: `${prefix}.${arrayIndex}.4`,
       arrayIndex,
       segmentIndex: 0,
       label: `Array ${arrayIndex} / CS`,
     });
-    for (let segmentIndex = 1; segmentIndex <= segments; segmentIndex += 1) {
+    for (let segmentIndex = 1;segmentIndex <= segments;segmentIndex += 1) {
       targets.push({
         ip: `${prefix}.${arrayIndex}.${11 + (segmentIndex - 1) * 5}`,
         arrayIndex,
@@ -108,9 +121,8 @@ export function getIoLogikConfigurationProfile() {
   const stat = fs.statSync(file);
   const do00SafeCode = valueFrom(text, /^DO00=.*?DO00_SAFE=(\d+),/m);
   const do00SafeLabel = valueFrom(text, /^DO00=.*?DO00_SAFE=\d+,\(([^)]+)\)/m);
-  const watchdogSeconds = Number(
-    valueFrom(text, /^CONNECTION_WATCHDOG\s*=\s*(\d+)/m),
-  );
+  const watchdogValue = valueFrom(text, /^CONNECTION_WATCHDOG\s*=\s*(\d+)/m);
+  const watchdogSeconds = watchdogValue === null ? NaN : Number(watchdogValue);
   return {
     available: true,
     fileName: path.basename(file),
@@ -119,6 +131,8 @@ export function getIoLogikConfigurationProfile() {
     sha256: sha256(file),
     model: valueFrom(text, /^MOD_TYPE\s*=\s*(.+)$/m),
     sourceFirmware: valueFrom(text, /^FW_Ver\s*=\s*(.+)$/m),
+    applicationMode: legacyBackend() ? 'legacy-full-import' : 'device-native-policy',
+    managedSettings: ['DO-00 safe state', 'communication watchdog timeout'],
     digitalInputs: (text.match(/^DI\d{2}=.+$/gm) || []).length,
     digitalOutputs: (text.match(/^DO\d{2}=.+$/gm) || []).length,
     dioOutputs: (text.match(/^DIO\d{2}=1,\(DO\)/gm) || []).length,
@@ -147,22 +161,25 @@ export function getIoLogikConfigurationProfile() {
         ? watchdogSeconds
         : null,
       do00Compliant: do00SafeCode === "0" && /^off$/i.test(do00SafeLabel || ""),
-      watchdogCompliant: Number.isFinite(watchdogSeconds),
+      watchdogCompliant: Number.isInteger(watchdogSeconds) && watchdogSeconds >= 30 && watchdogSeconds <= 3600,
     },
     networkSafeguard: {
       appliedBeforeDeployment: true,
-      excluded: [
+      excluded: legacyBackend() ? [
         "IP address",
         "subnet mask",
         "gateway",
         "MAC address",
         "network overwrite",
-      ],
+      ] : [],
+      preservedFromDevice: legacyBackend() ? [] : ['firmware metadata','IP address','subnet mask','gateway','MAC address','authentication','network access restrictions','unmanaged I/O and protocol settings'],
+      networkOverwrite: false,
     },
   };
 }
 
 export function updateIoLogikGoldenRule(input: { watchdogSeconds?: number }) {
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
   const watchdogSeconds = Number(input.watchdogSeconds);
   if (
     !Number.isInteger(watchdogSeconds) ||
@@ -201,8 +218,9 @@ export function importIoLogikFirmware(input: {
   fileName?: string;
   base64?: string;
 }) {
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
   const fileName = path.basename(String(input.fileName || ""));
-  if (!/\.kp$/i.test(fileName))
+  if (!/kp$/i.test(fileName) || !/e1242/i.test(fileName))
     throw new Error("Select a Moxa ioLogik .kp firmware package.");
   if (!input.base64 || !/^[A-Za-z0-9+/=\r\n]+$/.test(input.base64))
     throw new Error("Firmware file data is missing or invalid.");
@@ -211,11 +229,7 @@ export function importIoLogikFirmware(input: {
     throw new Error("The selected firmware package is empty.");
   if (payload.length > 25 * 1024 * 1024)
     throw new Error("Firmware package exceeds the 25 MB safety limit.");
-  const version = fileName.match(/v(\d+\.\d+(?:\.\d+)?)/i)?.[1] || null;
-  if (!version)
-    throw new Error(
-      "The firmware filename must include a version such as v4.0.1.",
-    );
+  const identity = identifyFirmware(payload);
   fs.mkdirSync(managedAssetDir(), { recursive: true, mode: 0o700 });
   const storedName = `firmware-${Date.now()}-${fileName.replace(/[^A-Za-z0-9._-]/g, "_")}`;
   const destination = path.join(managedAssetDir(), storedName);
@@ -223,7 +237,7 @@ export function importIoLogikFirmware(input: {
   const manifest = {
     originalName: fileName,
     storedName,
-    version,
+    ...identity,
     sizeBytes: payload.length,
     sha256: crypto.createHash("sha256").update(payload).digest("hex"),
     importedAt: new Date().toISOString(),
@@ -238,8 +252,10 @@ export function importIoLogikFirmware(input: {
 
 function allowedTargets(ips?: string[]) {
   const all = getIoLogikTopology().targets;
-  if (!ips?.length) return all;
-  const requested = new Set(ips.map(String));
+  if (ips === undefined) return all;
+  if (!Array.isArray(ips) || !ips.length || ips.some(ip => typeof ip !== 'string')) throw new Error('Select valid targets.');
+  const requested = new Set(ips);
+  if (requested.size !== ips.length || ips.some(ip => !all.some(target => target.ip === ip))) throw new Error('Unknown or duplicate ioLogik targets.');
   return all.filter((target) => requested.has(target.ip));
 }
 
@@ -297,7 +313,7 @@ async function mapLimit<T, R>(
   return results;
 }
 
-export async function discoverIoLogik(ips?: string[]) {
+async function legacyDiscoverIoLogik(ips?: string[]) {
   const targets = allowedTargets(ips);
   return mapLimit(
     targets,
@@ -348,18 +364,18 @@ function parseCsvLine(line: string) {
     do00Safe: do00Safe || null,
     watchdogSeconds: watchdogSeconds ? Number(watchdogSeconds) : null,
     configurationStatus: (configurationStatus === "ok" ||
-    configurationStatus === "mismatch"
+      configurationStatus === "mismatch"
       ? configurationStatus
       : "unknown") as "ok" | "mismatch" | "unknown",
     configurationDetail: configurationDetail || null,
   };
 }
 
-export async function scanIoLogikFirmware(input: {
+async function legacyScanIoLogikFirmware(input: {
   targetIps?: string[];
   password?: string;
 }) {
-  const reachable = (await discoverIoLogik(input.targetIps)).filter(
+  const reachable = (await legacyDiscoverIoLogik(input.targetIps)).filter(
     (row) => row.reachable,
   );
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "prizm-iologik-scan-"));
@@ -447,7 +463,7 @@ function sanitizeConfiguration(source: string, destination: string) {
   fs.writeFileSync(destination, sanitized, { mode: 0o600 });
 }
 
-export async function deployIoLogikConfiguration(input: {
+async function legacyDeployIoLogikConfiguration(input: {
   targetIps: string[];
   password?: string;
 }) {
@@ -458,7 +474,7 @@ export async function deployIoLogikConfiguration(input: {
   const sanitized = path.join(root, "ik1242_NO_IP_CHANGE.txt");
   sanitizeConfiguration(configPath(), sanitized);
   try {
-    const reachable = (await discoverIoLogik(input.targetIps)).filter(
+    const reachable = (await legacyDiscoverIoLogik(input.targetIps)).filter(
       (row) => row.reachable,
     );
     return await mapLimit(
@@ -475,6 +491,7 @@ export async function deployIoLogikConfiguration(input: {
         const execution = await runTool(
           ["worker-config", target.ip, sanitized, localOut],
           input.password,
+          { WD_TIME: String(getIoLogikConfigurationProfile().deploymentTargets?.watchdogSeconds || 300) },
         );
         const line =
           fs
@@ -502,7 +519,7 @@ export async function deployIoLogikConfiguration(input: {
   }
 }
 
-export async function deployIoLogikFirmware(input: {
+async function legacyDeployIoLogikFirmware(input: {
   targetIps: string[];
   password?: string;
 }) {
@@ -511,7 +528,7 @@ export async function deployIoLogikFirmware(input: {
   const targetVersion = (
     path.basename(firmwarePath()).match(/v([0-9]+\.[0-9]+)/i)?.[1] || ""
   ).trim();
-  const before = await scanIoLogikFirmware({
+  const before = await legacyScanIoLogikFirmware({
     targetIps: input.targetIps,
     password: input.password,
   });
@@ -597,12 +614,23 @@ export const getIoLogikAssets = () => {
         originalName: path.basename(firmware),
         sizeBytes: fs.statSync(firmware).size,
         sha256: sha256(firmware),
-        version:
-          path.basename(firmware).match(/v(\d+\.\d+(?:\.\d+)?)/i)?.[1] || null,
         importedAt: null,
       };
   }
+  // Re-identify existing imports too; never trust the old filename-derived manifest version.
+  if (fs.existsSync(firmware)) {
+    const bytes = fs.readFileSync(firmware);
+    const actualSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    const identity = identifyFirmware(bytes);
+    const manifestMatches = !!process.env.PRIZM_IOLOGIK_FIRMWARE || !fs.existsSync(firmwareManifestPath()) ||
+      (firmwareMetadata?.storedName === path.basename(firmware) && firmwareMetadata?.sha256 === actualSha256);
+    firmwareMetadata = { ...firmwareMetadata, ...identity, sizeBytes: bytes.length, sha256: actualSha256,
+      verified: identity.verified && manifestMatches,
+      ...(!manifestMatches ? { upgradeNotice: 'Import checksum mismatch. Re-import the trusted package before firmware deployment.' } : {}) };
+  } else firmwareMetadata = null;
   return {
+    backend: legacyBackend() ? 'legacy' : 'native',
+    backendAvailable: !legacyBackend() || fs.existsSync(scriptPath()),
     scriptPath: scriptPath(),
     configPath: configPath(),
     firmwarePath: firmware,
@@ -613,3 +641,160 @@ export const getIoLogikAssets = () => {
     firmwareMetadata,
   };
 };
+
+const legacyBackend = () => process.env.PRIZM_IOLOGIK_BACKEND === 'legacy';
+const fleet = new NativeIoLogikFleet();
+let scanInProgress = false;
+const scanStore = () => new IoLogikScanStore(path.join(managedAssetDir(), 'last-scan.json'));
+const inventoryStore = () => new IoLogikInventory(new IoLogikScanStore(path.join(managedAssetDir(), 'inventory.json')));
+let scanProgress: IoLogikScanProgress | null = null;
+function scanScopeKey() {
+  const profile = ProfileStore.getActiveProfile();
+  return crypto.createHash('sha256').update(JSON.stringify([
+    profile ? [profile.id, buildEmsBaseUrl(profile), profile.stationCode, profile.blockIndex] : null,
+    getIoLogikTopology().targets, getIoLogikConfigurationProfile().sha256, legacyBackend(),
+  ])).digest('hex');
+}
+function withFirmwareAssessment(rows: IoLogikInventoryRow[]) {
+  const target = getIoLogikAssets().firmwareMetadata;
+  return rows.map(row => ({...row,...assessIoLogikFirmware(row,target)}));
+}
+function assessOperationResults(results: IoLogikResult[]) {
+  const target = getIoLogikAssets().firmwareMetadata;
+  return results.map(result => ({...result,
+    ...(result.before ? {before:{...result.before,...assessIoLogikFirmware(result.before,target)}} : {}),
+    ...(result.after ? {after:{...result.after,...assessIoLogikFirmware(result.after,target)}} : {}),
+  }));
+}
+export function getIoLogikLastScan() {
+  const snapshot = scanStore().read(scanScopeKey());
+  return snapshot ? {...snapshot,rows:withFirmwareAssessment(snapshot.rows)} : null;
+}
+async function recordScan(kind: 'discover' | 'firmware', targets: IoLogikTarget[], acquire: (onRow: (row: IoLogikInventoryRow) => void) => Promise<IoLogikInventoryRow[]>) {
+  if (scanInProgress) throw new Error('An ioLogik scan is already running.');
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
+  const scopeKey = scanScopeKey();
+  scanInProgress = true;
+  const progress: IoLogikScanProgress = {id: crypto.randomUUID(), scopeKey, kind, state: 'running', startedAt: new Date().toISOString(), targetIps: targets.map(t => t.ip), rows: []};
+  scanProgress = progress;
+  try {
+    const rows = (await acquire(row => { progress.rows.push(row); })).map(row => ({
+      ...row, observedAt: row.observedAt || new Date().toISOString(), observationSource: 'scan' as const,
+    }));
+    if (scopeKey !== scanScopeKey()) throw new Error('Site or Golden Rule changed during the scan. Previous snapshot retained; scan again.');
+    scanStore().save({schemaVersion:1,scopeKey,kind,scannedAt:new Date().toISOString(),targetIps:rows.map(row=>row.ip),rows});
+    progress.rows = rows; progress.state = 'complete';
+    return withFirmwareAssessment(rows);
+  } catch (error) {
+    progress.state = 'failed'; progress.error = error instanceof Error ? error.message : 'Scan failed; previous inventory retained.';
+    throw error;
+  } finally { progress.completedAt = new Date().toISOString(); scanInProgress = false; }
+}
+const devicePassword = (password?: string) => password || process.env.PRIZM_IOLOGIK_PASSWORD || 'moxa';
+type Operation = { id: string; scopeKey?: string; inventoryWarning?: string; kind: string; startedAt: string; completedAt?: string; state: 'running' | 'complete' | 'interrupted'; targetIps: string[]; results: IoLogikResult[] };
+let operation: Operation | null = null;
+const operationPath = () => path.join(managedAssetDir(), 'last-operation.json');
+function saveOperation() {
+  fs.mkdirSync(managedAssetDir(), { recursive: true, mode: 0o700 });
+  const temporary = operationPath() + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(operation, null, 2), { mode: 0o600 });
+  fs.renameSync(temporary, operationPath());
+}
+export function getIoLogikOperation() {
+  if (!operation) {
+    try {
+      operation = JSON.parse(fs.readFileSync(operationPath(), 'utf8'));
+      if (operation?.state === 'running') operation.state = 'interrupted';
+    } catch { /* No previous operation. */ }
+  }
+  const scopeKey = scanScopeKey();
+  const lastScan = scanStore().read(scopeKey);
+  const scan = scanProgress?.scopeKey === scopeKey ? scanProgress : null;
+  const rows = withFirmwareAssessment(projectIoLogikInventory(inventoryStore().read(scopeKey, lastScan), scan));
+  return {
+    publishedAt: Date.now(), scopeKey,
+    operation: operation && (!operation.scopeKey || operation.scopeKey === scopeKey) ? {...operation,results:assessOperationResults(operation.results)} : null,
+    activeTargets: fleet.activeTargets(),
+    scan: scan ? {id:scan.id, kind:scan.kind, state:scan.state, startedAt:scan.startedAt, completedAt:scan.completedAt,
+      targetIps:scan.targetIps, completed:scan.rows.length, completedIps:scan.rows.map(row=>row.ip), error:scan.error} : null,
+    inventory: rows,
+    lastScan: lastScan ? {scannedAt:lastScan.scannedAt, kind:lastScan.kind, targetIps:lastScan.targetIps} : null,
+  };
+}
+export function importIoLogikConfiguration(input: { text?: string }) {
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
+  if (typeof input.text !== 'string' || Buffer.byteLength(input.text) > 1024 * 1024) throw new Error('Select an E1242 configuration smaller than 1 MB.');
+  const staged = stageConfiguration(input.text);
+  fs.mkdirSync(managedAssetDir(), { recursive: true, mode: 0o700 });
+  const temporary = managedConfigPath() + '.tmp';
+  fs.writeFileSync(temporary, staged.text, { mode: 0o600 });
+  fs.renameSync(temporary, managedConfigPath());
+  return getIoLogikConfigurationProfile();
+}
+export async function discoverIoLogik(ips?: string[]) {
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
+  const targets = allowedTargets(ips);
+  return recordScan('discover', targets, onRow => legacyBackend() ? legacyDiscoverIoLogik(ips) : fleet.discover(targets, onRow));
+}
+export async function scanIoLogikFirmware(input: { targetIps?: string[]; password?: string }) {
+  if (operation?.state === 'running') throw new Error('Wait for the current ioLogik update to finish.');
+  const targets = allowedTargets(input.targetIps);
+  return recordScan('firmware', targets, onRow => legacyBackend() ? legacyScanIoLogikFirmware(input) : fleet.scan(targets, devicePassword(input.password), getIoLogikConfigurationProfile().deploymentTargets?.watchdogSeconds ?? NaN, onRow));
+}
+async function nativeDeploy(input: { targetIps: string[]; password?: string }, kind: 'firmware' | 'configuration') {
+  if (!input.targetIps?.length) throw new Error('Select at least one target.');
+  const targets = allowedTargets(input.targetIps);
+  if (operation?.state === 'running') throw new Error('An ioLogik update is already running.');
+  let config: string | undefined;
+  if (kind === 'configuration') {
+    config = fs.readFileSync(configPath(), 'utf8');
+    stageConfiguration(config);
+  } else {
+    try { config = fs.readFileSync(configPath(), 'utf8'); } catch { /* Firmware does not require a golden file. */ }
+  }
+  let firmware: { bytes: Uint8Array; fileName: string; version: string; build: string; prerequisiteVersion: string; directUpgradeFrom: FirmwareSource[] } | undefined;
+  if (kind === 'firmware') {
+    const file = firmwarePath(), fileName = path.basename(file);
+    const bytes = fs.readFileSync(file);
+    if (!/e1242/i.test(fileName) || !bytes.length || bytes.length > 25 * 1024 * 1024) throw new Error('Import a valid E1242 firmware package.');
+    if (fs.existsSync(firmwareManifestPath()) && !process.env.PRIZM_IOLOGIK_FIRMWARE) {
+      const manifest = JSON.parse(fs.readFileSync(firmwareManifestPath(), 'utf8'));
+      if (manifest.storedName !== fileName || manifest.sha256 !== crypto.createHash('sha256').update(bytes).digest('hex')) throw new Error('Firmware package does not match its import checksum. Re-import the trusted package.');
+    }
+    const identity = identifyFirmware(bytes);
+    if (!identity.verified || !identity.version || !identity.build || !identity.prerequisiteVersion) throw new Error('Firmware package identity is not vendor-verified. No upload sent.');
+    firmware = { bytes, fileName, version: identity.version, build: identity.build, prerequisiteVersion: identity.prerequisiteVersion, directUpgradeFrom: identity.directUpgradeFrom };
+  }
+  const scopeKey = scanScopeKey();
+  operation = { id: crypto.randomUUID(), scopeKey, kind, startedAt: new Date().toISOString(), state: 'running', targetIps: targets.map(t => t.ip), results: [] };
+  try {
+    saveOperation(); // Refuse to start writes if the report cannot be created.
+    const results = await fleet.deploy({
+      targets, password: devicePassword(input.password), kind, config, firmware, onResult: result => {
+        operation!.results.push(result);
+        try {
+          if (scopeKey === scanScopeKey()) inventoryStore().recordVerified(scopeKey, scanStore().read(scopeKey), result, new Date().toISOString());
+          else operation!.inventoryWarning = 'Site or Golden Rule changed; update readings were not merged. Rescan the intended site.';
+        } catch { operation!.inventoryWarning = 'Device result recorded, but inventory could not be saved. Rescan to refresh inventory; do not repeat the update.'; }
+        try { saveOperation(); } catch { /* Keep the result in memory; never replay a device write. */ }
+      }
+    });
+    operation.results = results;
+    operation.state = 'complete'; operation.completedAt = new Date().toISOString(); saveOperation();
+    return assessOperationResults(results);
+  } finally { if (operation?.state === 'running') { operation.state = 'interrupted'; try { saveOperation(); } catch { } } }
+}
+export async function deployIoLogikConfiguration(input: { targetIps: string[]; password?: string }) {
+  if (scanInProgress) throw new Error('Wait for the current ioLogik scan to finish.');
+  if (!input.targetIps?.length) throw new Error('Select at least one target.');
+  allowedTargets(input.targetIps);
+  return legacyBackend() ? legacyDeployIoLogikConfiguration(input) : nativeDeploy(input, 'configuration');
+}
+export async function deployIoLogikFirmware(input: { targetIps: string[]; password?: string }) {
+  if (scanInProgress) throw new Error('Wait for the current ioLogik scan to finish.');
+  if (!input.targetIps?.length) throw new Error('Select at least one target.');
+  allowedTargets(input.targetIps);
+  if (legacyBackend()) throw new Error('Firmware updates require the native backend with verified package identity and upgrade-path checks. Configuration and scan functions remain available.');
+  const results = await nativeDeploy(input, 'firmware');
+  return { targetVersion: getIoLogikAssets().firmwareMetadata?.version, before: results.flatMap(r => r.before ? [r.before] : []), results };
+}

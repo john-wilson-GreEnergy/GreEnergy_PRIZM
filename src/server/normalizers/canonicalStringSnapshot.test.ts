@@ -88,3 +88,24 @@ for (const outRotation of [false, true]) {
   assert.equal(row.rotation.source, "last-call-explicit-rotation");
 }
 console.log("Explicit string rotation survives aggregate reconciliation");
+
+// Recovery evidence is atomic and timestamped by the same exact string report.
+const observedAt = Date.now() - 2000;
+const observationEntry = {arrayIndex: 1, stringIndex: 2, timeStamp: String(observedAt),
+  stringData: {positiveContactorClosed: false, negativeContactorClosed: false, contactorsCloseExpected: true}};
+const observationSnapshot = (entry: unknown, input: Record<string, unknown> = {}) => applyCanonicalStringSnapshot([
+  {arrayNumber: 1, stringNumber: 2, ...input}
+], {lastCall: {blockReport: {arrayReport: {1: {stringReport: {2: entry}}}}}}).strings[0];
+const observed = observationSnapshot(observationEntry);
+assert.deepEqual(observed.contactorObservation, {arrayNumber: 1, stringNumber: 2,
+  source: "last-call-explicit-polarity", observedAt: new Date(observedAt).toISOString(),
+  positiveContactorClosed: false, negativeContactorClosed: false, requestedState: "closed"});
+for (const change of [{timeStamp: undefined}, {timeStamp: "invalid"}, {timeStamp: "0"}, {timeStamp: true},
+  {timeStamp: "1e12"}, {timeStamp: "99999999999999999"}, {arrayIndex: 2}, {stringIndex: 3},
+  {stringData: {positiveContactorClosed: false}}, {stringData: {positiveContactorClosed: "false", negativeContactorClosed: false}}]) {
+  assert.equal(observationSnapshot({...observationEntry, ...change}, observed).contactorObservation, null);
+}
+assert.equal(observationSnapshot({...observationEntry, stringData: {positiveContactorClosed: true, negativeContactorClosed: true}}, observed).contactorObservation.requestedState, "unknown");
+assert.equal(applyCanonicalStringSnapshot([observed]).strings[0].contactorObservation, null);
+assert.equal(observed.contactorObservation.observedAt, new Date(observedAt).toISOString(), "Input is not mutated when clearing obsolete evidence");
+console.log("Contactor observation retains exact per-string timestamp, rejects mismatched/incomplete source, clears prior-cycle evidence");

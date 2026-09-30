@@ -1,10 +1,16 @@
+import "../../../scripts/test-network-guard.cjs";
 import assert from "assert";
+import {tmpdir} from "node:os";
 import * as fs from "fs";
 import * as path from "path";
-import { parseStatusPayload, parseReportPayload } from "./balancerTestParser";
-import { analyzeReports } from "./balancerTestAnalyzer";
-import { stringNumberToEnergySegment } from "../../lib/stringToEsMapper";
-import { BalancerTestService } from "./balancerTestService";
+// Load application modules only after selecting isolated test storage.
+const originalDirectory = process.cwd();
+const testDirectory = fs.mkdtempSync(path.join(tmpdir(), "prizm-balancer-unit-"));
+process.chdir(testDirectory);
+const {parseStatusPayload, parseReportPayload} = await import("./balancerTestParser");
+const {analyzeReports} = await import("./balancerTestAnalyzer");
+const {stringNumberToEnergySegment} = await import("../../lib/stringToEsMapper");
+const {BalancerTestService} = await import("./balancerTestService");
 
 async function runTests() {
   console.log("Running Balancer Test parser and analyzer unit tests...");
@@ -207,19 +213,6 @@ async function runTests() {
   assert.ok(deployResInvalidArrays.message.includes("arrays must be between 1 and 8"));
   console.log("  -> Test Case 16: Validation rejects invalid arrays passed!");
 
-  // 17. does not reject missing confirmation phrase (unlocked by default)
-  const deployResNoConfirm = await BalancerTestService.deploy({
-    arrays: [1],
-    direction: "charge",
-    confirmationToken: ""
-  });
-  // Since we removed the confirmation checks, this should no longer fail on missing confirmation!
-  // (In the test environment, since fetch is not mocked yet for this run, it will try to fetch and fail on unconfigured,
-  // or if we run it before mock fetch, it returns accepted: false but with "Deployment endpoint not configured" rather than validation error).
-  // Let's assert that the rejection message is NOT "missing or invalid confirmation phrase".
-  assert.notStrictEqual(deployResNoConfirm.message, "missing or invalid confirmation phrase");
-  console.log("  -> Test Case 17: Auto-unlocked confirmation validation passed!");
-
   // 18. if endpoint is mocked as configured, deploy route sends expected EMS request and parses testId
   const originalFetch = globalThis.fetch;
   const originalGlobalFetch = (global as any).fetch;
@@ -243,6 +236,16 @@ async function runTests() {
   };
   globalThis.fetch = mockFetch;
   (global as any).fetch = mockFetch;
+
+  // 17. Click-only confirmation is tested with a mock installed BEFORE dispatch.
+  const deployResNoConfirm = await BalancerTestService.deploy({
+    arrays: [1], direction: "charge", confirmationToken: ""
+  });
+  assert.strictEqual(deployResNoConfirm.accepted, true);
+  assert.strictEqual(deployResNoConfirm.testId, 99);
+  assert.ok(interceptedUrls.some(u => u.includes("trigger/charge.json") && u.includes("arrayIndexes=1")));
+  interceptedUrls.length = 0;
+  console.log("  -> Test Case 17: Click-only command uses mocked transport passed!");
 
   const deployResSuccess = await BalancerTestService.deploy({
     arrays: [1, 2],
@@ -277,8 +280,11 @@ async function start() {
     await runTests();
   } catch (err: any) {
     console.error("Balancer Test suite failed:", err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    process.chdir(originalDirectory);
+    console.log(`Isolated test artifacts: ${testDirectory}`);
   }
 }
 
-start();
+await start();

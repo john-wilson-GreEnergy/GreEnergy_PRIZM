@@ -11,6 +11,12 @@ PRIZM is currently suitable for controlled development and supervised site valid
 
 ## Documents
 
+- `LOCAL_ACCESS_PILOT.md` — opt-in offline accounts, sessions and owned recording access; restricted API pilot blocks legacy routes/UI and is not activated.
+- `CONTROL_HARDENING.md` — September 24 local corrections for preparation validation, profile-bound dispatch, fresh PCS readback, bounded requests and protection overrides; offline evidence and remaining identity/deployment gates.
+- `API_ACCESS_BASELINE.md` — September 24 offline route inventory, confirmed access/data-export findings, proposed capabilities and remaining review gates; no enforcement activated.
+- `AUTHORIZATION_PROTOTYPE.md` — offline permission evaluator, 25-route effect ledger/drift checks, additional open control findings and integration boundaries; not wired to live routes.
+- `UI_STANDARDS.md` — shared target, freshness, layout and control-result acceptance rules for the String List/PCS pilot; no redesign deployed.
+- `PRODUCT_READINESS_PLAN.md` — September 23 product-polish, security and OT-integration workstreams, evidence gaps and phased acceptance gates; not a deployment approval.
 - `SYSTEM_DESCRIPTION.md` — program boundary, components, data paths, trust boundaries, records, and operating modes.
 - `REMOTE_ACCESS_SECURITY_ARCHITECTURE.md` — required remote-access design and security acceptance criteria.
 - `NERC_FERC_READINESS_MATRIX.md` — applicability questions, current gaps, evidence requirements, and responsible parties.

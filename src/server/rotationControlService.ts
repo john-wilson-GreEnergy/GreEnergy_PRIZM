@@ -1,18 +1,15 @@
-import { getEmsConnectionStatus } from './emsTurtleClient';
 import { appendEvent } from "./history/prizmHistory";
-import { getEmsCachedBlock } from './emsTurtleClient';
+import {beginTimelineCommand} from "./history/commandTimeline";
 import { ProfileStore } from './profiles/profileStore';
 import { compactFullArrayStringTargets } from './controlTargetOptimizer';
+import { boundedControlRequest } from './controls/boundedRequest';
+import { resolveControlDestination } from './controls/controlDestination';
+import { assessPcsRotation, pcsRowsFromBlock, pcsRowFromReport, rotationOutcome } from './controls/pcsRotationReadback';
 
 async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<{ ok: boolean, status: number, text: string }> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        return { ok: response.ok, status: response.status, text: await response.text() };
+        return await boundedControlRequest(url, timeoutMs);
     } catch (e: any) {
-        clearTimeout(timeout);
         return { ok: false, status: 0, text: e.message };
     }
 }
@@ -85,15 +82,46 @@ async function verifyStringRotation(hostBase: string, target: any, action: 'in' 
     return { confirmed: false, status: `Command accepted; ${lastMatches}/${strings.length} strings confirmed ${action} before timeout` };
 }
 
-export async function executeRotationCommand(target: any, action: 'in' | 'out'): Promise<any> {
-    const conn = getEmsConnectionStatus();
-    let hostBase = conn.activeEmsBaseUrl || "http://10.0.0.3:8080/turtle";
-    if (hostBase.endsWith('/')) hostBase = hostBase.slice(0, -1);
+async function readPcsRows(hostBase: string, timeoutMs: number) {
+    const response = await boundedControlRequest(`${hostBase}/tools/monitor/ems/blockviewer/data?rotationVerify=${Date.now()}`, timeoutMs, {headers: {'Cache-Control': 'no-cache'}});
+    if (!response.ok) throw new Error(`PCS readback unavailable (HTTP ${response.status})`);
+    return pcsRowsFromBlock(JSON.parse(response.text));
+}
 
-    const isDemo = getEmsConnectionStatus().isDemoFallback;
-    if (isDemo) {
-        throw new Error("Rotation controls are disabled in Demo mode");
+function validateRotationTargets(targets: any[], kind: 'string' | 'pcs') {
+    const stringsPerArray = Number(ProfileStore.getActiveProfile()?.stringsPerArray) || 40;
+    for (const target of targets) {
+        const all = kind === 'string' ? target?.allStrings : target?.allPcs;
+        const id = kind === 'string' ? target?.string : target?.pcs;
+        if (!target || !Number.isSafeInteger(target.array) || target.array < 1 || target.array > 8 ||
+            (all !== undefined && typeof all !== 'boolean') ||
+            (all !== true && (!Number.isSafeInteger(id) || id < 1 || (kind === 'string' && id > stringsPerArray)))) {
+            throw new Error('Invalid rotation target; no commands were sent');
+        }
     }
+}
+
+async function readPcsRotationReports(hostBase: string, array: number, ids: number[], deadline: number) {
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < ids.length && Date.now() < deadline; offset += 4) {
+        const batch = await Promise.all(ids.slice(offset, offset + 4).map(async pcs => {
+            try {
+                const response = await boundedControlRequest(`${hostBase}/tools/report/ems/array/${array}/pcs/${pcs}/report.json`, Math.max(1, Math.min(1800, deadline - Date.now())), {headers: {'Cache-Control': 'no-cache'}});
+                return response.ok ? pcsRowFromReport(JSON.parse(response.text), array, pcs) : null;
+            } catch { return null; }
+        }));
+        rows.push(...batch.filter((row): row is Record<string, unknown> => row !== null));
+    }
+    return rows;
+}
+
+export async function executeRotationCommand(target: any, action: 'in' | 'out', pinnedDestination?: ReturnType<typeof resolveControlDestination>): Promise<any> {
+    if (action !== 'in' && action !== 'out') throw new Error('Invalid rotation action');
+    if (!['string-array', 'string-single', 'pcs-array', 'pcs-single'].includes(target?.type)) throw new Error('Invalid target type');
+    validateRotationTargets([{...target, allStrings: target.type === 'string-array', allPcs: target.type === 'pcs-array'}], target.type.startsWith('string') ? 'string' : 'pcs');
+    const destination = pinnedDestination ?? resolveControlDestination();
+    destination.assertCurrent();
+    const hostBase = destination.baseUrl;
 
     let url = '';
     
@@ -109,39 +137,74 @@ export async function executeRotationCommand(target: any, action: 'in' | 'out'):
         throw new Error("Invalid target type");
     }
 
+    // Freeze the IDs returned by a new EMS inventory read before an array command.
+    // If inventory is unavailable, do not dispatch a broad command with unknowable coverage.
+    let expectedPcsIds: number[] = [];
+    if (target.type.startsWith('pcs')) {
+        const inventory = await readPcsRows(hostBase, 2000);
+        const ids = inventory.filter(row => Number(row.arrayIndex ?? row.arrayNumber) === Number(target.array))
+            .map(row => Number(row.pcsIndex ?? row.arrayPcsIndex));
+        if (!ids.length || ids.some(id => !Number.isSafeInteger(id) || id < 1) || new Set(ids).size !== ids.length ||
+            (target.type === 'pcs-single' && !ids.includes(target.pcs))) throw new Error('PCS inventory is missing, ambiguous, or does not include the target; no command was sent');
+        expectedPcsIds = target.type === 'pcs-single' ? [target.pcs] : ids;
+    }
+    destination.assertCurrent();
+    const timelineCommand = beginTimelineCommand(hostBase, {
+        array: Number(target.array),
+        string: target.type === 'string-single' ? Number(target.string) : undefined,
+        pcs: target.type === 'pcs-single' ? Number(target.pcs) : undefined,
+        allStrings: target.type === 'string-array',
+        allPcs: target.type === 'pcs-array'
+    }, `Rotation ${action.toUpperCase()}`);
+    const dispatchedAt = Date.now();
     const result = await fetchWithTimeout(url, 2000);
     
     // Always attempt a readback
     let readbackConfirmed = null;
     let readbackStatus = 'Readback not checked or unavailable';
 
-    const accepted = result.ok && result.text.toUpperCase().includes('OK');
+    const accepted = result.ok;
     if (accepted) {
         try {
             if (target.type.startsWith('string')) {
                 const verification = await verifyStringRotation(hostBase, target, action);
+                destination.assertCurrent();
                 readbackConfirmed = verification.confirmed;
                 readbackStatus = verification.status;
             } else if (target.type.startsWith('pcs')) {
-                 const blockRes = getEmsCachedBlock();
-                 if (blockRes && blockRes.data && blockRes.data.arrayPcsList) {
-                    if (target.type === 'pcs-single') {
-                         const pcsMatch = blockRes.data.arrayPcsList.find((p:any) => 
-                             String(p.arrayIndex) === String(target.array) && String(p.pcsIndex) === String(target.pcs)
-                         );
-                         if (pcsMatch) {
-                             const rot = String(pcsMatch.rotation).toUpperCase();
-                             if ((action === 'in' && rot === 'IN') || (action === 'out' && rot === 'OUT')) {
-                                  readbackConfirmed = true;
-                             }
-                             readbackStatus = readbackConfirmed ? `Target confirmed ${action}` : 'Readback could not be definitively confirmed';
-                         }
-                    }
-                 }
+                const deadline = Date.now() + ROTATION_VERIFY_DEADLINE_MS;
+                let consecutiveMatches = 0;
+                const verifiedTimestamps = new Map<number, string>();
+                while (Date.now() < deadline) {
+                    destination.assertCurrent();
+                    let match: boolean | null = null;
+                    try {
+                        const rows = await readPcsRotationReports(hostBase, Number(target.array), expectedPcsIds, deadline);
+                        destination.assertCurrent();
+                        match = assessPcsRotation(rows, Number(target.array), expectedPcsIds, action, dispatchedAt);
+                        if (match === true) {
+                            const newer = rows.every(row => !verifiedTimestamps.has(Number(row.pcsIndex)) || String(row.sourceTimestampUtc) > verifiedTimestamps.get(Number(row.pcsIndex))!);
+                            if (!newer) {
+                                // Re-reading the same controller report is not independent confirmation.
+                                await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_VERIFY_INTERVAL_MS, Math.max(0, deadline - Date.now()))));
+                                continue;
+                            }
+                            rows.forEach(row => verifiedTimestamps.set(Number(row.pcsIndex), String(row.sourceTimestampUtc)));
+                        } else verifiedTimestamps.clear();
+                    } catch { /* Unknown never confirms a command. */ }
+                    readbackConfirmed = match === false ? false : null;
+                    consecutiveMatches = match === true ? consecutiveMatches + 1 : 0;
+                    if (consecutiveMatches >= 2) { readbackConfirmed = true; break; }
+                    if (Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_VERIFY_INTERVAL_MS, deadline - Date.now())));
+                }
+                readbackStatus = readbackConfirmed === true
+                    ? `${expectedPcsIds.length} EMS-listed PCS confirmed ${action} by two advancing PCS report timestamps`
+                    : 'Command accepted; fresh PCS rotation readback was not confirmed';
             }
         } catch(e) {}
     }
 
+    timelineCommand.result({accepted, readbackConfirmed});
     return {
         target,
         requestedAction: action,
@@ -160,6 +223,8 @@ export async function setStringRotation(req: any) {
     if (req.action !== 'in' && req.action !== 'out') throw new Error("Invalid action");
     
     if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
+    validateRotationTargets(req.targets, 'string');
+    const destination = resolveControlDestination();
 
     const stringsPerArray = Number((ProfileStore.getActiveProfile() as any)?.stringsPerArray) || 40;
     const optimizedTargets = compactFullArrayStringTargets(req.targets, stringsPerArray);
@@ -167,16 +232,20 @@ export async function setStringRotation(req: any) {
     let successes = 0;
 
     for (const t of optimizedTargets) {
+      try {
         if (!t.array) continue;
         if (t.allStrings) {
-            const res = await executeRotationCommand({ type: 'string-array', ...t }, req.action);
+            const res = await executeRotationCommand({ ...t, type: 'string-array' }, req.action, destination);
             results.push(res);
             if (res.accepted) successes++;
         } else if (t.string) {
-            const res = await executeRotationCommand({ type: 'string-single', ...t }, req.action);
+            const res = await executeRotationCommand({ ...t, type: 'string-single' }, req.action, destination);
             results.push(res);
             if (res.accepted) successes++;
         }
+      } catch (error) {
+        results.push({target: t, accepted: false, readbackConfirmed: null, error: String(error), readbackStatus: 'Not dispatched; pre-dispatch validation or inventory failed'});
+      }
     }
 
     appendEvent({ entityKey: "prizm-core-control", timestampUtc: new Date().toISOString(), 
@@ -188,7 +257,7 @@ export async function setStringRotation(req: any) {
         metadata: { request: req, results, confirmed: req.confirmed, reason: req.reason, note: req.note }
     });
 
-    return { success: successes > 0, results };
+    return rotationOutcome(results);
 }
 
 export async function setPcsRotation(req: any) {
@@ -196,21 +265,27 @@ export async function setPcsRotation(req: any) {
     if (req.action !== 'in' && req.action !== 'out') throw new Error("Invalid action");
     
     if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
+    validateRotationTargets(req.targets, 'pcs');
+    const destination = resolveControlDestination();
 
     const results = [];
     let successes = 0;
 
     for (const t of req.targets) {
+      try {
         if (!t.array) continue;
         if (t.allPcs) {
-            const res = await executeRotationCommand({ type: 'pcs-array', ...t }, req.action);
+            const res = await executeRotationCommand({ ...t, type: 'pcs-array' }, req.action, destination);
             results.push(res);
             if (res.accepted) successes++;
         } else if (t.pcs) {
-            const res = await executeRotationCommand({ type: 'pcs-single', ...t }, req.action);
+            const res = await executeRotationCommand({ ...t, type: 'pcs-single' }, req.action, destination);
             results.push(res);
             if (res.accepted) successes++;
         }
+      } catch (error) {
+        results.push({target: t, accepted: false, readbackConfirmed: null, error: String(error), readbackStatus: 'Not dispatched; pre-dispatch validation or inventory failed'});
+      }
     }
 
     appendEvent({ entityKey: "prizm-core-control", timestampUtc: new Date().toISOString(), 
@@ -222,5 +297,5 @@ export async function setPcsRotation(req: any) {
         metadata: { request: req, results, confirmed: req.confirmed, reason: req.reason, note: req.note }
     });
 
-    return { success: successes > 0, results };
+    return rotationOutcome(results);
 }

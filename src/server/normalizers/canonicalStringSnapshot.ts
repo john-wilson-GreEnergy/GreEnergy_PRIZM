@@ -1,3 +1,5 @@
+import {normalizeContactorObservation} from './contactorObservation';
+
 type Bucket = "online" | "nearline" | "offline" | "notCommunicating" | "unknown";
 
 type PerArrayCounts = {
@@ -311,6 +313,8 @@ function setNearline(row: any, countSource: PerArrayCounts) {
 }
 
 function applyLastCallStringTelemetry(rows: any[], lastCall: any): void {
+  // A prior cycle or another telemetry source must not supply recovery evidence.
+  for (const row of rows) row.contactorObservation = null;
   const arrayReport = lastCall?.blockReport?.arrayReport ?? lastCall?.arrayReport;
   if (!arrayReport || typeof arrayReport !== "object") return;
 
@@ -346,6 +350,8 @@ function applyLastCallStringTelemetry(rows: any[], lastCall: any): void {
     const negative = typeof data.negativeContactorClosed === "boolean" ? data.negativeContactorClosed : null;
     const expected = typeof data.contactorsCloseExpected === "boolean" ? data.contactorsCloseExpected : null;
     const recloseCount = Number(data.recloseCount);
+
+    row.contactorObservation = normalizeContactorObservation(stringEntry, arrayNumber, stringNumber);
 
     if (positive !== null) row.positiveContactorClosed = positive;
     if (negative !== null) row.negativeContactorClosed = negative;

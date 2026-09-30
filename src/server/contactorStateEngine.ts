@@ -14,7 +14,7 @@ export type NormalizedContactorState = {
   stringToBusDeltaVoltage: number | null;
   requestedState: "closed" | "open" | "unknown";
   actualState: ActualContactorState;
-  source: "stringviewer-live";
+  source: "stringviewer-live" | "canonical-string-broker";
   sourceUrl: string;
   fetchedAt: string;
   quality: "live" | "failed";
@@ -296,7 +296,7 @@ export function getLatestContactorSnapshot() {
   return {
     hasSnapshot: Boolean(contactorCache.all),
     states,
-    summary: summarize(states),
+    summary: { ...summarize(states), fetchedAt: contactorCache.all ? new Date(contactorCache.all.fetchedAtMs).toISOString() : null },
     ageMs,
     fetchedAtMs: contactorCache.all?.fetchedAtMs ?? null,
     inFlight: Boolean(contactorRefreshInFlight),

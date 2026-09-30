@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getLatestSnapshot, triggerImmediatePoll } from '../prizmDataCoordinator';
+import {isRuntimeStopping} from "../runtimeShutdown";
+import { getLatestSnapshot, getLatestSnapshotCycleId, triggerImmediatePoll } from '../prizmDataCoordinator';
 import { ProfileStore } from '../profiles/profileStore';
 import { getLatestFirmwareSnapshot, triggerFirmwareCapture } from './firmwareReportService';
 import { 
@@ -30,11 +31,6 @@ let preparedReportTimer: NodeJS.Timeout | null = null;
 const PREPARED_REPORT_MAX_AGE_MS = Math.max(15_000, Number(process.env.PRIZM_PREPARED_REPORT_MAX_AGE_MS) || 45_000);
 const PREPARED_REPORT_INTERVAL_MS = Math.max(15_000, Number(process.env.PRIZM_PREPARED_REPORT_INTERVAL_MS) || 30_000);
 
-function currentCycleId(): number | null {
-  const value = Number((getLatestSnapshot() as any)?.cycleId);
-  return Number.isSafeInteger(value) ? value : null;
-}
-
 function canUsePreparedSnapshot(options: BuildSiteSnapshotOptions): boolean {
   return !options.refresh && !options.includeFirmware && !options.triggerFirmwareCapture && !options.includeRawRefs;
 }
@@ -59,8 +55,9 @@ export function getPreparedReportSnapshotStatus() {
 }
 
 export async function prepareReportSnapshot(force = false): Promise<void> {
+  if(isRuntimeStopping())return;
   if (preparedReportInFlight) return preparedReportInFlight;
-  const cycleId = currentCycleId();
+  const cycleId = getLatestSnapshotCycleId();
   if (cycleId === null) return;
   if (!force && preparedReportSnapshot?.cycleId === cycleId) return;
   preparedReportInFlight = (async () => {
@@ -71,12 +68,13 @@ export async function prepareReportSnapshot(force = false): Promise<void> {
 }
 
 export function startPreparedReportSnapshotCache(): void {
-  if (preparedReportTimer) return;
+  if (preparedReportTimer || isRuntimeStopping()) return;
   const refresh = () => void prepareReportSnapshot().catch((error) => console.warn("[reports] Prepared snapshot refresh failed", error));
   setTimeout(refresh, 5_000).unref?.();
   preparedReportTimer = setInterval(refresh, PREPARED_REPORT_INTERVAL_MS);
   preparedReportTimer.unref?.();
 }
+export function stopPreparedReportSnapshotCache(){if(preparedReportTimer)clearInterval(preparedReportTimer);preparedReportTimer=null;}
 
 function inferLegacyTopologyFamily(topologyModel: any): string {
   if (!topologyModel) return "unknown";
@@ -751,7 +749,7 @@ async function buildSiteDataSnapshotFresh(options: InternalBuildSiteSnapshotOpti
   if (options.includeFirmware) {
       if (options.triggerFirmwareCapture) {
           try {
-              await triggerFirmwareCapture(options);
+              await triggerFirmwareCapture();
           } catch (e) {
               warnings.push("Firmware capture failed: " + (e as Error).message);
           }

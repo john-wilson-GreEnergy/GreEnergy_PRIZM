@@ -3,20 +3,18 @@ import { setEmsApplicationEnabledStatus } from "./ems/dragonAppControl";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { setStringRotation } from "./rotationControlService";
 import { appendEvent } from "./history/prizmHistory";
+import {beginTimelineCommand} from "./history/commandTimeline";
 import { ProfileStore } from "./profiles/profileStore";
 import {getStringsView} from "./prizmDataCoordinator";
 import { buildBalancingCommand } from "./balancingCommandProto";
 import {assessBalancingReport, runBalancingVerification, summarizeBalancingVerification, type BalancingVerificationJob, type StringVerification} from "./balancingVerification";
+import { boundedControlRequest } from "./controls/boundedRequest";
+import { resolveControlDestination } from "./controls/controlDestination";
 
 async function fetchWithTimeout(url: string, timeoutMs: number = 2000): Promise<{ ok: boolean, status: number, text: string }> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        return { ok: response.ok, status: response.status, text: await response.text() };
+        return await boundedControlRequest(url, timeoutMs);
     } catch (e: any) {
-        clearTimeout(timeout);
         return { ok: false, status: 0, text: e.message };
     }
 }
@@ -44,17 +42,10 @@ function prepareBalancingCommands(req: BalancingExecuteRequest): Buffer[] {
 }
 
 async function postBalancingCommand(hostBase: string, buffer: Buffer) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    try {
-        const response = await fetch(`${hostBase}/tools/controls/ems/command`, {
+    return boundedControlRequest(`${hostBase}/tools/controls/ems/command`, 15_000, {
             method: "POST", headers: { "Content-Type": "application/octet-stream" },
-            body: buffer as any, signal: controller.signal
+            body: buffer as any
         });
-        return { ok: response.ok, status: response.status, text: await response.text() };
-    } finally {
-        clearTimeout(timeout);
-    }
 }
 
 const BALANCING_VERIFY_DEADLINE_MS = Number(process.env.PRIZM_BALANCING_VERIFY_DEADLINE_MS) || 15_000;
@@ -87,9 +78,12 @@ function sleep(ms: number) {
 }
 
 function validateTargets(req: BalancingPreflightRequest): void {
+    if (req.targetType !== 'array' && req.targetType !== 'string') throw new Error('Invalid balancing target type');
     if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
     const seen = new Set<string>();
     for (const target of req.targets) {
+        if (!target || (target.allStrings !== undefined && typeof target.allStrings !== 'boolean') ||
+            (req.targetType === 'array' && target.allStrings !== true)) throw new Error('Ambiguous balancing target scope');
         const array = Number(target.array);
         if (!Number.isInteger(array) || array < 1 || array > 8) throw new Error(`Invalid array target: ${target.array}`);
         const isArray = target.allStrings === true;
@@ -99,7 +93,7 @@ function validateTargets(req: BalancingPreflightRequest): void {
             if (!Number.isInteger(string) || string < 1 || string > stringsPerArray) throw new Error(`Invalid string target: A${array}-S${target.string}`);
         }
         const key = isArray ? `A${array}:*` : `A${array}:S${Number(target.string)}`;
-        if (seen.has(key)) throw new Error(`Duplicate balancing target: ${key}`);
+        if (seen.has(key) || seen.has(`A${array}:*`) || (isArray && [...seen].some(value => value.startsWith(`A${array}:S`)))) throw new Error(`Duplicate or overlapping balancing target: ${key}`);
         seen.add(key);
     }
 }
@@ -303,6 +297,7 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
     let okToBalanceDirectly = true;
 
     if (!statusKnown) {
+         okToBalanceDirectly = false;
          recommendedAction = "warn-unknown";
          warnings.push("ADB status is unknown. Manual balancing may be overridden.");
     } else if (adbEnabled === true) {
@@ -334,9 +329,10 @@ export async function executePreflightCheck(req: BalancingPreflightRequest) {
 
 export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     if (req.confirmed !== true) throw new Error("Explicit confirmation is required");
+    if (!["balance-directly", "move-targets-out-of-rotation-then-balance", "disable-adb-then-balance"].includes(req.preflightChoice)) throw new Error("Invalid balancing preflight choice; no commands were sent");
     if (!req.targets || !Array.isArray(req.targets) || req.targets.length === 0) throw new Error("No targets specified");
     if (!["avg", "provided", "stop"].includes(req.mode)) throw new Error("Invalid balancing mode");
-    if (req.mode === "provided" && typeof req.providedMv !== "number") throw new Error("Numeric providedMv required for provided mode");
+    if (req.mode === "provided" && !Number.isFinite(req.providedMv)) throw new Error("Finite numeric providedMv required for provided mode");
     validateTargets(req);
     if (req.mode !== "stop" && process.env.PRIZM_BALANCING_PROTO_ENABLED !== "true") {
         throw new Error("Balancing is blocked: native deadband command delivery has not been enabled for this deployment");
@@ -347,7 +343,8 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         throw new Error("providedMv is outside conservative range of 2500-3800 mV");
     }
 
-    const hostBase = getEmsBaseUrl();
+    const destination = resolveControlDestination();
+    const hostBase = destination.baseUrl;
     // Check identity and encode every command before ADB or rotation can change.
     const preparedCommands = req.mode === "stop" ? [] : prepareBalancingCommands(req);
 
@@ -363,6 +360,7 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     let adbDisableActionTaken = false;
 
     if (req.preflightChoice === "disable-adb-then-balance") {
+        destination.assertCurrent();
         if (req.adbConfirmationText !== "DISABLE ADB0001") {
             throw new Error("Incorrect confirmation text for ADB disable");
         }
@@ -370,11 +368,10 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         // Find priority and block info
         const appsResult = await fetchLiveEmsApps(true);
         const adbApp = appsResult.apps.find((a: any) => a.appCode === 'ADB0001');
-        const block = getEmsCachedBlock();
-        const stationCode = block.stationCode || 'BHE0021';
-        const blockIndex = block.blockIndex || 1;
+        const {stationCode, blockIndex} = destination;
         const priority = adbApp?.priority !== undefined ? adbApp.priority : (adbApp?.applicationPriority !== undefined ? adbApp.applicationPriority : 0);
         
+        destination.assertCurrent();
         const adbRes = await setEmsApplicationEnabledStatus({
             stationCode,
             blockIndex,
@@ -388,6 +385,7 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
         if (!adbRes.success) throw new Error("Failed to disable ADB0001 app: " + (adbRes.message || adbRes.error));
         adbDisableActionTaken = true;
     } else if (req.preflightChoice === "move-targets-out-of-rotation-then-balance") {
+        destination.assertCurrent();
         const rotationResult = await setStringRotation({
             targets: req.targets,
             action: 'out',
@@ -401,11 +399,16 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
     }
 
     const results = [];
+    const timelineCommands = new Map<BalancingExecuteRequest["targets"][number], ReturnType<typeof beginTimelineCommand>>();
     let successes = 0;
     let failures = 0;
 
     for (const [index, target] of req.targets.entries()) {
+        const summary = req.mode === "stop" ? "Balancing STOP" : `Balancing ${req.mode.toUpperCase()}${req.mode === "provided" ? ` target ${req.providedMv} mV` : ""}; charge deadband ${req.chargingDeadband} mV; discharge deadband ${req.dischargingDeadband} mV`;
+        const timelineCommand = beginTimelineCommand(hostBase, target, summary);
+        timelineCommands.set(target, timelineCommand);
         try {
+            destination.assertCurrent();
             const response = req.mode === "stop"
                 ? await fetchWithTimeout(buildBalancingCommandUrl(hostBase, req, target), 15000)
                 : await postBalancingCommand(hostBase, preparedCommands[index]);
@@ -429,6 +432,7 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
              results.push({ target, success: false, error: e.message });
              failures++;
         }
+        timelineCommand.result(results[results.length - 1]);
     }
 
     appendEvent({
@@ -462,7 +466,14 @@ export async function executeBalancingWorkflow(req: BalancingExecuteRequest) {
             if (balancingVerificationJobs.size <= 100) break;
             if (old.status === "complete") balancingVerificationJobs.delete(id);
         }
-        void runBalancingVerification(job, row => readStringSettings(hostBase, req, row)).catch(() => {
+        void runBalancingVerification(job, row => readStringSettings(hostBase, req, row)).then(() => {
+            for (const [target, timeline] of timelineCommands) {
+                const rows = job.strings.filter(row => row.array === Number(target.array) && (target.allStrings || row.string === Number(target.string)));
+                timeline.persistence(rows.every(row => row.status === "persisted") ? "persisted"
+                    : rows.some(row => row.status === "changed") ? "changed"
+                    : rows.some(row => row.status === "mismatch") ? "mismatch" : "unavailable");
+            }
+        }).catch(() => {
             for (const row of job.strings) if (row.status === "pending" || row.status === "matched") {
                 row.status = "unavailable"; row.detail = "Verification interrupted; do not assume failure or resend";
             }

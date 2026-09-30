@@ -1,4 +1,5 @@
 import fs from "fs";
+import {isRuntimeStopping} from "../runtimeShutdown";
 import path from "path";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
@@ -91,6 +92,7 @@ function persist(next: FirmwareInventorySnapshot) {
 }
 
 async function fetchJson(url: string, timeoutMs = 20_000): Promise<any> {
+  if (isRuntimeStopping()) throw new Error("PRIZM is shutting down; inventory acquisition stopped");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -136,6 +138,7 @@ export function getFirmwareCaptureState() {
 }
 
 export async function triggerFirmwareCapture(options: { force?: boolean; arrayIndex?: number; stringIndex?: number } = {}): Promise<FirmwareInventorySnapshot> {
+  if(isRuntimeStopping())throw new Error("PRIZM is shutting down");
   if (capturePromise) return capturePromise;
   const existing = loadSnapshot();
   if (!options.force && existing?.scope === "site" && existing.source === "ems-triggered-firmware-report-v4" && Date.now() - new Date(existing.capturedAt).getTime() < MAX_AGE_MS) return existing;
@@ -201,7 +204,7 @@ export async function triggerFirmwareCapture(options: { force?: boolean; arrayIn
     for (const device of getFeatherCache().devices || []) {
       if (verifiedStringIps.has(device.deviceIp)) continue;
       const version = device.firmwareVersion || "Unknown";
-      details.push({ deviceType: "FEATHER", arrayIndex: device.arrayIndex ?? undefined, deviceIndex: device.stringIndex ?? undefined, ipAddress: device.deviceIp, version, status: version === "Unknown" ? "missing" : "reported", timestamp: device.lastUpdatedAt });
+      details.push({ deviceType: "FEATHER", arrayIndex: device.arrayIndex ?? undefined, deviceIndex: device.stringIndex ?? undefined, ipAddress: device.deviceIp, version, status: version === "Unknown" ? "missing" : "reported", timestamp: device.lastSuccessAt });
     }
 
     const summary = { turtleVersions: {} as Record<string, number>, bmsVersions: {} as Record<string, number>, scVersions: {} as Record<string, number>, bpcVersions: {} as Record<string, number>, featherVersions: {} as Record<string, number>, mismatchCount: 0, missingCount: 0 };
@@ -234,7 +237,9 @@ export async function triggerFirmwareCapture(options: { force?: boolean; arrayIn
 }
 
 export function initializeFirmwareInventoryAutomation() {
+  if(isRuntimeStopping())return;
   if (automationTimer) clearInterval(automationTimer);
   setTimeout(() => triggerFirmwareCapture().catch(error => console.warn("[Firmware Inventory] Automatic capture failed:", error?.message || error)), 20_000);
   automationTimer = setInterval(() => triggerFirmwareCapture().catch(error => console.warn("[Firmware Inventory] Scheduled capture failed:", error?.message || error)), MAX_AGE_MS);
 }
+export function stopFirmwareInventoryAutomation(){if(automationTimer)clearInterval(automationTimer);automationTimer=null;}

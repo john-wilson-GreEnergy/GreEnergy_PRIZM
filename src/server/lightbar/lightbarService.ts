@@ -179,6 +179,7 @@ export class LightbarService {
       const url = `${emsUrl}/tools/controls/ems/array/${cmd.array}/string/${cmd.string}/lightbarcommand?red=${cmd.red}&green=${cmd.green}&blue=${cmd.blue}&white=${cmd.white}&duration=${cmd.duration}`;
       try {
         const controller = new AbortController();
+        if (isRuntimeStopping()) throw new Error("PRIZM is shutting down; no lightbar command sent");
         const timeoutId = setTimeout(() => controller.abort(), 4000);
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -563,6 +564,7 @@ export class LightbarService {
     });
 
     const poll = async () => {
+      if (isRuntimeStopping() || !FaultLightbarEngineState.liveModeActive) return;
       try {
         await this.runFaultVisualizerCycle({
           dryRun: FaultLightbarEngineState.dryRun,
@@ -664,3 +666,4 @@ export class LightbarService {
     return results;
   }
 }
+import {isRuntimeStopping} from "../runtimeShutdown";

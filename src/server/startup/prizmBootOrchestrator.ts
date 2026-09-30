@@ -1,4 +1,5 @@
 import { emsCache, getEmsConnectionStatus } from "../emsTurtleClient";
+import {isRuntimeStopping} from "../runtimeShutdown";
 import { ProfileStore } from "../profiles/profileStore";
 import { getFeatherCache } from "../feather/featherClient";
 import * as prizmCache from "../cache/prizmCache";
@@ -201,6 +202,7 @@ export async function initializePrizmBootFlow() {
     startBackgroundPolling();
     if (process.env.PRIZM_AUTO_COMMISSION !== "false") {
       setTimeout(() => {
+        if(isRuntimeStopping())return;
         try { reconcileCommissionedSiteTopology(); }
         catch (error: any) { bootStatus.warnings.push(`Topology reconciliation: ${error?.message || String(error)}`); }
       }, Math.max(5000, Number(process.env.PRIZM_COMMISSION_RECONCILE_DELAY_MS || 15000)));
@@ -275,6 +277,7 @@ function applyDiscoveredStation() {
 }
 
 export function startBackgroundPolling() {
+  if(isRuntimeStopping())return;
   stopCoordinator();
   if (slowRefreshInterval) clearInterval(slowRefreshInterval);
 
@@ -291,3 +294,4 @@ export function startBackgroundPolling() {
     // maybe refresh modbus map
   }, 5 * 60 * 1000);
 }
+export function stopBackgroundPolling(){stopCoordinator();if(slowRefreshInterval)clearInterval(slowRefreshInterval);}

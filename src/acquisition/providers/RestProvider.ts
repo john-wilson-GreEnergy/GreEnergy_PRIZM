@@ -3,6 +3,16 @@ import type { AcquisitionProvider, AcquisitionResult, AcquisitionSource } from '
 interface RestSource extends AcquisitionSource {
   readonly url: string;
   readonly timeoutMs?: number;
+  readonly onTiming?: (timing: RestTiming) => void;
+}
+
+export interface RestTiming {
+  readonly headersMs: number | null;
+  readonly bodyReadMs: number | null;
+  readonly totalMs: number;
+  readonly bodyComplete: boolean;
+  readonly status: number | null;
+  readonly serverDateMs: number | null;
 }
 
 interface RestPayload {
@@ -17,6 +27,7 @@ interface RestPayload {
 export class RestProvider implements AcquisitionProvider<RestPayload> {
   public readonly name = 'rest';
   public readonly kind = 'rest';
+  constructor(private readonly now:()=>number=()=>performance.now()) {}
 
   public async acquire(input: AcquisitionSource | unknown): Promise<AcquisitionResult<RestPayload>> {
     const source = input as RestSource;
@@ -33,19 +44,24 @@ export class RestProvider implements AcquisitionProvider<RestPayload> {
       };
     }
 
+    const controller = new AbortController();
+    const measured=typeof source.onTiming === 'function';
+    const startedAt=measured?this.now():0;
+    let headersAt:number|null=null,bodyFinishedAt:number|null=null,status:number|null=null,serverDateMs:number|null=null;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal,
       });
-
-      clearTimeout(timeout);
+      if(measured){headersAt=this.now();status=response.status;const date=Date.parse(response.headers.get('date')??'');serverDateMs=Number.isFinite(date)?date:null;}
 
       const contentType = response.headers.get('content-type') ?? undefined;
+      // Headers are not the end of acquisition: large or stalled bodies must
+      // remain covered by the same deadline as the connection.
       const rawBody = await response.text();
+      if(measured)bodyFinishedAt=this.now();
       const bodyIsJson = this.isLikelyJson(contentType, rawBody);
       const headers = this.collectHeaders(response.headers);
 
@@ -90,6 +106,14 @@ export class RestProvider implements AcquisitionProvider<RestPayload> {
         error: message,
         timestamp: new Date().toISOString(),
       };
+    } finally {
+      clearTimeout(timeout);
+      if(measured) {
+        const endedAt=this.now();
+        try {source.onTiming!({headersMs:headersAt===null?null:headersAt-startedAt,
+          bodyReadMs:headersAt===null?null:(bodyFinishedAt??endedAt)-headersAt,totalMs:endedAt-startedAt,
+          bodyComplete:bodyFinishedAt!==null,status,serverDateMs});} catch { /* Diagnostics cannot change the result. */ }
+      }
     }
   }
 

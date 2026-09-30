@@ -59,7 +59,7 @@ export function getMergedTroubleshootingLibrary(): TroubleshootingEntry[] {
       id: entry.id,
       source: override.overrideSource || "admin-override",
       overrideStatus: "override",
-      builtInSource: entry.source
+      builtInSource: entry.sourceDocument
     } as any;
   });
 }

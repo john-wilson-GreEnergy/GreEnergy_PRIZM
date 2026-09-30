@@ -149,7 +149,7 @@ export class StringRouteObservationAdapter {
     const fieldAdapterDurationMs = performance.now() - fieldStarted; let response: unknown; const root = rootRecord(input.rootTemplate);
     if (input.routeVariant === 'local-strings') { root.data = reconstructed; response = root; }
     else if (input.routeVariant === 'strings-dashboard') { root.strings = reconstructed; response = root; }
-    else { const summary = buildStringBucketSummary(reconstructed); const legacyTable = routeRows('site-operations', input.rootTemplate); summary.tableRows = summary.tableRows.map((row: Readonly<Record<string, unknown>>, index: number) => { const legacy = legacyTable[index]; if (!legacy) return row; const compatible = { ...row }; for (const field of ['timestampUtc', 'sourceTimestampUtc', 'lastUpdatedUtc', 'raw']) if (own(legacy, field)) compatible[field] = legacy[field]; return compatible; }); root.stringSummary = summary; response = root; }
+    else { const summary = buildStringBucketSummary(reconstructed); const legacyTable = routeRows('site-operations', input.rootTemplate); summary.tableRows = summary.tableRows.map((row, index: number) => { const legacy = legacyTable[index]; if (!legacy) return row; const compatible = { ...row }; for (const field of ['timestampUtc', 'sourceTimestampUtc', 'lastUpdatedUtc', 'raw']) if (own(legacy, field)) compatible[field] = legacy[field]; return compatible; }); root.stringSummary = summary; response = root; }
     return immutableBindingValue({ response, rows: reconstructed, controllerIpSources, performance: { fieldAdapterDurationMs, reconstructionDurationMs: performance.now() - started, observationLookups, graphLookups, reconstructedRows: reconstructed.length, estimatedTemporaryAllocations: allocations } });
   }
 }

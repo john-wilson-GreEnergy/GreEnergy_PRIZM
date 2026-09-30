@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import {projectStringTimeline} from "./stringTimelineProjection";
+import {timelineChanges} from "./operationalTimelineModel";
+const now = Date.now();
+const row = {arrayNumber: 1, stringNumber: 2, positiveContactorClosed: false, negativeContactorClosed: true, contactorsCloseExpected: true,
+  inRotation: false, communicating: true, sourceTimestampUtc: new Date(now).toISOString(), sourceDebug: {sourceStatus: "live"}};
+const [sample] = projectStringTimeline([row], now);
+assert.equal(sample.values["Positive contactor"], "OPEN"); assert.equal(sample.values["Negative contactor"], "CLOSED");
+assert.equal(sample.values["EMS close request"], "CLOSE"); assert.equal(sample.values.Rotation, "OUT");
+assert.equal(sample.quality, "live");
+const [unknown] = projectStringTimeline([{...row, inRotation: null, positiveContactorClosed: null, sourceTimestampUtc: undefined}], now);
+assert.equal(unknown.sourceAt, null); assert.equal(unknown.values.Rotation, null); assert.equal(unknown.values["Positive contactor"], null);
+assert.equal(projectStringTimeline([row], now, false)[0].quality, "unavailable");
+assert.equal(projectStringTimeline([{...row, communicating: false}], now)[0].quality, "unavailable");
+assert.equal(projectStringTimeline([{...row, sourceDebug: {sourceStatus: "cached"}}], now)[0].quality, "unavailable");
+const changed = {...sample, observedAt: now + 4000, sourceAt: now + 4000, values: {...sample.values, "Positive contactor": "CLOSED"}};
+const events = timelineChanges(sample, changed);
+assert.equal(events.length, 1); assert.equal(events[0].kind, "state"); assert.equal(events[0].string, 2);
+assert.match(events[0].message, /Positive contactor: OPEN → CLOSED/);
+assert(!JSON.stringify(events).includes("fault"), "Requested close with open feedback must not invent a fault");
+console.log("Canonical string projection, polarity, unknowns, freshness and changes passed");

@@ -21,6 +21,10 @@ import {
   FileText
 } from "lucide-react";
 import SafetyFaultClearView from "./SafetyFaultClearView";
+import RawTelemetryInspector from './RawTelemetryInspector';
+import { isLegacyRawDebug } from './rawTelemetryPayload';
+import DeveloperDiagnostics from './DeveloperDiagnostics';
+import { isLegacyDiagnostics } from './developerDiagnosticsData';
 
 type AdvancedSection =
   | "safety-fault-clear"
@@ -30,6 +34,8 @@ type AdvancedSection =
   | "system-maintenance";
 
 export default function SafetyAdvancedDashboard() {
+  const [legacyDiagnostics] = useState(() => typeof window !== 'undefined' && isLegacyDiagnostics(window.location.search));
+  const [legacyRawDebug] = useState(() => typeof window !== 'undefined' && isLegacyRawDebug(window.location.search));
   const [activeSection, setActiveSection] = useState<AdvancedSection>("safety-fault-clear");
   const [unlocked, setUnlocked] = useState(false);
   const [bypassCode, setBypassCode] = useState("");
@@ -166,12 +172,12 @@ export default function SafetyAdvancedDashboard() {
   };
 
   useEffect(() => {
-    if (activeSection === "developer-diagnostics") {
+    if (activeSection === "developer-diagnostics" && legacyDiagnostics) {
       fetchDiagnostics();
-    } else if (activeSection === "raw-data-debug") {
+    } else if (activeSection === "raw-data-debug" && legacyRawDebug) {
       fetchRawData();
     }
-  }, [activeSection]);
+  }, [activeSection, legacyRawDebug, legacyDiagnostics]);
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -485,8 +491,10 @@ export default function SafetyAdvancedDashboard() {
             )}
 
             {/* 3. DEVELOPER DIAGNOSTICS READ-ONLY PANEL */}
-            {activeSection === "developer-diagnostics" && (
+            {activeSection === "developer-diagnostics" && !legacyDiagnostics && <DeveloperDiagnostics />}
+            {activeSection === "developer-diagnostics" && legacyDiagnostics && (
               <div className="space-y-6">
+                <p role="alert" className="text-amber-600 font-bold">Legacy comparison only — contains placeholder values and success fallbacks. Do not use for health verification.</p>
                 {loadingDiag ? (
                   <div className="py-12 text-center text-prizm-text-muted">
                     <RefreshCw className="animate-spin inline mr-2 text-prizm-primary" size={16} />
@@ -595,7 +603,8 @@ export default function SafetyAdvancedDashboard() {
             )}
 
             {/* 4. RAW DATA / DEBUG PANEL */}
-            {activeSection === "raw-data-debug" && (
+            {activeSection === "raw-data-debug" && !legacyRawDebug && <RawTelemetryInspector />}
+            {activeSection === "raw-data-debug" && legacyRawDebug && (
               <div className="space-y-6">
                 {loadingRaw ? (
                   <div className="py-12 text-center text-prizm-text-muted">

@@ -9,12 +9,13 @@ import { thermalReadings, thermalDisplayValues } from "./thermalMetrics";
 import {selectThermalTargets,type TargetQuery} from "./thermalTargets";
 import {reviewReading} from "./thermalReviewPresentation";
 
-type Session = { id: string; targets: string[]; labels: string[]; startedAt: number; endsAt: number;
+type Session = { id: string; targets: string[]; labels: string[]; startedAt: number; endsAt: number; securitySiteId?: string;
   state: "Recording" | "Waiting for data" | "Stopped" | "Complete" | "Paused"; samples: number; error?: string };
 type StoredPoint = { id: string; point: ThermalPoint };
 export class ThermalService {
   readonly siteHistory:SiteHistory;
   private units: ThermalUnit[] = [];
+  private currentSiteId: string | null = null;
   private history = new Map<string, ThermalPoint[]>();
   private transitions = new Map<string, number>();
   private sessions: Session[] = [];
@@ -22,6 +23,8 @@ export class ThermalService {
   private pending = 0;
   private lastStored = new Map<string, ThermalPoint>();
   private ready: Promise<void>;
+  private closed=false;
+  private closing:Promise<void>|null=null;
   error: string | null = null;
   constructor(private directory: string, private reserveBytes = 5 * 1024 ** 3, private maxBytes = 64 * 1024 ** 2) {
     this.siteHistory=new SiteHistory(path.join(directory,"site-history"));
@@ -59,6 +62,12 @@ export class ThermalService {
     if (bytes > this.maxBytes - 256 * 1024) throw new Error("Thermal history storage limit reached; export/archive recordings before continuing");
   }
   ingest(devices: ThermalDevice[], now = Date.now(), site:SiteIdentity|null=null) {
+    if(this.closed)return;
+    const sampleSiteId = site?.id ?? null;
+    if (sampleSiteId !== this.currentSiteId) {
+      this.units = []; this.history.clear(); this.transitions.clear(); this.lastStored.clear();
+    }
+    this.currentSiteId = sampleSiteId;
     const units = thermalUnits(devices, now);
     const seen = new Set(units.map(u => u.id));
     // Missing devices must not silently retain a green/live state.
@@ -80,6 +89,10 @@ export class ThermalService {
     void this.queue(async () => {
       const session = this.sessions.find(s => ["Recording", "Waiting for data"].includes(s.state));
       if (!session) return;
+      if (session.securitySiteId && session.securitySiteId !== sampleSiteId) {
+        session.state = 'Paused'; session.error = 'Recording paused: enrolled site changed or is unavailable';
+        await this.save(session); return;
+      }
       if (now >= session.endsAt) { session.state = "Complete"; await this.save(session); return; }
       const points = incoming.filter(p => session.targets.includes(p.id)).filter(({id,point:p}) => {
         const last = this.lastStored.get(id);
@@ -105,12 +118,15 @@ export class ThermalService {
         return {...u,point,readings:thermalReadings(point),response:supplyResponse(point,this.transitions.get(u.id)??null)};
       }),
       siteStorage:await this.siteHistory.status(),
+      morningReview:this.siteHistory.reviewStatus(),
       sessions:[...this.sessions].sort((a,b)=>b.startedAt-a.startedAt), error:this.error,
       limits:{maxTargets:8,maxHours:24,maxBytes:this.maxBytes,reserveBytes:this.reserveBytes},
       capturedAt:Date.now() };
   }
-  start(targets: string[], hours: number) {
+  start(targets: string[], hours: number, securitySiteId?: string) {
+    if(this.closed)return Promise.reject(new Error("Thermal recorder is shutting down"));
     return this.queue(async () => {
+      if (securitySiteId && securitySiteId !== this.currentSiteId) throw new Error('Recording site is not verified');
       if (this.error?.startsWith("History unavailable")) throw new Error(this.error);
       const unique=[...new Set(targets)];
       if (!unique.length || unique.length>8 || unique.some(id=>!this.units.some(u=>u.id===id))) throw new Error("Choose 1–8 available HVAC units");
@@ -118,7 +134,7 @@ export class ThermalService {
       if (this.sessions.some(s=>["Recording","Waiting for data"].includes(s.state))) throw new Error("Stop the active recording before starting another");
       if (this.sessions.length>=200) throw new Error("Session limit reached; archive before creating more sessions");
       await this.checkStorage();
-      const session:Session={id:randomUUID(),targets:unique,labels:unique.map(id=>this.units.find(u=>u.id===id)!.label),startedAt:Date.now(),endsAt:Date.now()+hours*3600000,state:"Waiting for data",samples:0};
+      const session:Session={id:randomUUID(),targets:unique,labels:unique.map(id=>this.units.find(u=>u.id===id)!.label),startedAt:Date.now(),endsAt:Date.now()+hours*3600000,state:"Waiting for data",samples:0,...(securitySiteId ? {securitySiteId} : {})};
       await this.save(session); this.sessions.push(session); this.lastStored.clear(); return session;
     });
   }
@@ -129,6 +145,7 @@ export class ThermalService {
     const devices=[...new Map([...recorded,...view.units].map(({id,array,segment,unit,label,ip})=>[id,{id,array,segment,unit,label,ip}])).values()];
     return {...selectThermalTargets(devices,view.units,query),warning};
   }
+  async startMorningReview(hours:number){return this.siteHistory.startReview(hours,this.units.map(({id,array,segment,unit,label,ip})=>({id,array,segment,unit,label,ip})));}
   stop(id:string) {
     return this.queue(async()=>{const s=this.sessions.find(s=>s.id===id);if(!s)throw new Error("Unknown recording");s.state="Stopped";await this.save(s);return s;});
   }
@@ -155,7 +172,18 @@ export class ThermalService {
     });
   }
   async flush() { await this.tail; }
+  close():Promise<void>{
+    if(this.closing)return this.closing;
+    this.closed=true;
+    this.closing=(async()=>{await this.ready;await this.flush();await this.siteHistory.close();})();
+    return this.closing;
+  }
 }
 // Lazy singleton: disabled installs do not create history files.
 let instance: ThermalService | undefined;
-export const thermalService = () => instance ??= new ThermalService(path.resolve(process.env.PRIZM_THERMAL_DIR || ".prizm-data/thermal"));
+let serviceClosed = false;
+export const thermalService = () => {
+  if (!instance && serviceClosed) throw new Error("Thermal recorder is shut down");
+  return instance ??= new ThermalService(path.resolve(process.env.PRIZM_THERMAL_DIR || ".prizm-data/thermal"));
+};
+export const closeThermalService = async () => { serviceClosed = true; await instance?.close(); };

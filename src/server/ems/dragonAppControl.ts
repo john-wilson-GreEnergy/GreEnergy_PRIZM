@@ -2,10 +2,11 @@ import fsSync from "fs";
 import path from "path";
 import protobuf from "protobufjs";
 import { getEmsCachedBlock, getEmsCachedLastCall } from "../emsTurtleClient";
-import { ProfileStore } from "../profiles/profileStore";
-import { buildEmsBaseUrl } from "../profiles/profileManager";
+import { resolveControlDestination } from "../controls/controlDestination";
+import { boundedControlRequest } from "../controls/boundedRequest";
 import { getAppInteraction } from "./emsAppInteractionRegistry";
 import { randomUUID } from "crypto";
+import {beginBlockTimelineCommand} from "../history/commandTimeline";
 
 export interface SetAppStatusInput {
   stationCode: string;
@@ -102,6 +103,8 @@ async function verifyEmsAppState(
   appCode: string, 
   targetEnabled: boolean,
   baseUrl: string,
+  priority: number,
+  assertCurrent: () => void,
 ): Promise<{ 
   status: "VERIFIED_SUCCESS" | "VERIFIED_FAILED" | "VERIFICATION_UNAVAILABLE"; 
   attempts: number; 
@@ -128,12 +131,16 @@ async function verifyEmsAppState(
   };
 
   const maxAttempts = 12;
+  const deadline = Date.now() + 15000;
+  let attempts = 0;
   let lastFoundLiveEnabled: boolean | undefined = undefined;
   let everFoundApp = false;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts && Date.now() < deadline; attempt++) {
+    attempts = attempt;
     try {
-      const res = await fetch(`${baseUrl}/tools/monitor/ems/blockviewer/data?verifyTs=${Date.now()}-${attempt}`, {
+      assertCurrent();
+      const res = await boundedControlRequest(`${baseUrl}/tools/monitor/ems/blockviewer/data?verifyTs=${Date.now()}-${attempt}`, Math.min(2500, deadline - Date.now()), {
         headers: {
           "Cache-Control": "no-cache",
           "Pragma": "no-cache"
@@ -141,12 +148,13 @@ async function verifyEmsAppState(
       });
 
       if (res.ok) {
-        const summaryData = await res.json();
+        const summaryData = JSON.parse(res.text);
         const matchedApp = searchAppInPayload(summaryData);
-        if (matchedApp) {
+        assertCurrent();
+        if (matchedApp && Number(matchedApp.priority ?? matchedApp.applicationPriority) === priority) {
           everFoundApp = true;
           const liveEnabled = matchedApp.enabled !== undefined ? matchedApp.enabled : matchedApp.applicationEnabled;
-          if (typeof liveEnabled === "boolean") {
+          if (typeof liveEnabled === "boolean" && !(matchedApp.enabled !== undefined && matchedApp.applicationEnabled !== undefined && matchedApp.enabled !== matchedApp.applicationEnabled)) {
             lastFoundLiveEnabled = liveEnabled;
             if (liveEnabled === targetEnabled) {
               return { 
@@ -163,15 +171,15 @@ async function verifyEmsAppState(
       console.warn(`[DragonAppControl] Attempt ${attempt} readback failed:`, err);
     }
 
-    if (attempt < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    if (attempt < maxAttempts && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, Math.min(1000, deadline - Date.now())));
     }
   }
 
   if (everFoundApp && typeof lastFoundLiveEnabled === "boolean") {
     return {
       status: "VERIFIED_FAILED",
-      attempts: maxAttempts,
+      attempts,
       liveEnabled: lastFoundLiveEnabled,
       message: `${appCode} state readback mismatch after polling. Expected ${targetEnabled}, got ${lastFoundLiveEnabled}.`
     };
@@ -179,7 +187,7 @@ async function verifyEmsAppState(
 
   return {
     status: "VERIFICATION_UNAVAILABLE",
-    attempts: maxAttempts,
+    attempts,
     message: `${appCode} could not be successfully read back or found in summary feed.`
   };
 }
@@ -237,6 +245,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
     return { success: false, error: "INVALID_APP_CODE", message: "Missing or invalid appCode" };
   }
 
+  if (typeof input.enabled !== "boolean") return { success: false, error: "INVALID_ENABLED", message: "Enabled must be an explicit boolean." };
   const expectedConfirmation = `${input.enabled ? "ENABLE" : "DISABLE"} ${input.appCode}`;
   registry = getAppInteraction(input.appCode);
 
@@ -254,8 +263,8 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
   const identityPayload = lastCallCache?.data || appStateCache.data;
   const blockReport = identityPayload.blockReport || identityPayload;
   const topology = blockReport.topology || {};
-  const currentStationCode = topology.stationCode || blockReport.stationCode || "BHE0021";
-  const currentBlockIndex = topology.blockIndex || blockReport.blockIndex || 1;
+  const currentStationCode = topology.stationCode ?? blockReport.stationCode;
+  const currentBlockIndex = topology.blockIndex ?? blockReport.blockIndex;
 
   if (input.stationCode !== currentStationCode || Number(input.blockIndex) !== Number(currentBlockIndex)) {
     logAudit(false, "STATION_BLOCK_MISMATCH", "REJECTED");
@@ -289,7 +298,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
   }
 
   const livePriority = liveApp.priority ?? liveApp.applicationPriority;
-  if (livePriority !== undefined && Number(input.priority) !== Number(livePriority)) {
+  if (!Number.isSafeInteger(input.priority) || input.priority < 0 || livePriority === undefined || Number(input.priority) !== Number(livePriority)) {
     logAudit(false, "PRIORITY_MISMATCH", "REJECTED");
     return { success: false, error: "PRIORITY_MISMATCH", message: "Requested priority does not match live EMS app priority.", requestedPriority: input.priority, livePriority: livePriority };
   }
@@ -325,47 +334,45 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
   }
 
   // Post to Turtle
-  const profile = ProfileStore.getActiveProfile();
-  if (!profile) {
-    logAudit(false, "NO_ACTIVE_PROFILE", "REJECTED", true);
-    return { success: false, error: "NO_ACTIVE_PROFILE", message: "No active profile." };
-  }
-  
-  const baseUrl = buildEmsBaseUrl(profile);
+  let destination: ReturnType<typeof resolveControlDestination>;
+  try { destination = resolveControlDestination(); }
+  catch (error) { return { success: false, error: "DESTINATION_UNVERIFIED", message: String(error) }; }
+  if (destination.stationCode !== input.stationCode || destination.blockIndex !== input.blockIndex) return { success: false, error: "LIVE_TARGET_MISMATCH", message: "Requested site does not match active profile." };
+  const baseUrl = destination.baseUrl;
   const postUrl = `${baseUrl}/tools/controls/ems/command`;
 
   let responseText = "";
   let httpStatus = 0;
   let dispatched = false;
+  const timeline = beginBlockTimelineCommand(baseUrl, input, `EMS app ${input.appCode} / priority ${input.priority}: ${input.enabled ? "ENABLE" : "DISABLE"}`);
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(postUrl, {
+    destination.assertCurrent();
+    const res = await boundedControlRequest(postUrl, 15000, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream"
       },
-      body: commandBytes as any,
-      signal: controller.signal
+      body: commandBytes as any
     });
-    clearTimeout(timeoutId);
 
     httpStatus = res.status;
-    try { responseText = await res.text(); } catch(e) {}
+    responseText = res.text;
 
     // Treat Turtle HTTP response as dispatch evidence only.
-    if (res.ok || (responseText && (responseText.includes("QUEUED") || responseText.includes("200")))) {
+    if (res.ok) {
       dispatched = true;
     }
   } catch (err: any) {
+    timeline.result({accepted: undefined, readbackConfirmed: null});
     logAudit(false, `API_ERROR_${err.message}`, "FAILED", true);
     return { success: false, error: "API_ERROR", message: `Failed to POST command to Turtle: ${err.message}` };
   }
 
   if (dispatched) {
     // Perform fresh readback verification
-    const verification = await verifyEmsAppState(input.appCode, input.enabled, baseUrl);
+    const verification = await verifyEmsAppState(input.appCode, input.enabled, baseUrl, input.priority, destination.assertCurrent);
+    timeline.result({accepted: true, readbackConfirmed: verification.status === "VERIFIED_SUCCESS" ? true : verification.status === "VERIFIED_FAILED" ? false : null});
 
     if (verification.status === "VERIFIED_SUCCESS") {
       logAudit(
@@ -446,6 +453,7 @@ export async function setEmsApplicationEnabledStatus(input: SetAppStatusInput): 
       }
     }
   } else {
+    timeline.result({accepted: false, readbackConfirmed: null});
     logAudit(false, "REJECTED_BY_TURTLE", "REJECTED", true, httpStatus, responseText, "DISPATCH_FAILED");
     return {
       success: false,

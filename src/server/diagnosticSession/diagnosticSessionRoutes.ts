@@ -58,6 +58,11 @@ export type DiagnosticSessionSample = {
 let activeSession: DiagnosticSession | null = null;
 let pollIntervalTimer: NodeJS.Timeout | null = null;
 
+export function stopDiagnosticSessionPolling() {
+  if (pollIntervalTimer) clearInterval(pollIntervalTimer);
+  pollIntervalTimer = null;
+}
+
 const SESSIONS_DIR = path.join(process.cwd(), "data", "diagnostic-sessions");
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -415,6 +420,7 @@ router.post("/start", async (req, res) => {
 
     // Setup Polling Scheduler
     const runPoller = async () => {
+      if (isRuntimeStopping()) return;
       if (!activeSession || activeSession.paused || !activeSession.active) return;
       
       const pollT0 = Date.now();
@@ -780,3 +786,4 @@ router.get("/:sessionId/export/csv", (req, res) => {
 });
 
 export default router;
+import {isRuntimeStopping} from "../runtimeShutdown";

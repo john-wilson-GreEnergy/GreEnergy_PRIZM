@@ -328,7 +328,7 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
       }
       existingKeys.add(dedupeKey);
 
-      const block = Number(source.blockIndex ?? source.block ?? n?.raw?.action?.block ?? 1);
+      const block = Number(n?.raw?.action?.blockIndex ?? n?.raw?.action?.block ?? 1);
       const energySegmentNumber =
         Number(source.energySegmentIndex) ||
         (Number.isFinite(stringNumber) ? stringNumberToEnergySegment(stringNumber) : null);
@@ -342,7 +342,7 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
         compact: false
       });
 
-      const severity = String(n?.level || n?.severity || "WARNING").toUpperCase();
+      const severity = n.level;
       const title = String(n?.name || n?.description || `BPC Balancing Notification ${code}`);
 
       correlatedWarnings.push({
@@ -361,7 +361,7 @@ export function analyzeReports(testIds: number[], rows: BalancerTestResultRow[],
         label,
         reason: "Active BPC balancing-related notification from site notification engine",
         testIds,
-        detectedAt: n?.timestamp || n?.raw?.action?.detectedAt || n?.raw?.action?.timestamp || null,
+        detectedAt: n?.raw?.action?.detectedAt || n?.raw?.action?.timestamp || null,
         raw: n
       });
     }

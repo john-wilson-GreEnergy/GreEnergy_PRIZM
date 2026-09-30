@@ -1,4 +1,6 @@
-export const BESS_STATUS_CODE_MAP: Record<string, string> = {
+// Pure shared definitions; no server acquisition or runtime dependencies.
+import {NOTIFICATION_CATALOG} from '../server/notifications/notificationCatalog';
+const LEGACY_STATUS_CODE_MAP: Record<string, string> = {
   "2534": "Contactors Open Warning",
   "2561": "String OOR Warning",
   "1004": "CellGroup Low Voltage Alarm",
@@ -27,6 +29,11 @@ export const BESS_STATUS_CODE_MAP: Record<string, string> = {
   "2921": "Cell Temp Loss Warning"
 };
 
+export const BESS_STATUS_CODE_MAP: Record<string,string> = {
+  ...LEGACY_STATUS_CODE_MAP,
+  ...Object.fromEntries(Object.values(NOTIFICATION_CATALOG).map(entry=>[entry.code,entry.name])),
+};
+
 export function describeBessStatusCode(code: unknown): string {
   const key = String(code ?? "").trim();
   if (!key) return "";
@@ -34,6 +41,10 @@ export function describeBessStatusCode(code: unknown): string {
 }
 
 export function classifyBessStatusCode(code: unknown): "ALARM" | "WARNING" | "INFO" {
+  const severity=NOTIFICATION_CATALOG[String(code ?? '').trim()]?.defaultSeverity;
+  if (severity==='alarm') return 'ALARM';
+  if (severity==='warning') return 'WARNING';
+  if (severity==='info') return 'INFO';
   const n = Number(code);
   if (!Number.isFinite(n)) return "INFO";
   if (n >= 1000 && n < 2000) return "ALARM";

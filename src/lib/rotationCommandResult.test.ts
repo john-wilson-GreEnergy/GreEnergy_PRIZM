@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {requireVerifiedRotation} from './rotationCommandResult';
+const row = {target:{array:2,pcs:1},accepted:true,readbackConfirmed:true};
+assert.doesNotThrow(()=>requireVerifiedRotation({success:true,results:[row]}));
+assert.throws(()=>requireVerifiedRotation({success:false,results:[{...row,accepted:false,error:'Inventory missing; no command sent'}]}),/Array 2 \/ PCS 1: Inventory missing/);
+assert.throws(()=>requireVerifiedRotation({success:false,results:[{...row,readbackConfirmed:null,readbackStatus:'Command accepted; fresh PCS rotation readback was not confirmed'}]}),/Command accepted; fresh PCS rotation readback was not confirmed/);
+assert.throws(()=>requireVerifiedRotation({success:true,results:[]}),/not verified/);
+assert.throws(()=>requireVerifiedRotation({success:true,results:[row,{...row,accepted:false}]}),/outcome unavailable/);
+assert.throws(()=>requireVerifiedRotation(null),/not verified/);
+console.log('PCS rotation UI result handling passed');

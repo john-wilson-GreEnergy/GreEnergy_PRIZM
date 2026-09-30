@@ -172,7 +172,11 @@ export class StringViewerScheduler<T = unknown> {
         if (this.config.forceFullRefresh) this.fullRefreshProgress.completed += 1;
       }
     };
-    await Promise.all(Array.from({ length: Math.min(this.config.maxConcurrency, selected.length) }, () => worker()));
+    // An unexpected worker rejection must not release the batch owner while
+    // sibling requests are still running (including during shutdown/site switches).
+    const results = await Promise.allSettled(Array.from({ length: Math.min(this.config.maxConcurrency, selected.length) }, () => worker()));
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'StringViewer batch failed');
     for (const item of selected) this.requested.delete(item.candidate.stringKey);
 
     const entries = new Map<string, StringViewerCacheEntry<T>>();

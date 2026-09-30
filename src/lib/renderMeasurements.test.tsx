@@ -1,0 +1,16 @@
+import React from 'react';
+import assert from 'node:assert/strict';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {RenderMeasurements} from './renderMeasurements';
+import {RenderMeter, RenderProbe, renderProfilingEnabled} from '../components/RenderProbe';
+const m=new RenderMeasurements(3);
+assert.deepEqual(m.report(),[]);
+m.record('test','mount',20); m.record('test','update',0);m.record('test','update',60);
+assert.deepEqual(m.report()[0],{id:'test',samples:3,dropped:0,mountMs:20,updates:2,medianMs:60,p95Ms:60,maxMs:60,over50ms:1});
+m.record('test','update',10);m.record('test','update',NaN);m.record('test','update',-1);
+assert.equal(m.report()[0].dropped,1);assert.equal(m.report()[0].mountMs,null);assert.equal(m.report()[0].medianMs,10);
+m.reset();assert.deepEqual(m.report(),[]);
+assert.equal(renderProfilingEnabled(),false);
+assert.equal(renderToStaticMarkup(<RenderMeter/>),'');
+assert.equal(renderToStaticMarkup(<RenderProbe id="x"><span>Unchanged</span></RenderProbe>),'<span>Unchanged</span>');
+console.log('Render measurements: bounds, statistics, invalid values, reset and disabled fallback passed');
