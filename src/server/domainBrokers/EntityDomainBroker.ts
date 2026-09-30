@@ -55,12 +55,19 @@ export class EntityDomainBroker<T extends Record<string, any>> {
   }
 
   snapshot(): { domain: string; version: number; capturedAt: string | null; rows: T[] } {
+    return this.projectSnapshot(row => row);
+  }
+
+  /** Internal pure projection only. Copy the projection, not discarded payloads.
+   * Projectors must never mutate input; returned rows remain defensive copies.
+   */
+  projectSnapshot<R>(project: (row: Readonly<T>) => R): { domain: string; version: number; capturedAt: string | null; rows: R[] } {
     const values = [...this.rows.values()];
     return {
       domain: this.domain,
       version: this.version,
       capturedAt: values.length ? new Date(Math.max(...values.map((value) => value.updatedAtMs))).toISOString() : null,
-      rows: values.map((value) => structuredClone(value.row))
+      rows: values.map((value) => structuredClone(project(value.row)))
     };
   }
 

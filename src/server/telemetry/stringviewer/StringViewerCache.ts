@@ -1,5 +1,7 @@
 import { StringViewerCacheEntry, StringViewerFetchResult, StringViewerIdentity } from "./StringViewerTypes";
 
+export const stringViewerCacheReuseEnabled = process.env.PRIZM_STRINGVIEWER_CACHE_REUSE !== 'false';
+
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   if (value && typeof value === "object") {
     const object = value as object;
@@ -28,7 +30,14 @@ export function stringViewerIdentityKey(identity: Pick<StringViewerIdentity, "st
 export class StringViewerCache<T = unknown> {
   private readonly entries = new Map<string, StringViewerCacheEntry<T>>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = Date.now,
+    private readonly reuseFrozenPayload = stringViewerCacheReuseEnabled) {}
+
+  private freezeMetadata(entry: StringViewerCacheEntry<T>): StringViewerCacheEntry<T> {
+    // Payload ownership is established by record(): clone + recursive freeze.
+    // Only scalar metadata changes on reads/failures; never walk that graph again.
+    return this.reuseFrozenPayload ? Object.freeze(entry) : deepFreeze(entry);
+  }
 
   get(identityOrKey: StringViewerIdentity | string, ttlMs = Number.POSITIVE_INFINITY): StringViewerCacheEntry<T> | null {
     const key = typeof identityOrKey === "string" ? identityOrKey : stringViewerIdentityKey(identityOrKey);
@@ -36,7 +45,7 @@ export class StringViewerCache<T = unknown> {
     if (!entry) return null;
     const ageAnchor = entry.sourceObservationAt ?? entry.lastSuccessAt;
     const ageMs = ageAnchor == null ? null : Math.max(0, this.now() - new Date(ageAnchor).getTime());
-    return deepFreeze({ ...entry, ageMs, stale: entry.stale || ageMs == null || ageMs >= ttlMs });
+    return this.freezeMetadata({ ...entry, ageMs, stale: entry.stale || ageMs == null || ageMs >= ttlMs });
   }
 
   record(identity: StringViewerIdentity, cycleId: number | null, result: StringViewerFetchResult<T>): StringViewerCacheEntry<T> {
@@ -52,7 +61,7 @@ export class StringViewerCache<T = unknown> {
     if (result.success && result.value !== undefined) {
       const value = deepFreeze(structuredClone(result.value));
       const nextFingerprint = fingerprint(value);
-      const entry = deepFreeze<StringViewerCacheEntry<T>>({
+      const entry = this.freezeMetadata({
         ...canonicalIdentity,
         lastAttemptAt: attemptedAt,
         lastSuccessAt: attemptedAt,
@@ -75,7 +84,7 @@ export class StringViewerCache<T = unknown> {
       return entry;
     }
 
-    const entry = deepFreeze<StringViewerCacheEntry<T>>({
+    const entry = this.freezeMetadata({
       ...canonicalIdentity,
       lastAttemptAt: attemptedAt,
       lastSuccessAt: previous?.lastSuccessAt ?? null,

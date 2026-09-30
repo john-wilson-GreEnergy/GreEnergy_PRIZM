@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "PRIZM_FORCE_DEV=true tsx server.ts",
     "predev": "node scripts/build-history-worker.mjs",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/build-history-worker.mjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/fleet/main.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/fleet-server.cjs && node scripts/build-history-worker.mjs",
+    "start:fleet": "node dist/fleet-server.cjs",
+    "test:fleet-tls": "node --import tsx src/server/fleet/collectorTls.test.ts",
+    "test:fleet": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/fleet/fleet.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/server/fleet/fleetApp.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/fleet/FleetStore.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/server/fleet/detailProjection.test.tsx",
     "binding-parity": "PRIZM_STRINGVIEWER_MODE=legacy PRIZM_FEATHER_MODE=legacy tsx src/server/telemetry/binding/BindingParityHarnessCli.ts",
     "observation-parity": "PRIZM_STRINGVIEWER_MODE=legacy PRIZM_FEATHER_MODE=legacy tsx src/server/observations/ObservationParityCli.ts",
     "observation-route-parity": "PRIZM_STRINGVIEWER_MODE=legacy PRIZM_FEATHER_MODE=legacy tsx src/server/observations/StringRouteObservationParityCli.ts",
@@ -17,7 +20,7 @@
     "lint": "tsc --noEmit",
     "test:history-workers": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/thermal/historyQueryWorker.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/lib/backgroundJsonExport.test.ts",
     "test:cooperative": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/cooperativeCheckpoint.test.ts",
-    "posttest": "npm run test:cooperative && node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/pcsDataQuality.test.ts && npm run test:cache-writer && npm run test:notification-review",
+    "posttest": "npm run test:cooperative && node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/pcsDataQuality.test.ts && npm run test:cache-writer && npm run test:notification-review && npm run test:feather-table && npm run test:processing",
     "test:notification-review": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/notifications/notificationReview.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/components/NotificationReviewPanel.test.tsx",
     "test:cache-writer": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/cache/AsyncCacheWriter.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/server/cache/snapshotPersistence.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/server/cache/snapshotWorker.test.ts",
     "test:site-loading": "node --require ./scripts/test-network-guard.cjs --import tsx src/lib/siteDataRequests.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/context/SiteDataContext.quality.test.ts",
@@ -27,7 +30,9 @@
     "verify": "npm run lint && npm run test && npm run build && node verify_bundle.js",
     "prestart": "npm run build",
     "stop:port": "node scripts/kill-port-3000.cjs",
-    "restart": "npm run stop:port && npm start"
+    "restart": "npm run stop:port && npm start",
+    "test:feather-table": "node --require ./scripts/test-network-guard.cjs --import tsx src/components/FeatherDeviceRow.test.tsx",
+    "test:processing": "node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/processingOptimizations.test.ts && node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/compactStringList.test.tsx && node --require ./scripts/test-network-guard.cjs --import tsx src/server/telemetry/compactStringRoutes.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

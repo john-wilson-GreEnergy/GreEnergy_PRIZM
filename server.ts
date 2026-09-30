@@ -113,8 +113,17 @@ import { canonicalPublicationRouter } from "./src/server/telemetry/publication";
 
 
 import {pilotUi} from './src/server/security/pilotUi';
+import {collectorExportFromEnvironment} from './src/server/fleet/collectorExport';
 
 const app = express();
+// Separately authenticated, opt-in collector export. Disabled by default.
+// It publishes existing canonical data, never equipment reads or writes.
+const fleetExport=collectorExportFromEnvironment(()=>({...prizmDataCoordinator.getBlockSummaryView(),fleetDetailSnapshot:prizmDataCoordinator.getSnapshotOrNull()}),enrollment=>{
+  const identity=prizmDataCoordinator.getSnapshotOrNull()?.siteIdentity;
+  return !!identity && identity.activeProfileId===enrollment.profileId && identity.stationCode===enrollment.stationCode &&
+    identity.blockIndex===enrollment.blockIndex && identity.emsBaseUrl===enrollment.emsBaseUrl;
+});
+if(fleetExport)app.use('/api/fleet',fleetExport.router);
 // Must precede every legacy API route and the large legacy body parser.
 // Opt-in restricted pilot; no authenticated request falls through this gate.
 const accessPilot = accessPilotFromEnvironment();
@@ -129,6 +138,7 @@ const shutdown=new RuntimeShutdown({
   stop:()=>{
     const errors: unknown[] = [];
     for (const stop of [
+      () => fleetExport?.stop(),
       stopBackgroundPolling, stopModbusScheduler, stopOperationalModbusPolling,
       stopPublishedViewCache, stopPreparedReportSnapshotCache, stopFirmwareInventoryAutomation,
       stopLocalStorageMaintenance, stopDiagnosticSessionPolling,

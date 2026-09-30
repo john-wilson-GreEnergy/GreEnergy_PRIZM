@@ -12,9 +12,11 @@ import {SnapshotCacheWorker} from './SnapshotCacheWorker';
 // Fixed for the process lifetime: switching modes requires an idle restart so
 // synchronous and queued writes can never race on the same destination.
 const asyncSnapshotCacheEnabled = process.env.PRIZM_ASYNC_SNAPSHOT_CACHE !== 'false';
-// Opt-in until the live serialization parity/performance gate has passed.
-const snapshotWorkerEnabled = asyncSnapshotCacheEnabled && process.env.PRIZM_SNAPSHOT_WORKER === 'true';
+// Default-on after parity validation; explicit false retains the legacy path.
+const snapshotWorkerEnabled = asyncSnapshotCacheEnabled && process.env.PRIZM_SNAPSHOT_WORKER !== 'false';
+const emsDerivedCacheWorkerEnabled = snapshotWorkerEnabled && process.env.PRIZM_EMS_DERIVED_CACHE_WORKER !== 'false';
 const asyncSnapshotKeys = new Set(['prizm-site-snapshot', 'site-operations-summary']);
+const emsDerivedKeys = new Set(['string_dashboard_enriched_ALL', 'string_dashboard_base_ALL']);
 const snapshotWorker = new SnapshotCacheWorker();
 let lastCacheWarningAt = 0;
 const snapshotCacheWriter = new AsyncCacheWriter<string | SnapshotTransfer>({
@@ -26,7 +28,7 @@ const snapshotCacheWriter = new AsyncCacheWriter<string | SnapshotTransfer>({
     console.warn('[Snapshot Cache] Persistence degraded:', message);
   }
 }});
-export const getSnapshotCachePersistenceStatus = () => ({enabled: asyncSnapshotCacheEnabled, workerEnabled: snapshotWorkerEnabled, worker: snapshotWorker.status(), ...snapshotCacheWriter.status()});
+export const getSnapshotCachePersistenceStatus = () => ({enabled: asyncSnapshotCacheEnabled, workerEnabled: snapshotWorkerEnabled, emsDerivedWorkerEnabled: emsDerivedCacheWorkerEnabled, worker: snapshotWorker.status(), ...snapshotCacheWriter.status()});
 export const closeSnapshotCachePersistence = async () => {
   try {await snapshotCacheWriter.close();} finally {await snapshotWorker.close();}
 };
@@ -482,7 +484,7 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
   memoryCache.set(key, entry);
 
   const p = getActiveSiteCachePath();
-  const asyncPersistence = asyncSnapshotCacheEnabled && asyncSnapshotKeys.has(key) && !options?.isRaw;
+  const asyncPersistence = !options?.isRaw && ((asyncSnapshotCacheEnabled && asyncSnapshotKeys.has(key)) || (emsDerivedCacheWorkerEnabled && emsDerivedKeys.has(key)));
   if (!asyncPersistence && !fs.existsSync(p)) {
       try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
       try { fs.mkdirSync(path.join(p, 'raw'), { recursive: true }); } catch (e) {}

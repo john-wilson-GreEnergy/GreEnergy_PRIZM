@@ -12,7 +12,7 @@ export default defineConfig(() => {
     define: { __PRIZM_RENDER_PROFILE__: JSON.stringify(process.env.PRIZM_REACT_PROFILE === 'true') },
     plugins: [react(), tailwindcss()],
     build: {
-      rollupOptions: {input: {workspace: path.resolve(__dirname, 'index.html'), signin: path.resolve(__dirname, 'signin.html')}},
+      rollupOptions: {input: {workspace: path.resolve(__dirname, 'index.html'), signin: path.resolve(__dirname, 'signin.html'), fleet: path.resolve(__dirname, 'fleet.html')}},
     },
     resolve: {
       alias: {

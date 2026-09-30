@@ -1,6 +1,8 @@
 import { thermalService } from "./thermal/thermalService";
 import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
 import {stringViewerBackground} from './telemetry/stringviewer/StringViewerBackground';
+import {stringViewerCacheReuseEnabled} from './telemetry/stringviewer/StringViewerCache';
+import {batchedArraySearchEnabled} from './normalizers/arrayCandidateSearch';
 import {normalizeBpcVoltageSnapshot} from './normalizers/bpcVoltageSnapshot';
 import {attachBpcVoltageOutliers,isPackDeltaCode} from './notifications/bpcVoltageOutliers';
 import {pairedAcquisition} from './telemetry/pairedAcquisition';
@@ -12,7 +14,7 @@ import {emsStageTiming} from './telemetry/EmsStageTiming';
 import {readSummarySource} from './telemetry/summarySnapshotSelection';
 import {readSnapshotCycleId} from './telemetry/snapshotCycleSelection';
 import { EncodedJsonCache } from './telemetry/EncodedJsonCache';
-import {compactStringView} from './telemetry/compactStringList';
+import {projectCompactStringView, compactProjectionEnabled} from './telemetry/compactStringList';
 import { getFeatherCache, refreshFeatherCache } from "./feather/featherClient";
 import { fetchLiveEmsApps } from "./ems/emsAppsService";
 import { buildSiteOperationsSummaryFromCache, NormalizedStringRow } from "./siteOperations";
@@ -3051,7 +3053,11 @@ export function getEncodedFastStringsView(compact = false) {
     if (!latestFastStringsView) return Promise.resolve(null);
     return (compact ? compactStringsResponseCache : fastStringsResponseCache).read(
         latestFastStringsView, stringDomainBroker.getVersion(),
-        () => compact ? compactStringView(getFastStringsView()) : getFastStringsView());
+        () => compact ? getCompactFastStringsView() : getFastStringsView());
+}
+
+export function getCompactFastStringsView() {
+    return latestFastStringsView ? projectCompactStringView(latestFastStringsView, stringDomainBroker) : {warming: true};
 }
 
 /** Full canonical details for one target, without device acquisition or fleet copies. */
@@ -3816,7 +3822,7 @@ export async function triggerImmediatePoll(reason = "legacy-triggerImmediatePoll
 }
 
 export function getCoordinatorDebugState() {
-    return {...coordinatorRuntime.getDebugState(),cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
+    return {...coordinatorRuntime.getDebugState(),processingOptimizations:{stringViewerCacheReuse:stringViewerCacheReuseEnabled,compactStringProjection:compactProjectionEnabled(),batchedArraySearch:batchedArraySearchEnabled()},cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
         sequenceKind:primaryReaderEnabled()?'primary-acquisition':'coordinator-cycle',
         mode:process.env.PRIZM_RECOVERY_EARLY_TELEMETRY === 'false' ? 'full-snapshot' : 'early',
         ...recoveryTelemetryBroker.diagnostics(),fullSnapshotCycleId:centralSnapshot?.cycleId ?? null

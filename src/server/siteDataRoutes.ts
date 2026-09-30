@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { gzipSync } from "node:zlib";
 import { buildArrayCellMetrics } from './telemetry/arrayCellMetrics';
-import {compactStringRow, compactStringView, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
+import {compactStringRow, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
 import { fastStringsTransportEnabled, sendFastStringsResponse } from './telemetry/fastStringsTransport';
 import { thermalRouter } from "./thermal/thermalRoutes";
 import {operationalTimelineRouter} from "./history/operationalTimelineRoutes";
@@ -9,6 +9,7 @@ import {operationalTimeline} from "./history/operationalTimeline";
 import {
   getSnapshotOrNull,
   getFastStringsView,
+  getCompactFastStringsView,
   getEncodedFastStringsView,
   getCanonicalStringDetailRow,
   getSiteDataStatusView,
@@ -413,9 +414,9 @@ siteDataRouter.get("/strings-fast", async (req, res) => {
       if (!encoded) return res.status(503).json({ warming: true });
       return sendFastStringsResponse(req, res, encoded);
     }
-    const view = getFastStringsView();
+    const view = req.query.shape === "list" ? getCompactFastStringsView() : getFastStringsView();
     if (view?.warming) return res.status(503).json(view);
-    return res.json(req.query.shape === "list" ? compactStringView(view) : view);
+    return res.json(view);
   } catch {
     return res.status(503).json({ error: 'Fast string publication unavailable' });
   }

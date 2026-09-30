@@ -29,12 +29,15 @@ latest-value caches, not durable history records.
 The manifest continues to describe acquisition success, not disk commit.
 `/api/local/debug/coordinator` exposes `cachePersistence` separately, including
 queue counts, retained bytes, completions, failures, rejections, last completion,
-and unresolved failures. Warnings are rate limited. JSON serialization is still
-synchronous and remains a candidate for subsequent optimization.
+and unresolved failures. Warnings are rate limited. In the legacy asynchronous
+writer path, JSON serialization remains synchronous.
 
-The subsequent opt-in [snapshot conversion worker](SNAPSHOT_CONVERSION_WORKER.md)
-can move JSON expansion and persistence off-thread while retaining this queue.
-Without that flag, the behavior described here remains the default.
+The subsequent [snapshot conversion worker](SNAPSHOT_CONVERSION_WORKER.md) is
+enabled by default as of September 30. It moves JSON expansion and persistence
+off-thread while retaining a bounded queue, and also handles the two large
+EMS-derived string-dashboard checkpoints. `PRIZM_SNAPSHOT_WORKER=false` restores
+the legacy behavior described here; the evidence below records the original
+asynchronous-writer validation, not the newer worker measurements.
 
 ## Validation and parity
 

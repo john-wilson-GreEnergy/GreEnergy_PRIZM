@@ -24,6 +24,8 @@ import { graphIdentityResolver } from "./topology/GraphIdentityResolver";
 import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRuntime";
 import { observationRuntime } from "./observations/ObservationRuntime";
 import { buildSafetyFaultCandidateSnapshot } from "./safetyFaultClear";
+import { siteArrayCandidates } from './normalizers/arrayCandidateSearch';
+import { coordinatorProfiler } from './telemetry/profiler';
 
 const router = Router();
 
@@ -50,22 +52,6 @@ function numOrNull(val: any): number | null {
     if (val === null || val === undefined) return null;
     const n = Number(val);
     return isNaN(n) ? null : n;
-}
-
-function findArraysByObjectKeys(obj: any, requiredKeys: string[], results: any[] = []) {
-    if (!obj || typeof obj !== 'object') return results;
-    if (Array.isArray(obj)) {
-        if (obj.length > 0 && typeof obj[0] === 'object' && requiredKeys.every(k => k in obj[0])) {
-            results.push(...obj);
-        } else {
-            obj.forEach(o => findArraysByObjectKeys(o, requiredKeys, results));
-        }
-    } else {
-        for (const [k, v] of Object.entries(obj)) {
-            findArraysByObjectKeys(v, requiredKeys, results);
-        }
-    }
-    return results;
 }
 
 const DRAGON_APP_CODE_NAME_MAP: Record<string, string> = {
@@ -1149,13 +1135,9 @@ export async function buildSiteOperationsSummaryFromCache() {
 
         let allArrCands: any[][] = [];
         if (arrays.length > 0) allArrCands.push(arrays);
-        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'nearlineSOC']));
-        allArrCands.push(findArraysByObjectKeys(status, ['arrayIndex', 'nearlineSOC']));
-        allArrCands.push(findArraysByObjectKeys(lastCall, ['arrayIndex', 'nearlineSOC']));
-        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'communicatingStackCount']));
-        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'availableACChargekW']));
-        allArrCands.push(findArraysByObjectKeys(block, ['arrayIndex', 'onlineSOC']));
-        allArrCands.push(findArraysByObjectKeys(status, ['arrayIndex', 'onlineSOC']));
+        allArrCands.push(...coordinatorProfiler.withSyncPhase("Array Candidate Search",
+            {waitState: "NORMALIZATION", blocking: true},
+            () => siteArrayCandidates(block, status, lastCall)));
         
         let bestArrCand: any[] = [];
         let bestScore = -1;
