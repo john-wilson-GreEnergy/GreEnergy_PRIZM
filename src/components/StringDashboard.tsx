@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {PageScrollTable} from './PageScrollTable';
+import {isLocalOperationsReview} from '../lib/operationsReview';
+import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock, CheckCircle2, XCircle, TriangleAlert, Activity, X } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
 import PcsOperationalTimeline from "./PcsOperationalTimeline";
@@ -695,28 +698,6 @@ const handleManualRefresh = async () => {
     summary?.maxCellTemperatureDelta ??
     null;
 
-  const sourceHealthRows = useMemo(() => {
-    if (!data?.sourceHealth) return [];
-    if (Array.isArray(data.sourceHealth)) {
-      return data.sourceHealth.map((h:any) => ({
-        key: h.name || h.endpoint || "source",
-        ok: h.ok ?? h.success,
-        httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
-        durationMs: h.durationMs ?? h.lastDurationMs,
-        url: h.url ?? h.endpoint,
-        error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
-      }));
-    }
-    return Object.entries(data.sourceHealth).map(([key, h]: [string, any]) => ({
-      key,
-      ok: h.ok ?? h.success,
-      httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
-      durationMs: h.durationMs ?? h.lastDurationMs,
-      url: h.url ?? h.endpoint,
-      error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
-    }));
-  }, [data?.sourceHealth]);
-
   const arrays = useMemo(() => {
     const list = Array.from(new Set<number>(strings.map((s:any) => Number(s.arrayNumber))));
     return list.sort((a, b) => Number(a) - Number(b));
@@ -858,9 +839,11 @@ const handleManualRefresh = async () => {
   }
 
   return (
-    <div className="flex flex-col font-sans transition-all bg-transparent pb-24">
+    <div data-equipment="strings" className="flex flex-col font-sans transition-all bg-transparent pb-24">
       {compactStrings && stringTransportRecovering && <div role="status" className="mb-3 rounded border border-amber-500/40 p-2 text-xs text-amber-600">String updates reconnecting — showing last received values while the list resynchronizes.</div>}
       
+      {compactStrings && stringTransportRecovering && !isLocalOperationsReview() && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String updates delayed. Showing last received readings; check row timestamps.</div>}
+      {(data.cache?.isStale || data.cache?.sourceOk === false) && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String readings are stale. Check Data stream health for source details.</div>}
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 font-mono">
         <div>
@@ -877,24 +860,7 @@ const handleManualRefresh = async () => {
            >
               <RefreshCw size={10} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
            </button>
-           <div className={`p-1.5 border rounded flex items-center gap-1.5 ${
-                (!data.cache || !data.cache.sourceOk) ? 'bg-prizm-danger/10 border-prizm-danger/30 text-prizm-danger' : 
-                isRefreshing ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' :
-                (data.cache.isStale ? 'bg-prizm-warning/10 border-prizm-warning/30 text-prizm-warning' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-bold')
-           }`}>
-                {(() => {
-                    if (!data.cache || !data.cache.sourceOk) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline</>;
-                    if (isRefreshing) return <><span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse"></span>Refreshing Live</>;
-                    if (data.cache.isStale) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning"></span>Connection Partial</>;
-                    return <><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Connection Live</>;
-                })()}
-           </div>
-           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
-              SRC: <span className="text-prizm-text">{data.emsBaseUrl}</span>
-           </div>
-           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
-              LATENCY: <span className="text-prizm-text">{data.durationMs}ms</span>
-           </div>
+           {!remoteReadOnlyWorkspace() && <a className="text-xs text-prizm-text-muted underline underline-offset-4" href={(() => {const url=new URL(window.location.href);url.searchParams.set('tab','source-health');return url.pathname+url.search;})()}>Data stream health</a>}
         </div>
       </div>
 
@@ -903,50 +869,6 @@ const handleManualRefresh = async () => {
         sessionStorage.removeItem("prizm-balancing-verification"); setBalancingVerificationId(null);
         setBalancingVerification(null); setBalancingVerificationError("");
       }}/>
-      <details className="mb-6 bg-prizm-surface border border-prizm-border rounded-lg text-xs font-mono group">
-        <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold uppercase tracking-wider">
-           Source Debug Information
-        </summary>
-        <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar">
-           <table className="w-full text-left whitespace-nowrap text-[10px]">
-              <thead className="text-prizm-text-muted">
-                 <tr>
-                    <th className="pr-4 pb-2">Key</th>
-                    <th className="pr-4 pb-2">Status</th>
-                    <th className="pr-4 pb-2">HTTP Code</th>
-                    <th className="pr-4 pb-2">Ping (ms)</th>
-                    <th className="pr-4 pb-2">URL</th>
-                    <th className="pb-2">Error</th>
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-prizm-border/10">
-                 {sourceHealthRows.length === 0 ? (
-                    <tr>
-                       <td colSpan={6} className="py-4 text-center text-prizm-text-muted">
-                          No source health telemetry published for this snapshot.
-                       </td>
-                    </tr>
-                 ) : (
-                    sourceHealthRows.map((row: any) => (
-                       <tr key={row.key}>
-                          <td className="pr-4 py-1.5 text-prizm-primary font-bold">{row.key}</td>
-                          <td className="pr-4 py-1.5">
-                             <span className={`px-1.5 py-0.5 rounded text-white ${row.ok ? 'bg-emerald-500/50' : 'bg-prizm-danger/50'}`}>
-                                 {row.ok ? 'OK' : 'FAIL'}
-                             </span>
-                          </td>
-                          <td className="pr-4 py-1.5 text-prizm-text">{row.httpStatus || '--'}</td>
-                          <td className="pr-4 py-1.5 text-prizm-text-muted">{row.durationMs !== null && row.durationMs !== undefined ? `${row.durationMs}ms` : '--'}</td>
-                          <td className="pr-4 py-1.5 text-prizm-text-muted opacity-80">{row.url || '--'}</td>
-                          <td className="py-1.5 text-prizm-danger/80">{row.error || '--'}</td>
-                       </tr>
-                    ))
-                 )}
-              </tbody>
-           </table>
-        </div>
-      </details>
-
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-11 gap-2 mb-4 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
@@ -1084,7 +1006,7 @@ const handleManualRefresh = async () => {
 
 </div>
       </div>
-      <div className="sticky top-[64px] flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-[#001a1a]/95 text-slate-100 backdrop-blur border-x border-b border-teal-700 shadow-md z-[75] saturate-150">
+      <div data-string-selection-toolbar className="sticky top-[64px] flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-[#001a1a]/95 text-slate-100 backdrop-blur border-x border-b border-teal-700 shadow-md z-[75] saturate-150">
            <div className="flex flex-wrap items-center gap-3">
               <span className={`text-xs font-mono font-bold uppercase tracking-widest ${selectedIds.size > 0 ? "text-emerald-300" : "text-slate-100"}`}>
                 {selectedIds.size > 0 ? `${selectedIds.size} Selected` : "Select strings to control"}
@@ -1151,8 +1073,8 @@ const handleManualRefresh = async () => {
            </div>
       </div>
       {/* Main Strings Table Engine */}
-      <div className="flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
-         <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
+      <PageScrollTable className="ops-data-scroll flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
+         <table className="ops-standard-table w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
              <thead className="sticky top-[102px] z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
                   <th className="px-1 py-0.5 border-b border-prizm-border sticky top-[102px] left-0 bg-prizm-surface-strong z-[80] w-[30px]"></th>
@@ -1217,7 +1139,7 @@ const handleManualRefresh = async () => {
               )}
             </tbody>
          </table>
-      </div>
+      </PageScrollTable>
 
       <button
         className="fixed bottom-6 right-6 z-50 bg-prizm-surface-strong text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary hover:text-prizm-bg px-4 py-2 rounded-full font-bold shadow-lg shadow-prizm-primary/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer outline-none"

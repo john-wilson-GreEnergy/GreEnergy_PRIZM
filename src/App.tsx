@@ -55,7 +55,9 @@ import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteDataFields } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
 
-type AppTabId = "overview" | "one-line" | "thermal-controls" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
+const SourceStreamHealth = React.lazy(()=>import("./components/SourceStreamHealth"));
+
+type AppTabId = "source-health" | "overview" | "one-line" | "thermal-controls" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -69,6 +71,7 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "corrective-actions": { label: "Corrective Actions", icon: ShieldAlert },
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
+  "source-health": { label: "Data Stream Health", icon: Network },
   "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
   "balancer-test": { label: "BPC Balance Test", icon: Gauge },
   "site-configuration": { label: "Site Configuration", icon: Settings },
@@ -86,6 +89,7 @@ const DEFAULT_TABS_ORDER: string[] = [
   "corrective-actions",
   "arrays-strings",
   "site-health",
+  "source-health",
   "pcs-dashboard",
   "balancer-test",
   "site-configuration",
@@ -864,6 +868,8 @@ export default function App() {
                   <RenderProbe id="strings"><StringDashboard active /></RenderProbe>
                 </div>
               )}
+
+              {activeTab === "source-health" && <SourceStreamHealth/>}
 
               {activeTab === "site-health" && (
                 <div className="block animate-fade-in font-sans">
