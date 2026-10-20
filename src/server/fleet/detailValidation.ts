@@ -1,4 +1,4 @@
-import {emptyDetails,issueCategories,type FleetDetails,type DetailRange,type Quality,type IssueCategory} from '../../core/fleet/details';
+import {emptyDetails,issueCategories,fleetDetailLimits,type FleetDetails,type DetailRange,type Quality,type IssueCategory,type FleetPcsReading} from '../../core/fleet/details';
 const row=(v:unknown):Record<string,unknown>=>{if(!v || typeof v!=='object' || Array.isArray(v))throw new Error('Invalid fleet detail');return v as Record<string,unknown>;};
 const num=(v:unknown,min=-1e12,max=1e12):number|null=>{if(v===null)return null;if(typeof v!=='number' || !Number.isFinite(v) || v<min || v>max)throw new Error('Invalid detail number');return v;};
 const count=(v:unknown)=>{const n=num(v,0);if(n===null || !Number.isSafeInteger(n))throw new Error('Invalid detail count');return n;};
@@ -25,16 +25,40 @@ export function parseFleetDetails(value:unknown):FleetDetails {
     return {number:id,observedAt:stamp(a.observedAt),quality:quality(a.quality),
       stringCount:a.stringCount===null?null:count(a.stringCount),onlineStrings:a.onlineStrings===null?null:count(a.onlineStrings),outOfRotation:a.outOfRotation===null?null:count(a.outOfRotation),
       powerKw:num(a.powerKw),socPct:num(a.socPct,0,100),busVoltage:num(a.busVoltage,0),pcsState:text(a.pcsState,80),rotation:rotation as 'IN'|'OUT'|'UNKNOWN',
+      socObservedAt:a.socObservedAt===undefined?null:stamp(a.socObservedAt),socQuality:a.socQuality===undefined?'unknown':quality(a.socQuality),
       pcsQuality:quality(a.pcsQuality),pcsObservedAt:stamp(a.pcsObservedAt),temperatureC:range(a.temperatureC),voltageMv:range(a.voltageMv)};
   });
   if(new Set(result.arrays.map(a=>a.number)).size!==result.arrays.length)throw new Error('Duplicate array detail');
+  if(r.pcs!==undefined){
+    const reading=<T extends string|number>(v:unknown,parse:(v:unknown)=>T|null):FleetPcsReading<T>=>{
+      const p=row(v),q=quality(p.quality),at=stamp(p.observedAt),value=parse(p.value);
+      if(!['EMS','SMA HTTP','SMA stream','PCS Modbus','Unknown'].includes(String(p.source)))throw new Error('Invalid PCS source');
+      if(q==='live' && (value===null || !at || p.source==='Unknown'))throw new Error('Invalid live PCS reading');
+      return {value,quality:q,observedAt:at,source:p.source as FleetPcsReading['source'],...(p.source==='SMA stream'?{deviceObservedAt:stamp(p.deviceObservedAt??null),clockSkew:p.clockSkew===true}:{})};
+    };
+    const enumeration=(values:string[])=>(v:unknown)=>{if(v===null)return null;const s=text(v,80);if(!values.includes(s))throw new Error('Invalid PCS state');return s;};
+    result.pcs=list(r.pcs,64).map(value=>{const p=row(value),array=count(p.array),number=count(p.number);
+      if(!array || !number || p.id!==`A${array}-PCS${number}`)throw new Error('Invalid PCS identity');
+      return {id:text(p.id,80),array,number,status:reading(p.status,v=>v===null?null:text(v,80)),rotation:reading(p.rotation,enumeration(['IN','OUT'])),
+        acContactor:reading(p.acContactor,enumeration(['OPEN','CLOSED'])),dc1:reading(p.dc1,enumeration(['OPEN','CLOSED'])),dc2:reading(p.dc2,enumeration(['OPEN','CLOSED'])),dc3:reading(p.dc3,enumeration(['OPEN','CLOSED'])),
+        insulationKohm:reading(p.insulationKohm,v=>num(v,0)),maxIgbtF:reading(p.maxIgbtF,v=>num(v,-459.67))};
+    });
+    if(new Set(result.pcs.map(p=>p.id)).size!==result.pcs.length)throw new Error('Duplicate PCS identity');
+  }
   result.issues.observedAt=stamp(i.observedAt);result.issues.quality=quality(i.quality);result.issues.omittedGroups=count(i.omittedGroups);
   const categories=row(i.categories);
   for(const key of Object.keys(issueCategories) as IssueCategory[]){const c=row(categories[key]);for(const name of ['alarms','warnings','info','unknown','targets'] as const)result.issues.categories[key][name]=c[name]===null?null:count(c[name]);}
   result.issues.notes=list(i.notes,8).map(v=>text(v,240));
-  result.issues.findings=list(i.findings,60).map(value=>{const f=row(value);
+  let targetTotal=0;
+  result.issues.findings=list(i.findings,fleetDetailLimits.groups).map(value=>{const f=row(value);
     if(typeof f.category!=='string' || !Object.hasOwn(issueCategories,f.category) || typeof f.severity!=='string' || !['alarm','warning','info','unknown'].includes(f.severity))throw new Error('Invalid finding');
-    return {code:text(f.code,80),title:text(f.title),category:f.category as IssueCategory,severity:f.severity as 'alarm'|'warning'|'info'|'unknown',targetCount:count(f.targetCount),targets:list(f.targets,6).map(v=>text(v))};});
+    const targetRows=f.targetRows===undefined?undefined:list(f.targetRows,fleetDetailLimits.targets).map(value=>{
+      const t=row(value),coordinate=(v:unknown)=>v===null?null:count(v);
+      return {id:text(t.id,24),label:text(t.label),array:coordinate(t.array),string:coordinate(t.string),bpc:coordinate(t.bpc),cell:coordinate(t.cell),pcs:coordinate(t.pcs),segment:coordinate(t.segment),...(t.hvacUnit===undefined?{}:{hvacUnit:coordinate(t.hvacUnit)}),...(t.block===undefined?{}:{block:coordinate(t.block)})};
+    });
+    targetTotal+=targetRows?.length ?? 0;
+    if(targetTotal>fleetDetailLimits.targets || (targetRows && (targetRows.length>count(f.targetCount) || new Set(targetRows.map(t=>t.id)).size!==targetRows.length)))throw new Error('Invalid target coverage');
+    return {code:text(f.code,80),title:text(f.title),category:f.category as IssueCategory,severity:f.severity as 'alarm'|'warning'|'info'|'unknown',targetCount:count(f.targetCount),targets:list(f.targets,6).map(v=>text(v)),...(targetRows===undefined?{}:{targetRows})};});
   result.sensors={observedAt:stamp(s.observedAt),quality:quality(s.quality),trips:s.trips===null?null:count(s.trips),known:count(s.known),total:count(s.total),omittedTrips:count(s.omittedTrips),
     active:list(s.active,50).map(value=>{const t=row(value);
       if(t.condition===undefined)return {id:text(t.id,200),label:text(t.label),kind:text(t.kind,80)};
@@ -50,6 +74,10 @@ export function ageFleetDetails(value:FleetDetails|undefined,now:number,current:
   const age=(q:Quality,time:string|null):Quality=>q==='unknown'?'unknown':!current || !time || Date.parse(time)>now || now-Date.parse(time)>=15000?'stale':q;
   result.quality=age(result.quality,result.observedAt);
   result.issues.quality=age(result.issues.quality,result.issues.observedAt);result.sensors.quality=age(result.sensors.quality,result.sensors.observedAt);
-  for(const array of result.arrays){array.quality=age(array.quality,array.observedAt);array.pcsQuality=age(array.pcsQuality,array.pcsObservedAt);}
+  for(const array of result.arrays){array.quality=age(array.quality,array.observedAt);array.pcsQuality=age(array.pcsQuality,array.pcsObservedAt);array.socQuality=age(array.socQuality??'unknown',array.socObservedAt??null);}
+  for(const pcs of result.pcs ?? [])for(const key of ['status','rotation','acContactor','dc1','dc2','dc3','insulationKohm','maxIgbtF'] as const){
+    const reading=pcs[key],limit=key==='insulationKohm' || key==='maxIgbtF'?120000:reading.source==='EMS'?15000:20000;
+    if(reading.quality!=='unknown' && (!current || !reading.observedAt || Date.parse(reading.observedAt)>now+30000 || now-Date.parse(reading.observedAt)>=limit))reading.quality='stale';
+  }
   return result;
 }

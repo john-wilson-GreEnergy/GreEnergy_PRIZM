@@ -31,7 +31,7 @@ const originalConfig=process.env.PRIZM_FLEET_EXPORT_CONFIG;
 const services:NonNullable<ReturnType<typeof collectorExportFromEnvironment>>[]=[];
 const identity=(index:number)=>({siteId:'site-'+index,blockId:'1',stationCode:'LAB'+index,blockIndex:1,name:'Lab '+index,profileId:'profile-'+index,emsBaseUrl:'http://10.0.0.3:8080'});
 let matches=true,reads=0;
-const configs=ports.map((port,index)=>({identity:identity(index),origin:`https://127.0.0.1:${port}`,token:String(index+1).repeat(43),tls:{bindAddress:'127.0.0.1',keyFile,certFile}}));
+const configs=ports.map((port,index)=>({identity:identity(index),origin:`https://127.0.0.1:${port}`,token:String(index+1).repeat(43),...(index===0?{workspaceToken:'w'.repeat(43)}:{}),tls:{bindAddress:'127.0.0.1',keyFile,certFile}}));
 const source=(index:number)=>{reads++;const stamp=new Date().toISOString();return {
   siteIdentity:{activeProfileId:identity(index).profileId,stationCode:identity(index).stationCode,blockIndex:1,emsBaseUrl:'http://10.0.0.3:8080'},
   liveStatus:{lastUpdated:stamp,stale:false,liveSucceeded:true,cacheUsed:false,state:'LIVE'},
@@ -56,11 +56,19 @@ try {
   for(const [index,config] of configs.entries()){
     const file=path.join(dir,`export-${index}.json`);await writeFile(file,JSON.stringify(config),{mode:0o600});
     process.env.PRIZM_FLEET_EXPORT_CONFIG=file;
-    const service=collectorExportFromEnvironment(()=>source(index),()=>matches)!;services.push(service);await service.ready;
+    const service=collectorExportFromEnvironment(()=>source(index),()=>matches,(req,res)=>res.json({siteId:identity(index).siteId,path:req.url,credentialPresent:Boolean(req.headers.authorization)}))!;services.push(service);await service.ready;
     assert.equal((await get(index)).status,200);
     assert.equal(JSON.parse((await get(index)).body).siteId,config.identity.siteId);
   }
   const baseline=reads;
+  const workspaceRoute='/api/fleet/workspace/api/local/site-data/pcs';
+  assert.equal((await get(0,workspaceRoute)).status,401,'Summary credential cannot use full workspace');
+  const workspaceHeaders={Authorization:'Bearer '+configs[0].workspaceToken};
+  const workspace=await get(0,workspaceRoute,{headers:workspaceHeaders});
+  assert.equal(workspace.status,200);
+  assert.deepEqual(JSON.parse(workspace.body),{siteId:'site-0',path:'/api/local/site-data/pcs',credentialPresent:false});
+  matches=false;assert.equal((await get(0,workspaceRoute,{headers:workspaceHeaders})).status,409);matches=true;
+  assert.equal((await get(0,'/api/fleet/workspace/api/settings/Profiles/x/activate',{method:'POST',headers:workspaceHeaders})).status,403);
   await Promise.all(Array.from({length:8},()=>get(0)));
   assert.equal(reads,baseline,'Browser/collector requests do not acquire telemetry');
   assert.equal((await get(0,undefined,{headers:{Authorization:'Bearer '+configs[1].token}})).status,401);
@@ -83,6 +91,8 @@ try {
     const legacyPort=(http.address() as {port:number}).port;
     const response=await fetch(`http://127.0.0.1:${legacyPort}/api/fleet/site-summary`,{headers:{Host:new URL(configs[0].origin).host,'X-Forwarded-Proto':'https',Authorization:'Bearer '+configs[0].token},signal:AbortSignal.timeout(3000)});
     assert.equal(response.status,403);await response.text();
+    const forbidden=await fetch(`http://127.0.0.1:${legacyPort}${workspaceRoute}`,{headers:{Host:new URL(configs[0].origin).host,'X-Forwarded-Proto':'https',...workspaceHeaders},signal:AbortSignal.timeout(3000)});
+    assert.equal(forbidden.status,403);await forbidden.text();
   } finally {http.closeAllConnections();await new Promise<void>(resolve=>http.close(()=>resolve()));}
   await assert.rejects(startCollectorTls(parseCollectorTls(configs[0].tls,configs[0].origin),(_q,r)=>r.end()),/EADDRINUSE/);
   await chmod(keyFile,0o644);

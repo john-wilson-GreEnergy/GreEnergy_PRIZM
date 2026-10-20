@@ -1,0 +1,1007 @@
+{
+  "authoritativeRelease": "/opt/prizm-fleet/releases/corrective-workspace-20261020",
+  "sourceCheckpoint": "983b824bdbf2ca29d2ad6db40dae9ef9fb2de80b",
+  "verifiedBuildFiles": [
+    {
+      "path": "assets/ArrayCellSnapshot-C4jevOS7.js",
+      "sha256": "412431b40a9dd42aebec00b531cb722c508d779211548620e270897654d3002f"
+    },
+    {
+      "path": "assets/ArrayCellSnapshot-CHCftA6c.css",
+      "sha256": "d11c9d4d98e663662861b2fe6d75aa4647776549ac82a2d43756cd5b09e66087"
+    },
+    {
+      "path": "assets/BalancerTestDashboard-C6R9faIC.js",
+      "sha256": "23436bc463bcb788a5a4831ae0c60318a4c962d7f7d2a4dd360ee39852b725ad"
+    },
+    {
+      "path": "assets/CartesianChart-R03ga_bD.js",
+      "sha256": "92cb38c38508c977f99a8b1181e5bedbec4eba374b9f3864300a0c66c69aad2c"
+    },
+    {
+      "path": "assets/CellHistoryWorkspace-BFwTI-m3.js",
+      "sha256": "d6c750e52b4213d4e05a3fbce627c48cc44fc1cbfe9a7038899440efe29fd2f2"
+    },
+    {
+      "path": "assets/CorrectiveActionsDashboard-Sk9W7QWh.js",
+      "sha256": "ebe144f864a45f1de0d2b46608b1ceab3cbf9193b625bce9799b4f07f149c2de"
+    },
+    {
+      "path": "assets/FeatherDashboard-DHV_9CZG.js",
+      "sha256": "80218dedbbf639439fa0514070aa8bfa29eb7941739b9b8b88cc76769931914e"
+    },
+    {
+      "path": "assets/FeatherSerialConnectionManager-CpQBjorv.js",
+      "sha256": "1ea16a64631d06f57b76e5291204f3f8a754f8db214f86068969299a013f9cc9"
+    },
+    {
+      "path": "assets/HvacFaultRow-BIknGAg6.js",
+      "sha256": "5f1d3b4e6432a37c793f2cda529c1c01bf260d2f8d56b799652ddf11c676f42a"
+    },
+    {
+      "path": "assets/HvacIssueDisclosure-BZsfM9v7.js",
+      "sha256": "98126891de13239cf5e75b60e37f4d2657116304843a5f30822716025a0c517c"
+    },
+    {
+      "path": "assets/HvacSimulationDashboard-CeY5np2k.js",
+      "sha256": "92136e64ec6151be2e36642c683c2857773d8381a86e82260f88d4d27e3a3aa6"
+    },
+    {
+      "path": "assets/IoLogikFleetManager-C3UdIIsZ.js",
+      "sha256": "abb8c67f17db5596249411a227c64f831e407122c0fa36f67370c664950741d9"
+    },
+    {
+      "path": "assets/Legend-BB51XUVD.js",
+      "sha256": "76d7490169a9371fa98406071d78bff4d5b6b09bd3f613a9cc6f6121e4547ce6"
+    },
+    {
+      "path": "assets/LineChart-aQupHYzz.js",
+      "sha256": "94f5acaaa32d822070cf7d7be386de2c3a7c9bc986985676c139b8e50aff880a"
+    },
+    {
+      "path": "assets/LineupLightbarControl-qRUOnObR.js",
+      "sha256": "a91d74b3cba9e7d9145634797af1627996698c67ab8fcb3a0fe158a4dbc6e653"
+    },
+    {
+      "path": "assets/LiveCorrectiveActionsWorkspace-CWtyYhYu.js",
+      "sha256": "5a66453719cbc59fca99bd576d8547f7d751c1a980abb8697d6be15a4f9bc4d2"
+    },
+    {
+      "path": "assets/NotificationReviewPanel-BN-79bQj.js",
+      "sha256": "43ccfc54ff70cbdfdc9fc00c964178e49c1a3016913c0b68c53769318fb7c2d7"
+    },
+    {
+      "path": "assets/OneLineView-Bml0VBcr.js",
+      "sha256": "8dad26c2676d833a3dae0d38eb281f065ec76cee4670ac9b3e91ab15970db18a"
+    },
+    {
+      "path": "assets/PcsDashboard-CkKjy6p2.js",
+      "sha256": "6edda7fc317e54ee35cc03801daa6275012cde184059a2a7e86834ffd1549461"
+    },
+    {
+      "path": "assets/PcsOperationalTimeline-DWjiu0b_.js",
+      "sha256": "993cc902d3d6ad553ec15577ca8417916bd52d108ebb74e8374755070d0110d6"
+    },
+    {
+      "path": "assets/ProvisioningDashboard-DxKOI-ux.js",
+      "sha256": "fdf4ac75a7949176552033e6a1bc5efe749eacd3b136d51de12f624a06d39230"
+    },
+    {
+      "path": "assets/ReferenceLine-BwJ0p6l9.js",
+      "sha256": "9c80cb9ecb943e9913ed0ad577442e7a6c02bd92087a4204d6e29e133a97354d"
+    },
+    {
+      "path": "assets/Reporting-DdG6Pgv2.js",
+      "sha256": "6df6523fff798ec5c0a70d8dae9c86a50f51c21ab95ca3cdc57279adc466947c"
+    },
+    {
+      "path": "assets/RotationModal-DfpWKb3G.js",
+      "sha256": "5011ad78dbbb8c02aad8d6ebce127edc0737cd9c242a63b80d3e6d4d8cdeeb5b"
+    },
+    {
+      "path": "assets/SafetyAdvancedDashboard-Bp705scz.js",
+      "sha256": "401c039e83977c5bfef71574f8ee52ea22c01ab664cf00348edecc5078364bb5"
+    },
+    {
+      "path": "assets/SafetyFaultClearView-DSGqaBqw.js",
+      "sha256": "28f1044d3cdc7667068cf9ca2111c9ebaf1a4c1bf81ed96e2f4184f4594ca670"
+    },
+    {
+      "path": "assets/ScatterChart-CYGnurox.js",
+      "sha256": "b101ca60984999d6d584bd6000b472a9fc3f2325808a0f1b05e1c4cf902399c8"
+    },
+    {
+      "path": "assets/ShiftSessionBanner-B5gxEByU.css",
+      "sha256": "9d90351dd31e91a18b44cf4215be530fa2e8280655ba4f6259d0c85f734d33cb"
+    },
+    {
+      "path": "assets/ShiftSessionBanner-OPjnoW6P.js",
+      "sha256": "988a1ebc00d72c13ebff8885a4c25caeeb984df26c4170681581e96b734e7eea"
+    },
+    {
+      "path": "assets/SiteAnalyticsWorkspace-CQ5S6ZZ0.css",
+      "sha256": "8b189efa564a7d3e406d68b6bd344a84b52216d9f9e2fab729d95054ebbc8912"
+    },
+    {
+      "path": "assets/SiteAnalyticsWorkspace-Cq_UHMNc.js",
+      "sha256": "1ab1527c689ae60ded9f7628e6436d0a402d8719701f567d8b781adca6c41c7e"
+    },
+    {
+      "path": "assets/SiteConfigurationDashboard-DLZwVrzW.js",
+      "sha256": "8ad32602a7b8eeaab7e17d6408233c9599d37fdd833d0f0be61882791ed14e4f"
+    },
+    {
+      "path": "assets/SiteDistributionDashboard-CO7vRej9.js",
+      "sha256": "383dd56f0a646e5210195958f778ed86ba9cc5e5d62b9ec334472d06e665b8b4"
+    },
+    {
+      "path": "assets/SiteOperationsDashboard-3qy773nI.css",
+      "sha256": "18430d501bf6ee4720c524f0f5628b0c2af177cc31f578ad25c6f3c29d624429"
+    },
+    {
+      "path": "assets/SiteOperationsDashboard-DPRIC9WV.js",
+      "sha256": "cc41277af783306ebc0fba49cf767b68315977f4e5884cd9bb925ceed9e9ab9a"
+    },
+    {
+      "path": "assets/SitePowerFlow-N0rxe6FL.js",
+      "sha256": "05b22b33e119f98bcad382c7c6d2f157ace6d17ba386e940cd72f3711d499169"
+    },
+    {
+      "path": "assets/StringCommunicationIndicator-Df3WKNlH.js",
+      "sha256": "e4dc1fde3183b7b5c1657f8a1d40d5afb4ac85b74c4b25ee4b266b25514f5bd1"
+    },
+    {
+      "path": "assets/StringDashboard-n7C-YK7F.js",
+      "sha256": "52241bf921d42739a626e758c8078f3822d3dabf712c6d15dfbb5e32913056a9"
+    },
+    {
+      "path": "assets/StringFanCommandHold-DPKvSaF4.js",
+      "sha256": "0eb3e288ec0d1092bee0714cec6d67577b89324b2fb0c24a518eb54f508e6ec5"
+    },
+    {
+      "path": "assets/ThermalWorkspace-DMEqdian.js",
+      "sha256": "0d1c60b4468bc77379e90f4773282b485417af03c2756776c785a7f4bcd38f32"
+    },
+    {
+      "path": "assets/TroubleshootingLibrary-BFlnIsRi.js",
+      "sha256": "bc739ba55a102531da00714c5fb64b6160b4106078b002db29b178d0c84e500f"
+    },
+    {
+      "path": "assets/TroubleshootingMatrixEditor-C0-wKkER.js",
+      "sha256": "83a208c917b5df451a85fb214f18dce64646d4b472df9b0a557b8b3ee3137caa"
+    },
+    {
+      "path": "assets/WorkspaceTableTools-B_MXn0c8.js",
+      "sha256": "8879ddec9db4d4c9b02beb60fbdaf61aa25908267d410517afb5d53400751cb7"
+    },
+    {
+      "path": "assets/ZAxis-BkxATgRT.js",
+      "sha256": "aaba43b760429822ab34007985edd0a2275214fba6905039c9bce8b32b5cdc52"
+    },
+    {
+      "path": "assets/arrow-right-CFA4uio4.js",
+      "sha256": "c9876dda566ae3afa448b3dbfdd0ef2a8ea6c5be9b9e4f9fbf5355d12ce1fd32"
+    },
+    {
+      "path": "assets/check-y-j1HCoB.js",
+      "sha256": "92cdfc28e2aeff25a6c532ef59f50dd517928a7391f3881aeefe432594965d23"
+    },
+    {
+      "path": "assets/chevron-down-aSbsxx7X.js",
+      "sha256": "f3fedaa81b64ed9746eea446c97b11e7b3c6da974a48b50011016a3ffb646887"
+    },
+    {
+      "path": "assets/chevron-right-BT84zkMM.js",
+      "sha256": "2f01cbee20610ff772f9f31e604b1a3caa753fbf34cbc328aa1af54480cfb759"
+    },
+    {
+      "path": "assets/chevron-up-32mMi7qn.js",
+      "sha256": "3957b6c1d6aa1ba1fc22134467f5a6ed04750acfe6289c95e343880e68cc331e"
+    },
+    {
+      "path": "assets/circle-alert-CXeheM1-.js",
+      "sha256": "949210ff5c38ed3110ce2f17a8646ba6dbfe89f110bfae2dc81d45af4d6a7462"
+    },
+    {
+      "path": "assets/circle-check-DXwavXM8.js",
+      "sha256": "0eb3ba4aee92d1552f5665736a0dc333e28b4634e57e5df4b7d94cddde4dc5b6"
+    },
+    {
+      "path": "assets/circle-check-big-CbDOL5MX.js",
+      "sha256": "9c8dbc43a31788dab84a25487250e04db85ef543fa5ddf803c420744f6bb33c1"
+    },
+    {
+      "path": "assets/circle-x-BTFY4JHd.js",
+      "sha256": "d625cd37456080d46c85d3a5892f629500644d966edbe3ea4730a4a1b1c0d430"
+    },
+    {
+      "path": "assets/client-cy5FG22B.js",
+      "sha256": "65121e737e2dce5430e8ebfd4ca6d98fe1893c7d77bb32d6c75a50db9a0322cd"
+    },
+    {
+      "path": "assets/clock-CGWIsars.js",
+      "sha256": "e6de31a6feeb552567a7a1d142853275c0487eb0580bc40f5aae50039c46e24d"
+    },
+    {
+      "path": "assets/correctivePacketFiles-DyHAnN7L.js",
+      "sha256": "4f0a45d7e212e4503556a8362d41d3220f2d81a699d792e485548bb3f68c0076"
+    },
+    {
+      "path": "assets/createLucideIcon-DAulNQp6.js",
+      "sha256": "5af6c600a71e914766440dbe1171ed5b8058d8b491f83977b82bfa91867bc592"
+    },
+    {
+      "path": "assets/database-D_AseAXX.js",
+      "sha256": "2a05b281f763471ea07e223b40336f58a0d7a093f4cfe28f4d70dacba49628ec"
+    },
+    {
+      "path": "assets/download-CUhwKPXE.js",
+      "sha256": "23ddd0cc2e1a53a637920afadf1a8a550e94600ca964614ce283abf6c259cee9"
+    },
+    {
+      "path": "assets/eye-DTCirnWD.js",
+      "sha256": "48c7dbc3353f4a02e94cf23fa7f5b73cfe96b990c6f31c069c273b43f4829cc7"
+    },
+    {
+      "path": "assets/eye-LEG9LGTG.css",
+      "sha256": "4d00923524d4669a89687a52a06fb856fe5682258e6895670450040bb5d8250f"
+    },
+    {
+      "path": "assets/fleet-BILdNr0l.css",
+      "sha256": "9c497c6301adb0bc3584bb264ff6b869a03184d3ed22f594d84c90e56f693f70"
+    },
+    {
+      "path": "assets/fleet-BjMSfC-g.js",
+      "sha256": "03f6abccc13615734becb5e19eb13cc3be8f2970ec5dc23dbd9a7d611600ffe6"
+    },
+    {
+      "path": "assets/hard-drive-Ed2LC2U1.js",
+      "sha256": "303276d64807d976802c7bc92ad5dcad92e449b1cc0c2257e763ef7170315e6d"
+    },
+    {
+      "path": "assets/html2canvas.esm-QH1iLAAe.js",
+      "sha256": "061c08e50c0dc57b8d5e6531f0b8237a52a68b233260d49ab2f2c2906ad112c4"
+    },
+    {
+      "path": "assets/hvacFeedbackProfile-ZmXU35CS.js",
+      "sha256": "15f7c54d722c3f0c7289dcfcb3b020af23ab3f6b33c9d49f74583fd1d7b2a12d"
+    },
+    {
+      "path": "assets/index.es-P6qsWN5o.js",
+      "sha256": "3bd47f83fcaa7635a4c2690f0eed83c788256ca13a4c48fd355ffc6cc6ac4653"
+    },
+    {
+      "path": "assets/info-v8oGF-gH.js",
+      "sha256": "8646234790f9170d93f962683916fb082b144f91dac230a19c1fd0778886a1e3"
+    },
+    {
+      "path": "assets/jsonExport.worker-C1tz4ClY.js",
+      "sha256": "8cef708e0e497e5237ba6ca7b511d88efd2c97be1efcf2efe45066c6734902a0"
+    },
+    {
+      "path": "assets/jspdf.es.min-BwlnywSj.js",
+      "sha256": "11c283e6220090067e211752d88d0dbc365c4c62ab240c60322c563c1cb780ae"
+    },
+    {
+      "path": "assets/layers-jrC01Uvb.js",
+      "sha256": "aa7e290540d2d2426080d1284ef2cd922742f59d0e9a1543d528e2c9eb2cf325"
+    },
+    {
+      "path": "assets/lock-Cui49t1z.js",
+      "sha256": "a307302007aa27e50d8e343cfbcd223a241eb3f1036ecf96957be4da7d307c9e"
+    },
+    {
+      "path": "assets/lock-keyhole-BGNFmZ88.js",
+      "sha256": "70f43472b4fda72510e8483001ea13b4f5e1c59377c409713378566cbc30fb4b"
+    },
+    {
+      "path": "assets/lock-open-Cl8487E5.js",
+      "sha256": "f6f41ae7d17b617ffda02ed19382fdb167fd2afdfdd58699c865a8a39c462849"
+    },
+    {
+      "path": "assets/logo-transparent-COIOJ-Yk.svg",
+      "sha256": "a5e40096b2d95f7c33ae74158e93a8459fd7fc3dc67c630cb459e36dae6c2df3"
+    },
+    {
+      "path": "assets/mobile-C6Rnqk7e.css",
+      "sha256": "4124f4f34c8ed260a5d8714b39872b8fb682d7484acff2b995add1d7e9bf6c65"
+    },
+    {
+      "path": "assets/mobile-DYjWvkSD.js",
+      "sha256": "9878f9baab7fb6c5e76464e690735ce7120284b312cef7948e1dafc97687aa5a"
+    },
+    {
+      "path": "assets/octagon-alert-DYi5c39R.js",
+      "sha256": "98e195fab1b050cf53294a2269afaeacb9fb359ef7799a05fb8080b1d5002923"
+    },
+    {
+      "path": "assets/operatingCharts-BBpML8pc.css",
+      "sha256": "e41e87561ab8a2ac73814c1c71c37b22af59f1fb2518a149e37f1b05070dd782"
+    },
+    {
+      "path": "assets/operatingCharts-eD6yampf.js",
+      "sha256": "ea800aab9a2080b2d82bc00785fbf77c58f1ec5dd07c3c8e3c09e11e2eab155d"
+    },
+    {
+      "path": "assets/pause-CqTZoTLY.js",
+      "sha256": "bfb4aedc02eb3719d94c82dbb903d5abac48fa55dc6151864b5fecc8baf28a8f"
+    },
+    {
+      "path": "assets/physicalEnergySegmentLayout-C3YBfxt6.js",
+      "sha256": "d8e8a6687619f1afb6323ac01afc0090325e5adbd9e70c1590fdb1dac5e34f0d"
+    },
+    {
+      "path": "assets/play-6hHes1Ol.js",
+      "sha256": "19540c16eaefb64f4eddc08892bf9a996608ec043599895f7d8cc56a75284eeb"
+    },
+    {
+      "path": "assets/plus-qr1gjOIi.js",
+      "sha256": "33c23d45604feba6beb4f25d2ee98f74cbc66634d82189cfc2e69c299a0c8725"
+    },
+    {
+      "path": "assets/purify.es-Csrj9YNg.js",
+      "sha256": "c738df0811efaeb9919557980f3e1660aacd8bbdd480f548b5aeebf1a481eb45"
+    },
+    {
+      "path": "assets/remoteExperience-CiUAlUL4.js",
+      "sha256": "cbd5ffd402abaec54ef4e3e3396c9067080a6fcc59e1766ea29505b28ae2740c"
+    },
+    {
+      "path": "assets/save-B_zyfAvy.js",
+      "sha256": "6d82c07abd9089a085434456f26d940cfc99e4c54a1ef8373e0ddae64efb6a93"
+    },
+    {
+      "path": "assets/search-B3d3OW_s.js",
+      "sha256": "9ee12a28acf501310e74c9f72c974253b5ee2a465a85fdf4b27243cbb1ece3ca"
+    },
+    {
+      "path": "assets/server-DDGauQKN.js",
+      "sha256": "83a054e4226d61d7343cfeefdbd2010cdb4bef3c394730e2c3cdc340d43dba24"
+    },
+    {
+      "path": "assets/signin-D_OON5xg.js",
+      "sha256": "a3d79d99455dda0ab05f3031ea568eb720d5f60266647753ce41b91b8d2eb91c"
+    },
+    {
+      "path": "assets/stringToEsMapper-G_XkkxpA.js",
+      "sha256": "dacabc12e6e120ab3a2aa7a65abb9de66505884a7289e7713ec97212236bdf5c"
+    },
+    {
+      "path": "assets/temperatureScale-BblpWV2L.js",
+      "sha256": "4f5f00a401b30c6c6ca95bda3171d2b51a0a868a6b61088cc9a3e481b6f80c43"
+    },
+    {
+      "path": "assets/thermalMetrics-C5H0x5aA.js",
+      "sha256": "71918e6bf85afc44f5ec421a251a20ff3c514796d29fe14da6460205f3a1a9c2"
+    },
+    {
+      "path": "assets/trash-2-Dl7YeOOT.js",
+      "sha256": "58e2b3f7df54e224ec22b0f6acf2cb7a8a9e2f24b3f679877f28d20d4df5df27"
+    },
+    {
+      "path": "assets/trending-up--ha5j4eB.js",
+      "sha256": "275cb6de9546eaa32de0db8ae3ff75d4fd381b3ced76fc49051b3abf01f1d9cf"
+    },
+    {
+      "path": "assets/triangle-alert-DPPyn9hk.js",
+      "sha256": "1760124cc8ffbb63ea1196ef8e2e5d3f08d0c1b7e799e07ee7369daf896ddb86"
+    },
+    {
+      "path": "assets/upload-D0nHxZet.js",
+      "sha256": "c164a26a18b4823976f7a00cb8d8a1a633f52bd71e1f374d16cc8aaee430c3a7"
+    },
+    {
+      "path": "assets/voltageNormalizer-hMBhh031.js",
+      "sha256": "c66335956494b9efccb45dad66ef42e3cc75cb493a24327d9992b21e8093d7f8"
+    },
+    {
+      "path": "assets/wind-C1EBloei.js",
+      "sha256": "8120198ce3a948c2fb53db8ca8e4d709ce900978ae31dcea8f23f8be756cf18d"
+    },
+    {
+      "path": "assets/workspace-B3qvbg9W.js",
+      "sha256": "97d85181318afa0bedaa95b830acf5b584b3083f013fe50e7d959b164e3f08df"
+    },
+    {
+      "path": "assets/workspace-BRyuSCUb.css",
+      "sha256": "1902d829301cd06a0bb2f259e0b87bcb2ec4288ff771c76edc8ac1b6610b41b7"
+    },
+    {
+      "path": "assets/xlsx-CkFp8p6R.js",
+      "sha256": "d6662376ca5639f10e1aaa0fd4761322b1fed8c0a602e339d61d9892ae7ff56c"
+    },
+    {
+      "path": "cell-history-worker.cjs",
+      "sha256": "17529585193dfce0fbc3f8b4c91e76c48eb32fd0a3b926cd61a1c14218a45394"
+    },
+    {
+      "path": "fleet-entry.cjs",
+      "sha256": "13b2a7e22212613357217383ba8c8ea73b5363e3eaa4ac375cf9355338f72bc7"
+    },
+    {
+      "path": "fleet-server.cjs",
+      "sha256": "69b34a49c5e7f6199cbb56f248beedd7597a40af7210197eb262832f07c54672"
+    },
+    {
+      "path": "fleet.html",
+      "sha256": "43364d3787c504689d20de953d3bab33f8b612af80888be13e0d55662bcc1cb6"
+    },
+    {
+      "path": "history-query-worker.cjs",
+      "sha256": "6a899fc71f5f04388ae0038bac4cf52853233b3073cceb2fd87669b685e3b52f"
+    },
+    {
+      "path": "index.html",
+      "sha256": "6af51b453bfdd917cc01cdb774338acbfe1b3949514e5b1979550931b229be0a"
+    },
+    {
+      "path": "logo-transparent.svg",
+      "sha256": "a5e40096b2d95f7c33ae74158e93a8459fd7fc3dc67c630cb459e36dae6c2df3"
+    },
+    {
+      "path": "mobile.html",
+      "sha256": "abd0022c7d83350f5791fb3a5256c63e868c2e240a65f2ad3b4ddeed1859f81f"
+    },
+    {
+      "path": "server.cjs",
+      "sha256": "31a65b8c8097a4423e83ce911ef5927b748105ff151b9d7eef38d06a9b73b96b"
+    },
+    {
+      "path": "signin.html",
+      "sha256": "561f1af50dce5953d13fa5c1c2abff9725192c56754056a1c39851279aacaa87"
+    },
+    {
+      "path": "snapshot-cache-worker.cjs",
+      "sha256": "eabc557c446e2e8c56edfbefd62cee9989f5573e7e52bade64347200c97ad214"
+    }
+  ],
+  "buildInputs": [
+    "fleet.html",
+    "index.html",
+    "mobile.html",
+    "scripts/operations-review-policy.ts",
+    "server.ts",
+    "signin.html",
+    "src/App.tsx",
+    "src/access/AccessTelemetryStore.ts",
+    "src/access/ContactorPanel.tsx",
+    "src/access/ContactorWorkflow.ts",
+    "src/access/ReadOnlyWorkspace.tsx",
+    "src/access/RecoveryPanel.tsx",
+    "src/access/RecoveryWorkflow.ts",
+    "src/access/SignInPage.tsx",
+    "src/access/accessClient.ts",
+    "src/access/main.tsx",
+    "src/acquisition/AcquisitionManager.ts",
+    "src/acquisition/providers/CsvProvider.ts",
+    "src/acquisition/providers/RestProvider.ts",
+    "src/components/ArrayCellHeatmapGrid.tsx",
+    "src/components/ArrayCellSnapshot.tsx",
+    "src/components/BalancerTestDashboard.tsx",
+    "src/components/BalancingModal.tsx",
+    "src/components/BalancingProgressReview.tsx",
+    "src/components/BalancingVerificationPanel.tsx",
+    "src/components/BpcListDisclosure.tsx",
+    "src/components/CellHistoryHeatmap.tsx",
+    "src/components/CellHistoryWorkspace.tsx",
+    "src/components/CellStringOverlay.tsx",
+    "src/components/ConnectionSettings.tsx",
+    "src/components/CorrectiveActionsDashboard.tsx",
+    "src/components/CorrectiveActionsWorkspace.tsx",
+    "src/components/CorrectiveBpcWorkspace.tsx",
+    "src/components/CorrectiveCategoryList.tsx",
+    "src/components/CorrectiveExportMenu.tsx",
+    "src/components/CorrectiveExportSelection.tsx",
+    "src/components/CorrectiveGuidanceEditor.tsx",
+    "src/components/DeveloperDiagnostics.tsx",
+    "src/components/FeatherDashboard.tsx",
+    "src/components/FeatherDetailsView.tsx",
+    "src/components/FeatherDeviceRow.tsx",
+    "src/components/FeatherSerialConnectionManager.tsx",
+    "src/components/FirmwareInventoryPanel.tsx",
+    "src/components/FleetStringDistribution.tsx",
+    "src/components/GreEnergyLogo.tsx",
+    "src/components/HvacFaultRow.tsx",
+    "src/components/HvacIssueDisclosure.tsx",
+    "src/components/HvacQuickReference.tsx",
+    "src/components/HvacSimulationDashboard.tsx",
+    "src/components/IoLogikFleetManager.tsx",
+    "src/components/LegacyCorrectiveActionsWorkspace.tsx",
+    "src/components/LineupLightbarControl.tsx",
+    "src/components/LiveCorrectiveActionsWorkspace.tsx",
+    "src/components/NotificationGuidanceAudit.tsx",
+    "src/components/NotificationReviewPanel.tsx",
+    "src/components/NotificationTroubleshootingPanel.tsx",
+    "src/components/OneLineView.tsx",
+    "src/components/OperatingCharts.tsx",
+    "src/components/PcsDashboard.tsx",
+    "src/components/PcsOperationalTimeline.tsx",
+    "src/components/PhysicalEnergySegmentHeatmap.tsx",
+    "src/components/PhysicalStringLayout.tsx",
+    "src/components/ProvisioningDashboard.tsx",
+    "src/components/RawTelemetryInspector.tsx",
+    "src/components/RenderProbe.tsx",
+    "src/components/Reporting.tsx",
+    "src/components/RotationModal.tsx",
+    "src/components/SafetyAdvancedDashboard.tsx",
+    "src/components/SafetyFaultClearView.tsx",
+    "src/components/ShiftSessionBanner.tsx",
+    "src/components/SiteAnalyticsWorkspace.tsx",
+    "src/components/SiteConfigurationDashboard.tsx",
+    "src/components/SiteDataExport.tsx",
+    "src/components/SiteDistributionDashboard.tsx",
+    "src/components/SiteOperationsDashboard.tsx",
+    "src/components/SitePhysicalLayoutEditor.tsx",
+    "src/components/SitePowerFlow.tsx",
+    "src/components/SiteProfileDiscoveryPanel.tsx",
+    "src/components/SiteSensorsDashboard.tsx",
+    "src/components/StringCommunicationIndicator.tsx",
+    "src/components/StringDashboard.tsx",
+    "src/components/StringDetailDashboard.tsx",
+    "src/components/StringFanCommandHold.tsx",
+    "src/components/StringListRow.tsx",
+    "src/components/ThermalCommandBands.tsx",
+    "src/components/ThermalComparison.tsx",
+    "src/components/ThermalHistoryReview.tsx",
+    "src/components/ThermalHistoryTable.tsx",
+    "src/components/ThermalMorningReview.tsx",
+    "src/components/ThermalPointInspector.tsx",
+    "src/components/ThermalResults.tsx",
+    "src/components/ThermalSavedViews.tsx",
+    "src/components/ThermalSiteOverview.tsx",
+    "src/components/ThermalStorageModal.tsx",
+    "src/components/ThermalTraceLegend.tsx",
+    "src/components/ThermalWorkspace.tsx",
+    "src/components/TroubleshootingLibrary.tsx",
+    "src/components/TroubleshootingMatrixEditor.tsx",
+    "src/components/WorkspaceTableTools.tsx",
+    "src/components/cellHistory.css",
+    "src/components/common/DashboardLoadingSkeleton.tsx",
+    "src/components/common/ErrorBoundary.tsx",
+    "src/components/common/PrizmLoadingIndicator.tsx",
+    "src/components/developerDiagnosticsData.ts",
+    "src/components/logo-transparent.svg",
+    "src/components/operatingCharts.css",
+    "src/components/rawTelemetryPayload.ts",
+    "src/components/shiftSession.css",
+    "src/components/siteAnalytics.css",
+    "src/components/sitePowerFlow.css",
+    "src/components/siteSensors/SiteOverheadSensorMap.tsx",
+    "src/components/siteSensors/TopologySensorHealthPanel.tsx",
+    "src/components/siteSensors/topologyUtils.ts",
+    "src/components/thermalReviewIndex.ts",
+    "src/components/thermalSavedViewState.ts",
+    "src/components/thermalTraceVisibility.ts",
+    "src/context/SiteDataContext.tsx",
+    "src/core/correctiveGuidance.ts",
+    "src/core/fleet/details.ts",
+    "src/core/fleet/model.ts",
+    "src/core/fleet/pollingCadence.ts",
+    "src/core/objectGraph/CanonicalObject.ts",
+    "src/core/objectGraph/ObjectGraph.ts",
+    "src/core/objectGraph/ObjectGraphBuilder.ts",
+    "src/core/objectGraph/ObjectGraphSnapshot.ts",
+    "src/core/objectGraph/ObjectRelationships.ts",
+    "src/core/objectGraph/index.ts",
+    "src/core/objectGraph/models/ArrayObject.ts",
+    "src/core/objectGraph/models/BatteryPackObject.ts",
+    "src/core/objectGraph/models/EmsControllerObject.ts",
+    "src/core/objectGraph/models/EnergySegmentObject.ts",
+    "src/core/objectGraph/models/FeatherControllerObject.ts",
+    "src/core/objectGraph/models/PcsObject.ts",
+    "src/core/objectGraph/models/SiteObject.ts",
+    "src/core/objectGraph/models/StringObject.ts",
+    "src/core/objectGraph/models/index.ts",
+    "src/core/objectGraph/types.ts",
+    "src/core/operatingCharts.ts",
+    "src/core/security/controlPolicyPrototype.ts",
+    "src/core/security/fleetPasswordPolicy.ts",
+    "src/core/security/localEmail.ts",
+    "src/fleet/AdminUsers.tsx",
+    "src/fleet/BpcIssuesTable.tsx",
+    "src/fleet/FleetDrilldowns.tsx",
+    "src/fleet/FleetStore.ts",
+    "src/fleet/PalettePicker.tsx",
+    "src/fleet/SiteOverview.tsx",
+    "src/fleet/main.tsx",
+    "src/fleet/style.css",
+    "src/index.css",
+    "src/lib/analyticsReplay.ts",
+    "src/lib/arrayCommandSelection.ts",
+    "src/lib/arraySummaryFilters.ts",
+    "src/lib/backgroundJsonExport.ts",
+    "src/lib/balancingVerificationClient.ts",
+    "src/lib/bessStatusCodes.ts",
+    "src/lib/cellHistoryRefresh.ts",
+    "src/lib/correctivePacket.ts",
+    "src/lib/correctivePacketFiles.ts",
+    "src/lib/correctiveSelection.ts",
+    "src/lib/correctiveWorklist.ts",
+    "src/lib/enclosureIdentity.ts",
+    "src/lib/featherErrorFormatter.ts",
+    "src/lib/featherTablePresentation.ts",
+    "src/lib/featherTrendSample.ts",
+    "src/lib/fleetWorkspace.ts",
+    "src/lib/hvacFeedbackProfile.ts",
+    "src/lib/ioLogikTableFilter.ts",
+    "src/lib/ipUtils.ts",
+    "src/lib/jsonExportFormat.ts",
+    "src/lib/nullableBool.ts",
+    "src/lib/operationsReview.ts",
+    "src/lib/pcsReading.ts",
+    "src/lib/perf.ts",
+    "src/lib/physicalEnergySegmentLayout.ts",
+    "src/lib/prepareStringRows.ts",
+    "src/lib/remoteExperience.ts",
+    "src/lib/renderMeasurements.ts",
+    "src/lib/rotationCommandResult.ts",
+    "src/lib/rowProjectionCache.ts",
+    "src/lib/segmentIdentity.ts",
+    "src/lib/segmentNumbering.ts",
+    "src/lib/selectedStore.ts",
+    "src/lib/siteDataRequests.ts",
+    "src/lib/socUtils.ts",
+    "src/lib/stringClassifier.ts",
+    "src/lib/stringStreamState.ts",
+    "src/lib/stringToEsMapper.ts",
+    "src/lib/subscribeIoLogikOperation.ts",
+    "src/lib/subscribeStringList.ts",
+    "src/lib/temperatureUnits.ts",
+    "src/lib/thresholds.ts",
+    "src/lib/timeFormat.ts",
+    "src/lib/topologyResolver.ts",
+    "src/lib/topologyUiCapabilities.ts",
+    "src/lib/voltageNormalizer.ts",
+    "src/lib/workspacePreferences.tsx",
+    "src/main.tsx",
+    "src/mobile/FleetReadings.tsx",
+    "src/mobile/MobileApp.tsx",
+    "src/mobile/MobileCharts.tsx",
+    "src/mobile/MobileHvac.tsx",
+    "src/mobile/PasswordSetup.tsx",
+    "src/mobile/hvac.css",
+    "src/mobile/landscape.css",
+    "src/mobile/main.tsx",
+    "src/mobile/mobile.css",
+    "src/mobile/responsive.css",
+    "src/server/analytics/OperatingChartsStore.ts",
+    "src/server/analytics/operatingCharts.ts",
+    "src/server/analytics/operatingChartsRuntime.ts",
+    "src/server/analytics/siteAnalyticsProjection.ts",
+    "src/server/balancerTest/balancerTestAnalyzer.ts",
+    "src/server/balancerTest/balancerTestParser.ts",
+    "src/server/balancerTest/balancerTestRoutes.ts",
+    "src/server/balancerTest/balancerTestService.ts",
+    "src/server/balancingCommandProto.ts",
+    "src/server/balancingControlService.ts",
+    "src/server/balancingRoutes.ts",
+    "src/server/balancingVerification.ts",
+    "src/server/cache/AsyncCacheWriter.ts",
+    "src/server/cache/CheckpointGate.ts",
+    "src/server/cache/SnapshotCacheWorker.ts",
+    "src/server/cache/cacheRoutes.ts",
+    "src/server/cache/prizmCache.ts",
+    "src/server/cache/serializeTelemetryCache.ts",
+    "src/server/cache/snapshotTransfer.ts",
+    "src/server/cells/CellHistory.ts",
+    "src/server/cells/CellQueryWorkerClient.ts",
+    "src/server/cells/cellHistoryRoutes.ts",
+    "src/server/cells/cellHistoryRuntime.ts",
+    "src/server/cells/cellProjection.ts",
+    "src/server/cells/decodeCellReport.ts",
+    "src/server/cells/snapshotIndex.ts",
+    "src/server/commissioning/siteCommissioningService.ts",
+    "src/server/contactorControlRoutes.ts",
+    "src/server/contactorControlService.ts",
+    "src/server/contactorStateEngine.ts",
+    "src/server/controlTargetOptimizer.ts",
+    "src/server/controls/boundedRequest.ts",
+    "src/server/controls/controlDestination.ts",
+    "src/server/controls/pcsRotationReadback.ts",
+    "src/server/correctiveActions/correctiveActionMatrix.ts",
+    "src/server/correctiveActions/correctiveActionResolver.ts",
+    "src/server/correctiveActions/remediationLibrary.ts",
+    "src/server/correctiveActionsEngine.ts",
+    "src/server/debugSourceScan.ts",
+    "src/server/demo/externalTelemetryMock.ts",
+    "src/server/deviceProvisioning/featherProvisioningPlanner.ts",
+    "src/server/deviceProvisioning/provisioningBundleStorage.ts",
+    "src/server/deviceProvisioning/provisioningBundleValidator.ts",
+    "src/server/deviceProvisioning/provisioningManifestValidator.ts",
+    "src/server/deviceProvisioning/provisioningRoutes.ts",
+    "src/server/deviceProvisioning/provisioningShared.ts",
+    "src/server/deviceProvisioning/provisioningWorkspaceValidator.ts",
+    "src/server/diagnosticSession/diagnosticSessionRoutes.ts",
+    "src/server/domainBrokers/EntityDomainBroker.ts",
+    "src/server/domainBrokers/contactorStateView.ts",
+    "src/server/domainBrokers/operationalDomainBrokers.ts",
+    "src/server/domainBrokers/recoveryTelemetry.ts",
+    "src/server/domainBrokers/stringDomainBroker.ts",
+    "src/server/ems/dragonAppControl.ts",
+    "src/server/ems/emsAppInteractionRegistry.ts",
+    "src/server/ems/emsAppProvenance.ts",
+    "src/server/ems/emsAppRoutes.ts",
+    "src/server/ems/emsAppsService.ts",
+    "src/server/ems/powerControl.ts",
+    "src/server/emsTopologySensorParser.ts",
+    "src/server/emsTurtleClient.ts",
+    "src/server/fanControl/fanControlAudit.ts",
+    "src/server/fanControl/fanControlRoutes.ts",
+    "src/server/fanControl/fanControlService.ts",
+    "src/server/faults/normalizedFaultSource.ts",
+    "src/server/feather/deviceEnrichment.ts",
+    "src/server/feather/featherClient.ts",
+    "src/server/feather/featherDiscovery.ts",
+    "src/server/feather/featherNormalizer.ts",
+    "src/server/feather/featherScanner.ts",
+    "src/server/feather/featherStatusBrokerRoute.ts",
+    "src/server/feather/featherStatusResponse.ts",
+    "src/server/featherSerial/featherSerialRoutes.ts",
+    "src/server/featherSerial/featherSerialService.ts",
+    "src/server/firmware/firmwareInventoryRoutes.ts",
+    "src/server/firmware/firmwareInventoryService.ts",
+    "src/server/firmware/firmwareUpdateService.ts",
+    "src/server/fleet/CollectorPoller.ts",
+    "src/server/fleet/FleetBroker.ts",
+    "src/server/fleet/accountManagement.ts",
+    "src/server/fleet/adminRoutes.ts",
+    "src/server/fleet/blockPowerFlow.ts",
+    "src/server/fleet/bpcIssueReview.ts",
+    "src/server/fleet/collectorExport.ts",
+    "src/server/fleet/collectorOnly.ts",
+    "src/server/fleet/collectorTls.ts",
+    "src/server/fleet/detailProjection.ts",
+    "src/server/fleet/detailValidation.ts",
+    "src/server/fleet/entryMain.ts",
+    "src/server/fleet/entryRelay.ts",
+    "src/server/fleet/fleetApp.ts",
+    "src/server/fleet/main.ts",
+    "src/server/fleet/mobileApp.ts",
+    "src/server/fleet/mobileHvacCache.ts",
+    "src/server/fleet/mobileHvacProjection.ts",
+    "src/server/fleet/navigationPolicy.ts",
+    "src/server/fleet/passwordSetup.ts",
+    "src/server/fleet/pcsProjection.ts",
+    "src/server/fleet/powerFlow.ts",
+    "src/server/fleet/remoteDesktop.ts",
+    "src/server/fleet/remoteIdentity.ts",
+    "src/server/fleet/remoteMobile.ts",
+    "src/server/fleet/siteSummary.ts",
+    "src/server/fleet/workspaceAccess.ts",
+    "src/server/fleet/workspaceCollector.ts",
+    "src/server/fleet/workspaceGateway.ts",
+    "src/server/history/balancingProgress.ts",
+    "src/server/history/commandTimeline.ts",
+    "src/server/history/emsAppTimelineProjection.ts",
+    "src/server/history/historyRoutes.ts",
+    "src/server/history/hysteresisRules.ts",
+    "src/server/history/operationalTimeline.ts",
+    "src/server/history/operationalTimelineModel.ts",
+    "src/server/history/operationalTimelineRoutes.ts",
+    "src/server/history/prizmHistory.ts",
+    "src/server/history/stringTimelineProjection.ts",
+    "src/server/hvacSimulation/hvacSimulationRoutes.ts",
+    "src/server/hvacSimulation/hvacSimulationService.ts",
+    "src/server/hvacSimulation/hvacSimulationValidation.ts",
+    "src/server/iologik/firmwareAssessment.ts",
+    "src/server/iologik/firmwareIdentity.ts",
+    "src/server/iologik/ioLogikClient.ts",
+    "src/server/iologik/ioLogikInventory.ts",
+    "src/server/iologik/ioLogikScanStore.ts",
+    "src/server/iologik/iologikFleetRoutes.ts",
+    "src/server/iologik/iologikFleetService.ts",
+    "src/server/iologik/nativeIoLogikFleet.ts",
+    "src/server/knowledge/knowledgeRepository.ts",
+    "src/server/knowledge/knowledgeRoutes.ts",
+    "src/server/knowledge/normalizers/notificationNormalizer.ts",
+    "src/server/knowledge/scanners/csvNotificationScanner.ts",
+    "src/server/knowledge/scanners/warScanner.ts",
+    "src/server/lightbar/faultLightbarEngine.ts",
+    "src/server/lightbar/lightbarPatternEngine.ts",
+    "src/server/lightbar/lightbarRoutes.ts",
+    "src/server/lightbar/lightbarService.ts",
+    "src/server/localStringsBrokerRoute.ts",
+    "src/server/normalizers/arrayCandidateSearch.ts",
+    "src/server/normalizers/bpcVoltageSnapshot.ts",
+    "src/server/normalizers/canonicalStringSnapshot.ts",
+    "src/server/normalizers/contactorObservation.ts",
+    "src/server/normalizers/featherHvacCorrectiveNormalizer.ts",
+    "src/server/normalizers/pcsNormalizer.ts",
+    "src/server/normalizers/stringContactorResolver.ts",
+    "src/server/normalizers/stringNormalizer.ts",
+    "src/server/notifications/bpcVoltageOutliers.ts",
+    "src/server/notifications/contactorOpenAssessment.ts",
+    "src/server/notifications/correctiveGuidance.ts",
+    "src/server/notifications/hvacIssueReview.ts",
+    "src/server/notifications/notificationBpcs.ts",
+    "src/server/notifications/notificationCatalog.ts",
+    "src/server/notifications/notificationMetrics.ts",
+    "src/server/notifications/notificationReview.ts",
+    "src/server/notifications/notificationTargetTable.ts",
+    "src/server/notifications/notificationTroubleshooting.ts",
+    "src/server/notifications/siteNotificationEngine.ts",
+    "src/server/notifications/stringControllerFaultCatalog.ts",
+    "src/server/observations/ObservationMetrics.ts",
+    "src/server/observations/ObservationParity.ts",
+    "src/server/observations/ObservationParityHarness.ts",
+    "src/server/observations/ObservationRecord.ts",
+    "src/server/observations/ObservationResolver.ts",
+    "src/server/observations/ObservationRoutes.ts",
+    "src/server/observations/ObservationRuntime.ts",
+    "src/server/observations/ObservationSnapshot.ts",
+    "src/server/observations/ObservationState.ts",
+    "src/server/observations/ObservationTypes.ts",
+    "src/server/observations/StringRouteObservationAdapter.ts",
+    "src/server/observations/StringRouteObservationParity.ts",
+    "src/server/observations/StringRouteObservationParityHarness.ts",
+    "src/server/observations/index.ts",
+    "src/server/overviewDiscovery.ts",
+    "src/server/prizmDataCoordinator.ts",
+    "src/server/profiles/profileManager.ts",
+    "src/server/profiles/profileStore.ts",
+    "src/server/profiles/siteDimensions.ts",
+    "src/server/reports/firmwareReportService.ts",
+    "src/server/reports/pdfRenderer.ts",
+    "src/server/reports/reportBuilder.ts",
+    "src/server/reports/reportRoutes.ts",
+    "src/server/reports/reportStorage.ts",
+    "src/server/reports/siteSnapshotEngine.ts",
+    "src/server/reports/siteSnapshotStorage.ts",
+    "src/server/rotationControlService.ts",
+    "src/server/rotationRoutes.ts",
+    "src/server/runtimeShutdown.ts",
+    "src/server/safetyFaultClear.ts",
+    "src/server/security/accessPilotRuntime.ts",
+    "src/server/security/commandRecovery.ts",
+    "src/server/security/contactorAccess.ts",
+    "src/server/security/contactorReceipts.ts",
+    "src/server/security/localAccessPilot.ts",
+    "src/server/security/localAccounts.ts",
+    "src/server/security/localSessions.ts",
+    "src/server/security/ownedJobs.ts",
+    "src/server/security/pilotUi.ts",
+    "src/server/security/readOnlyTelemetryService.ts",
+    "src/server/siteData/segmentTranslator.ts",
+    "src/server/siteDataRoutes.ts",
+    "src/server/siteDistribution/siteDistributionRoutes.ts",
+    "src/server/siteOperations.ts",
+    "src/server/siteSensors/canonicalSensorParser.ts",
+    "src/server/siteSensors/sensorCapabilityResolver.ts",
+    "src/server/siteSensors/siteSensorsRoutes.ts",
+    "src/server/startup/prizmBootOrchestrator.ts",
+    "src/server/storage/storageMaintenance.ts",
+    "src/server/storage/storagePolicy.ts",
+    "src/server/storage/storageRoutes.ts",
+    "src/server/stringsDashboard.ts",
+    "src/server/telemetry/CoordinatorRuntime.ts",
+    "src/server/telemetry/EmsStageTiming.ts",
+    "src/server/telemetry/EncodedJsonCache.ts",
+    "src/server/telemetry/MetadataCadence.ts",
+    "src/server/telemetry/PrimaryTelemetryReader.ts",
+    "src/server/telemetry/TelemetryAuthority.ts",
+    "src/server/telemetry/TelemetryBroker.ts",
+    "src/server/telemetry/TelemetryCycleContext.ts",
+    "src/server/telemetry/TelemetryHealth.ts",
+    "src/server/telemetry/TelemetryRuntime.ts",
+    "src/server/telemetry/arrayCellMetrics.ts",
+    "src/server/telemetry/binding/BindingParityHarness.ts",
+    "src/server/telemetry/binding/TelemetryBindingMetrics.ts",
+    "src/server/telemetry/binding/TelemetryBindingParity.ts",
+    "src/server/telemetry/binding/TelemetryBindingResolver.ts",
+    "src/server/telemetry/binding/TelemetryBindingRoutes.ts",
+    "src/server/telemetry/binding/TelemetryBindingRuntime.ts",
+    "src/server/telemetry/binding/TelemetryBindingSnapshot.ts",
+    "src/server/telemetry/binding/TelemetryBindingTypes.ts",
+    "src/server/telemetry/binding/index.ts",
+    "src/server/telemetry/compactStringList.ts",
+    "src/server/telemetry/cooperativeCheckpoint.ts",
+    "src/server/telemetry/discovery.ts",
+    "src/server/telemetry/emsPrimaryReader.ts",
+    "src/server/telemetry/fastStringsTransport.ts",
+    "src/server/telemetry/feather/FeatherCache.ts",
+    "src/server/telemetry/feather/FeatherMetrics.ts",
+    "src/server/telemetry/feather/FeatherParsedEnrichmentRegistry.ts",
+    "src/server/telemetry/feather/FeatherParser.ts",
+    "src/server/telemetry/feather/FeatherPriority.ts",
+    "src/server/telemetry/feather/FeatherScheduler.ts",
+    "src/server/telemetry/feather/FeatherSchedulerRoutes.ts",
+    "src/server/telemetry/feather/FeatherTypes.ts",
+    "src/server/telemetry/feather/index.ts",
+    "src/server/telemetry/metrics/TelemetryMetrics.ts",
+    "src/server/telemetry/metrics/TelemetryMetricsRegistry.ts",
+    "src/server/telemetry/metrics/TelemetryMetricsRoutes.ts",
+    "src/server/telemetry/metrics/TelemetryMetricsTypes.ts",
+    "src/server/telemetry/metrics/index.ts",
+    "src/server/telemetry/modbusOperationalTelemetry.ts",
+    "src/server/telemetry/modbusProfileManager.ts",
+    "src/server/telemetry/modbusRoutes.ts",
+    "src/server/telemetry/modbusStringTelemetry.ts",
+    "src/server/telemetry/normalization/CanonicalStringIndexes.ts",
+    "src/server/telemetry/normalization/CycleNormalizationCache.ts",
+    "src/server/telemetry/normalization/NormalizationFingerprint.ts",
+    "src/server/telemetry/normalization/NormalizationMetrics.ts",
+    "src/server/telemetry/normalization/index.ts",
+    "src/server/telemetry/pairedAcquisition.ts",
+    "src/server/telemetry/pcsDataQuality.ts",
+    "src/server/telemetry/profiler/CoordinatorProfiler.ts",
+    "src/server/telemetry/profiler/CoordinatorProfilerTypes.ts",
+    "src/server/telemetry/profiler/CoordinatorTimeline.ts",
+    "src/server/telemetry/profiler/index.ts",
+    "src/server/telemetry/providers/FeatherTelemetryProvider.ts",
+    "src/server/telemetry/providers/FirstResponderTelemetryProvider.ts",
+    "src/server/telemetry/providers/TurtleTelemetryProvider.ts",
+    "src/server/telemetry/publication/CanonicalPublicationMetrics.ts",
+    "src/server/telemetry/publication/CanonicalPublicationRoutes.ts",
+    "src/server/telemetry/publication/CanonicalPublicationRuntime.ts",
+    "src/server/telemetry/publication/CanonicalPublicationTypes.ts",
+    "src/server/telemetry/publication/index.ts",
+    "src/server/telemetry/siteTelemetryAggregator.ts",
+    "src/server/telemetry/sma/privateStorage.ts",
+    "src/server/telemetry/sma/streamConfig.ts",
+    "src/server/telemetry/sma/streamProtocol.ts",
+    "src/server/telemetry/sma/streamRuntime.ts",
+    "src/server/telemetry/sma/streamSession.ts",
+    "src/server/telemetry/snapshotCycleSelection.ts",
+    "src/server/telemetry/stringviewer/StringViewerBackground.ts",
+    "src/server/telemetry/stringviewer/StringViewerCache.ts",
+    "src/server/telemetry/stringviewer/StringViewerMetrics.ts",
+    "src/server/telemetry/stringviewer/StringViewerPriority.ts",
+    "src/server/telemetry/stringviewer/StringViewerRoutes.ts",
+    "src/server/telemetry/stringviewer/StringViewerScheduler.ts",
+    "src/server/telemetry/stringviewer/StringViewerTypes.ts",
+    "src/server/telemetry/stringviewer/index.ts",
+    "src/server/telemetry/summarySnapshotSelection.ts",
+    "src/server/thermal/historyIo.ts",
+    "src/server/thermal/historyQueryProjection.ts",
+    "src/server/thermal/historyQueryRunner.ts",
+    "src/server/thermal/historyReview.ts",
+    "src/server/thermal/siteHistory.ts",
+    "src/server/thermal/thermalMetrics.ts",
+    "src/server/thermal/thermalModel.ts",
+    "src/server/thermal/thermalMorningReview.ts",
+    "src/server/thermal/thermalReviewPresentation.ts",
+    "src/server/thermal/thermalRoutes.ts",
+    "src/server/thermal/thermalService.ts",
+    "src/server/thermal/thermalTargets.ts",
+    "src/server/topology/GraphIdentityReadiness.ts",
+    "src/server/topology/GraphIdentityResolver.ts",
+    "src/server/topology/GraphIdentityRoutes.ts",
+    "src/server/topology/LiveTopologyAdapter.ts",
+    "src/server/topology/SitePresentationStore.ts",
+    "src/server/topology/SiteProfileDiscovery.ts",
+    "src/server/topology/SiteProfileDraftStore.ts",
+    "src/server/topology/TopologyGraphMetrics.ts",
+    "src/server/topology/TopologyGraphParity.ts",
+    "src/server/topology/TopologyGraphRoutes.ts",
+    "src/server/topology/TopologyGraphRuntime.ts",
+    "src/server/topology/TopologyIngestionMatrix.ts",
+    "src/server/topology/TopologySourceSnapshot.ts",
+    "src/server/topology/index.ts",
+    "src/server/topology/siteTopology.ts",
+    "src/server/topology/siteTopologyEngine.ts",
+    "src/server/topology/topologyRoutes.ts",
+    "src/server/topology/turtleParsers.ts",
+    "src/server/troubleshooting/documentedFaultAugmentations.ts",
+    "src/server/troubleshooting/troubleshootingKnowledgeBase.ts",
+    "src/server/troubleshooting/troubleshootingOverrides.ts",
+    "src/server/troubleshooting/troubleshootingResolver.ts",
+    "src/server/troubleshooting/troubleshootingRoutes.ts",
+    "src/server/workspaceProjections/EngineeringProjection.ts",
+    "src/server/workspaceProjections/OperatorProjection.ts",
+    "src/server/workspaceProjections/ProjectionHelpers.ts",
+    "src/server/workspaceProjections/TechnicianProjection.ts",
+    "src/server/workspaceProjections/WorkspaceProjectionMetrics.ts",
+    "src/server/workspaceProjections/WorkspaceProjectionRoutes.ts",
+    "src/server/workspaceProjections/WorkspaceProjectionRuntime.ts",
+    "src/server/workspaceProjections/WorkspaceProjectionTypes.ts",
+    "src/server/workspaceProjections/index.ts",
+    "src/utils/cellValueResolver.ts",
+    "src/utils/statusDisplay.ts",
+    "src/utils/temperatureScale.ts",
+    "src/utils/voltageScale.ts",
+    "src/workspaces/OperationsShell.tsx",
+    "src/workspaces/WorkspacePreviewShell.tsx",
+    "src/workspaces/operations.css"
+  ],
+  "comparison": "Every rebuilt application file matches installed Dell release byte-for-byte; prior hashed asset chunks retained on Dell are not treated as current source."
+}

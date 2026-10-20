@@ -1144,7 +1144,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                       onClick={() => setFormProfile(prev => ({ ...prev, sensorMonitoringProfile: JSON.parse(JSON.stringify(DEFAULT_SENSOR_PROFILE)) }))}
                       className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-semibold transition-colors"
                     >
-                      Reset to Stack750/Kobold Default
+                      Reset to Stack750 EMS Default
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-500 italic">

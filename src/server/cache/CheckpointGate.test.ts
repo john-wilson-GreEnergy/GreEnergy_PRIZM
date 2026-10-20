@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {CheckpointGate} from './CheckpointGate';
+const gate=new CheckpointGate(60_000);
+assert(gate.shouldCapture('/ss4/a',false,0));gate.accepted('/ss4/a',0);
+assert(!gate.shouldCapture('/ss4/a',false,59_999));
+assert(gate.shouldCapture('/ss4/a',false,60_000));
+assert(gate.shouldCapture('/ss3/a',false,1),'Separate sites have independent checkpoints');
+assert(gate.shouldCapture('/ss4/a',true,1),'Clear must bypass interval');
+assert(gate.shouldCapture('/ss4/a',false,-1),'Clock rollback must not suppress capture');
+assert(gate.shouldCapture('/ss4/b',false,1));assert(gate.shouldCapture('/ss4/b',false,2),'Rejected enqueue must not reserve an interval');
+for(let i=0;i<100;i++)gate.accepted('/site/'+i,i);
+assert.equal(gate.status().trackedPaths,32);
+const disabled=new CheckpointGate();disabled.accepted('/x',1);assert(disabled.shouldCapture('/x',false,2));
+assert.throws(()=>new CheckpointGate(NaN));assert.throws(()=>new CheckpointGate(300001));
+console.log('PASS checkpoint cadence, clear bypass, site isolation, rollback, rejected enqueue and bounded metadata');

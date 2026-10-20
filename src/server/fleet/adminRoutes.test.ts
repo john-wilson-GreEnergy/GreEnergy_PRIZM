@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {createServer,request as httpRequest} from 'node:http';
+import {createFleetApp} from './fleetApp';
+import {FleetBroker} from './FleetBroker';
+import {LocalSessions} from '../security/localSessions';
+import {readAccounts,hashLocalPassword} from '../security/localAccounts';
+import {manageFleetAccount} from './accountManagement';
+const dir=await mkdtemp(path.join(tmpdir(),'prizm-admin-test-')),file=path.join(dir,'accounts.json');
+const sites=[3,4].map(n=>({siteId:'ss'+n,blockId:'b1',blockIndex:1,stationCode:'LAB'+n,name:'Site '+n}));
+const password='Private fixture password only',hash=await hashLocalPassword(password);
+await writeFile(file,JSON.stringify(['admin','viewer'].map(id=>({id,email:id+'@example.invalid',disabled:false,version:1,password:hash,fleetAdmin:id==='admin',grants:sites.map(s=>({capability:'telemetry.view',siteId:s.siteId,blockId:s.blockId,scope:{kind:'block'}}))}))),{mode:0o600});
+let now=Date.now(),auditFails=false;const events:unknown[]=[];
+const sessions=new LocalSessions(()=>readAccounts(file),()=>now,true);
+const app=createFleetApp(new FleetBroker(sites),sessions,{origin:'http://localhost:3443',allowLoopbackHttp:true,publicDirectory:dir,accountsFile:file,workspaces:[{siteId:'ss3',origin:'https://localhost:3444'}],audit:async e=>{if(auditFails)throw Error('audit unavailable');events.push(e);}});
+const server=createServer(app);await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
+const admin=await sessions.login('admin@example.invalid',password,'fixture'),viewer=await sessions.login('viewer@example.invalid',password,'other');
+async function req(method:string,body?:unknown,token=admin.token,headers:Record<string,string>={}){
+ const payload=body?JSON.stringify(body):'';
+ return new Promise<{status:number;body:Record<string,unknown>}>((resolve,reject)=>{
+  const r=httpRequest({host:'127.0.0.1',port,path:'/api/fleet/admin/users',method,headers:{Host:'localhost:3443',Origin:'http://localhost:3443',Cookie:'prizm_fleet_session='+token,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload),'X-Prizm-Csrf':admin.csrf,...headers}},response=>{
+   let text='';response.on('data',d=>text+=d);response.on('end',()=>resolve({status:response.statusCode!,body:JSON.parse(text)}));
+  });r.on('error',reject);r.end(payload);
+ });
+}
+const action={kind:'add',email:'new@example.invalid',password:'abc123',confirmationPassword:password,siteIds:['ss3','ss4'],workspaceIds:['ss3']};
+try{
+ assert.equal((await req('GET',undefined,'')).status,401);
+ assert.equal((await req('GET',undefined,viewer.token)).status,403);
+ assert.equal((await req('POST',action,viewer.token)).status,403);
+ assert.equal((await req('POST',action,admin.token,{'X-Prizm-Csrf':''})).status,403);
+ assert.equal((await req('POST',action,admin.token,{Origin:'http://evil.invalid'})).status,403);
+ assert.equal((await req('POST',{...action,fleetAdmin:true})).status,400);
+ assert.equal((await req('POST',{...action,password:'abc12'})).status,400);
+ assert.equal((await req('POST',{...action,workspaceIds:['ss4']})).status,400);
+ assert.equal((await req('POST',{...action,confirmationPassword:'incorrect'})).status,403);
+ assert.equal((await req('POST',action)).status,200);
+ const created=(await readAccounts(file)).find(a=>a.email===action.email)!;
+ assert.equal(created.fleetAdmin,undefined);assert.equal(created.grants.filter(g=>g.capability==='workspace.full').length,1);
+ const userSession=await sessions.login(action.email,action.password,'new');
+ now+=65000;
+ assert.equal((await req('POST',{kind:'access',email:action.email,siteIds:['ss4'],workspaceIds:[],confirmationPassword:password})).status,200);
+ await assert.rejects(sessions.authenticate(userSession.token));
+ assert.equal((await req('POST',{kind:'disable',email:'admin@example.invalid',confirmationPassword:password})).status,400);
+ auditFails=true;
+ assert.equal((await req('POST',{kind:'disable',email:action.email,confirmationPassword:password})).status,503);
+ assert.equal((await readAccounts(file)).find(a=>a.email===action.email)!.disabled,false);auditFails=false;
+ assert.equal((await req('POST',{kind:'disable',email:action.email,confirmationPassword:password})).status,200);
+ now+=65000;
+ assert.equal((await req('POST',{kind:'enable',email:action.email,confirmationPassword:password})).status,200);
+ assert.equal((await req('POST',{kind:'password',email:action.email,password:'abc12',confirmationPassword:password})).status,400);
+ assert.equal((await req('POST',{kind:'password',email:action.email,password:'xyz789',confirmationPassword:password})).status,200);
+ await sessions.login(action.email,'xyz789','reset-six-character-test');
+ const listed=await req('GET');assert.equal(listed.status,200);assert(!JSON.stringify(listed.body).includes('digest'));assert(!JSON.stringify(listed.body).includes('salt'));
+ for(let i=0;i<16;i++){now+=60000;await sessions.monitoring(admin.token);}
+ assert.equal((await req('GET')).status,200,'Account listing remains available during the shift');
+ assert.equal((await req('POST',{...action,confirmationPassword:'incorrect'})).status,403,'Account changes still require password confirmation');
+ await sessions.unlockControls(admin.token,password,async()=>{});
+ assert.equal((await req('GET')).status,200);
+ const saved=await readFile(file,'utf8');assert(!saved.includes(password));assert(!saved.includes(action.password));assert(!JSON.stringify(events).includes(password));
+ await assert.rejects(manageFleetAccount(file,sites,{kind:'administrator',email:'admin@example.invalid',enabled:false}),/last active/);
+ await assert.rejects(manageFleetAccount(file,sites,{kind:'disable',email:action.email},{id:'admin',version:999}),/access changed/);
+ await assert.rejects(manageFleetAccount(file,sites,{kind:'administrator',email:action.email,enabled:true},{id:'admin',version:1}),/server console/);
+ console.log('PASS admin authorization, CSRF/origin, password confirmation, explicit site/workspace grants, revocation, protected admins, private hashes and audit failure');
+}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await rm(dir,{recursive:true,force:true});}

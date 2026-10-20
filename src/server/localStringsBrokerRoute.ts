@@ -139,7 +139,7 @@ function normalizeRows(rawData: any[], ipMap: any[], metaWrapper: LocalStringsMe
     const contactorsCloseExpected = Boolean(row.contact_close_expected ?? row.contactCloseExpected ?? row.ContactorsCloseExpected ?? (connectionState === "Online"));
     const aggregateContactorState = normalizedAggregateContactorState(row);
     const contactorOpenReported = aggregateContactorState === "OPEN" || hasContactorOpenNotification(row);
-    // Turtle's aggregate StringContactorState is the state Kobold renders. Some
+    // Turtle's aggregate StringContactorState is the state the EMS interface renders. Some
     // payloads retain stale individual feedback booleans, so the explicit
     // aggregate state must win when the two representations disagree.
     const positiveContactorClosed = contactorOpenReported

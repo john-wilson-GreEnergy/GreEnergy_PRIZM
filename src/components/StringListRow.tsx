@@ -317,7 +317,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
                   else borderClass = "border-l-[3px] border-l-transparent";
 
                   return (
-                  <tr key={s.id} data-array-number={s.arrayNumber ?? s.arrayIndex} data-array-band={Number(s.arrayNumber ?? s.arrayIndex) % 2 === 0 ? "even" : "odd"} data-array-start={isArrFirst ? "true" : "false"} onClick={() => onOpen(s)} className="group hover:bg-prizm-primary/5 cursor-pointer transition-colors relative">
+                  <tr key={s.id} onClick={() => onOpen(s)} className="group hover:bg-prizm-primary/5 cursor-pointer transition-colors relative">
 <td className={"px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-0 group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center " + borderClass}>
    {isArrFirst ? (
      <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer"
@@ -332,7 +332,7 @@ export function StringListRow({s, isArrFirst, isArrAllSelected, isArrIndetermina
    ) : null}
 </td>
 <td className="px-1.5 py-0.5 border-r border-prizm-border/20 sticky left-[30px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 min-w-[54px] sm:min-w-[64px]" title={s.warningCount > 0 || s.alarmCount > 0 ? `Warnings: ${(s.warnings||[]).join(", ")} | Alarms: ${(s.alarms||[]).join(", ")}` : ""}>
-   <span className="ops-string-array-label text-prizm-primary font-mono font-bold" aria-label={`Array ${s.arrayNumber ?? s.arrayIndex}`}>{s.arrayNumber ?? s.arrayIndex}</span>
+   {isArrFirst ? <span className="text-prizm-primary font-mono font-bold">{s.arrayNumber}</span> : null}
 </td>
 <td className="px-1.5 py-0.5 border-r border-prizm-border/10 sticky left-[84px] sm:left-[94px] group-hover:bg-prizm-surface-strong bg-prizm-surface z-20 text-center">
    <input type="checkbox" className="accent-prizm-primary w-3 h-3 cursor-pointer"

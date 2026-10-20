@@ -11,6 +11,15 @@ function metricFor(registry: TelemetryMetricsRegistry, endpoint: string) {
 
 async function run(): Promise<void> {
   console.log("Running telemetry performance metrics tests...");
+  const bounded = new TelemetryMetricsRegistry();
+  for (let cycle=1;cycle<=1000;cycle++) await runInTelemetryCycle(cycle, async () => {
+    bounded.beginEndpoint('fixture','/bounded').finish({success:true});
+  });
+  const boundedMetric=metricFor(bounded,'/bounded');
+  assert.equal(Object.keys(boundedMetric.requestsByCycleId).length,100);
+  assert.equal(boundedMetric.requestsByCycleId['1'],undefined);
+  assert.equal(boundedMetric.requestsByCycleId['1000'],1);
+  assert.equal(boundedMetric.requestCount,1000,'lifetime totals survive window eviction');
 
   let now = 0;
   const registry = new TelemetryMetricsRegistry(() => now);

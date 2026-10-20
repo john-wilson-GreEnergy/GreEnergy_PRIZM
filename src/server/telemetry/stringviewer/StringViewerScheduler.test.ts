@@ -124,5 +124,18 @@ async function rollbackSweepCleanup(): Promise<void> {
   scheduler.reset(); assert.equal(scheduler.getDebugState().cacheSize, 0); assert.equal(scheduler.getDebugState().requestsAttempted, 0);
 }
 
-await coalescing(); await boundedAndDeterministic(); priorities(); await starvationAndDemand(); await freshness(); await retentionAndRecovery(); immutableAndParity(); await rollbackSweepCleanup();
+async function pacing():Promise<void>{
+  const delays:number[]=[], fetched:string[]=[];
+  const paced=new StringViewerScheduler({...config,requestSpacingMs:50,maxConcurrency:3},async candidate=>{fetched.push(candidate.stringKey);return success({});},undefined,undefined,()=>0,async ms=>{delays.push(ms);});
+  paced.requestRefresh('A1-S3');
+  await paced.runCycle([row(1,1),row(1,2),row(1,3)],1,'http://ems');
+  assert.equal(fetched[0],'A1-S3','operator priority survives spacing');
+  assert.deepEqual(delays,[50,100]);
+  const stopped=new StringViewerScheduler({...config,requestSpacingMs:50,maxConcurrency:2},async()=>success({}),undefined,undefined,()=>0,async()=>{stopped.shutdown();});
+  await stopped.runCycle([row(1,1),row(1,2)],1,'http://ems');
+  assert.equal(stopped.metrics.requestsAttempted,1,'shutdown cancels queued paced reads');
+  assert.equal(getStringViewerConfig({PRIZM_STRINGVIEWER_REQUEST_SPACING_MS:'999'}).requestSpacingMs,250);
+  assert.equal(getStringViewerConfig({}).requestSpacingMs,0,'legacy pacing remains available');
+}
+await coalescing(); await boundedAndDeterministic(); priorities(); await starvationAndDemand(); await freshness(); await retentionAndRecovery(); immutableAndParity(); await rollbackSweepCleanup();await pacing();
 console.log("StringViewer scheduler tests passed");

@@ -11,6 +11,11 @@ if (process.argv[2] === 'child') {
   const fixture = {cycleId:42,value:0,missing:null,stale:true,sourceAt:'2026-09-28T15:00:00Z'};
   let entry = cache.set('prizm-site-snapshot',fixture,{ttlMs:15000});
   assert.equal(cache.get('prizm-site-snapshot')?.data,fixture,'Memory publication must be immediate.');
+  if(process.env.PRIZM_SNAPSHOT_MIN_INTERVAL_MS==='60000'){
+    cache.set('prizm-site-snapshot',{...fixture,value:777},{ttlMs:15000});
+    assert.equal((cache.get('prizm-site-snapshot')?.data as typeof fixture).value,777,'Checkpoint cadence must not slow live memory updates');
+    assert.equal(cache.getSnapshotCachePersistenceStatus().checkpoint.skippedCaptures,1);
+  }
   fixture.value = 123;
   cache.set('site-operations-summary',{cycleId:42,complete:true},{ttlMs:15000});
   const dashboard = {cycleId:42, strings:[{id:'A1-S1', voltage:0, stale:true, warningCodes:[2003,2008], cellMv:[3210,3220], missing:null}], sourceAt:fixture.sourceAt};
@@ -51,9 +56,9 @@ if (process.argv[2] === 'child') {
   try {
     await build({entryPoints:['src/server/cache/snapshotCacheWorkerEntry.ts'],outfile:path.join(root,'dist','snapshot-cache-worker.cjs'),bundle:true,platform:'node',format:'cjs',packages:'external'});
     for (const mode of ['snapshot','clear']) {
-      const outputs = [['true','false'],['false','false'],['true','true'],['false','true'],[undefined,undefined],['true','true','false']].map(([flag,worker,derived],i)=>execFileSync(process.execPath,
+      const outputs = [['true','false'],['false','false'],['true','true'],['false','true'],[undefined,undefined],['true','true','false'],['true','true','true','60000']].map(([flag,worker,derived,interval],i)=>execFileSync(process.execPath,
         ['--require',path.resolve('scripts/test-network-guard.cjs'),'--import',import.meta.resolve('tsx'),fileURLToPath(import.meta.url),'child',mode],
-        {cwd:root,encoding:'utf8',timeout:30000,env:{...process.env,PRIZM_CACHE_DIR:path.join(root,mode,String(i),'cache'),PRIZM_HISTORY_DIR:path.join(root,mode,String(i),'history'),PRIZM_ASYNC_SNAPSHOT_CACHE:flag,PRIZM_SNAPSHOT_WORKER:worker,PRIZM_EMS_DERIVED_CACHE_WORKER:derived,PRIZM_SNAPSHOT_WORKER_VERIFY:'true'}}));
+        {cwd:root,encoding:'utf8',timeout:30000,env:{...process.env,PRIZM_CACHE_DIR:path.join(root,mode,String(i),'cache'),PRIZM_HISTORY_DIR:path.join(root,mode,String(i),'history'),PRIZM_ASYNC_SNAPSHOT_CACHE:flag,PRIZM_SNAPSHOT_WORKER:worker,PRIZM_EMS_DERIVED_CACHE_WORKER:derived,PRIZM_SNAPSHOT_MIN_INTERVAL_MS:interval,PRIZM_SNAPSHOT_WORKER_RECYCLE:interval?'true':'false',PRIZM_SNAPSHOT_WORKER_VERIFY:'true'}}));
       const results = outputs.map(text=>JSON.parse(text.split('\n').find(line=>line.startsWith('PERSISTED:'))!.slice(10)));
       for (const result of results.slice(1)) assert.deepEqual(results[0],result);
     }

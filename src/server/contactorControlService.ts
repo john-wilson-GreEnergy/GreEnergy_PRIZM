@@ -80,7 +80,7 @@ export function buildEmsContactorUrl(
   const actionPath = target.allStrings === true
     ? `/tools/controls/ems/array/${target.array}/contactors/${req.action}`
     : `/tools/controls/ems/array/${target.array}/string/${target.string}/contactors/${req.action}`;
-  // Match Kobold's working string-permission payload. This stack type does not
+  // Match the verified EMS string-permission payload. This stack type does not
   // support the legacy cell-group voltage alarm flags; including them causes
   // Turtle to take its compatibility branch and can leave closeExpected
   // unchanged even though the HTTP request is acknowledged.
@@ -360,7 +360,7 @@ async function executeContactorControlOnce(req: ContactorControlRequest, guard?:
     // Contactor requests must go through EMS. Calling Phoenix/BMS directly can
     // momentarily actuate the device while leaving EMS's requested state open;
     // EMS then immediately wins and the close never persists. This is the same
-    // control authority used by the legacy EMS tools and Kobold workflow.
+    // control authority used by the legacy EMS tools and operator workflow.
     const base = destination.baseUrl;
     const phoenixUrl = buildEmsContactorUrl(base, { ...t, array, string: stringNum }, {
       action: req.action,

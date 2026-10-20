@@ -128,7 +128,7 @@ const EXISTING_CATALOG: Record<string, NotificationCatalogEntry> = {
   },
   "2561": {
     code: "2561",
-    name: "String OOR Warning",
+    name: "String out of rotation warning",
     family: "string-out-of-rotation",
     component: "String",
     summaryVisibility: "rollupOnly",

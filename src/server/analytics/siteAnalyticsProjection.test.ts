@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {projectSiteAnalytics} from './siteAnalyticsProjection';
+const at=1792420000000;
+const snapshot={siteIdentity:{stationCode:'BHE0020',blockIndex:1},normalized:{strings:[{id:'A1-S1',arrayNumber:1,stringNumber:1,communicating:true,sourceTimestampUtc:new Date(at).toISOString(),amps:0,socPct:40,avgCellTempC:20,minCellTempC:10,maxCellTempC:30}],pcs:[{arrayIndex:1,pcsIndex:1,timestamp:String(at),acRealPowerKW:-200,sourceOk:true}],feather:[{arrayIndex:1,segmentLabel:'ES 1',lastSuccessUtc:new Date(at).toISOString(),spaceTemperatureC:20,spaceHumidityPct:0,hvac1:{dataValid:true,currentA:0}}]}};
+const original=JSON.stringify(snapshot),result=projectSiteAnalytics(snapshot,at);
+const row=(id:string)=>result.metrics.find(m=>m.id===id)!.rows[0];
+assert.equal(row('string-current').value,0);assert.equal(row('pcs-power').value,-200);assert.equal(row('string-cell-temperature').value,68);assert.equal(row('hvac-temperature').value,68);assert.equal(row('hvac-humidity').value,0);assert.equal(row('hvac-current-2').value,null);
+assert.equal(JSON.stringify(snapshot),original,'No canonical mutation');
+assert.equal(projectSiteAnalytics(snapshot,at+130000).metrics[0].rows[0].quality,'stale');
+assert.equal(projectSiteAnalytics(snapshot,at+130000).metrics.find(m=>m.id==='string-current')!.rows[0].value,null);
+assert.equal(projectSiteAnalytics({...snapshot,liveStatus:{stale:true}},at).metrics[1].rows[0].value,null);
+assert.equal(result.historical,false);assert.equal(row('pcs-power').observedAt,at);
+console.log('Canonical analytics projection: units, zero/negative values, source age, missing fields and immutability passed');

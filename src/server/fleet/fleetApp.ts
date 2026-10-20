@@ -1,9 +1,12 @@
 import express,{type Request,type RequestHandler,type ErrorRequestHandler} from 'express';
+import {fleetRefreshMs} from '../../core/fleet/pollingCadence';
 import path from 'node:path';
 import {FleetBroker} from './FleetBroker';
 import {LOOPBACK_HOSTS} from './CollectorPoller';
 import {LocalSessions,AccessError} from '../security/localSessions';
 import type {VerifiedPrincipal} from '../../core/security/controlPolicyPrototype';
+import {requireFullWorkspace} from './workspaceAccess';
+import {fleetAdminRouter} from './adminRoutes';
 
 const cookieName='prizm_fleet_session';
 function tokenFrom(req:Request){
@@ -13,6 +16,8 @@ function tokenFrom(req:Request){
 export interface FleetAppOptions {
   origin:string; allowLoopbackHttp?:boolean; publicDirectory:string; simulated?:boolean;
   audit:(event:{action:string;outcome:string;subject?:string})=>Promise<void>;
+  workspaces?:Array<{siteId:string;origin:string}>;
+  accountsFile?:string;
 }
 export function validateFleetOrigin(value:string,allowLoopbackHttp=false):URL {
   const origin=new URL(value);
@@ -40,7 +45,7 @@ export function createFleetApp(broker:FleetBroker,sessions:LocalSessions,options
     next();
   });
   app.use(express.json({limit:'4kb',strict:true}));
-  const cookieOptions={httpOnly:true,secure:origin.protocol==='https:',sameSite:'strict' as const,path:'/',maxAge:8*3600000};
+  const cookieOptions={httpOnly:true,secure:origin.protocol==='https:',sameSite:'strict' as const,path:'/',maxAge:sessions.maximumAgeMs};
   const guarded=(fn:(req:Request,token:string,principal:VerifiedPrincipal)=>Promise<unknown>):RequestHandler=>(req,res)=>{
     void (async()=>{
       const token=tokenFrom(req),auth=await sessions.authenticate(token,false);
@@ -64,14 +69,28 @@ export function createFleetApp(broker:FleetBroker,sessions:LocalSessions,options
   });
   app.get('/api/fleet/session',guarded(async(_req,token)=>{
     const auth=await sessions.authenticate(token,false);
-    return {email:auth.email,csrf:auth.csrf,idleExpiresAt:auth.idleExpiresAt,readOnly:true,simulated:options.simulated===true};
+    const workspaces=(options.workspaces??[]).filter(w=>{
+      const site=broker.enrollments().find(s=>s.siteId===w.siteId);
+      if(!site)return false;
+      try{requireFullWorkspace(auth.principal,site);return true;}catch{return false;}
+    });
+    return {email:auth.email,csrf:auth.csrf,...await sessions.status(token),readOnly:true,simulated:options.simulated===true,administrator:!!options.accountsFile&&auth.administrator,workspaces,refreshIntervalMs:fleetRefreshMs(process.env.PRIZM_FLEET_REFRESH_MS)};
   }));
   app.get('/api/fleet/summary',guarded(async(_req,_token,principal)=>broker.view(allowedSiteIds(broker,principal))));
+  if(options.accountsFile)app.use('/api/fleet/admin',fleetAdminRouter({sessions,accountsFile:options.accountsFile,sites:broker.enrollments(),workspaceSites:new Set((options.workspaces??[]).map(w=>w.siteId)),origin:origin.origin,audit:options.audit}));
   app.post('/api/fleet/touch',guarded(async(req,token)=>{
     const auth=await sessions.authenticate(token,false);
     if(req.headers.origin!==origin.origin)throw new AccessError(403,'Same-origin request required');
     sessions.checkCsrf(auth.csrf,req.headers['x-prizm-csrf']);
     await sessions.authenticate(token,true);return {active:true};
+  }));
+  for(const action of ['monitor','reauthenticate'])app.post('/api/fleet/'+action,guarded(async(req,token)=>{
+    const auth=await sessions.authenticate(token,false);
+    if(req.headers.origin!==origin.origin)throw new AccessError(403,'Same-origin request required');
+    sessions.checkCsrf(auth.csrf,req.headers['x-prizm-csrf']);
+    if(action==='monitor')return sessions.monitoring(token);
+    if(!req.body || Object.keys(req.body).join(',')!=='password')throw new AccessError(400,'Password required');
+    return sessions.unlockControls(token,req.body.password,()=>options.audit({action:'fleet.controls.unlock',subject:auth.principal.subject,outcome:'authorized'}));
   }));
   app.post('/api/fleet/logout',(req,res)=>{
     void (async()=>{

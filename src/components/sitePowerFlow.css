@@ -1,0 +1,26 @@
+.power-flow{--flow:#647782;margin:18px 0;padding:20px;border:1px solid #cfddda;border-radius:14px;background:linear-gradient(120deg,#f5faf8,#fff);color:#173b37}
+.pf-charging,.pf-branch.pf-charging{--flow:#087f72}.pf-discharging,.pf-branch.pf-discharging{--flow:#a96014}
+.pf-heading{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.pf-eyebrow{font:600 10px ui-monospace,monospace;letter-spacing:.12em;color:#596f6b}
+.power-flow .pf-heading h3{margin:4px 0 0;font:600 23px system-ui;color:var(--flow);text-transform:none;letter-spacing:-.02em}
+.pf-reading{margin-left:auto;display:grid;gap:3px;text-align:right}.pf-reading strong{font:600 23px ui-monospace,monospace}.pf-reading small{font-size:12px}.pf-reading span{font:11px system-ui;color:#536d66}
+.power-flow .pf-toggle{min-height:44px;padding:8px 12px;border:1px solid #b4c9c2;background:#fff;color:#28534a;border-radius:8px;font:12px system-ui;cursor:pointer}.pf-toggle:focus-visible{outline:3px solid #148f81;outline-offset:3px}
+.pf-route{margin:12px 0;font:13px system-ui;color:var(--flow)}
+.pf-node{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}.pf-node svg{width:48px;height:48px;color:var(--flow)}.pf-node strong{font:600 12px system-ui}.pf-node span{font:11px system-ui;color:#61736e}
+.pf-grid-source{display:flex;flex-direction:column;align-items:center;padding-top:8px}.pf-grid-source>.pf-node svg{width:60px;height:60px}
+.pf-link{width:24px;height:36px;position:relative;color:var(--flow);margin:0 auto}.pf-link svg{width:24px;height:100%;overflow:visible}.pf-track{stroke:#c4d4ce;stroke-width:2}.pf-pulse{stroke:var(--flow);stroke-width:3;stroke-dasharray:8 16;opacity:0}
+.pf-moving .pf-pulse{opacity:1;animation:pf-travel 1.8s linear infinite}.pf-reverse .pf-pulse{animation-direction:reverse}.pf-arrow{position:absolute;left:15px;top:5px;font:20px system-ui;color:var(--flow)}
+.pf-paused .pf-pulse{animation-play-state:paused}
+@keyframes pf-travel{to{stroke-dashoffset:-48}}
+.pf-bus-label{margin:0;padding:7px 0;text-align:center;font:11px system-ui;color:#536d66}
+.pf-branches{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));column-gap:0;row-gap:14px}
+.pf-branch{--flow:#647782;min-width:0;border-top:2px solid #b6cac2;padding:0 4px;background:transparent}
+.pf-branch-card{min-width:0;text-align:center;padding:12px 4px 8px;border:1px solid #cadbd4;border-radius:9px;background:#fff}
+.pf-array-title{display:block;margin-bottom:10px;font:600 12px system-ui}.pf-branch-state{display:block;min-height:28px;margin-top:8px;font:11px/1.3 system-ui;color:var(--flow)}.pf-branch-kw{display:block;font:600 13px ui-monospace,monospace;white-space:nowrap}.pf-branch-kw small{font-size:10px;font-weight:400}
+.pf-branch-card>.pf-link{height:30px;margin-top:4px}.pf-battery svg{width:80px;max-width:100%;height:70px;color:#4b7268}.pf-soc-value{font:600 11px system-ui;fill:#173b37;stroke:#f4f8f7;stroke-width:2px;paint-order:stroke}.pf-soc-unavailable svg{color:#899692}.pf-soc-unavailable rect{stroke-dasharray:3 3}.pf-soc-unavailable .pf-soc-value{font-size:9px}.pf-branch-time{display:block;margin-top:8px;font:10px system-ui;color:#627770}
+.pf-legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:16px 0 12px;font:11px system-ui;color:#526b61}.pf-legend span:first-child{color:#087f72}.pf-legend span:nth-child(2){color:#a96014}
+.pf-battery .pf-string-coverage{font:10px/1.4 system-ui;color:#526b61;max-width:100%;text-wrap:balance}.pf-battery .pf-coverage-partial{color:#87510f;font-weight:600}
+.power-flow .pf-source,.power-flow .pf-note{margin:6px 0 0;font:11px/1.5 system-ui;color:#5a7168}
+.site-overview>.power-flow{margin:18px 20px}
+@media(max-width:1100px){.pf-branches{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:520px){.power-flow{padding:14px}.pf-heading{gap:10px}.pf-heading .pf-toggle{margin-left:auto}.pf-reading strong{font-size:19px}.power-flow .pf-heading h3{font-size:20px}.pf-branches{grid-template-columns:repeat(2,minmax(0,1fr))}.site-overview>.power-flow{margin:12px}}
+@media(prefers-reduced-motion:reduce){.pf-moving .pf-pulse{animation:none}.pf-toggle{display:none}}

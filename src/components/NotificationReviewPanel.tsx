@@ -2,8 +2,35 @@ import React, {useState} from 'react';
 import type {NotificationReview, NotificationGroup, NotificationTarget} from '../server/notifications/notificationReview';
 import type {NotificationTableRow} from '../server/notifications/notificationTargetTable';
 import {NotificationTroubleshootingPanel} from './NotificationTroubleshootingPanel';
+import {HvacIssueDisclosure} from './HvacIssueDisclosure';
+import {NotificationGuidanceAudit} from './NotificationGuidanceAudit';
+import {CorrectiveCategoryList} from './CorrectiveCategoryList';
+import {CorrectiveGuidanceBoundary} from './CorrectiveGuidanceEditor';
+import {CorrectiveBpcWorkspace} from './CorrectiveBpcWorkspace';
+import {CorrectiveExportMenu} from './CorrectiveExportMenu';
 
 const severityStyle: Record<string,string> = {critical:'bg-red-100 text-red-900',alarm:'bg-red-100 text-red-800',warning:'bg-amber-100 text-amber-900',info:'bg-sky-100 text-sky-900',unknown:'bg-slate-200 text-slate-800'};
+export default function NotificationReviewPanel(props:{review?:NotificationReview;stale?:boolean;onEditGuidance?:(id:string|null)=>void}){
+  if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('correctiveLayout')==='legacy')return <LegacyNotificationReviewPanel {...props}/>;
+  return <CorrectiveGuidanceBoundary revision={props.review?.guidanceRevision??0}><CorrectiveSummary {...props}/></CorrectiveGuidanceBoundary>;
+}
+function CorrectiveSummary({review,stale=false}:{review?:NotificationReview;stale?:boolean}){
+  const [array,setArray]=useState('all');
+  if(!review)return <section className="ca-plan-summary"><h3>Notifications & corrective actions</h3><p>Waiting for the prepared snapshot. An empty view does not mean the site is clear.</p></section>;
+  const groups=review.groups.filter(g=>array==='all'||g.arrays.includes(Number(array))),arrays=[...new Set(review.groups.flatMap(g=>g.arrays))].sort((a,b)=>a-b);
+  const bpcs=review.bpcReview?.scopes['all:all'];
+  return <section aria-label="Notifications and corrective actions" className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <header className="p-5 border-b border-slate-200"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="text-lg font-bold">Notifications & corrective actions</h3><p className="text-sm text-slate-600">{review.totals.groups} issue groups · {review.totals.alarm} alarm / critical occurrences · {review.totals.warning} warnings · {review.totals.unknown} unknown severity</p></div><a className="ca-summary-link" href="?tab=corrective-actions">Open corrective workspace →</a></div><p className="text-xs text-slate-500 mt-2">{stale?'Retained snapshot · verify freshness':'Prepared snapshot'} · {new Date(review.capturedAt).toLocaleString()} · Complete snapshot totals; not replacement counts.</p></header>
+    <div className="ca-summary-body">
+      {review.sourceWarnings?.map(w=><p className="ops-alert" key={w}>{w}</p>)}
+      <details className="ca-plan-summary"><summary>{bpcs?.partial?'At least ':''}{bpcs?.uniqueBpcs??'—'} unique BPCs · {review.bpcReview?.balancerInventory?.total??'—'} balancing candidates · View counts & lists</summary><CorrectiveBpcWorkspace review={review} array={array} query=""/></details>
+      <div className="ca-toolbar"><label>Array <select aria-label="Summary issue array" value={array} onChange={e=>setArray(e.target.value)}><option value="all">All arrays</option>{arrays.map(a=><option key={a} value={a}>Array {a}</option>)}</select></label><CorrectiveExportMenu review={review} groups={groups} array={array} query="" stale={stale}/></div>
+      <CorrectiveCategoryList groups={groups} array={array}/>
+      {!groups.length&&<p>No findings match this view. Check source health before treating this as an all-clear.</p>}
+      <details className="ops-definitions"><summary>Guidance gaps & source notes</summary><NotificationGuidanceAudit gaps={review.guidanceGaps}/>{review.sourceNotes?.map(n=><p key={n}>{n}</p>)}</details>
+    </div>
+  </section>;
+}
 export function NotificationTargetDetail({target}: {target:NotificationTarget}) {
   return <details className="border border-slate-200 rounded-lg bg-white">
     <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-900 break-words">{target.label}<span className="block ml-4 mt-1 text-xs font-normal text-slate-500">{target.source.join(' · ')}</span></summary>
@@ -110,7 +137,7 @@ export function NotificationGroupRow({group,array,targetLayout='table',showMetri
     </summary>
     <div className="px-2 pb-2 border-t border-slate-100">
       <NotificationTroubleshootingPanel group={group} array={array} onEditGuidance={onEditGuidance}/>
-      <p className="text-[11px] text-slate-500 pt-1.5">{array==='all'?'All affected targets':`Showing Array ${array} targets; group total includes all arrays`}. One row per string; fault counts unchanged.</p>
+      <p className="text-[11px] text-slate-500 pt-1.5">{array==='all'?'All affected targets':`Showing Array ${array} targets; group total includes all arrays`}. {group.category==='HVAC / Environmental'?'Reported HVAC / segment targets':'One row per string'}; fault counts unchanged.</p>
       {showMetrics && rows?.some(row=>row.metrics) && <p className="text-[11px] text-slate-600 py-1">Current string context, not values captured when the notification triggered; not the individual affected BPC or cell. Normal readings do not clear a retained alarm. — = unavailable.</p>}
       {targetLayout==='details'?<div className="space-y-2">{targets.map(target=><NotificationTargetDetail key={target.id} target={target}/>)}</div>:
         rows?<NotificationTargetsTable rows={rows} title={group.title} showMetrics={showMetrics} compact={compact} showGuidance={!group.troubleshooting}/>:<p className="text-sm text-slate-600">Waiting for the prepared target table. {targets.length} targets retained.</p>}
@@ -118,7 +145,7 @@ export function NotificationGroupRow({group,array,targetLayout='table',showMetri
     </div>
   </details>;
 }
-export default function NotificationReviewPanel({review,stale=false,onEditGuidance}: {review?:NotificationReview;stale?:boolean;onEditGuidance?:(entryId:string|null)=>void}) {
+export function LegacyNotificationReviewPanel({review,stale=false,onEditGuidance}: {review?:NotificationReview;stale?:boolean;onEditGuidance?:(entryId:string|null)=>void}) {
   const [query,setQuery]=useState('');
   const [severity,setSeverity]=useState('all');
   const [array,setArray]=useState('all');
@@ -135,6 +162,7 @@ export default function NotificationReviewPanel({review,stale=false,onEditGuidan
     <header className="p-5 bg-white border-b border-slate-200"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="text-lg font-bold text-slate-900">Notifications & corrective actions</h3><p className="text-sm text-slate-500 mt-1">One row per issue type and severity. Every affected target remains available.</p></div><span className={`text-xs self-start rounded px-2 py-1 ${stale?'bg-amber-100 text-amber-900':'bg-slate-100 text-slate-600'}`}>{stale?'Retained snapshot · verify freshness':'Prepared snapshot'} · {new Date(review.capturedAt).toLocaleTimeString()}</span></div>
     <dl className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">{[['Issue groups',review.totals.groups],['Unique targets',review.totals.targets],['Alarm / critical occurrences',review.totals.alarm],['Warning occurrences',review.totals.warning]].map(([label,value])=><div key={label} className="rounded-lg border border-slate-200 px-3 py-2"><dt className="text-xs text-slate-500">{label}</dt><dd className="text-xl font-semibold text-slate-900 tabular-nums">{value}</dd></div>)}</dl><p className="text-xs text-slate-500 mt-2">A target can have several issue types. Counts above cover the complete snapshot, not just the current filters. Unknown severity occurrences: {review.totals.unknown}.</p></header>
     {!!review.sourceWarnings?.length && <div role="status" className="mx-4 mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{review.sourceWarnings.map(warning=><p key={warning}>{warning}</p>)}</div>}
+    <NotificationGuidanceAudit gaps={review.guidanceGaps}/>
     <div className="p-4 flex flex-wrap gap-3 items-end"><label className="flex-1 min-w-[180px] text-xs text-slate-600">Find an issue or target<input aria-label="Find notification" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Code, Array, String, HVAC, IP…" className={`${selectClass} block w-full mt-1`}/></label>
       <label className="text-xs text-slate-600">Severity<select aria-label="Notification severity" value={severity} onChange={event=>setSeverity(event.target.value)} className={`${selectClass} block mt-1`}>{['all','critical','alarm','warning','info','unknown'].map(value=><option key={value} value={value}>{value==='all'?'All severities':value}</option>)}</select></label>
       <label className="text-xs text-slate-600">Equipment<select aria-label="Notification equipment" value={category} onChange={event=>setCategory(event.target.value)} className={`${selectClass} block mt-1`}><option value="all">All equipment</option>{categories.map(value=><option key={value}>{value}</option>)}</select></label>
@@ -147,9 +175,10 @@ export default function NotificationReviewPanel({review,stale=false,onEditGuidan
         ['availability','Contactors & rotation','String and PCS connection / rotation conditions. Alarm severity is retained; an operating state is not automatically a fault.']
       ] as const).map(([section,title,description])=>{
         const groups=filtered.filter(group=>(group.section ?? 'equipment')===section);
+        const hvac=review.hvacReview?groups.filter(g=>g.category==='HVAC / Environmental'):[];
         return <section key={section} aria-label={title} className="rounded-lg border border-slate-200 bg-white">
           <header className={`px-3 py-2 border-b border-slate-200 ${section==='availability'?'bg-sky-50':'bg-slate-100'}`}><div className="flex flex-wrap justify-between gap-2"><h4 className="font-bold text-slate-900">{title}</h4><span className="text-xs text-slate-600">{groups.length} matching {groups.length===1?'group':'groups'}</span></div><p className="text-xs text-slate-600">{description}</p></header>
-          <div className="space-y-1 p-1">{groups.map(group=><NotificationGroupRow key={group.id} group={group} array={array} targetLayout={targetLayout} showMetrics={showMetrics} compact={compact} onEditGuidance={onEditGuidance}/>)}{!groups.length&&<p className="p-3 text-sm text-slate-600">No notifications in this section match the current snapshot and filters.</p>}</div>
+          <div className="space-y-1 p-1">{!!hvac.length&&<HvacIssueDisclosure review={review.hvacReview} array={array==='all'?null:Number(array)} issueKeys={hvac.map(g=>g.id)}>{hvac.map(group=><NotificationGroupRow key={group.id} group={group} array={array} targetLayout="table" onEditGuidance={onEditGuidance}/>)}</HvacIssueDisclosure>}{groups.filter(g=>!hvac.includes(g)).map(group=><NotificationGroupRow key={group.id} group={group} array={array} targetLayout={targetLayout} showMetrics={showMetrics} compact={compact} onEditGuidance={onEditGuidance}/>)}{!groups.length&&<p className="p-3 text-sm text-slate-600">No notifications in this section match the current snapshot and filters.</p>}</div>
         </section>;
       })}
       {!filtered.length&&<p className="p-5 rounded-lg bg-white text-sm text-slate-600">{review.groups.length?'No notifications match these filters.':'No findings in this snapshot. Check source health before treating this as an all-clear.'}</p>}</div>

@@ -13,6 +13,8 @@ import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
 import type {EnrolledTelemetrySite} from '../core/security/readOnlyTelemetry';
 import {createEmsPrimaryReader, primaryReaderEnabled} from './telemetry/emsPrimaryReader';
 import {emsStageTiming} from './telemetry/EmsStageTiming';
+import {emsMetadataCadence} from './telemetry/MetadataCadence';
+import {cellHistory} from './cells/cellHistoryRuntime';
 
 const DEFAULT_EMS_BASE_URL = "http://10.0.0.3:8080/turtle";
 
@@ -873,6 +875,9 @@ export function getEmsMode() {
 }
 
 export function clearEmsTelemetryCache() {
+  emsMetadataCadence.clear();
+  emsCache.ipMap = null;
+  emsCache.stringIPMap = null;
   emsCache.status = null;
   emsCache.block = null;
   emsCache.lastCall = null;
@@ -1466,8 +1471,9 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
   // List electrical updates wait for it. Publish again when its authoritative
   // BPC balancing tree is available.
   const recoverySite = currentRecoverySite(), recoveryStartedAt = Date.now(), recoveryCycleId = emsCache.cycleId ?? 0;
+  let lastCallIsPrimary = false;
   const lastCallFetch = primaryReaderEnabled()
-    ? emsPrimaryReader.read().then(sample=>{emsCache.lastCall=sample.data;return sample.data;})
+    ? emsPrimaryReader.read().then(sample=>{lastCallIsPrimary=sample.success;emsCache.lastCall=sample.data;return sample.data;})
     : acquireEmsEndpointWithRestProvider('/tools/report/ems/lastCall.json', EMS_SLOW_TIMEOUT_MS)
     .then(result => {
       // Publish exact source-time evidence before optional work/full snapshot normalization.
@@ -1479,6 +1485,7 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
         throw new Error(result.error || 'lastCall acquisition failed');
       }
       emsCache.lastCall = result.data;
+      lastCallIsPrimary = result.fallbackUsed === false;
       return result.data;
     }).catch(error => {
       recoveryTelemetryBroker.publish({cycleId: recoveryCycleId, startedAt: recoveryStartedAt, acquiredAt: Date.now(),
@@ -1487,6 +1494,12 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
     });
   // A large/failed response can settle before critical endpoints finish.
   void lastCallFetch.catch(() => {});
+  // Bounded passive consumer of the same acquisition; never delay EMS publication.
+  void lastCallFetch.then(data => {
+    if (lastCallIsPrimary && recoverySite && !isDemoActive() && !isEmsOffline && JSON.stringify(currentRecoverySite()) === JSON.stringify(recoverySite)) {
+      cellHistory.offer(data, recoverySite, Date.now(), () => JSON.stringify(currentRecoverySite()) === JSON.stringify(recoverySite));
+    }
+  }).catch(() => {});
 
   const criticalFetches = coordinatorProfiler.withParallelGroup("EMS Critical Acquisition", 4, () => Promise.allSettled([
     fetchAndRecord('/status', EMS_FAST_TIMEOUT_MS, 'text').then(text => { 
@@ -1571,8 +1584,8 @@ export async function pollEmsTurtle(onCriticalAcquired?: () => Promise<void>): P
         emsCache.controllerStatistics = result.data;
       }),
     fetchAndRecord('/tools/report/ems/bessStatusCodes.json', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.bessStatusCodes = d; }),
-    fetchAndRecord('/tools/report/ems/ipMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').then(t => { try { emsCache.ipMap = JSON.parse(t); } catch { emsCache.ipMap = t; } }).catch(async () => { const csv = await fetchAndRecord('/tools/report/ems/ipMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text'); try { emsCache.ipMap = JSON.parse(csv); } catch { emsCache.ipMap = csv; } }),
-    fetchAndRecord('/tools/report/ems/stringIPMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').then(t => { try { emsCache.stringIPMap = JSON.parse(t); } catch { emsCache.stringIPMap = t; } }).catch(async () => { const csv = await fetchAndRecord('/tools/report/ems/stringIPMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text'); try { emsCache.stringIPMap = JSON.parse(csv); } catch { emsCache.stringIPMap = csv; } }),
+    emsMetadataCadence.run(JSON.stringify([ProfileStore.getActiveProfile()?.id, baseUrl]), 'ipMap', () => fetchAndRecord('/tools/report/ems/ipMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').catch(() => fetchAndRecord('/tools/report/ems/ipMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text')), t => { try { emsCache.ipMap = JSON.parse(t); } catch { emsCache.ipMap = t; } }),
+    emsMetadataCadence.run(JSON.stringify([ProfileStore.getActiveProfile()?.id, baseUrl]), 'stringIPMap', () => fetchAndRecord('/tools/report/ems/stringIPMap.json', EMS_NORMAL_TIMEOUT_MS, 'text').catch(() => fetchAndRecord('/tools/report/ems/stringIPMap.csv', EMS_NORMAL_TIMEOUT_MS, 'text')), t => { try { emsCache.stringIPMap = JSON.parse(t); } catch { emsCache.stringIPMap = t; } }),
     fetchAndRecord('/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.firstResponder = { ...emsCache.firstResponder, v1: d }; }),
     fetchAndRecord('/v2/firstresponder/data', EMS_NORMAL_TIMEOUT_MS, 'json').then(d => { emsCache.firstResponder = { ...emsCache.firstResponder, v2: d }; })
   ]));

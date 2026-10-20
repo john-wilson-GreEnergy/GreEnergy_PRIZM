@@ -34,6 +34,7 @@ export function getStringViewerConfig(env: NodeJS.ProcessEnv = process.env): Str
     warmTtlMs: positiveInteger(env.PRIZM_STRINGVIEWER_WARM_TTL_MS, 60_000),
     coldTtlMs: positiveInteger(env.PRIZM_STRINGVIEWER_COLD_TTL_MS, 60_000),
     forceFullRefresh: env.PRIZM_STRINGVIEWER_FORCE_FULL_REFRESH === "true",
+    requestSpacingMs: Math.min(250, Math.max(0, Number(env.PRIZM_STRINGVIEWER_REQUEST_SPACING_MS) || 0)),
   };
 }
 
@@ -95,6 +96,7 @@ export class StringViewerScheduler<T = unknown> {
   private readonly previousBaseline = new Map<string, string>();
   private queueDepth = 0;
   private stopped = false;
+  private nextRequestAt = 0;
   private fullRefreshProgress = { completed: 0, total: 0 };
 
   constructor(
@@ -103,6 +105,7 @@ export class StringViewerScheduler<T = unknown> {
     cache?: StringViewerCache<T>,
     metrics?: StringViewerMetrics,
     private readonly monotonicNow: () => number = () => performance.now(),
+    private readonly wait: (ms:number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms)),
   ) {
     this.cache = cache ?? new StringViewerCache<T>();
     this.metrics = metrics ?? new StringViewerMetrics();
@@ -166,6 +169,14 @@ export class StringViewerScheduler<T = unknown> {
     const worker = async () => {
       while (cursor < selected.length && !this.stopped) {
         const item = selected[cursor++];
+        const spacing = this.config.requestSpacingMs ?? 0;
+        if (spacing > 0) {
+          const now = this.monotonicNow();
+          const due = Math.max(now, this.nextRequestAt);
+          this.nextRequestAt = due + spacing;
+          if (due > now) await this.wait(due - now);
+          if (this.stopped) break;
+        }
         this.queueDepth = Math.max(0, this.queueDepth - 1);
         await this.refresh(item.candidate, cycleId, baseUrl, item.queuedAt);
         refreshed += 1;

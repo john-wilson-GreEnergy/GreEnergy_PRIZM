@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import {PageScrollTable} from './PageScrollTable';
+import {usePresentation,useReviewTarget} from '../lib/workspacePreferences';
+import {TableDensity,TableDisplay} from './WorkspaceTableTools';
 import {isLocalOperationsReview} from '../lib/operationsReview';
-import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
+import {workspaceReadUrl,remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock, CheckCircle2, XCircle, TriangleAlert, Activity, X } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
 import PcsOperationalTimeline from "./PcsOperationalTimeline";
@@ -193,7 +194,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     void load();
     // Stream changed rows while this page is visible. The slower GET remains a
     // recovery/snapshot path rather than forcing a 320-row render every 1.5s.
-    const stream = new EventSource("/api/local/site-data/strings-stream");
+    const stream = new EventSource(workspaceReadUrl("/api/local/site-data/strings-stream"));
     stream.addEventListener("strings", (event) => {
       try {
         const publication = JSON.parse((event as MessageEvent).data);
@@ -219,7 +220,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       stream.close();
     };
   }, [active, compactStrings]);
-  
+
   const data = useMemo(() => {
     if (!snapshot && !fastStringsView) return null;
     const stringSummary = snapshot?.rollups?.stringSummary || {};
@@ -267,18 +268,22 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   }, [snapshot, fastStringsView, contactorOverlays, reuseStringRows]);
 
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [arrayFilter, setArrayFilter] = useState("all");
-  const [stateFilter, setStateFilter] = useState("all");
-  const [healthFilter, setHealthFilter] = useState("all");
-  const [contactorFilter, setContactorFilter] = useState<"all" | "abnormal" | "open" | "partial" | "closed" | "unknown">("all");
-  
+  const [search, setSearch] = usePresentation('strings-search',"");
+  const [arrayFilter, setArrayFilter] = usePresentation('strings-array',"all");
+  const [stateFilter, setStateFilter] = usePresentation('strings-state',"all");
+  const [healthFilter, setHealthFilter] = usePresentation('strings-health',"all");
+  const [contactorFilter, setContactorFilter] = usePresentation<"all" | "abnormal" | "open" | "partial" | "closed" | "unknown">('strings-contactor',"all");
+  const [targetStringFilter,setTargetStringFilter]=usePresentation('strings-target','all');
+  const [showElectrical]=usePresentation('strings-show-electrical',true),[showExtra]=usePresentation('strings-show-extra',true);
+  const reviewTarget=useReviewTarget();
+  useEffect(()=>{if(reviewTarget){setArrayFilter(String(reviewTarget.array));setTargetStringFilter(reviewTarget.string?String(reviewTarget.string):'all');setSearch('');setStateFilter('all');setHealthFilter('all');setContactorFilter('all');}},[reviewTarget?.array,reviewTarget?.string]);
+
   const cacheTtlMs = 15000;
   const [selectedString, setSelectedString] = useState<any | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  
+
   const toggleStringSelection = useCallback((id: string) => {
     setSelectedIds(previous => {
       const next = new Set(previous);
@@ -302,7 +307,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   // pending-state render disables the controls.
   const commandPendingRef = useRef(false);
   const [commandNotice, setCommandNotice] = useState<{ status: "success" | "warning" | "error"; title: string; detail: string } | null>(null);
-  
+
   const [balancingModalOpen, setBalancingModalOpen] = useState(false);
   const [balancingVerificationId, setBalancingVerificationId] = useState(() => sessionStorage.getItem("prizm-balancing-verification"));
   const [balancingVerification, setBalancingVerification] = useState<VerificationView | null>(null);
@@ -314,7 +319,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     }, setBalancingVerificationError);
   }, [balancingVerificationId]);
 
-  const [isAdvancedMode, setIsAdvancedMode] = useState(() => localStorage.getItem("prizm_advanced_mode") === "true");
+  const [isAdvancedMode, setIsAdvancedMode] = useState(() => !remoteReadOnlyWorkspace()&&localStorage.getItem("prizm_advanced_mode") === "true");
   useEffect(() => {
     localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
   }, [isAdvancedMode]);
@@ -698,6 +703,28 @@ const handleManualRefresh = async () => {
     summary?.maxCellTemperatureDelta ??
     null;
 
+  const sourceHealthRows = useMemo(() => {
+    if (!data?.sourceHealth) return [];
+    if (Array.isArray(data.sourceHealth)) {
+      return data.sourceHealth.map((h:any) => ({
+        key: h.name || h.endpoint || "source",
+        ok: h.ok ?? h.success,
+        httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
+        durationMs: h.durationMs ?? h.lastDurationMs,
+        url: h.url ?? h.endpoint,
+        error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
+      }));
+    }
+    return Object.entries(data.sourceHealth).map(([key, h]: [string, any]) => ({
+      key,
+      ok: h.ok ?? h.success,
+      httpStatus: h.httpStatus ?? h.statusCode ?? h.lastStatusCode,
+      durationMs: h.durationMs ?? h.lastDurationMs,
+      url: h.url ?? h.endpoint,
+      error: h.error ?? (h.lastError === "NONE" ? null : h.lastError)
+    }));
+  }, [data?.sourceHealth]);
+
   const arrays = useMemo(() => {
     const list = Array.from(new Set<number>(strings.map((s:any) => Number(s.arrayNumber))));
     return list.sort((a, b) => Number(a) - Number(b));
@@ -706,6 +733,7 @@ const handleManualRefresh = async () => {
   const filtered = useMemo(() => {
     return strings.filter((s:any) => {
       if (arrayFilter !== "all" && String(s.arrayNumber) !== arrayFilter) return false;
+      if (targetStringFilter !== 'all' && String(s.stringNumber??s.stringIndex)!==targetStringFilter) return false;
       if (stateFilter !== "all") {
         const canonicalBucket = s.bucket || s.operationalBucket || s.operationalState || "";
         if (stateFilter.toLowerCase() !== canonicalBucket.toLowerCase()) return false;
@@ -721,7 +749,7 @@ const handleManualRefresh = async () => {
       }
       return true;
     });
-  }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search]);
+  }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search,targetStringFilter]);
 
   const filteredByArray = useMemo(() => {
     const grouped = new Map<number, any[]>();
@@ -811,9 +839,9 @@ const handleManualRefresh = async () => {
   if (selectedString) {
     return (
       <StringDetailErrorBoundary onBack={() => setSelectedString(null)}>
-        <StringDetailDashboard 
-          stringData={selectedString} 
-          onBack={() => setSelectedString(null)} 
+        <StringDetailDashboard
+          stringData={selectedString}
+          onBack={() => setSelectedString(null)}
         />
       </StringDetailErrorBoundary>
     );
@@ -839,11 +867,9 @@ const handleManualRefresh = async () => {
   }
 
   return (
-    <div data-equipment="strings" className="flex flex-col font-sans transition-all bg-transparent pb-24">
-      {compactStrings && stringTransportRecovering && <div role="status" className="mb-3 rounded border border-amber-500/40 p-2 text-xs text-amber-600">String updates reconnecting — showing last received values while the list resynchronizes.</div>}
-      
-      {compactStrings && stringTransportRecovering && !isLocalOperationsReview() && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String updates delayed. Showing last received readings; check row timestamps.</div>}
-      {(data.cache?.isStale || data.cache?.sourceOk === false) && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String readings are stale. Check Data stream health for source details.</div>}
+    <div data-equipment="strings" data-electrical={showElectrical} data-extra={showExtra} className="ops-equipment-page flex flex-col font-sans transition-all bg-transparent pb-24">
+      {compactStrings && stringTransportRecovering && <div role="status" className="mb-3 rounded border border-amber-500/40 p-2 text-xs text-amber-600">{isLocalOperationsReview()?'Local review uses periodic published snapshots; the live event stream is not forwarded. Check each row’s timestamp.':'String updates reconnecting — showing last received values while the list resynchronizes.'}</div>}
+
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 font-mono">
         <div>
@@ -860,7 +886,24 @@ const handleManualRefresh = async () => {
            >
               <RefreshCw size={10} className={isRefreshing ? "animate-spin" : ""} /> REFRESH LIVE
            </button>
-           {!remoteReadOnlyWorkspace() && <a className="text-xs text-prizm-text-muted underline underline-offset-4" href={(() => {const url=new URL(window.location.href);url.searchParams.set('tab','source-health');return url.pathname+url.search;})()}>Data stream health</a>}
+           <div className={`p-1.5 border rounded flex items-center gap-1.5 ${
+                (!data.cache || !data.cache.sourceOk) ? 'bg-prizm-danger/10 border-prizm-danger/30 text-prizm-danger' :
+                isRefreshing ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' :
+                (data.cache.isStale ? 'bg-prizm-warning/10 border-prizm-warning/30 text-prizm-warning' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-bold')
+           }`}>
+                {(() => {
+                    if (!data.cache || !data.cache.sourceOk) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-danger"></span>Offline</>;
+                    if (isRefreshing) return <><span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse"></span>Refreshing Live</>;
+                    if (data.cache.isStale) return <><span className="h-1.5 w-1.5 rounded-full bg-prizm-warning"></span>Connection Partial</>;
+                    return <><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Connection Live</>;
+                })()}
+           </div>
+           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
+              SRC: <span className="text-prizm-text">{data.emsBaseUrl}</span>
+           </div>
+           <div className="bg-prizm-surface p-1.5 border border-prizm-border rounded text-prizm-text-muted hidden sm:block">
+              LATENCY: <span className="text-prizm-text">{data.durationMs}ms</span>
+           </div>
         </div>
       </div>
 
@@ -869,6 +912,50 @@ const handleManualRefresh = async () => {
         sessionStorage.removeItem("prizm-balancing-verification"); setBalancingVerificationId(null);
         setBalancingVerification(null); setBalancingVerificationError("");
       }}/>
+      <details className="mb-6 bg-prizm-surface border border-prizm-border rounded-lg text-xs font-mono group">
+        <summary className="p-3 cursor-pointer text-prizm-text-muted hover:text-prizm-text transition-colors select-none outline-none font-bold uppercase tracking-wider">
+           Source Debug Information
+        </summary>
+        <div className="p-3 border-t border-prizm-border bg-black/20 overflow-x-auto no-scrollbar">
+           <table className="w-full text-left whitespace-nowrap text-[10px]">
+              <thead className="text-prizm-text-muted">
+                 <tr>
+                    <th className="pr-4 pb-2">Key</th>
+                    <th className="pr-4 pb-2">Status</th>
+                    <th className="pr-4 pb-2">HTTP Code</th>
+                    <th className="pr-4 pb-2">Ping (ms)</th>
+                    <th className="pr-4 pb-2">URL</th>
+                    <th className="pb-2">Error</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-prizm-border/10">
+                 {sourceHealthRows.length === 0 ? (
+                    <tr>
+                       <td colSpan={6} className="py-4 text-center text-prizm-text-muted">
+                          No source health telemetry published for this snapshot.
+                       </td>
+                    </tr>
+                 ) : (
+                    sourceHealthRows.map((row: any) => (
+                       <tr key={row.key}>
+                          <td className="pr-4 py-1.5 text-prizm-primary font-bold">{row.key}</td>
+                          <td className="pr-4 py-1.5">
+                             <span className={`px-1.5 py-0.5 rounded text-white ${row.ok ? 'bg-emerald-500/50' : 'bg-prizm-danger/50'}`}>
+                                 {row.ok ? 'OK' : 'FAIL'}
+                             </span>
+                          </td>
+                          <td className="pr-4 py-1.5 text-prizm-text">{row.httpStatus || '--'}</td>
+                          <td className="pr-4 py-1.5 text-prizm-text-muted">{row.durationMs !== null && row.durationMs !== undefined ? `${row.durationMs}ms` : '--'}</td>
+                          <td className="pr-4 py-1.5 text-prizm-text-muted opacity-80">{row.url || '--'}</td>
+                          <td className="py-1.5 text-prizm-danger/80">{row.error || '--'}</td>
+                       </tr>
+                    ))
+                 )}
+              </tbody>
+           </table>
+        </div>
+      </details>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-11 gap-2 mb-4 shrink-0 text-center font-mono select-none">
         <div className="bg-prizm-surface-strong border border-prizm-border rounded px-2 py-1.5 flex flex-col justify-center">
@@ -947,23 +1034,24 @@ const handleManualRefresh = async () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 bg-prizm-surface-strong p-3 rounded-t-lg border border-prizm-border shrink-0">
+      <div className="ops-equipment-toolbar flex flex-col sm:flex-row items-center gap-3 bg-prizm-surface-strong p-3 rounded-t-lg border border-prizm-border shrink-0">
         <div className="relative flex-1 w-full flex items-center">
           <Search size={14} className="absolute left-3 text-prizm-text-muted" />
           <input
             type="text"
             placeholder="Search String Key or IP..."
+            aria-label="Find string or IP"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full bg-black/20 border border-prizm-border rounded pl-9 pr-3 py-1.5 text-xs text-prizm-text font-mono placeholder-black/40 focus:border-prizm-primary focus:outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-          <select value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select aria-label="String array" value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Array: All</option>
             {arrays.map(a => <option key={String(a)} value={String(a)}>Array {a}</option>)}
           </select>
-          <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select aria-label="String state" value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">State: All</option>
             <option value="online">Online</option>
             <option value="nearline">Nearline</option>
@@ -991,6 +1079,7 @@ const handleManualRefresh = async () => {
             <Layers size={14} />
           </button>
           <button
+            hidden={remoteReadOnlyWorkspace()}
             onClick={() => setIsAdvancedMode(!isAdvancedMode)}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors cursor-pointer shrink-0 ${
               isAdvancedMode
@@ -1002,11 +1091,11 @@ const handleManualRefresh = async () => {
             {isAdvancedMode ? <Unlock size={12} className="text-amber-500 animate-pulse" /> : <Lock size={12} className="text-prizm-text-muted" />}
             {isAdvancedMode ? "Advanced" : "Unlock"}
           </button>
-        
+
 
 </div>
       </div>
-      <div data-string-selection-toolbar className="sticky top-[64px] flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-[#001a1a]/95 text-slate-100 backdrop-blur border-x border-b border-teal-700 shadow-md z-[75] saturate-150">
+      <div className="sticky top-[64px] flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-[#001a1a]/95 text-slate-100 backdrop-blur border-x border-b border-teal-700 shadow-md z-[75] saturate-150">
            <div className="flex flex-wrap items-center gap-3">
               <span className={`text-xs font-mono font-bold uppercase tracking-widest ${selectedIds.size > 0 ? "text-emerald-300" : "text-slate-100"}`}>
                 {selectedIds.size > 0 ? `${selectedIds.size} Selected` : "Select strings to control"}
@@ -1018,7 +1107,7 @@ const handleManualRefresh = async () => {
               >
                 Select Visible ({filtered.length})
               </button>
-              <button 
+              <button
                  onClick={() => setSelectedIds(new Set())}
                  disabled={selectedIds.size === 0}
                  className="text-[10px] text-slate-200 hover:text-white uppercase tracking-widest underline decoration-slate-300/50 underline-offset-4 transition-colors disabled:opacity-60"
@@ -1026,7 +1115,7 @@ const handleManualRefresh = async () => {
                  Clear
               </button>
            </div>
-           <div className="flex flex-wrap items-center gap-2">
+           <div hidden={remoteReadOnlyWorkspace()} className="flex flex-wrap items-center gap-2">
               <span className="text-[9px] uppercase tracking-widest text-slate-100 font-bold">Rotation</span>
               <button
                   disabled={selectedIds.size === 0 || !rotationCapabilities?.strings?.single || !!commandPending}
@@ -1072,8 +1161,9 @@ const handleManualRefresh = async () => {
               </button>
            </div>
       </div>
+      <div className="ops-equipment-toolbar"><span>{filtered.length} matching strings{targetStringFilter!=='all'?` · String ${targetStringFilter}`:''}</span><TableDisplay kind="strings"/><TableDensity/><button className="ops-reset" onClick={()=>{setSearch('');setArrayFilter('all');setStateFilter('all');setHealthFilter('all');setContactorFilter('all');setTargetStringFilter('all');}}>Reset filters</button></div>
       {/* Main Strings Table Engine */}
-      <PageScrollTable className="ops-data-scroll flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
+      <div className="ops-data-scroll flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
          <table className="ops-standard-table w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
              <thead className="sticky top-[102px] z-[70] bg-prizm-surface-strong shadow-sm">
                 <tr className="text-prizm-text-muted uppercase tracking-wider">
@@ -1139,7 +1229,7 @@ const handleManualRefresh = async () => {
               )}
             </tbody>
          </table>
-      </PageScrollTable>
+      </div>
 
       <button
         className="fixed bottom-6 right-6 z-50 bg-prizm-surface-strong text-prizm-primary border border-prizm-primary/50 hover:bg-prizm-primary hover:text-prizm-bg px-4 py-2 rounded-full font-bold shadow-lg shadow-prizm-primary/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer outline-none"

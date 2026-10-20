@@ -2,6 +2,7 @@ import {NOTIFICATION_CATALOG, type NotificationCatalogEntry} from './notificatio
 import {buildNotificationTargetTable, type NotificationTableRow} from './notificationTargetTable';
 import {createNotificationMetrics,type NotificationTelemetry} from './notificationMetrics';
 import {appendTroubleshooting,emptyTroubleshooting,type NotificationTroubleshooting} from './notificationTroubleshooting';
+import {projectNotificationHvacs,auditNotificationGuidance,annotateNotificationNames} from './hvacIssueReview';
 /** Read-only presentation projection. Never clears, acknowledges or suppresses a finding. */
 type RecordValue = Record<string, unknown>;
 const obj = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
@@ -19,6 +20,7 @@ export interface NotificationTarget {
   observations: { title: string; condition: string; at: string | null; evidence: NotificationEvidence[]; guidance: string[] }[];
 }
 export interface NotificationGroup {
+  displayCategory?:string; guidanceOverride?:import('../../core/correctiveGuidance').CorrectiveGuidanceEntry;
   id: string; code: string; title: string; category: string; severity: NotificationSeverity;
   section?: 'equipment' | 'availability'; explanation?: string;
   documentedClearing?: string; catalogSource?: NotificationCatalogEntry['source']; sourceNotes?: string[];
@@ -27,6 +29,10 @@ export interface NotificationGroup {
   troubleshooting?:NotificationTroubleshooting;
 }
 export interface NotificationReview {
+  guidanceRevision?:number;
+  hvacReview?:import('../../core/hvacIssueReview').HvacIssueReview;
+  guidanceGaps?:import('../../core/hvacIssueReview').GuidanceGap[];
+  bpcReview?:import('../../core/fleet/details').FleetBpcReview & {targetIdsByDevice:Record<string,string[]>};
   version: 1; capturedAt: string; groups: NotificationGroup[];
   totals: { groups: number; targets: number; occurrences: number; alarm: number; warning: number; unknown: number };
   inputFindings: number; inputTargets: number;
@@ -136,6 +142,7 @@ export function buildNotificationReview(inputs: unknown[], capturedAt: string, t
     appendTroubleshooting(group.troubleshooting,issue,guidanceTargetIds);
   }
   const output = [...groups.values()];
+  annotateNotificationNames({groups:output});
   for (const group of output) {
     group.targets.sort((a,b)=>(a.array ?? Infinity)-(b.array ?? Infinity)||a.label.localeCompare(b.label,undefined,{numeric:true}));
     group.targetCount=group.targets.length;
@@ -147,5 +154,5 @@ export function buildNotificationReview(inputs: unknown[], capturedAt: string, t
     group.commonGuidance=table.commonGuidance;
   }
   output.sort((a,b)=>rank[a.severity]-rank[b.severity]||a.title.localeCompare(b.title)||a.id.localeCompare(b.id));
-  return {version:1,capturedAt,groups:output,inputFindings:inputs.length,inputTargets,totals:{groups:output.length,targets:new Set(output.flatMap(g=>g.targets.map(t=>t.id))).size,occurrences:output.reduce((n,g)=>n+g.targetCount,0),alarm:output.filter(g=>g.severity==='alarm'||g.severity==='critical').reduce((n,g)=>n+g.targetCount,0),warning:output.filter(g=>g.severity==='warning').reduce((n,g)=>n+g.targetCount,0),unknown:output.filter(g=>g.severity==='unknown').reduce((n,g)=>n+g.targetCount,0)}};
+  return {version:1,capturedAt,groups:output,hvacReview:projectNotificationHvacs({groups:output}),guidanceGaps:auditNotificationGuidance({groups:output}),inputFindings:inputs.length,inputTargets,totals:{groups:output.length,targets:new Set(output.flatMap(g=>g.targets.map(t=>t.id))).size,occurrences:output.reduce((n,g)=>n+g.targetCount,0),alarm:output.filter(g=>g.severity==='alarm'||g.severity==='critical').reduce((n,g)=>n+g.targetCount,0),warning:output.filter(g=>g.severity==='warning').reduce((n,g)=>n+g.targetCount,0),unknown:output.filter(g=>g.severity==='unknown').reduce((n,g)=>n+g.targetCount,0)}};
 }

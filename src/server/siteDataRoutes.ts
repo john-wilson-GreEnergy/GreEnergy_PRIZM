@@ -4,10 +4,13 @@ import { buildArrayCellMetrics } from './telemetry/arrayCellMetrics';
 import {compactStringRow, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
 import { fastStringsTransportEnabled, sendFastStringsResponse } from './telemetry/fastStringsTransport';
 import { thermalRouter } from "./thermal/thermalRoutes";
+import {createCellHistoryRouter} from './cells/cellHistoryRoutes';
+import {cellHistory} from './cells/cellHistoryRuntime';
 import {operationalTimelineRouter} from "./history/operationalTimelineRoutes";
 import {operationalTimeline} from "./history/operationalTimeline";
 import {
   getSnapshotOrNull,
+  getSiteAnalyticsView,
   getFastStringsView,
   getCompactFastStringsView,
   getEncodedFastStringsView,
@@ -33,6 +36,8 @@ import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBr
 
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
+siteDataRouter.use('/cells', createCellHistoryRouter(cellHistory));
+siteDataRouter.get('/analytics', (_req,res)=>{res.setHeader('Cache-Control','no-store');res.json(getSiteAnalyticsView());});
 siteDataRouter.use("/operational-timeline", operationalTimelineRouter);
 
 const cachedBrowserSnapshots = new Map<string, {
@@ -333,7 +338,7 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     // PCS, overview, thermal, and Feather pages use dedicated compact endpoints;
     // repeatedly transferring string rows there can starve the heartbeat request.
     const includeStrings = view === "arrays-strings" || view === "site-health" || view === "one-line";
-    const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls";
+    const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls" || view === "cell-history";
     const compactStringList = view === "arrays-strings" && req.query.shape === "list";
     const cacheKey = compactStringList ? "string-list-v1" : heartbeatOnly
       ? "heartbeat"

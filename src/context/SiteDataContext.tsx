@@ -48,7 +48,7 @@ function getSnapshotQuality(snapshot: any) {
 
 const STRING_HEAVY_VIEWS = new Set(["arrays-strings", "site-health", "one-line"]);
 // Must match the deliberately compact heartbeat views in siteDataRoutes.
-const HEARTBEAT_VIEWS = new Set(["overview", "pcs-dashboard", "thermal-controls"]);
+const HEARTBEAT_VIEWS = new Set(["overview", "pcs-dashboard", "thermal-controls", "cell-history"]);
 
 function isRenderableSnapshot(snapshot: any, view = "overview"): boolean {
   const q = getSnapshotQuality(snapshot);
@@ -223,7 +223,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       return;
     }
 
-    const liveTelemetryViews = new Set(["overview", "one-line", "pcs-dashboard", "thermal-controls"]);
+    const liveTelemetryViews = new Set(["overview", "one-line", "pcs-dashboard", "thermal-controls", "cell-history"]);
     const diagnosticViews = new Set(["corrective-actions", "site-health", "feather-hvac", "balancer-test"]);
     // String rows arrive through the page's dedicated broker stream. Keep the
     // larger site snapshot as a slower enrichment/recovery path while visible.

@@ -1,4 +1,5 @@
 import {StringStreamState, type StringStreamView} from './stringStreamState';
+import {workspaceReadUrl} from './fleetWorkspace';
 
 /** Uses PRIZM's existing canonical GET/SSE feeds, not a device poller. */
 export function subscribeStringList(onView: (view: StringStreamView) => void, onRecovery: (recovering: boolean) => void): () => void {
@@ -36,7 +37,7 @@ export function subscribeStringList(onView: (view: StringStreamView) => void, on
       if (requestGeneration === generation) inFlight = false;
     }
   };
-  const stream = new EventSource('/api/local/site-data/strings-stream?shape=list');
+  const stream = new EventSource(workspaceReadUrl('/api/local/site-data/strings-stream?shape=list'));
   stream.addEventListener('ready', event => {
     try {
       const ready = JSON.parse((event as MessageEvent).data);

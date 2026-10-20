@@ -52,6 +52,13 @@ try {
   await worker.close();
   await assert.rejects(worker.write(file,prepareSnapshotTransfer({})),/closed/);
 
+  const recycled=new SnapshotCacheWorker(workerFile,25000,true);
+  await recycled.write(file,prepareSnapshotTransfer({data:1}));
+  await recycled.write(file,prepareSnapshotTransfer({data:2}));
+  assert.equal(recycled.status().recycled,2);
+  assert.equal(JSON.parse(await fs.readFile(file,'utf8')).data,2);
+  await recycled.close();
+
   const missing = new SnapshotCacheWorker(path.join(root,'missing.cjs'));
   await assert.rejects(missing.write(file,prepareSnapshotTransfer({})),/Cannot find module/);
   await missing.close();

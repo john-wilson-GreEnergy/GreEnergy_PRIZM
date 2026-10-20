@@ -16,7 +16,7 @@ report.events.unshift({at: 1, label: "Array 1 · String 2", source: "PRIZM comma
 const commands = renderToStaticMarkup(<TimelineResults report={report}/>);
 assert.match(commands, /COMMAND/); assert.match(commands, /OBSERVED/); assert.match(commands, /fixture-command/);
 assert.match(commands, /readback: not confirmed/); assert.match(commands, /array-wide commands and PCS context remain included/);
-assert.match(commands, /Kobold or other tools are not captured/);
+assert.match(commands, /external tools are not captured/);
 assert.match(commands, /Block-wide EMS app states and power commands are included for every array/);
 assert.match(commands, /settings, not measured site power/);
 console.log("PCS timeline empty, gap and event presentation passed");

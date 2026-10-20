@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import {SitePowerFlow} from './SitePowerFlow';
+import './sitePowerFlow.css';
+import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
 import { getDashboardConnectionStatus } from "../utils/statusDisplay";
 import {
@@ -3194,6 +3197,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         </div>
       </section>
 
+      <SitePowerFlow flow={sum?.powerFlow} siteName={`${sum?.siteIdentity?.stationCode ?? "Site"} · Block ${sum?.siteIdentity?.blockIndex ?? "—"}`}/>
+
       {/* NEW TOP LAYOUT GRID: KPI BLOCKS + STRING SUMMARY */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         {/* KPI BLOCKS */}
@@ -4244,6 +4249,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
             </span>
           </div>
           <button
+            hidden={remoteReadOnlyWorkspace()}
             onClick={() => setIsAdvancedMode(!isAdvancedMode)}
             className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors ${
               isAdvancedMode

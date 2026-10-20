@@ -1,4 +1,7 @@
 import { thermalService } from "./thermal/thermalService";
+import {buildBlockPowerFlow} from './fleet/blockPowerFlow';
+import {projectSiteAnalytics} from './analytics/siteAnalyticsProjection';
+import {operatingChartsStore,operatingChartsEnabled} from './analytics/operatingChartsRuntime';
 import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
 import {stringViewerBackground} from './telemetry/stringviewer/StringViewerBackground';
 import {stringViewerCacheReuseEnabled} from './telemetry/stringviewer/StringViewerCache';
@@ -11,6 +14,7 @@ import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCa
 import {emsPrimaryReader} from './emsTurtleClient';
 import {primaryReaderEnabled} from './telemetry/emsPrimaryReader';
 import {emsStageTiming} from './telemetry/EmsStageTiming';
+import {emsMetadataCadence} from './telemetry/MetadataCadence';
 import {readSummarySource} from './telemetry/summarySnapshotSelection';
 import {readSnapshotCycleId} from './telemetry/snapshotCycleSelection';
 import { EncodedJsonCache } from './telemetry/EncodedJsonCache';
@@ -39,6 +43,9 @@ import { getContactorStateView } from "./domainBrokers/contactorStateView";
 import { analyzeContactorStates } from "./correctiveActionsEngine";
 import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
 import { buildNotificationReview, buildRotationStatusFindings, type NotificationReview } from "./notifications/notificationReview";
+import {applyCorrectiveGuidance,correctiveGuidanceStore} from './notifications/correctiveGuidance';
+import {projectNotificationBpcs} from './notifications/notificationBpcs';
+import {projectNotificationHvacs,auditNotificationGuidance} from './notifications/hvacIssueReview';
 import { contactorStateFromCanonicalRow } from "./domainBrokers/contactorStateView";
 import { assessContactorOpen } from "./notifications/contactorOpenAssessment";
 import { coordinatorProfiler } from "./telemetry/profiler";
@@ -2906,6 +2913,12 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           ...(newSnap.rawSources.featherDevices.length === 0 ? ['HVAC source data is not yet available. Notification coverage is incomplete.'] : [])
       ];
 
+      newSnap.normalized.notificationReview.bpcReview = projectNotificationBpcs(newSnap.normalized.notificationReview,newSnap.siteIdentity);
+      newSnap.normalized.notificationReview.hvacReview = projectNotificationHvacs(newSnap.normalized.notificationReview);
+      if(process.env.PRIZM_CORRECTIVE_GUIDANCE!=='false') {
+          try {newSnap.normalized.notificationReview=applyCorrectiveGuidance(newSnap.normalized.notificationReview,correctiveGuidanceStore.read());newSnap.normalized.notificationReview.guidanceGaps=auditNotificationGuidance(newSnap.normalized.notificationReview);}
+          catch {newSnap.normalized.notificationReview.sourceWarnings.push('Saved corrective guidance is unavailable. Built-in guidance is shown; verify the approved field procedure.');}
+      }
       let acceptSnapshot = true;
       let rejectionReason = "";
       if (centralSnapshot) {
@@ -2919,6 +2932,9 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       if (acceptSnapshot) {
           const publicationPhase = coordinatorProfiler.beginPhase("Snapshot Publication", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
           centralSnapshot = newSnap;
+          if(operatingChartsEnabled()){
+            try{operatingChartsStore.ingest(newSnap);}catch{console.warn('[Analytics] Canonical power recording unavailable');}
+          }
           publishOperationalDomains(newSnap, newSnap.liveStatus?.lastUpdated || new Date().toISOString());
           if (process.env.PRIZM_THERMAL_ENABLED !== "false") {
             try { thermalService().ingest(newSnap.normalized.feather || [], Date.now(), newSnap.siteIdentity.emsBaseUrl ? {id: JSON.stringify([newSnap.siteIdentity.stationCode, newSnap.siteIdentity.blockIndex, newSnap.siteIdentity.emsBaseUrl]), label: `${newSnap.siteIdentity.stationCode || newSnap.siteIdentity.activeProfileName || "Site"} · Block ${newSnap.siteIdentity.blockIndex ?? "unknown"}`} : null); }
@@ -3076,6 +3092,8 @@ export function getWorkspaceProjectionSource(): Readonly<PrizmSiteSnapshot> | nu
     return centralSnapshot;
 }
 
+export function getOperatingChartsView(){return operatingChartsEnabled()?operatingChartsStore.view(getSnapshotOrNull()):undefined;}
+export function getSiteAnalyticsView(){return {...projectSiteAnalytics(getSnapshotOrNull()),operatingCharts:getOperatingChartsView()};}
 export function getSnapshotOrNull(): PrizmSiteSnapshot | null {
     return centralSnapshot;
 }
@@ -3559,6 +3577,11 @@ export function getBlockSummaryView(): any {
         topologyCounts: (snap.rollups as any).topologyCounts || {},
         fleetCapacity: (snap.rollups as any).fleetCapacity || snap.rollups.stringSummary?.rollups?.fleetCapacity || null,
         blockOperatingSummary,
+        powerFlow: buildBlockPowerFlow({
+            siteIdentity: snap.siteIdentity, liveStatus: snap.liveStatus,
+            blockOperatingSummary, modbusTelemetry,
+            arraySummary: compactArraySummary, pcsSummary: compactPcsSummary, sourceHealth: healthRows
+        }),
         modbusArraySummary: liveModbusArrays,
         modbusTelemetry: { available: modbusTelemetry.available, stale: modbusTelemetry.stale, capturedAt: modbusTelemetry.capturedAt, durationMs: modbusTelemetry.durationMs, error: modbusTelemetry.error },
         topologyStatus: {
@@ -3722,6 +3745,7 @@ export function getPcsView(): any {
         cycleId: snap.cycleId,
         historyBatch: snap.siteIdentity.emsBaseUrl ? {site: {id: JSON.stringify([snap.siteIdentity.stationCode, snap.siteIdentity.blockIndex, snap.siteIdentity.emsBaseUrl]), label: `${snap.siteIdentity.stationCode || "Site"} · Block ${snap.siteIdentity.blockIndex ?? "unknown"}`}, observations: historyObservations} satisfies TimelineBatch : null,
         pcs,
+        siteIdentity: snap.siteIdentity,
         pcsSummary: snap.rollups.pcsSummary || {},
         arraySummary: compactArraySummary,
         arrayPowerSummary,
@@ -3822,7 +3846,7 @@ export async function triggerImmediatePoll(reason = "legacy-triggerImmediatePoll
 }
 
 export function getCoordinatorDebugState() {
-    return {...coordinatorRuntime.getDebugState(),processingOptimizations:{stringViewerCacheReuse:stringViewerCacheReuseEnabled,compactStringProjection:compactProjectionEnabled(),batchedArraySearch:batchedArraySearchEnabled()},cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
+    return {...coordinatorRuntime.getDebugState(),metadataCadence:emsMetadataCadence.status(),processingOptimizations:{stringViewerCacheReuse:stringViewerCacheReuseEnabled,compactStringProjection:compactProjectionEnabled(),batchedArraySearch:batchedArraySearchEnabled()},cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
         sequenceKind:primaryReaderEnabled()?'primary-acquisition':'coordinator-cycle',
         mode:process.env.PRIZM_RECOVERY_EARLY_TELEMETRY === 'false' ? 'full-snapshot' : 'early',
         ...recoveryTelemetryBroker.diagnostics(),fullSnapshotCycleId:centralSnapshot?.cycleId ?? null

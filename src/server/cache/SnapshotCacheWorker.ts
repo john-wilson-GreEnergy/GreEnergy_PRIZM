@@ -10,7 +10,8 @@ export class SnapshotCacheWorker {
   private serial = 0;
   private completed = 0;
   private lastEncodeMs: number | null = null;
-  constructor(private file = path.resolve('dist/snapshot-cache-worker.cjs'), private timeoutMs = 25_000) {}
+  private recycled = 0;
+  constructor(private file = path.resolve('dist/snapshot-cache-worker.cjs'), private timeoutMs = 25_000, private recycleAfterWrite=false) {}
 
   async write(file: string, content: SnapshotTransfer): Promise<void> {
     if (this.closed) throw new Error('Snapshot worker is closed');
@@ -52,7 +53,7 @@ export class SnapshotCacheWorker {
         try {worker.postMessage({id, file, ...content}, [content.bytes.buffer as ArrayBuffer]);}
         catch (error) {finish(error instanceof Error ? error : new Error(String(error)));}
       });
-      worker.unref();
+      if(this.recycleAfterWrite){this.worker=null;await worker.terminate();this.recycled++;}else worker.unref();
     } catch (error) {
       this.worker = null;
       await worker.terminate();
@@ -60,7 +61,7 @@ export class SnapshotCacheWorker {
     }
   }
 
-  status() {return {active: !!this.active, completed: this.completed, lastEncodeMs: this.lastEncodeMs};}
+  status() {return {active: !!this.active, completed: this.completed, lastEncodeMs: this.lastEncodeMs,recycleAfterWrite:this.recycleAfterWrite,recycled:this.recycled};}
   async close() {
     this.closed = true;
     this.active?.reject(new Error('Snapshot worker closed'));

@@ -65,7 +65,7 @@ let options:RequestInit|undefined;
 const fakeFetch:typeof fetch=async(_url,init)=>{options=init;return new Response(JSON.stringify(adapted),{headers:{'content-type':'application/json'}});};
 assert.deepEqual(await fetchCollector(collector,new AbortController().signal,fakeFetch),adapted);
 assert.equal(options!.redirect,'error');assert.equal(options!.method,'GET');assert.equal((options!.headers as Record<string,string>).Authorization,'Bearer '+token);
-await assert.rejects(fetchCollector(collector,new AbortController().signal,async()=>new Response('x'.repeat(263000),{headers:{'content-type':'application/json'}})),/too large/);
+await assert.rejects(fetchCollector(collector,new AbortController().signal,async()=>new Response('x'.repeat(4*1024*1024+1),{headers:{'content-type':'application/json'}})),/too large/);
 await assert.rejects(fetchCollector(collector,new AbortController().signal,async()=>new Response('html')),/unavailable/);
 let calls=0,active=0,maxActive=0;
 const poller=new CollectorPoller(new FleetBroker([one]),[collector],async(_site,signal)=>{
