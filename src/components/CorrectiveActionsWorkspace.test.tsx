@@ -57,7 +57,8 @@ assert(empty.includes('Check source health before treating this as an all-clear'
 const app=readFileSync(new URL('../App.tsx',import.meta.url),'utf8');
 const ids=[...app.matchAll(/^  "([a-z-]+)": \{ ?label:/gm)].map(m=>m[1]);
 const navigation=readFileSync(new URL('../workspaces/OperationsShell.tsx',import.meta.url),'utf8');
-assert.equal(ids.length,17);
+assert.equal(ids.length,18);
+assert(ids.includes('source-health'));
 assert(ids.includes('site-analytics'));
 for(const id of ids)assert(navigation.includes(`id:'${id}'`),`Navigation missing ${id}`);
 console.log('Operations workspace: filters, canonical count preservation, navigation parity, stale/unknown/empty states passed.');

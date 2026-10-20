@@ -62,7 +62,9 @@ import {workspaceScope,readPreference,preferenceKey} from './lib/workspacePrefer
 import {getFleetWorkspace,remoteReadOnlyWorkspace,remoteViewTabs} from './lib/fleetWorkspace';
 const LiveCorrectiveActionsWorkspace = React.lazy(()=>import('./components/LiveCorrectiveActionsWorkspace'));
 
-type AppTabId = "overview" | "one-line" | "thermal-controls" | "cell-history" | "site-analytics" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
+const SourceStreamHealth = React.lazy(()=>import("./components/SourceStreamHealth"));
+
+type AppTabId = "source-health" | "overview" | "one-line" | "thermal-controls" | "cell-history" | "site-analytics" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -78,6 +80,7 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "corrective-actions": { label: "Corrective Actions", icon: ShieldAlert },
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
+  "source-health": { label: "Data Stream Health", icon: Network },
   "pcs-dashboard": { label: "PCS Dashboard", icon: Zap },
   "balancer-test": { label: "BPC Balance Test", icon: Gauge },
   "site-configuration": { label: "Site Configuration", icon: Settings },
@@ -95,6 +98,7 @@ const DEFAULT_TABS_ORDER: string[] = [
   "corrective-actions",
   "arrays-strings",
   "site-health",
+  "source-health",
   "pcs-dashboard",
   "balancer-test",
   "site-configuration",
@@ -527,7 +531,7 @@ export default function App() {
       {operations&&<div className="ops-demo-notice"><span><strong>{remoteReadOnly?'Remote workspace · Read-only':localReview?'Local live review · Solar Star 3':'Operations workspace'}</strong> · {remoteReadOnly?'Live telemetry and recorded history. Equipment commands and configuration changes are blocked on the server.':localReview?'Existing Dell telemetry. Production writes are blocked; corrective-guidance edits are Mac-only drafts.':'Existing permissions and control safeguards remain in effect.'}</span>{!remoteReadOnly&&<a className="underline whitespace-nowrap" href={legacyLayoutUrl(window.location.href)}>Previous layout</a>}</div>}
       
       {/* TOP NAVIGATION BAR (DAYLIGHT DESIGN THEME) */}
-      <Toolbar hidden={remoteReadOnly} className={operations?'ops-legacy-toolbar':'contents'}>
+      <Toolbar hidden={remoteReadOnly || (operations && activeTab !== "source-health")} className={operations?'ops-legacy-toolbar':'contents'}>
       {operations&&<summary>Connection diagnostics & workspace tools{diagnosticSession?.active?' · Diagnostic recording active':''}</summary>}
       <header className="h-14 border-b border-prizm-border flex items-center justify-between px-4 sm:px-6 bg-prizm-header sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
@@ -913,6 +917,8 @@ export default function App() {
                   <RenderProbe id="strings"><StringDashboard active /></RenderProbe>
                 </div>
               )}
+
+              {activeTab === "source-health" && <SourceStreamHealth/>}
 
               {activeTab === "site-health" && (
                 <div className="block animate-fade-in font-sans">
