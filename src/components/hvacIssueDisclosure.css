@@ -1,0 +1,28 @@
+.hvac-issue-disclosure{margin:12px 0;border:1px solid #cbdad8;border-radius:8px;background:#fff;color:#193b40;font:inherit}
+.hvac-issue-disclosure>summary{padding:14px;cursor:pointer;background:#eef6f4;border-radius:8px;line-height:1.6}
+.hvac-issue-disclosure>summary>span{display:block;margin-left:16px;font-size:12px}
+.hvac-severity-summary{text-transform:capitalize;color:#8a4e16}
+.hvac-disclosure-body{padding:0}.hvac-disclosure-body p{font-size:12px;line-height:1.6;color:#4c6267;padding:8px 12px;margin:0}
+.hvac-issue-disclosure>summary>.hvac-group-count{float:right;margin:0;font-weight:400}
+.hvac-fault-row{border-top:1px solid #cbdad8}
+.hvac-fault-row>summary{display:grid;grid-template-columns:12px 72px 100px minmax(0,1fr) auto;gap:10px;align-items:center;list-style:none;padding:12px;cursor:pointer;font-size:11px}
+.hvac-fault-row>summary::-webkit-details-marker{display:none}
+.hvac-fault-row[open]>summary{background:#eef6f4}
+.hvac-fault-row[open] .hvac-chevron{transform:rotate(90deg)}
+.hvac-fault-row>summary code{overflow-wrap:anywhere;font-size:10px}
+.hvac-fault-row .hvac-severity{justify-self:start}
+.hvac-fault-count{color:#087e68;white-space:nowrap}
+.hvac-target-table-wrap{overflow-x:auto}
+.hvac-target-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}
+.hvac-target-table th{background:#e7f3f0;font-size:10px;text-transform:uppercase}
+.hvac-target-table th,.hvac-target-table td{padding:7px 12px;border-top:1px solid #cbdad8}
+.hvac-target-table tbody tr:nth-child(even){background:#f4f8f7}
+.hvac-target-table td:last-child{overflow-wrap:anywhere}
+@media(max-width:700px){.hvac-fault-row>summary{grid-template-columns:12px 65px minmax(0,1fr) auto;gap:6px}.hvac-fault-row>summary>strong{grid-column:2/-1;grid-row:2}.hvac-issue-disclosure>summary>.hvac-group-count{float:none;margin-left:16px}}
+.hvac-disclosure-body h4{font-size:13px;margin:16px 0 8px}
+.hvac-target{border-top:1px solid #dfe9e7;padding:10px 0}.hvac-target summary{cursor:pointer;font-size:13px}
+.hvac-target summary span{display:block;margin-left:16px;font-size:12px;color:#53676b}
+.hvac-target ul{list-style:none;padding:0;margin:12px 0}.hvac-target li{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px;background:#f6f9f8;border-bottom:1px solid #e3eae8;font-size:12px}
+.hvac-target code{overflow-wrap:anywhere;font-size:11px}.hvac-severity{padding:2px 5px;border-radius:3px;text-transform:uppercase;font-size:10px}
+.hvac-severity.alarm,.hvac-severity.critical{background:#fff0ed;color:#aa2d19}.hvac-severity.warning,.hvac-gap{background:#fff7df;color:#855000}.hvac-severity.unknown{background:#eef0f2;color:#465963}
+.hvac-originals{margin-top:14px}.hvac-originals>summary{cursor:pointer;font-size:12px;font-weight:600;padding:10px 0}

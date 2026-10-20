@@ -1,0 +1,8 @@
+.prizm-bpc-list{width:100%;min-width:0;margin:10px 0;border:1px solid #cadbdc;border-radius:6px;background:transparent;color:inherit}
+.prizm-bpc-list>summary{cursor:pointer;padding:12px 14px;min-height:44px;box-sizing:border-box;font-size:13px;font-weight:600;line-height:1.5}
+.prizm-bpc-list>summary:focus-visible{outline:2px solid #16865c;outline-offset:2px}
+.prizm-bpc-list>summary>span{float:right;margin-left:12px;font-size:12px;font-weight:400;color:inherit}
+.prizm-bpc-list>summary .prizm-bpc-collapse,.prizm-bpc-list[open]>summary .prizm-bpc-expand{display:none}
+.prizm-bpc-list[open]>summary .prizm-bpc-collapse{display:inline}
+.prizm-bpc-list[open]>summary{border-bottom:1px solid #cadbdc}
+.prizm-bpc-list-body{min-width:0;padding:8px}
