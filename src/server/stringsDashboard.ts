@@ -875,32 +875,13 @@ function startStringDetailWarmup(rows: any[]) {
   });
 }
 
+import { normalizeSocPercent } from '../core/socPercent';
+import { mergeMonitorFields } from './telemetry/stringviewer/mergeMonitorFields';
+
 export function mergeStringViewerMonitorFields(row: any, payload: any, entry?: StringViewerCacheEntry): void {
     const sv = payload?.stringViewerDataModel;
     if (!sv) return;
-    row.busVoltage = sv.dcBusVoltage ?? row.busVoltage;
-    row.outRotation = sv.outRotation ?? row.outRotation;
-    row.positiveContactorClosed = sv.positiveContactorClosed ?? row.positiveContactorClosed;
-    row.negativeContactorClosed = sv.negativeContactorClosed ?? row.negativeContactorClosed;
-    row.contactorsCloseExpected = sv.contactorsCloseExpected ?? row.contactorsCloseExpected;
-    row.recloseCount = sv.recloseCount ?? row.recloseCount;
-    row.badReport = sv.badReport ?? row.badReport;
-    row.fanRequested = sv.lastFanCommand ?? sv.fanCommand ?? sv.requestedFanCommand ?? sv.stringFanRequested ?? row.fanRequested;
-    row.fanActual = sv.fanActual ?? sv.fanState ?? sv.fanStatus ?? sv.fanSpeed ?? sv.fanSpeedRpm ?? sv.stringFanActual ?? row.fanActual;
-    row.socPct = sv.soc ?? row.socPct;
-    row.measuredVoltage = sv.measuredStringVoltage ?? row.measuredVoltage;
-    row.calculatedVoltage = sv.calculatedStringVoltage ?? row.calculatedVoltage;
-    row.minCellVoltage = sv.minCellGroupVoltage ?? row.minCellVoltage;
-    row.maxCellVoltage = sv.maxCellGroupVoltage ?? row.maxCellVoltage;
-    row.avgCellVoltage = sv.avgCellGroupVoltage ?? row.avgCellVoltage;
-    row.minCellTemperature = sv.minCellGroupTemp ?? row.minCellTemperature;
-    row.maxCellTemperature = sv.maxCellGroupTemp ?? row.maxCellTemperature;
-    row.avgCellTemperature = sv.avgCellGroupTemp ?? row.avgCellTemperature;
-    row.amps = sv.stringCurrent ?? row.amps;
-    row.bpcCount = sv.batteryPackCount ?? row.bpcCount;
-    row.cellGroupCount = sv.cellGroupCount ?? row.cellGroupCount;
-    row.timestampUtc = sv.reportTimestamp ?? row.timestampUtc;
-    row.operationalState = sv.stringConnectionState ?? row.operationalState;
+    mergeMonitorFields(row, sv, entry);
     stringViewerProvenance.set(row, {
         baselineSource: "strings.csv",
         enrichmentSource: entry?.sourceUrl ?? "legacy-stringviewer-monitor",
@@ -2615,10 +2596,7 @@ async function normalizeStringsDataUncached(enrich = false, targetArray: number 
 
         const readSocPct = (row: any): number | null => {
             const raw = readFirst(row, ["socPct", "soc", "SOC", "stateOfCharge", "stateOfChargePct"]);
-            if (raw === null) return null;
-            if (raw >= 0 && raw <= 1) return raw * 100;
-            if (raw >= 0 && raw <= 100) return raw;
-            return null;
+            return normalizeSocPercent(raw);
         };
 
         const readConnectionPermitted = (row: any): boolean | null => {

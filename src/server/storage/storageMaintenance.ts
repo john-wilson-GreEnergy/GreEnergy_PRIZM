@@ -358,7 +358,7 @@ export function getStorageStatus() {
     folders: {
       history: {
         path: ".prizm-history",
-        exists: fs.existsSync(HISTORY_ROOT),
+        exists: storageFolderExists(HISTORY_ROOT),
         sizeBytes: historyStats.sizeBytes,
         fileCount: historyStats.fileCount,
         enabled: policy.history.enabled,
@@ -367,7 +367,7 @@ export function getStorageStatus() {
       },
       runtimeCache: {
         path: ".prizm-cache",
-        exists: fs.existsSync(CACHE_ROOT),
+        exists: storageFolderExists(CACHE_ROOT),
         sizeBytes: cacheStats.sizeBytes,
         fileCount: cacheStats.fileCount,
         maxBytes: policy.runtimeCache.maxCacheBytes,
@@ -375,14 +375,17 @@ export function getStorageStatus() {
       },
       nodeModules: {
         path: "node_modules",
+        exists: storageFolderExists(path.resolve(process.cwd(), "node_modules")),
         sizeBytes: nodeModulesStats.sizeBytes
       },
       data: {
         path: "data",
+        exists: storageFolderExists(path.resolve(process.cwd(), "data")),
         sizeBytes: dataStats.sizeBytes
       },
       dist: {
         path: "dist",
+        exists: storageFolderExists(path.resolve(process.cwd(), "dist")),
         sizeBytes: distStats.sizeBytes
       }
     },
@@ -393,8 +396,9 @@ export function getStorageStatus() {
 }
 
 // Startup Initialization cleanup method
-export function initLocalStorageMaintenance() {
+export function initLocalStorageMaintenance(skipStartupCleanup = false) {
   const policy = loadStoragePolicy();
+  if (!skipStartupCleanup) {
   
   // Ensure directories exist
   try {
@@ -417,6 +421,9 @@ export function initLocalStorageMaintenance() {
   console.log(`[Storage] .prizm-history size before cleanup: ${formatBytes(historyBefore)}`);
   console.log(`[Storage] .prizm-history size after cleanup: ${formatBytes(historyAfter)}`);
   console.log(`[Storage] Free disk after cleanup: ${formatBytes(diskAfter.freeBytes)}`);
+  } else {
+    console.log('[Storage] Startup cleanup skipped for this deployment; scheduled policy unchanged.');
+  }
 
   // 5. Start periodic cleanup loop
   const intervalMins = Math.min(policy.history.cleanupIntervalMinutes, policy.runtimeCache.cleanupIntervalMinutes) || 30;
@@ -430,4 +437,13 @@ export function initLocalStorageMaintenance() {
       console.error("[Storage] Periodic maintenance loop failed:", e);
     }
   }, intervalMins * 60 * 1000);
+}
+
+/** Absence is distinct from an inaccessible path. Follows directory symlinks. */
+export function storageFolderExists(folderPath: string): boolean | null {
+  try {
+    return fs.statSync(folderPath).isDirectory() ? true : null;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? false : null;
+  }
 }

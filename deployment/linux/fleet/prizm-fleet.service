@@ -1,0 +1,46 @@
+# Staged template only. Requires a separately reviewed network lifecycle unit.
+[Unit]
+Description=GreEnergy PRIZM read-only Fleet
+BindsTo=prizm-fleet-network.service
+After=prizm-fleet-network.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=prizm-fleet
+Group=prizm-fleet
+WorkingDirectory=/opt/prizm-fleet/current
+NetworkNamespacePath=/run/netns/prizm-fleet
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=192
+Environment=PRIZM_FLEET_CONFIG=/etc/prizm-fleet/fleet/fleet.json
+Environment=NODE_EXTRA_CA_CERTS=/etc/prizm-fleet/fleet/ca-cert.pem
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/dist/fleet-server.cjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TasksMax=64
+MemoryAccounting=yes
+MemoryHigh=512M
+MemoryMax=768M
+MemorySwapMax=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

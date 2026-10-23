@@ -2,6 +2,8 @@ import fs from "fs";
 import {isRuntimeStopping} from "../runtimeShutdown";
 import path from "path";
 import https from "https";
+import {getSmaStreams,tickSmaStreams,stopSmaStreams} from './sma/streamRuntime';
+import type {StreamPoint} from './sma/streamProtocol';
 import { qualifyPcsProcessPoint, mergePcsReading } from "./pcsDataQuality";
 import { pcsNumber } from "../../lib/pcsReading";
 import { getActiveProfile, detectMapAddressOffset, queryModbusRaw, queryModbusReal } from "./modbusProfileManager";
@@ -17,7 +19,8 @@ export type PcsSwitchTelemetry = {
   stale: boolean;
   error: string | null;
   addressOffset: number | null;
-  source: "SMA_WEB_PROCESS_DATA" | "SMA_MODBUS" | null;
+  source: "SMA_WEB_PROCESS_DATA" | "SMA_MODBUS" | "SMA_MQTT" | null;
+  streamHealth?:string;
   inverterOperatingState: string | null;
   inverterOperatingStateRaw: number | null;
   powerOffReason: string | null;
@@ -45,6 +48,9 @@ type SmaProcessPoint = {
   timestamp: number | null;
   receivedAt?: number;
   isConfiguration?: boolean;
+  source?:string;
+  streamAdvancedAt?:number|null;
+  streamConnected?:boolean;
 };
 
 type MapRow = {
@@ -500,6 +506,7 @@ export function groupOperationalModelReads(reads: ModelRead[]): ModelReadGroup[]
 
 export async function pollOperationalModbus(): Promise<OperationalModbusSnapshot> {
   if (polling || isRuntimeStopping()) return snapshot;
+  tickSmaStreams(getActiveProfile());
   polling = true;
   const started = Date.now();
   try {
@@ -609,7 +616,7 @@ export function getOperationalModbusSnapshot(): OperationalModbusSnapshot {
   return {
     ...snapshot,
     stale: snapshot.stale || ageMs > 15_000,
-    pcsSwitches: snapshot.pcsSwitches.filter((row) => row != null).map((row) => {
+    pcsSwitches: mergeSmaStreamSnapshots(snapshot.pcsSwitches,getSmaStreams(getActiveProfile())).filter((row) => row != null).map((row) => {
       const smaProcessData = Object.fromEntries(Object.entries(row.smaProcessData || {}).map(([key, point]) => [key, qualifyPcsProcessPoint(point)]));
       const reason = smaProcessData.powerOffReason;
       const raw = reason?.readingState === "live" ? pcsNumber(reason.value) : null;
@@ -625,4 +632,33 @@ export function startOperationalModbusPolling(intervalMs = 1000): void {
   timer = setInterval(() => void pollOperationalModbus(), Math.max(500, intervalMs));
   timer.unref?.();
 }
-export function stopOperationalModbusPolling(){if(timer)clearInterval(timer);timer=null;}
+export function stopOperationalModbusPolling(){if(timer)clearInterval(timer);timer=null;stopSmaStreams();}
+
+/** One canonical authority decision, shared by Fleet and full PRIZM. The stream
+ * never renews HTTP/Modbus observations, and a fresh legacy row wins over a stale stream. */
+export function mergeSmaStreamSnapshots(rows:PcsSwitchTelemetry[],streams:Array<{array:number;host:string;points:Record<string,StreamPoint>;status:string}>,now=Date.now()):PcsSwitchTelemetry[]{
+  let result=rows;
+  for(const stream of streams){
+    const points=Object.fromEntries(Object.entries(stream.points).map(([id,p])=>[id,qualifyPcsProcessPoint(p,now)]));
+    const diagram=points[6070],operating=points[332];
+    const previous=rows.find(r=>r.arrayIndex===stream.array && r.host===stream.host);
+    if(!diagram || diagram.value===null || !diagram.freshnessAt)continue;
+    const live=diagram.readingState==='live';
+    if(!live && previous && !isPcsSwitchReadingStale(previous,now))continue;
+    const raw=diagram.value;
+    const extended:Record<string,SmaProcessPoint>=Object.fromEntries(Object.entries(previous?.smaProcessData??{}).map(([key,p])=>[key,{...p,source:p.source??previous?.source??undefined}]));
+    if(stream.points[6644])extended.insulationResistanceKOhm=stream.points[6644];
+    if(stream.points[6100])extended.maxIgbtTemperatureC=stream.points[6100];
+    const state=operating?.readingState==='live'?operating.value:null;
+    const value:PcsSwitchTelemetry={arrayIndex:stream.array,host:stream.host,port:443,unitId:3,
+      capturedAt:diagram.freshnessAt,durationMs:null,stale:!live,error:live?null:'SMA stream is not current',addressOffset:null,source:'SMA_MQTT',streamHealth:stream.status,
+      inverterOperatingState:state===null?null:SMA_OPERATING_STATES[state]??`State ${state}`,inverterOperatingStateRaw:state,
+      powerOffReason:null,smaProcessData:extended,
+      dcSwitch1:bitfieldSwitch(raw,17,16),dcSwitch2:bitfieldSwitch(raw,20,19),dcSwitch3:bitfieldSwitch(raw,23,22),acSwitch:bitfieldSwitch(raw,26,25),mvSwitch:bitfieldSwitch(raw,29,28),
+      capacitorSwitch:'UNKNOWN',prechargeSwitch:'UNKNOWN',dcPrechargeSwitch:'UNKNOWN',
+      dcHealth:bitfieldHealth(raw,0),inverterHealth:bitfieldHealth(raw,4),transformerHealth:bitfieldHealth(raw,8),gridHealth:bitfieldHealth(raw,12),
+      raw:{diagramStatus:raw,inverterOperatingState:state}};
+    result=mergePcsReading(result,value);
+  }
+  return result;
+}

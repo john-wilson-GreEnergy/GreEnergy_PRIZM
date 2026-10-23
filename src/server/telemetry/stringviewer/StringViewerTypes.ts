@@ -55,6 +55,7 @@ export interface StringViewerSchedulerConfig {
   warmTtlMs: number;
   coldTtlMs: number;
   forceFullRefresh: boolean;
+  requestSpacingMs?: number;
 }
 
 export interface StringViewerCandidate extends StringViewerIdentity {

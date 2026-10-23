@@ -1,0 +1,28 @@
+# Per-instance drop-ins select only the SS3 host or the SS4 namespace.
+[Unit]
+Description=PRIZM authenticated workspace HTTPS entry %i
+Requires=prizm-workspace-network.service
+BindsTo=prizm-fleet-network.service
+After=prizm-workspace-network.service prizm-fleet.service
+
+[Service]
+Type=simple
+User=prizm-entry-ss3
+Group=prizm-entry-ss3
+Environment=PRIZM_FLEET_ENTRY_CONFIG=/etc/prizm-fleet/workspace-entry-%i.json
+Environment=NODE_OPTIONS=--max-old-space-size=32
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/dist/fleet-entry.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

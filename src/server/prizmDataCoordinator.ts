@@ -1,4 +1,7 @@
 import { thermalService } from "./thermal/thermalService";
+import {buildBlockPowerFlow} from './fleet/blockPowerFlow';
+import {projectSiteAnalytics} from './analytics/siteAnalyticsProjection';
+import {operatingChartsStore,operatingChartsEnabled} from './analytics/operatingChartsRuntime';
 import {recoveryTelemetryBroker} from './domainBrokers/recoveryTelemetry';
 import {stringViewerBackground} from './telemetry/stringviewer/StringViewerBackground';
 import {stringViewerCacheReuseEnabled} from './telemetry/stringviewer/StringViewerCache';
@@ -11,6 +14,7 @@ import { getEmsConnectionStatus, getEmsCachedBlock, getEmsCachedStatus, getEmsCa
 import {emsPrimaryReader} from './emsTurtleClient';
 import {primaryReaderEnabled} from './telemetry/emsPrimaryReader';
 import {emsStageTiming} from './telemetry/EmsStageTiming';
+import {emsMetadataCadence} from './telemetry/MetadataCadence';
 import {readSummarySource} from './telemetry/summarySnapshotSelection';
 import {readSnapshotCycleId} from './telemetry/snapshotCycleSelection';
 import { EncodedJsonCache } from './telemetry/EncodedJsonCache';
@@ -33,12 +37,16 @@ import { normalizePcsRow } from "./normalizers/pcsNormalizer";
 import { resolveCorrectiveAction } from "./correctiveActions/correctiveActionResolver";
 import { telemetryMetrics } from "./telemetry/metrics";
 import { CoordinatorCycleOutcome, CoordinatorRuntime } from "./telemetry/CoordinatorRuntime";
+import {snapshotRetentionWorker} from './telemetry/SnapshotRetentionWorker';
 import { canonicalPublicationRuntime } from "./telemetry/publication/CanonicalPublicationRuntime";
 import { triggerContactorRefresh } from "./contactorStateEngine";
 import { getContactorStateView } from "./domainBrokers/contactorStateView";
 import { analyzeContactorStates } from "./correctiveActionsEngine";
 import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
 import { buildNotificationReview, buildRotationStatusFindings, type NotificationReview } from "./notifications/notificationReview";
+import {applyCorrectiveGuidance,correctiveGuidanceStore,sharedCorrectiveGuidance} from './notifications/correctiveGuidance';
+import {projectNotificationBpcs} from './notifications/notificationBpcs';
+import {projectNotificationHvacs,auditNotificationGuidance} from './notifications/hvacIssueReview';
 import { contactorStateFromCanonicalRow } from "./domainBrokers/contactorStateView";
 import { assessContactorOpen } from "./notifications/contactorOpenAssessment";
 import { coordinatorProfiler } from "./telemetry/profiler";
@@ -520,13 +528,8 @@ export function finiteNumber(value: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function normalizeSocPercent(value: any): number | null {
-  const n = finiteNumber(value);
-  if (n === null) return null;
-  if (n >= 0 && n <= 1) return n * 100;
-  if (n >= 0 && n <= 100) return n;
-  return null;
-}
+export { normalizeSocPercent } from '../core/socPercent';
+import { normalizeSocPercent } from '../core/socPercent';
 
 export function readSocPct(row: any): number | null {
   if (!row) return null;
@@ -2023,6 +2026,9 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
   const startTime = Date.now();
   let latestError = null;
   const publishFastStrings = async () => {
+      // Default to one accepted canonical publication. Legacy intermediate
+      // baseline publications remain available only for explicit rollback.
+      if (process.env.PRIZM_CANONICAL_STRING_PUBLICATION !== 'false') return;
       const fastStringsStartedAt = performance.now();
       const fastStringsResult = await coordinatorProfiler.withPhase(
           "Fast String Publication",
@@ -2043,6 +2049,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
               sourceHealth: fastStringsResult?.sourceHealth || [],
               durationMs: performance.now() - fastStringsStartedAt
           });
+          scheduleFastStringEncoding();
       }
   };
   const startup = context.reasons.includes('coordinator-start');
@@ -2906,6 +2913,12 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
           ...(newSnap.rawSources.featherDevices.length === 0 ? ['HVAC source data is not yet available. Notification coverage is incomplete.'] : [])
       ];
 
+      newSnap.normalized.notificationReview.bpcReview = projectNotificationBpcs(newSnap.normalized.notificationReview,newSnap.siteIdentity);
+      newSnap.normalized.notificationReview.hvacReview = projectNotificationHvacs(newSnap.normalized.notificationReview);
+      if(process.env.PRIZM_CORRECTIVE_GUIDANCE!=='false') {
+          try {newSnap.normalized.notificationReview=applyCorrectiveGuidance(newSnap.normalized.notificationReview,correctiveGuidanceStore.read(),sharedCorrectiveGuidance?.store.read());newSnap.normalized.notificationReview.guidanceGaps=auditNotificationGuidance(newSnap.normalized.notificationReview);}
+          catch {newSnap.normalized.notificationReview.sourceWarnings.push('Saved corrective guidance is unavailable. Built-in guidance is shown; verify the approved field procedure.');}
+      }
       let acceptSnapshot = true;
       let rejectionReason = "";
       if (centralSnapshot) {
@@ -2919,7 +2932,23 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       if (acceptSnapshot) {
           const publicationPhase = coordinatorProfiler.beginPhase("Snapshot Publication", { waitState: "NORMALIZATION", blocking: true, parentPhaseId: snapshotGenerationPhase.phaseId });
           centralSnapshot = newSnap;
+          if (process.env.PRIZM_CANONICAL_STRING_PUBLICATION !== 'false') {
+              latestFastStringsView = {
+                  cycleId: context.cycleId,
+                  capturedAt: newSnap.liveStatus.lastUpdated,
+                  strings: newSnap.normalized.strings,
+                  summary: stringsResult?.summary || {},
+                  rollups: newSnap.rollups.stringSummary?.rollups || {},
+                  buckets: newSnap.rollups.stringSummary?.buckets || {},
+                  sourceHealth: stringsResult?.sourceHealth || [],
+                  durationMs: Date.now() - startTime
+              };
+          }
+          if(operatingChartsEnabled()){
+            try{operatingChartsStore.ingest(newSnap);}catch{console.warn('[Analytics] Canonical power recording unavailable');}
+          }
           publishOperationalDomains(newSnap, newSnap.liveStatus?.lastUpdated || new Date().toISOString());
+          scheduleFastStringEncoding();
           if (process.env.PRIZM_THERMAL_ENABLED !== "false") {
             try { thermalService().ingest(newSnap.normalized.feather || [], Date.now(), newSnap.siteIdentity.emsBaseUrl ? {id: JSON.stringify([newSnap.siteIdentity.stationCode, newSnap.siteIdentity.blockIndex, newSnap.siteIdentity.emsBaseUrl]), label: `${newSnap.siteIdentity.stationCode || newSnap.siteIdentity.activeProfileName || "Site"} · Block ${newSnap.siteIdentity.blockIndex ?? "unknown"}`} : null); }
             catch (error) { console.warn("[Thermal] Recording ingestion unavailable", error); }
@@ -3001,7 +3030,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
   return { snapshot: centralSnapshot, successful: cycleSucceeded && !!centralSnapshot, acquisitionTimestamp: lastPollFinishedAt };
 }
 
-const coordinatorRuntime = new CoordinatorRuntime<PrizmSiteSnapshot>(executeCoordinatorCycle);
+const coordinatorRuntime = new CoordinatorRuntime<PrizmSiteSnapshot>(executeCoordinatorCycle, snapshotRetentionWorker);
 
 export function startCoordinator() {
     console.log("[Prizm Data Coordinator] Starting central data coordinator...");
@@ -3056,6 +3085,24 @@ export function getEncodedFastStringsView(compact = false) {
         () => compact ? getCompactFastStringsView() : getFastStringsView());
 }
 
+/** Pre-encode after canonical publication, not on the browser's request path.
+ * Command feedback still invalidates through the broker revision on read. */
+let fastEncodingScheduled = false;
+function scheduleFastStringEncoding() {
+    if (process.env.PRIZM_FAST_STRINGS_PREWARM === 'false' || fastEncodingScheduled) return;
+    fastEncodingScheduled = true;
+    setImmediate(() => {
+        fastEncodingScheduled = false;
+        void getEncodedFastStringsView(true).catch(() => console.warn('[String transport] Background encoding failed; next read will retry'));
+    });
+}
+
+export function getStringStreamMetadata() {
+    if (!latestFastStringsView) return undefined;
+    const {cycleId, summary, rollups, buckets, sourceHealth, durationMs} = latestFastStringsView;
+    return {cycleId, summary, rollups, buckets, sourceHealth, durationMs};
+}
+
 export function getCompactFastStringsView() {
     return latestFastStringsView ? projectCompactStringView(latestFastStringsView, stringDomainBroker) : {warming: true};
 }
@@ -3076,6 +3123,8 @@ export function getWorkspaceProjectionSource(): Readonly<PrizmSiteSnapshot> | nu
     return centralSnapshot;
 }
 
+export function getOperatingChartsView(){return operatingChartsEnabled()?operatingChartsStore.view(getSnapshotOrNull()):undefined;}
+export function getSiteAnalyticsView(){return {...projectSiteAnalytics(getSnapshotOrNull()),operatingCharts:getOperatingChartsView()};}
 export function getSnapshotOrNull(): PrizmSiteSnapshot | null {
     return centralSnapshot;
 }
@@ -3559,6 +3608,11 @@ export function getBlockSummaryView(): any {
         topologyCounts: (snap.rollups as any).topologyCounts || {},
         fleetCapacity: (snap.rollups as any).fleetCapacity || snap.rollups.stringSummary?.rollups?.fleetCapacity || null,
         blockOperatingSummary,
+        powerFlow: buildBlockPowerFlow({
+            siteIdentity: snap.siteIdentity, liveStatus: snap.liveStatus,
+            blockOperatingSummary, modbusTelemetry,
+            arraySummary: compactArraySummary, pcsSummary: compactPcsSummary, sourceHealth: healthRows
+        }),
         modbusArraySummary: liveModbusArrays,
         modbusTelemetry: { available: modbusTelemetry.available, stale: modbusTelemetry.stale, capturedAt: modbusTelemetry.capturedAt, durationMs: modbusTelemetry.durationMs, error: modbusTelemetry.error },
         topologyStatus: {
@@ -3722,6 +3776,7 @@ export function getPcsView(): any {
         cycleId: snap.cycleId,
         historyBatch: snap.siteIdentity.emsBaseUrl ? {site: {id: JSON.stringify([snap.siteIdentity.stationCode, snap.siteIdentity.blockIndex, snap.siteIdentity.emsBaseUrl]), label: `${snap.siteIdentity.stationCode || "Site"} · Block ${snap.siteIdentity.blockIndex ?? "unknown"}`}, observations: historyObservations} satisfies TimelineBatch : null,
         pcs,
+        siteIdentity: snap.siteIdentity,
         pcsSummary: snap.rollups.pcsSummary || {},
         arraySummary: compactArraySummary,
         arrayPowerSummary,
@@ -3822,7 +3877,7 @@ export async function triggerImmediatePoll(reason = "legacy-triggerImmediatePoll
 }
 
 export function getCoordinatorDebugState() {
-    return {...coordinatorRuntime.getDebugState(),processingOptimizations:{stringViewerCacheReuse:stringViewerCacheReuseEnabled,compactStringProjection:compactProjectionEnabled(),batchedArraySearch:batchedArraySearchEnabled()},cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
+    return {...coordinatorRuntime.getDebugState(),metadataCadence:emsMetadataCadence.status(),processingOptimizations:{stringViewerCacheReuse:stringViewerCacheReuseEnabled,compactStringProjection:compactProjectionEnabled(),batchedArraySearch:batchedArraySearchEnabled()},cachePersistence:prizmCache.getSnapshotCachePersistenceStatus(),cooperativeProcessing:cooperativeProcessingEnabled(),emsStages:emsStageTiming.snapshot(),primaryReader:{enabled:primaryReaderEnabled(),...emsPrimaryReader.diagnostics()},stringViewerEnrichment:stringViewerBackground.diagnostics(),recoveryTelemetry:{
         sequenceKind:primaryReaderEnabled()?'primary-acquisition':'coordinator-cycle',
         mode:process.env.PRIZM_RECOVERY_EARLY_TELEMETRY === 'false' ? 'full-snapshot' : 'early',
         ...recoveryTelemetryBroker.diagnostics(),fullSnapshotCycleId:centralSnapshot?.cycleId ?? null

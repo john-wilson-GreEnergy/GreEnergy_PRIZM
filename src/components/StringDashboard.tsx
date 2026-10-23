@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {usePresentation,useReviewTarget} from '../lib/workspacePreferences';
+import {TableDensity,TableDisplay} from './WorkspaceTableTools';
 import {PageScrollTable} from './PageScrollTable';
 import {isLocalOperationsReview} from '../lib/operationsReview';
-import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
+import {workspaceReadUrl,remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import { ServerOff, Search, ChevronRight, Download, RefreshCw, Layers, Lock, Unlock, CheckCircle2, XCircle, TriangleAlert, Activity, X } from "lucide-react";
 import StringDetailDashboard from "./StringDetailDashboard";
-import PcsOperationalTimeline from "./PcsOperationalTimeline";
+import DeferredStringTimeline from "./DeferredStringTimeline";
 import {StringListRow, MemoStringListRow, rowCommunicationState} from "./StringListRow";
-import {RowProjectionCache} from "../lib/rowProjectionCache";
+import {RowProjectionCache, samePublication} from "../lib/rowProjectionCache";
 import {prepareStringRows} from "../lib/prepareStringRows";
 import {subscribeStringList} from '../lib/subscribeStringList';
 import { formatTemperatureF } from "../utils/temperatureScale";
@@ -159,16 +161,16 @@ class StringDetailErrorBoundary extends React.Component<StringDetailErrorBoundar
 }
 
 export default function StringDashboard({ active = true }: { active?: boolean }) {
-  const { snapshot, activeTopologyProfile, isInitialLoading, refreshNow } = useSiteDataFields(['snapshot','activeTopologyProfile','isInitialLoading','refreshNow']);
+  const { snapshot, activeTopologyProfile, isInitialLoading, refreshNow, isPollingEnabled, isTerminated } = useSiteDataFields(['snapshot','activeTopologyProfile','isInitialLoading','refreshNow','isPollingEnabled','isTerminated']);
   const reuseStringRows = new URLSearchParams(window.location.search).get("stringRowReuse") !== "off";
-  const rowProjectionCache = useRef(new RowProjectionCache());
+  const rowProjectionCache = useRef(new RowProjectionCache(samePublication));
   const compactStrings = new URLSearchParams(window.location.search).get('stringPayload') !== 'legacy';
   const [stringTransportRecovering, setStringTransportRecovering] = useState(false);
   const [fastStringsView, setFastStringsView] = useState<any | null>(null);
   const [contactorOverlays, setContactorOverlays] = useState<Map<string, any>>(() => new Map());
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !isPollingEnabled || isTerminated) return;
     if (compactStrings) return subscribeStringList(setFastStringsView, setStringTransportRecovering);
     let cancelled = false;
     let inFlight = false;
@@ -193,7 +195,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     void load();
     // Stream changed rows while this page is visible. The slower GET remains a
     // recovery/snapshot path rather than forcing a 320-row render every 1.5s.
-    const stream = new EventSource("/api/local/site-data/strings-stream");
+    const stream = new EventSource(workspaceReadUrl("/api/local/site-data/strings-stream"));
     stream.addEventListener("strings", (event) => {
       try {
         const publication = JSON.parse((event as MessageEvent).data);
@@ -218,7 +220,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
       window.clearInterval(timer);
       stream.close();
     };
-  }, [active, compactStrings]);
+  }, [active, compactStrings, isPollingEnabled, isTerminated]);
   
   const data = useMemo(() => {
     if (!snapshot && !fastStringsView) return null;
@@ -234,19 +236,19 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     const mergedFastSummary = {
       ...stringSummarySummary,
       ...fastSummary,
-      knownBpcCount: fastSummary.knownBpcCount || stringSummarySummary.knownBpcCount,
-      totalBpcs: fastSummary.totalBpcs || stringSummarySummary.totalBpcs,
-      expectedBpcCount: fastSummary.expectedBpcCount || stringSummarySummary.expectedBpcCount,
-      warningBpcs: fastSummary.warningBpcs || stringSummarySummary.warningBpcs,
-      alarmBpcs: fastSummary.alarmBpcs || stringSummarySummary.alarmBpcs
+      knownBpcCount: fastSummary.knownBpcCount ?? stringSummarySummary.knownBpcCount,
+      totalBpcs: fastSummary.totalBpcs ?? stringSummarySummary.totalBpcs,
+      expectedBpcCount: fastSummary.expectedBpcCount ?? stringSummarySummary.expectedBpcCount,
+      warningBpcs: fastSummary.warningBpcs ?? stringSummarySummary.warningBpcs,
+      alarmBpcs: fastSummary.alarmBpcs ?? stringSummarySummary.alarmBpcs
     };
     const mergedFastRollups = {
       ...stringSummaryRollups,
       ...fastRollups,
-      knownBpcCount: fastRollups.knownBpcCount || stringSummaryRollups.knownBpcCount,
-      expectedBpcCount: fastRollups.expectedBpcCount || stringSummaryRollups.expectedBpcCount,
-      warningBpcs: fastRollups.warningBpcs || stringSummaryRollups.warningBpcs,
-      alarmBpcs: fastRollups.alarmBpcs || stringSummaryRollups.alarmBpcs
+      knownBpcCount: fastRollups.knownBpcCount ?? stringSummaryRollups.knownBpcCount,
+      expectedBpcCount: fastRollups.expectedBpcCount ?? stringSummaryRollups.expectedBpcCount,
+      warningBpcs: fastRollups.warningBpcs ?? stringSummaryRollups.warningBpcs,
+      alarmBpcs: fastRollups.alarmBpcs ?? stringSummaryRollups.alarmBpcs
     };
     return {
       strings: rows,
@@ -267,11 +269,15 @@ export default function StringDashboard({ active = true }: { active?: boolean })
   }, [snapshot, fastStringsView, contactorOverlays, reuseStringRows]);
 
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [arrayFilter, setArrayFilter] = useState("all");
-  const [stateFilter, setStateFilter] = useState("all");
-  const [healthFilter, setHealthFilter] = useState("all");
-  const [contactorFilter, setContactorFilter] = useState<"all" | "abnormal" | "open" | "partial" | "closed" | "unknown">("all");
+  const [search, setSearch] = usePresentation('strings-search',"");
+  const [arrayFilter, setArrayFilter] = usePresentation('strings-array',"all");
+  const [stateFilter, setStateFilter] = usePresentation('strings-state',"all");
+  const [healthFilter, setHealthFilter] = usePresentation('strings-health',"all");
+  const [contactorFilter, setContactorFilter] = usePresentation<"all" | "abnormal" | "open" | "partial" | "closed" | "unknown">('strings-contactor',"all");
+  const [targetStringFilter,setTargetStringFilter]=usePresentation('strings-target','all');
+  const [showElectrical]=usePresentation('strings-show-electrical',true),[showExtra]=usePresentation('strings-show-extra',true);
+  const reviewTarget=useReviewTarget();
+  useEffect(()=>{if(reviewTarget){setArrayFilter(String(reviewTarget.array));setTargetStringFilter(reviewTarget.string?String(reviewTarget.string):'all');setSearch('');setStateFilter('all');setHealthFilter('all');setContactorFilter('all');}},[reviewTarget?.array,reviewTarget?.string]);
   
   const cacheTtlMs = 15000;
   const [selectedString, setSelectedString] = useState<any | null>(null);
@@ -314,7 +320,7 @@ export default function StringDashboard({ active = true }: { active?: boolean })
     }, setBalancingVerificationError);
   }, [balancingVerificationId]);
 
-  const [isAdvancedMode, setIsAdvancedMode] = useState(() => localStorage.getItem("prizm_advanced_mode") === "true");
+  const [isAdvancedMode, setIsAdvancedMode] = useState(() => !remoteReadOnlyWorkspace()&&localStorage.getItem("prizm_advanced_mode") === "true");
   useEffect(() => {
     localStorage.setItem("prizm_advanced_mode", isAdvancedMode ? "true" : "false");
   }, [isAdvancedMode]);
@@ -706,6 +712,7 @@ const handleManualRefresh = async () => {
   const filtered = useMemo(() => {
     return strings.filter((s:any) => {
       if (arrayFilter !== "all" && String(s.arrayNumber) !== arrayFilter) return false;
+      if (targetStringFilter !== 'all' && String(s.stringNumber??s.stringIndex)!==targetStringFilter) return false;
       if (stateFilter !== "all") {
         const canonicalBucket = s.bucket || s.operationalBucket || s.operationalState || "";
         if (stateFilter.toLowerCase() !== canonicalBucket.toLowerCase()) return false;
@@ -721,7 +728,7 @@ const handleManualRefresh = async () => {
       }
       return true;
     });
-  }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search]);
+  }, [strings, arrayFilter, stateFilter, healthFilter, contactorFilter, search,targetStringFilter]);
 
   const filteredByArray = useMemo(() => {
     const grouped = new Map<number, any[]>();
@@ -839,9 +846,7 @@ const handleManualRefresh = async () => {
   }
 
   return (
-    <div data-equipment="strings" className="flex flex-col font-sans transition-all bg-transparent pb-24">
-      {compactStrings && stringTransportRecovering && <div role="status" className="mb-3 rounded border border-amber-500/40 p-2 text-xs text-amber-600">String updates reconnecting — showing last received values while the list resynchronizes.</div>}
-      
+    <div data-equipment="strings" data-electrical={showElectrical} data-extra={showExtra} className="ops-equipment-page flex flex-col font-sans transition-all bg-transparent pb-24">
       {compactStrings && stringTransportRecovering && !isLocalOperationsReview() && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String updates delayed. Showing last received readings; check row timestamps.</div>}
       {(data.cache?.isStale || data.cache?.sourceOk === false) && <div role="status" className="mb-3 rounded border border-prizm-warning p-2 text-xs text-prizm-warning">String readings are stale. Check Data stream health for source details.</div>}
       {/* Top Header */}
@@ -947,23 +952,24 @@ const handleManualRefresh = async () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 bg-prizm-surface-strong p-3 rounded-t-lg border border-prizm-border shrink-0">
+      <div className="ops-equipment-toolbar flex flex-col sm:flex-row items-center gap-3 bg-prizm-surface-strong p-3 rounded-t-lg border border-prizm-border shrink-0">
         <div className="relative flex-1 w-full flex items-center">
           <Search size={14} className="absolute left-3 text-prizm-text-muted" />
           <input
             type="text"
             placeholder="Search String Key or IP..."
+            aria-label="Find string or IP"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full bg-black/20 border border-prizm-border rounded pl-9 pr-3 py-1.5 text-xs text-prizm-text font-mono placeholder-black/40 focus:border-prizm-primary focus:outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-          <select value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select aria-label="String array" value={arrayFilter} onChange={e => setArrayFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">Array: All</option>
             {arrays.map(a => <option key={String(a)} value={String(a)}>Array {a}</option>)}
           </select>
-          <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
+          <select aria-label="String state" value={stateFilter} onChange={e => setStateFilter(e.target.value)} className="bg-black/20 border border-prizm-border rounded px-1.5 py-0.5 text-[10px] uppercase font-mono text-prizm-text focus:outline-none focus:border-prizm-primary cursor-pointer">
             <option value="all">State: All</option>
             <option value="online">Online</option>
             <option value="nearline">Nearline</option>
@@ -991,6 +997,7 @@ const handleManualRefresh = async () => {
             <Layers size={14} />
           </button>
           <button
+            hidden={remoteReadOnlyWorkspace()}
             onClick={() => setIsAdvancedMode(!isAdvancedMode)}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors cursor-pointer shrink-0 ${
               isAdvancedMode
@@ -1026,7 +1033,7 @@ const handleManualRefresh = async () => {
                  Clear
               </button>
            </div>
-           <div className="flex flex-wrap items-center gap-2">
+           <div hidden={remoteReadOnlyWorkspace()} className="flex flex-wrap items-center gap-2">
               <span className="text-[9px] uppercase tracking-widest text-slate-100 font-bold">Rotation</span>
               <button
                   disabled={selectedIds.size === 0 || !rotationCapabilities?.strings?.single || !!commandPending}
@@ -1072,6 +1079,7 @@ const handleManualRefresh = async () => {
               </button>
            </div>
       </div>
+      <div className="ops-equipment-toolbar"><span>{filtered.length} matching strings{targetStringFilter!=='all'?` · String ${targetStringFilter}`:''}</span><TableDisplay kind="strings"/><TableDensity/><button className="ops-reset" onClick={()=>{setSearch('');setArrayFilter('all');setStateFilter('all');setHealthFilter('all');setContactorFilter('all');setTargetStringFilter('all');}}>Reset filters</button></div>
       {/* Main Strings Table Engine */}
       <PageScrollTable className="ops-data-scroll flex-1 bg-prizm-surface border-x border-b border-prizm-border rounded-b-lg relative pb-12" id="strings-dashboard-scroll">
          <table className="ops-standard-table w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
@@ -1158,7 +1166,7 @@ const handleManualRefresh = async () => {
         </div>
       )}
 
-      <PcsOperationalTimeline arrays={arrays.map(Number).filter(Number.isFinite)} />
+      <DeferredStringTimeline arrays={arrays.map(Number).filter(Number.isFinite)} />
       <BalancingModal
         isOpen={balancingModalOpen}
         onClose={() => setBalancingModalOpen(false)}

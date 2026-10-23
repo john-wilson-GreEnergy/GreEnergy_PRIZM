@@ -29,7 +29,7 @@ export const STACK750_FAULT_MATRIX: CorrectiveActionMatrixEntry[] = [
       "Verify TEAM switch port link light is solid green."
     ],
     clearingCriteria: ["SC establishes active communications with EMS and ping returns successful."],
-    replacementGuidance: ["If replacing SC, follow Powin standard SC commissioning procedure."],
+    replacementGuidance: ["If replacing SC, follow the equipment manufacturer's applicable SC commissioning procedure."],
     escalationGuidance: ["If communications cannot be restored, escalate to Network and Comms Support."],
     source: {
       label: "Stack 750 Troubleshooting Cheat Sheet - String Issues",

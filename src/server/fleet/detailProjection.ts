@@ -1,4 +1,6 @@
-import {emptyDetails,emptyRange,issueCategories,type FleetDetails,type FleetArray,type IssueCategory,type Quality} from '../../core/fleet/details';
+import {createHash} from 'node:crypto';
+import {emptyDetails,emptyRange,issueCategories,fleetDetailLimits,type FleetDetails,type FleetArray,type IssueCategory,type Quality} from '../../core/fleet/details';
+import {projectFleetPcs} from './pcsProjection';
 import {buildArrayCellMetrics} from '../telemetry/arrayCellMetrics';
 
 type Row=Record<string,unknown>;
@@ -20,6 +22,7 @@ export function buildFleetDetails(view:unknown,snapshot:unknown):FleetDetails {
   const normalized=sameSite?object(snap.normalized):{},live=object(data.liveStatus),result=emptyDetails();
   result.observedAt=stamp(live.lastUpdated);
   result.quality=live.stale===false && live.liveSucceeded===true && live.cacheUsed!==true?'live':'stale';
+  result.pcs=projectFleetPcs(data.fleetPcsView,identity);
   const strings=rows(normalized.strings).filter(r=>!collection(r));
   const summaries=rows(data.arraySummary),pcs=rows(data.pcsSummary),health=rows(data.sourceHealth);
   const metrics=buildArrayCellMetrics(strings,summaries);
@@ -33,6 +36,7 @@ export function buildFleetDetails(view:unknown,snapshot:unknown):FleetDetails {
     const cellQuality:Quality=!reportAt || !cells || (!cells.temperatureC.reportingStrings && !cells.voltageMv.reportingStrings)?'unknown':stringSource?.stale===true || stringSource?.ok!==true || result.quality!=='live'?'stale':'live';
     return {number:id,observedAt:reportAt,quality:cellQuality,stringCount:number(summary.stringCount),onlineStrings:number(summary.onlineStringCount),outOfRotation:number(summary.outOfRotationCount),
       socPct:number(summary.onlineSOC),powerKw:number(inverter.acRealPowerKW),busVoltage:number(summary.voltageVolt),
+      socObservedAt:reportAt,socQuality:!reportAt || number(summary.onlineSOC)===null?'unknown':stringSource?.stale===true || stringSource?.ok!==true || result.quality!=='live'?'stale':'live',
       pcsState:text(inverter.state,80) || (inverters.length>1?'Multiple PCS units':'Not reported'),rotation:rotation==='IN'?'IN':rotation==='OUT'?'OUT':'UNKNOWN',
       pcsQuality:inverters.length===1?quality(inverter):'unknown',pcsObservedAt:stamp(inverter.fetchedAt),
       temperatureC:cells?.temperatureC ?? emptyRange(),voltageMv:cells?.voltageMv ?? emptyRange()} satisfies FleetArray;
@@ -51,11 +55,23 @@ export function buildFleetDetails(view:unknown,snapshot:unknown):FleetDetails {
     }
     const rank:Record<string,number>={critical:0,alarm:0,warning:1,unknown:2,info:3};
     const ordered=[...groups].sort((a,b)=>(rank[text(a.severity)] ?? 2)-(rank[text(b.severity)] ?? 2));
-    result.issues.findings=ordered.slice(0,60).map(group=>({code:text(group.code,80),title:text(group.title),category:category(group),
+    // Reserve chart payload space inside the existing bounded collector transport.
+    let targetBudget:number=fleetDetailLimits.targets,byteBudget=Math.max(0,3*1024*1024-Buffer.byteLength(JSON.stringify(data.operatingCharts??{}),'utf8'));
+    result.issues.findings=ordered.slice(0,fleetDetailLimits.groups).map(group=>{
+      const uniqueTargets=[...new Map(rows(group.targets).filter(t=>text(t.id,600)).map(t=>[text(t.id,600),t])).values()];
+      const targetRows=uniqueTargets.map(target=>{
+        const location=object(target.location);
+        const coordinate=(v:unknown)=>{const n=number(v);return n!==null && Number.isSafeInteger(n) && n>=0?n:null;};
+        return {id:createHash('sha256').update(text(target.id,600)).digest('hex').slice(0,24),label:text(target.label),array:coordinate(target.array ?? location.array),
+          string:coordinate(location.string),bpc:coordinate(location.bpc),cell:coordinate(location.cell),pcs:coordinate(location.pcs),segment:coordinate(location.segment),hvacUnit:coordinate(location.unit),...(location.block===undefined?{}:{block:coordinate(location.block)})};
+      }).sort((a,b)=>(a.array ?? Infinity)-(b.array ?? Infinity) || (a.string ?? Infinity)-(b.string ?? Infinity) || (a.segment ?? Infinity)-(b.segment ?? Infinity) || (a.pcs ?? Infinity)-(b.pcs ?? Infinity) || (a.bpc ?? Infinity)-(b.bpc ?? Infinity) || (a.cell ?? Infinity)-(b.cell ?? Infinity) || a.label.localeCompare(b.label))
+        .slice(0,targetBudget).filter(target=>{const bytes=Buffer.byteLength(JSON.stringify(target),'utf8');if(bytes>byteBudget)return false;byteBudget-=bytes;return true;});
+      targetBudget-=targetRows.length;
+      return {code:text(group.code,80),title:text(group.title),category:category(group),
       severity:['alarm','critical'].includes(text(group.severity))?'alarm':group.severity==='warning'?'warning':group.severity==='info'?'info':'unknown',
-      targetCount:new Set(rows(group.targets).map(t=>text(t.id,600)).filter(Boolean)).size,
-      targets:rows(group.targets).slice(0,6).map(t=>text(t.label))}));
-    result.issues.omittedGroups=Math.max(0,ordered.length-60);
+      targetCount:uniqueTargets.length,targetRows,
+      targets:targetRows.slice(0,6).map(t=>t.label)};});
+    result.issues.omittedGroups=Math.max(0,ordered.length-fleetDetailLimits.groups);
   }else result.issues.notes=['Detailed notification review is not available from this collector. Site totals remain separate.'];
   const sensors=rows(normalized.sensors),unique=new Map<string,Row>();
   for(const sensor of sensors){const id=text(sensor.id);if(id && sensor.stationCode===identity.stationCode && sensor.blockIndex===identity.blockIndex)unique.set(id,sensor);}

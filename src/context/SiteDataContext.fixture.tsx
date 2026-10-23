@@ -7,7 +7,7 @@ let revision=1;
 let release: (()=>void) | undefined;
 window.fetch=async(input,init)=>{
   const url=String(input);
-  if(url==='/api/local/topology/active') {
+  if(url==='/api/local/topology/active?view=profile') {
     await new Promise<void>((resolve,reject)=>{
       release=resolve;
       init?.signal?.addEventListener('abort',()=>reject(new Error('Fixture topology timeout')),{once:true});

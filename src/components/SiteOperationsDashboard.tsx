@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import {SitePowerFlow} from './SitePowerFlow';
+import './sitePowerFlow.css';
+import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import { formatTemperatureF, celsiusToFahrenheit } from "../utils/temperatureScale";
 import { getDashboardConnectionStatus } from "../utils/statusDisplay";
 import {
@@ -36,6 +39,7 @@ import RotationModal, { RotationTarget } from "./RotationModal";
 import { stringNumberToEnergySegment, formatStringEsLabel } from "../lib/stringToEsMapper";
 import HvacQuickReference from "./HvacQuickReference";
 import NotificationReviewPanel from "./NotificationReviewPanel";
+import SafetyFaultCandidatesPanel from './SafetyFaultCandidatesPanel';
 import { getHvacFeedbackProfile, supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
 
 
@@ -2151,6 +2155,7 @@ export default function SiteOperationsDashboard({
 
   const [isAdvancedMode, setIsAdvancedMode] = useState(false);
   const [legacyNotificationView] = useState(() => new URLSearchParams(window.location.search).get('notificationView') === 'legacy');
+  const [legacySafetyView] = useState(() => new URLSearchParams(window.location.search).get('safetyView') === 'legacy');
   const [expandedCorrectiveActions, setExpandedCorrectiveActions] = useState<
     Record<string, boolean>
   >({});
@@ -3194,6 +3199,8 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
         </div>
       </section>
 
+      <SitePowerFlow flow={sum?.powerFlow} siteName={`${sum?.siteIdentity?.stationCode ?? "Site"} · Block ${sum?.siteIdentity?.blockIndex ?? "—"}`}/>
+
       {/* NEW TOP LAYOUT GRID: KPI BLOCKS + STRING SUMMARY */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         {/* KPI BLOCKS */}
@@ -3763,6 +3770,15 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       </div>
     </div>
 
+    {!legacySafetyView && <SafetyFaultCandidatesPanel
+      key={sum?.site?.profileId || 'no-safety-profile'}
+      candidates={clearableFaults}
+      profileId={sum?.site?.profileId}
+      stale={!!(sum?.stale || sum?.liveStatus?.stale)}
+      unavailable={!sum?.safetySummary || sum.safetySummary.sourceOk !== true}
+      onOpenDetails={() => navigate('safety-fault')}
+    />}
+
     {/* FULL-WIDTH CORRECTIVE ACTIONS CARD */}
     {!legacyNotificationView ? <NotificationReviewPanel review={sum?.notificationReview} stale={sum?.stale || sum?.liveStatus?.stale} onEditGuidance={entryId=>{
       if(entryId) localStorage.setItem('prizm_troubleshooting_selected_entry',entryId);
@@ -4244,6 +4260,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
             </span>
           </div>
           <button
+            hidden={remoteReadOnlyWorkspace()}
             onClick={() => setIsAdvancedMode(!isAdvancedMode)}
             className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded border transition-colors ${
               isAdvancedMode
@@ -4541,7 +4558,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
       </CollapsibleSection>
 
       {/* Safety & Source Health */}
-      <CollapsibleSection
+      {legacySafetyView && <CollapsibleSection
         title="Safety Fault Candidates"
         icon={ShieldAlert}
         defaultExpanded={false}
@@ -4618,7 +4635,7 @@ const [runtimeCorrectiveSummary, setRuntimeCorrectiveSummary] = useState<any>(nu
             Open Safety Fault Clear
           </button>
         </div>
-      </CollapsibleSection>
+      </CollapsibleSection>}
 
       <CollapsibleSection
         title="Source / Cache Health"

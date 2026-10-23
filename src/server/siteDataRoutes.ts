@@ -2,15 +2,21 @@ import { Router } from "express";
 import { gzipSync } from "node:zlib";
 import { buildArrayCellMetrics } from './telemetry/arrayCellMetrics';
 import {compactStringRow, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
+import {StringFieldDeltas} from './telemetry/stringFieldDeltas';
+import {stringListContextRow} from './telemetry/stringListContext';
 import { fastStringsTransportEnabled, sendFastStringsResponse } from './telemetry/fastStringsTransport';
 import { thermalRouter } from "./thermal/thermalRoutes";
+import {createCellHistoryRouter} from './cells/cellHistoryRoutes';
+import {cellHistory} from './cells/cellHistoryRuntime';
 import {operationalTimelineRouter} from "./history/operationalTimelineRoutes";
 import {operationalTimeline} from "./history/operationalTimeline";
 import {
   getSnapshotOrNull,
+  getSiteAnalyticsView,
   getFastStringsView,
   getCompactFastStringsView,
   getEncodedFastStringsView,
+  getStringStreamMetadata,
   getCanonicalStringDetailRow,
   getSiteDataStatusView,
   getBlockSummaryView,
@@ -33,6 +39,8 @@ import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBr
 
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
+siteDataRouter.use('/cells', createCellHistoryRouter(cellHistory));
+siteDataRouter.get('/analytics', (_req,res)=>{res.setHeader('Cache-Control','no-store');res.json(getSiteAnalyticsView());});
 siteDataRouter.use("/operational-timeline", operationalTimelineRouter);
 
 const cachedBrowserSnapshots = new Map<string, {
@@ -47,6 +55,22 @@ const PUBLISHED_VIEW_INTERVAL_MS = Math.max(1_000, Number(process.env.PRIZM_PUBL
 let publishedViewTimer: NodeJS.Timeout | null = null;
 let publishedPcsTimer: NodeJS.Timeout | null = null;
 let publishedViewBuildInProgress = false;
+let deferredPublishedViewRefresh: NodeJS.Immediate | null = null;
+
+function deferPublishedViewRefresh(): void {
+  if (process.env.PRIZM_DEFER_VIEW_REFRESH === 'false') {
+    void publishBrowserViews().catch(error => console.warn('[Published Views] Preparation failed', error?.message));
+    return;
+  }
+  if (deferredPublishedViewRefresh || publishedViewBuildInProgress) return;
+  // Calling an async function still runs its first projection synchronously.
+  // Let the route finish writing its already-prepared response before work starts.
+  deferredPublishedViewRefresh = setImmediate(() => {
+    deferredPublishedViewRefresh = null;
+    void publishBrowserViews().catch(error => console.warn('[Published Views] Preparation failed', error?.message));
+  });
+  deferredPublishedViewRefresh.unref();
+}
 const demandedViewKeys = new Map<string, number>();
 const PUBLISHED_VIEW_DEMAND_TTL_MS = Math.max(10_000, Number(process.env.PRIZM_PUBLISHED_VIEW_DEMAND_TTL_MS || 30_000));
 const PUBLISHED_PCS_INTERVAL_MS = Math.max(500, Number(process.env.PRIZM_PUBLISHED_PCS_INTERVAL_MS || 1_000));
@@ -80,6 +104,7 @@ function publishPcsHttpView(recordHistory = false): boolean {
 
 type PublishedViewDefinition = {
   key: string;
+  stringContextOnly?: boolean;
   compactStringList?: boolean;
   heartbeatOnly?: boolean;
   includeArrayDetails?: boolean;
@@ -88,6 +113,7 @@ type PublishedViewDefinition = {
 };
 
 const PUBLISHED_VIEW_DEFINITIONS: PublishedViewDefinition[] = [
+  { key: "string-context-v1", compactStringList: true, stringContextOnly: true, includeStrings: true },
   { key: "string-list-v1", compactStringList: true, includeStrings: true },
   { key: "heartbeat", heartbeatOnly: true },
   { key: "standard:compact-strings:with-strings", includeStrings: true },
@@ -103,7 +129,8 @@ function serializePublishedView(source: any, definition: PublishedViewDefinition
         includeArrayDetails: definition.includeArrayDetails,
         includeStringDiagnostics: definition.includeStringDiagnostics,
         includeStrings: definition.includeStrings,
-        compactStringList: definition.compactStringList
+        compactStringList: definition.compactStringList,
+        stringContextOnly: definition.stringContextOnly
       });
   const json = JSON.stringify(browserSnapshot);
   const publishedAt = new Date().toISOString();
@@ -168,6 +195,8 @@ export function startPublishedViewCache(): void {
 }
 
 export function stopPublishedViewCache(): void {
+  if (deferredPublishedViewRefresh) clearImmediate(deferredPublishedViewRefresh);
+  deferredPublishedViewRefresh = null;
   if (publishedViewTimer) clearInterval(publishedViewTimer);
   if (publishedPcsTimer) clearInterval(publishedPcsTimer);
   publishedViewTimer = null;
@@ -213,12 +242,34 @@ function withoutDiagnosticPayload(row: any, includeStringDiagnostics = false) {
  * tens of megabytes every few seconds.
  */
 export function buildBrowserSnapshot(snapshot: any, options: {
+  stringContextOnly?: boolean;
   compactStringList?: boolean;
   includeArrayDetails?: boolean;
   includeStringDiagnostics?: boolean;
   includeStrings?: boolean;
 } = {}) {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
+
+  // The string list has its own canonical rows and on-demand detail endpoints.
+  // Do not send HVAC, safety, notification-review and corrective-action graphs
+  // on every list heartbeat. Preserve every row field, count and quality marker.
+  // This projection is prepared by the existing publisher, not device polling.
+  if (options.compactStringList && process.env.PRIZM_STRING_SNAPSHOT_SLIM !== "false") {
+    const heartbeat = buildHeartbeatSnapshot(snapshot);
+    return {
+      ...heartbeat,
+      ...(options.stringContextOnly ? {stringContextOnly:true} : {}),
+      normalized: {
+        ...heartbeat.normalized,
+        strings: (snapshot.normalized?.strings || []).map(compactStringRow).map((row: Record<string,unknown>) => options.stringContextOnly ? stringListContextRow(row) : row)
+      },
+      rollups: {
+        ...heartbeat.rollups,
+        arraySummary: (snapshot.rollups?.arraySummary || []).map(withoutDiagnosticPayload),
+        arrayCellMetrics: buildArrayCellMetrics(snapshot.normalized?.strings, snapshot.rollups?.arraySummary)
+      }
+    };
+  }
 
   const normalized = snapshot.normalized || {};
   const rollups = snapshot.rollups || {};
@@ -333,9 +384,10 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     // PCS, overview, thermal, and Feather pages use dedicated compact endpoints;
     // repeatedly transferring string rows there can starve the heartbeat request.
     const includeStrings = view === "arrays-strings" || view === "site-health" || view === "one-line";
-    const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls";
-    const compactStringList = view === "arrays-strings" && req.query.shape === "list";
-    const cacheKey = compactStringList ? "string-list-v1" : heartbeatOnly
+    const heartbeatOnly = view === "overview" || view === "pcs-dashboard" || view === "thermal-controls" || view === "cell-history";
+    const stringContextOnly = view === "arrays-strings" && req.query.shape === "list-context" && process.env.PRIZM_STRING_REFRESH !== 'false';
+    const compactStringList = view === "arrays-strings" && (req.query.shape === "list" || stringContextOnly);
+    const cacheKey = stringContextOnly ? "string-context-v1" : compactStringList ? "string-list-v1" : heartbeatOnly
       ? "heartbeat"
       : `${includeArrayDetails ? "details" : "standard"}:${includeStringDiagnostics ? "string-diagnostics" : "compact-strings"}:${includeStrings ? "with-strings" : "without-strings"}`;
     demandedViewKeys.set(cacheKey, Date.now());
@@ -352,7 +404,7 @@ siteDataRouter.get("/snapshot", async (req, res) => {
     // A view that has not been open recently may still have an older prepared
     // projection. Serve it immediately for a fast first paint, then refresh it
     // off the request path for the next browser poll.
-    if (cached.source !== snap) void publishBrowserViews();
+    if (cached.source !== snap) deferPublishedViewRefresh();
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -433,16 +485,27 @@ siteDataRouter.get("/strings-canonical/:array/:string", (req, res) => {
 });
 
 siteDataRouter.get("/strings-stream", (req, res) => {
+  const delta = req.query.shape === 'list-v2' && process.env.PRIZM_STRING_FIELD_DELTAS !== 'false' ? new StringFieldDeltas() : null;
+  if (delta) delta.seed(stringDomainBroker.projectSnapshot(compactStringRow).rows);
   res.status(200);
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
-  res.write(`event: ready\ndata: ${JSON.stringify({ version: stringDomainBroker.getVersion(), transportEpoch: stringTransportEpoch })}\n\n`);
+  res.write(`event: ready\ndata: ${JSON.stringify({ version: stringDomainBroker.getVersion(), transportEpoch: stringTransportEpoch, ...(process.env.PRIZM_STRING_REFRESH !== 'false' ? {stringRefreshVersion:1} : {}) })}\n\n`);
 
-  const unsubscribe = stringDomainBroker.subscribe((publication) => {
-    res.write(`event: strings\ndata: ${JSON.stringify(req.query.shape === "list" ? compactStringPublication(publication) : publication)}\n\n`);
-  });
+  const deliver = (publication: Parameters<typeof compactStringPublication>[0]) => {
+    const projected = delta ? delta.project(publication) : ['list','list-v2'].includes(String(req.query.shape)) ? compactStringPublication(publication) : publication;
+    const payload = {...projected, metadata:getStringStreamMetadata()};
+    // A slow client recovers from a canonical GET instead of buffering indefinitely.
+    if (res.writableLength > 8 * 1024 * 1024) { res.destroy(); return; }
+    res.write(`event: strings\ndata: ${JSON.stringify(payload)}\n\n`);
+  };
+  // Compact before the defensive copy. Delta state still receives its own
+  // isolated rows; full diagnostic subscribers retain the original payload.
+  const unsubscribe = ['list','list-v2'].includes(String(req.query.shape)) && process.env.PRIZM_PROJECTED_STRING_STREAM !== 'false'
+    ? stringDomainBroker.subscribeProjected(compactStringPublication, deliver)
+    : stringDomainBroker.subscribe(deliver);
   const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15_000);
   req.on("close", () => {
     clearInterval(heartbeat);

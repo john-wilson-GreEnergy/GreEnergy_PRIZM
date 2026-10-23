@@ -8,6 +8,7 @@ import {serializeTelemetryCache} from './serializeTelemetryCache';
 import {AsyncCacheWriter, writeAtomicCache} from './AsyncCacheWriter';
 import {prepareSnapshotTransfer, type SnapshotTransfer} from './snapshotTransfer';
 import {SnapshotCacheWorker} from './SnapshotCacheWorker';
+import {CheckpointGate} from './CheckpointGate';
 
 // Fixed for the process lifetime: switching modes requires an idle restart so
 // synchronous and queued writes can never race on the same destination.
@@ -17,9 +18,13 @@ const snapshotWorkerEnabled = asyncSnapshotCacheEnabled && process.env.PRIZM_SNA
 const emsDerivedCacheWorkerEnabled = snapshotWorkerEnabled && process.env.PRIZM_EMS_DERIVED_CACHE_WORKER !== 'false';
 const asyncSnapshotKeys = new Set(['prizm-site-snapshot', 'site-operations-summary']);
 const emsDerivedKeys = new Set(['string_dashboard_enriched_ALL', 'string_dashboard_base_ALL']);
-const snapshotWorker = new SnapshotCacheWorker();
+const snapshotWorker = new SnapshotCacheWorker(undefined,undefined,process.env.PRIZM_SNAPSHOT_WORKER_RECYCLE==='true');
+const checkpointGate = new CheckpointGate(Number(process.env.PRIZM_SNAPSHOT_MIN_INTERVAL_MS ?? 0));
+const queueMb = Number(process.env.PRIZM_SNAPSHOT_QUEUE_MAX_MB ?? 512);
+if(!Number.isFinite(queueMb)||queueMb<32||queueMb>512)throw Error('Invalid snapshot queue budget');
 let lastCacheWarningAt = 0;
 const snapshotCacheWriter = new AsyncCacheWriter<string | SnapshotTransfer>({
+  maxBytes:queueMb*1024*1024,
   write: (file, content) => typeof content === 'string' ? writeAtomicCache(file, content) : snapshotWorker.write(file, content),
   estimateBytes: content => typeof content === 'string' ? content.length * 2 + Buffer.byteLength(content) : content.bytes.byteLength * 3,
   onError: message => {
@@ -28,7 +33,7 @@ const snapshotCacheWriter = new AsyncCacheWriter<string | SnapshotTransfer>({
     console.warn('[Snapshot Cache] Persistence degraded:', message);
   }
 }});
-export const getSnapshotCachePersistenceStatus = () => ({enabled: asyncSnapshotCacheEnabled, workerEnabled: snapshotWorkerEnabled, emsDerivedWorkerEnabled: emsDerivedCacheWorkerEnabled, worker: snapshotWorker.status(), ...snapshotCacheWriter.status()});
+export const getSnapshotCachePersistenceStatus = () => ({enabled: asyncSnapshotCacheEnabled, workerEnabled: snapshotWorkerEnabled, emsDerivedWorkerEnabled: emsDerivedCacheWorkerEnabled, checkpoint:checkpointGate.status(), worker: snapshotWorker.status(), ...snapshotCacheWriter.status()});
 export const closeSnapshotCachePersistence = async () => {
   try {await snapshotCacheWriter.close();} finally {await snapshotWorker.close();}
 };
@@ -517,6 +522,10 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
           diskEntry.data = null as any; 
       }
       const phaseOptions = {waitState: 'CACHE' as const, blocking: true, parentPhaseId: profilerPhase.phaseId, metadata: {key}};
+      const destination=path.resolve(p, `${key}.json`);
+      // Live memory above remains current. Only restart checkpoints are sampled;
+      // skipped values are not serialized, cloned, queued or retained here.
+      if(!asyncPersistence || checkpointGate.shouldCapture(destination,data===null)) {
       const useWorker = asyncPersistence && snapshotWorkerEnabled;
       const serialized = useWorker
         ? coordinatorProfiler.withSyncPhase('Cache Snapshot Capture', phaseOptions, () => prepareSnapshotTransfer(diskEntry))
@@ -524,9 +533,11 @@ export function set<T>(key: string, data: T, options?: SetCacheOptions): PrizmCa
       if (asyncPersistence) {
           // Capture now to freeze the value/identity. The writer never reads
           // mutable telemetry or the active profile after this point.
-          coordinatorProfiler.withSyncPhase('Cache Enqueue', phaseOptions, () => snapshotCacheWriter.enqueue(path.resolve(p, `${key}.json`), serialized));
+          const accepted=coordinatorProfiler.withSyncPhase('Cache Enqueue', phaseOptions, () => snapshotCacheWriter.enqueue(destination, serialized));
+          if(accepted)checkpointGate.accepted(destination);
       } else {
           coordinatorProfiler.withSyncPhase('Cache File Write', phaseOptions, () => fs.writeFileSync(path.join(p, `${key}.json`), serialized as string));
+      }
       }
       // This manifest describes acquisition, not proof of disk durability.
       // Persistence completion/failure is reported separately in diagnostics.

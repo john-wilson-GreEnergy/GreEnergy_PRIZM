@@ -78,6 +78,9 @@ export class TelemetryMetricsRegistry {
     metric.latestCycleId = cycleId;
     const cycleKey = cycleId == null ? "none" : String(cycleId);
     metric.requestsByCycleId[cycleKey] = (metric.requestsByCycleId[cycleKey] || 0) + 1;
+    // Keep lifetime totals, but bound the diagnostic per-cycle window.
+    const cycleKeys = Object.keys(metric.requestsByCycleId);
+    if (cycleKeys.length > ROLLING_SAMPLE_LIMIT) delete metric.requestsByCycleId[cycleKeys.find(key => key !== cycleKey)!];
     const startedAt = this.monotonicNow();
     const attemptAt = new Date().toISOString();
     metric.requestCount += 1;

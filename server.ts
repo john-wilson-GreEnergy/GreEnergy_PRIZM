@@ -3,6 +3,7 @@ import {RuntimeShutdown} from "./src/server/runtimeShutdown";
 import {accessPilotFromEnvironment} from "./src/server/security/accessPilotRuntime";
 import {stopDiagnosticSessionPolling} from "./src/server/diagnosticSession/diagnosticSessionRoutes";
 import {closeThermalService} from "./src/server/thermal/thermalService";
+import {cellHistory} from './src/server/cells/cellHistoryRuntime';
 import {closeOperationalTimeline} from "./src/server/history/operationalTimeline";
 import {FanControlService} from "./src/server/fanControl/fanControlService";
 import {LightbarService} from "./src/server/lightbar/lightbarService";
@@ -70,7 +71,7 @@ import {
   getNotificationHybridTelemetry
 } from "./src/server/emsTurtleClient";
 import { ProfileStore, getDefaultTopologyModel } from "./src/server/profiles/profileStore";
-import { ProfileManager, validateTopologyModel, generateTopologyPreview } from "./src/server/profiles/profileManager";
+import { ProfileManager, validateTopologyModel, generateTopologyPreview, buildEmsBaseUrl } from "./src/server/profiles/profileManager";
 import { discoverTopologyCandidates } from "./src/server/feather/featherDiscovery";
 import { getFeatherCache, clearFeatherCache } from "./src/server/feather/featherClient";
 import { buildSiteTopologyFromCachedSources } from "./src/server/topology/siteTopology";
@@ -87,6 +88,7 @@ import balancerTestRouter from "./src/server/balancerTest/balancerTestRoutes";
 import fanControlRouter from "./src/server/fanControl/fanControlRoutes";
 import debugSourceScanRouter from "./src/server/debugSourceScan";
 import { troubleshootingRouter } from "./src/server/troubleshooting/troubleshootingRoutes";
+import {createCorrectiveGuidanceRouter} from './src/server/notifications/correctiveGuidance';
 import { formatAffectedTargetForDisplay, shouldShowTargetIp } from "./src/server/troubleshooting/troubleshootingResolver";
 import { getBootStatus, initializePrizmBootFlow, startBackgroundPolling, handleProfileChange } from "./src/server/startup/prizmBootOrchestrator";
 import { getSiteCommissioningStatus, reconcileCommissionedSiteTopology, runAutomaticSiteCommissioning } from "./src/server/commissioning/siteCommissioningService";
@@ -114,24 +116,32 @@ import { canonicalPublicationRouter } from "./src/server/telemetry/publication";
 
 import {pilotUi} from './src/server/security/pilotUi';
 import {collectorExportFromEnvironment} from './src/server/fleet/collectorExport';
+import {collectorOnlyEnabled, collectorOnlyGate, collectorLegacyBindAddress} from './src/server/fleet/collectorOnly';
 
 const app = express();
+// Legacy LAN entry remains independently gated. Internal workspace TLS uses
+// the same operational handlers only after Fleet authorization and enrollment.
+const entry = express();
 // Separately authenticated, opt-in collector export. Disabled by default.
 // It publishes existing canonical data, never equipment reads or writes.
-const fleetExport=collectorExportFromEnvironment(()=>({...prizmDataCoordinator.getBlockSummaryView(),fleetDetailSnapshot:prizmDataCoordinator.getSnapshotOrNull()}),enrollment=>{
+const fleetExport=collectorExportFromEnvironment(()=>({...prizmDataCoordinator.getBlockSummaryView(),fleetDetailSnapshot:prizmDataCoordinator.getSnapshotOrNull(),fleetPcsView:prizmDataCoordinator.getPcsView(),operatingCharts:prizmDataCoordinator.getOperatingChartsView()}),enrollment=>{
   const identity=prizmDataCoordinator.getSnapshotOrNull()?.siteIdentity;
-  return !!identity && identity.activeProfileId===enrollment.profileId && identity.stationCode===enrollment.stationCode &&
+  const active=ProfileStore.getActiveProfile();
+  return !!active && active.id===enrollment.profileId && active.stationCode===enrollment.stationCode && active.blockIndex===enrollment.blockIndex && buildEmsBaseUrl(active)===enrollment.emsBaseUrl &&
+    !!identity && identity.activeProfileId===enrollment.profileId && identity.stationCode===enrollment.stationCode &&
     identity.blockIndex===enrollment.blockIndex && identity.emsBaseUrl===enrollment.emsBaseUrl;
-});
-if(fleetExport)app.use('/api/fleet',fleetExport.router);
+},app);
+if(fleetExport)entry.use('/api/fleet',fleetExport.router);
+const collectorOnly=collectorOnlyEnabled();
+entry.use(collectorOnlyGate(collectorOnly));
 // Must precede every legacy API route and the large legacy body parser.
 // Opt-in restricted pilot; no authenticated request falls through this gate.
 const accessPilot = accessPilotFromEnvironment();
 if (accessPilot) {
-  app.use('/api', accessPilot);
+  entry.use('/api', accessPilot);
   // Only the dedicated sign-in entry and compiled assets are public. This handler
   // denies everything else, including legacy control aliases and the operational UI.
-  app.use(pilotUi(path.join(process.cwd(),'dist')));
+  entry.use(pilotUi(path.join(process.cwd(),'dist')));
 }
 app.get('/api/access/config',(_req,res) => res.set('Cache-Control','no-store').json({mode:'disabled'}));
 const shutdown=new RuntimeShutdown({
@@ -151,7 +161,7 @@ const shutdown=new RuntimeShutdown({
   },
   drain:async()=>{await Promise.all([prizmDataCoordinator.drainCoordinator(),stringViewerBackground.drain()]);},
   close:async()=>{
-    const results=await Promise.allSettled([closeThermalService(),closeOperationalTimeline(),prizmCache.closeSnapshotCachePersistence()]);
+    const results=await Promise.allSettled([cellHistory.close(),closeThermalService(),closeOperationalTimeline(),prizmCache.closeSnapshotCachePersistence()]);
     const errors=results.filter((r):r is PromiseRejectedResult=>r.status==="rejected");
     if(errors.length)throw new AggregateError(errors.map(r=>r.reason),"Recorder shutdown failed");
   }
@@ -266,6 +276,7 @@ app.use("/api/local/balancer-test", balancerTestRouter);
 app.use("/api/local/fan-control", fanControlRouter);
 
 app.use("/api/local/troubleshooting", troubleshootingRouter);
+app.use('/api/local/corrective-guidance',createCorrectiveGuidanceRouter());
 
 app.use("/api/local", debugSourceScanRouter);
 app.use("/api/local/debug/telemetry", telemetryMetricsRouter);
@@ -3644,18 +3655,20 @@ if (process.env.PRIZM_FORCE_DEV === "true") {
   startVite();
 } else {
   console.log("PRIZM server mode: production static client");
-  const distPath = path.join(process.cwd(), "dist");
+  const distPath = process.env.PRIZM_PUBLIC_DIRECTORY || path.join(process.cwd(), "dist");
+  if(!path.isAbsolute(distPath))throw new Error('PRIZM_PUBLIC_DIRECTORY must be absolute');
   app.use(express.static(distPath));
   app.get("*", (req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
 
-const server = app.listen(PORT, "0.0.0.0", () => {
+entry.use(app);
+const server = entry.listen(PORT, collectorLegacyBindAddress(collectorOnly), () => {
   console.log(`Server running on port ${PORT}`);
 
   try {
-    initLocalStorageMaintenance();
+    initLocalStorageMaintenance(process.argv.includes('--skip-startup-storage-cleanup'));
   } catch (err) {
     console.error("[Storage] Failed to initialize storage maintenance:", err);
   }

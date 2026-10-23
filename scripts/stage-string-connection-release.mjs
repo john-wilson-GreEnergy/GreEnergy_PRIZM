@@ -1,0 +1,24 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+const root=path.resolve(process.argv[2]);
+assert(root==='/private/tmp/prizm-string-connection-20261021-v1');
+const m=JSON.parse(fs.readFileSync(root+'/refresh-manifest.json'));
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const key='/Users/johnwilson/.ssh/prizm_dell_fleet',host='ebc@10.0.0.15';
+const ssh=command=>execFileSync('ssh',['-i',key,'-o','BatchMode=yes',host,command],{encoding:'utf8',timeout:60000,maxBuffer:4*1024*1024});
+const baseline='/opt/prizm-fleet/releases/string-startup-20261021/dist',stage='/home/ebc/prizm-string-connection-20261021';
+const treeCode=`const fs=require("fs"),crypto=require("crypto");function tree(d){const r={};for(const n of fs.readdirSync(d).sort()){const p=d+"/"+n,s=fs.lstatSync(p);if(s.isSymbolicLink())throw Error("symlink");if(s.isDirectory())for(const[k,v]of Object.entries(tree(p)))r[n+"/"+k]=v;else r[n]=crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");}return r;}console.log(JSON.stringify(tree(${JSON.stringify(baseline)})));`;
+assert.deepEqual(JSON.parse(ssh("node -e '"+treeCode+"'")),m.before,'Exact deployed baseline required');
+const upload=root+'/upload';fs.mkdirSync(upload,{recursive:false});
+for(const p of m.changed){assert(/^[a-zA-Z0-9_.\/-]+$/.test(p)&&!p.split('/').includes('..'));const b=fs.readFileSync(root+'/dist/'+p);assert.equal(sha(b),m.after[p]);fs.mkdirSync(path.dirname(upload+'/'+p),{recursive:true});fs.writeFileSync(upload+'/'+p,b);}
+fs.copyFileSync(root+'/refresh-manifest.json',upload+'/refresh-manifest.json');
+fs.copyFileSync('/private/tmp/prizm-string-refresh-20261021-v1/refresh-probe.cjs',upload+'/refresh-probe.cjs');
+ssh('test ! -e '+stage+' && test ! -e /home/ebc/prizm-string-connection-deploy.mjs && mkdir '+stage);
+execFileSync('scp',['-i',key,'-o','BatchMode=yes','-r',upload+'/.',host+':'+stage+'/'],{stdio:'inherit',timeout:60000});
+execFileSync('scp',['-i',key,'-o','BatchMode=yes',root+'/prizm-string-connection-deploy.mjs',host+':/home/ebc/prizm-string-connection-deploy.mjs'],{stdio:'inherit',timeout:60000});
+const verification=`const fs=require("fs"),c=require("crypto"),a=require("assert/strict"),root=${JSON.stringify(stage)},hash=p=>c.createHash("sha256").update(fs.readFileSync(p)).digest("hex"),m=JSON.parse(fs.readFileSync(root+"/refresh-manifest.json"));a.equal(hash(root+"/refresh-manifest.json"),${JSON.stringify(sha(fs.readFileSync(root+'/refresh-manifest.json')))});for(const p of m.changed)a.equal(hash(root+"/"+p),m.after[p]);a.equal(hash(root+"/refresh-probe.cjs"),"5ac1e836a81bf0df3954ea836574abe09994ba980b449e496cc3d678000254be");a.equal(hash("/home/ebc/prizm-string-connection-deploy.mjs"),${JSON.stringify(sha(fs.readFileSync(root+'/prizm-string-connection-deploy.mjs')))});console.log("Verified "+m.changed.length+" release files, manifest, probe and installer; production unchanged.");`;
+console.log(ssh("node -e '"+verification+"'"));
+console.log(ssh('node --check /home/ebc/prizm-string-connection-deploy.mjs'));

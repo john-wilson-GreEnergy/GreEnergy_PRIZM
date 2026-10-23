@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {tree,verify,sourceFiles} from './production-baseline-lib.mjs';
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'prizm-baseline-test-'));
+for(const dir of ['src','src/__fixtures__','scripts/.scratch','data','public','deployment/linux'])fs.mkdirSync(path.join(root,dir),{recursive:true});
+for(const file of ['server.ts','package.json','src/safe.ts','src/__fixtures__/telemetry.ts','scripts/.scratch/private.js','data/accounts.json','public/logo.svg','deployment/linux/settings.json','.env','.npmrc'])fs.writeFileSync(path.join(root,file),'fixture');
+assert.deepEqual(sourceFiles(root),['package.json','public/logo.svg','server.ts','src/safe.ts']);
+const expected=tree(root);verify(root,expected);
+fs.writeFileSync(path.join(root,'src/safe.ts'),'changed');assert.throws(()=>verify(root,expected));
+fs.symlinkSync('/unavailable',path.join(root,'src/link.ts'));assert.throws(()=>tree(root));assert(!sourceFiles(root).includes('src/link.ts'));
+console.log('PASS source allowlist, operational/credential exclusions, hash verification and tamper detection. Synthetic fixture retained at '+root);

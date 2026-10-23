@@ -24,7 +24,8 @@ const password='Only an offline fixture password';
 const account:LocalAccount={id:'fixture',email:'fixture@example.test',version:1,disabled:false,password:await hashLocalPassword(password),
   grants:[{capability:'telemetry.view',siteId:'one',blockId:'1',scope:{kind:'block'}}]};
 let auditFails=false;const events:unknown[]=[];
-const sessions=new LocalSessions(async()=>structuredClone([account]));
+let now=Date.now();
+const sessions=new LocalSessions(async()=>structuredClone([account]),()=>now,true);
 const options={origin:'http://localhost:3001',allowLoopbackHttp:true,publicDirectory:directory,
   audit:async(event:unknown)=>{if(auditFails)throw new Error('audit unavailable');events.push(event);}};
 assert.throws(()=>createFleetApp(broker,sessions,{...options,origin:'http://10.0.0.15:3001'}),/HTTPS/);
@@ -53,6 +54,7 @@ try{
   assert.equal((await request('GET','/api/fleet/summary')).status,401);
   const login=await request('POST','/api/fleet/login',{email:account.email,password});assert.equal(login.status,200);
   assert.match(login.head,/HttpOnly/);assert.match(login.head,/SameSite=Strict/);
+  assert.match(login.head,/Max-Age=86400/);
   const cookie=login.head.match(/set-cookie: ([^;]+)/i)![1];
   const auth={Cookie:cookie};
   const session=await request('GET','/api/fleet/session',undefined,auth);assert.equal(session.status,200);
@@ -67,6 +69,21 @@ try{
   assert.equal((await request('GET','/api/fleet/summary',undefined,{...auth,Host:'evil.example'})).status,403);
   assert.equal((await request('POST','/api/fleet/logout',{},auth)).status,403);
   assert.equal((await request('POST','/api/fleet/touch',{}, {...auth,'X-Prizm-Csrf':session.data.csrf})).status,200);
+  const mutationAuth={...auth,'X-Prizm-Csrf':session.data.csrf};
+  assert.equal((await request('POST','/api/fleet/monitor',{},auth)).status,403);
+  assert.equal((await request('POST','/api/fleet/monitor',{}, {...mutationAuth,Origin:'http://evil.example'})).status,403);
+  for(let minute=0;minute<16;minute++){
+    now+=60000;
+    assert.equal((await request('POST','/api/fleet/monitor',{},mutationAuth)).status,200);
+  }
+  const locked=await request('GET','/api/fleet/session',undefined,auth);
+  assert(locked.data.controlExpiresAt>now,'Shift control access survives the former idle limit');
+  assert.equal(locked.data.controlExpiresAt,locked.data.expiresAt);
+  assert.equal(locked.data.maximumAgeMs,24*3600000);
+  assert.equal((await request('POST','/api/fleet/reauthenticate',{password},auth)).status,403);
+  assert.equal((await request('POST','/api/fleet/reauthenticate',{password:'wrong'},mutationAuth)).status,403);
+  const unlocked=await request('POST','/api/fleet/reauthenticate',{password},mutationAuth);
+  assert.equal(unlocked.status,200);assert(unlocked.data.controlExpiresAt>now);
   account.disabled=true;
   assert.equal((await request('GET','/api/fleet/summary',undefined,auth)).status,401,'Revoked accounts cannot read cached fleet state');
   account.disabled=false;

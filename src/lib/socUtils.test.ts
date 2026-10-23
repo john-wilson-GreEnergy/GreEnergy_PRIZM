@@ -28,9 +28,9 @@ async function runTests() {
   const res3 = getSystemSocAndSource({}, { averageSoc: 85 });
   assertEqual(res3, { soc: 85, source: "string average" }, "Should get from string average");
 
-  // Test 4: handles fractional soc < 1
+  // Test 4: sub-1% values are already percentages
   const res4 = getSystemSocAndSource({ bessFleetSummary: { systemSocPct: 0.5 } }, null);
-  assertEqual(res4, { soc: 50, source: "native block" }, "Should convert 0.5 to 50");
+  assertEqual(res4, { soc: 0.5, source: "native block" }, "Must preserve 0.5 percent");
 
   // Test 5: bounds to 100
   const res5 = getSystemSocAndSource({ bessFleetSummary: { systemSocPct: 105 } }, null);

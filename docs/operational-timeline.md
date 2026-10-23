@@ -4,7 +4,7 @@
 
 The PCS dashboard and string list have a collapsed **Operational history & incident timeline** panel. Select an array and a 1, 12 or 24-hour window, then load a review. A first load populates the recorded string selector. Single-string reviews retain array-wide commands and PCS context. Results include coverage by source, longest unobserved interval, electrical observations, string/PCS state changes, and separately labeled PRIZM command entries. Reviews can be exported as JSON; event tables paginate in groups of 20.
 
-This is a best-effort operational timeline, not a compliance audit, fault diagnosis, protection system, or full historian replay. Commands sent through Kobold or other tools are not recorded; their effects may appear in observed telemetry. Thermal morning review continues to use its existing raw thermal history.
+This is a best-effort operational timeline, not a compliance audit, fault diagnosis, protection system, or full historian replay. Commands sent through external tools are not recorded; their effects may appear in observed telemetry. Thermal morning review continues to use its existing raw thermal history.
 
 ## Data path and authority
 

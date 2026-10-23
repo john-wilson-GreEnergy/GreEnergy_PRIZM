@@ -1,0 +1,22 @@
+/** Exact-artifact browser fixture. Loopback, synthetic accounts, no equipment. */
+import fs from 'node:fs';
+import path from 'node:path';
+import Module from 'node:module';
+import express from 'express';
+import {parse} from '@babel/parser';
+const release=path.resolve(process.argv[2]),file=release+'/fleet-server.cjs',source=fs.readFileSync(file,'utf8');
+const entry=parse(source).program.body.filter(n=>source.slice(n.start,n.end).startsWith('void main().catch('));
+if(entry.length!==1)throw Error('Unique startup required');
+const mod=new Module(file);mod.filename=file;mod.paths=[path.resolve('node_modules')];
+mod._compile(source.slice(0,entry[0].start)+source.slice(entry[0].end)+'\nmodule.exports={createMobileApp,FleetBroker,LocalSessions,readAccounts,hashLocalPassword};',file);
+const {createMobileApp,FleetBroker,LocalSessions,readAccounts,hashLocalPassword}=mod.exports;
+const dir=fs.mkdtempSync('/private/tmp/prizm-remote-admin-preview-'),accountsFile=dir+'/accounts.json',password='Preview fixture only';
+const sites=[3,4].map(n=>({siteId:'sample-ss'+n,blockId:'1',blockIndex:1,stationCode:'SIMULATED-SS'+n,name:'SS'+n+' · Synthetic only'}));
+const hash=await hashLocalPassword(password);
+fs.writeFileSync(accountsFile,JSON.stringify(['admin','viewer'].map(id=>({id,email:id+'@example.test',version:1,disabled:false,fleetAdmin:id==='admin',remoteAccess:true,remoteControlSites:[],password:hash,grants:sites.flatMap(s=>['telemetry.view','workspace.full'].map(capability=>({capability,siteId:s.siteId,blockId:s.blockId,scope:{kind:'block'}})))}))),{mode:0o600});
+const accounts=()=>readAccounts(accountsFile),app=express();
+app.use('/assets',express.static(release+'/assets'));
+app.get('/logo-transparent.svg',(_req,res)=>res.sendFile(release+'/logo-transparent.svg'));
+app.use('/fleet',createMobileApp(new FleetBroker(sites),{origin:'http://127.0.0.1:3214',allowLoopbackHttp:true,publicDirectory:release,adminAccountsFile:accountsFile,accounts,hvac:()=>({units:[],error:'Synthetic fixture',capturedAt:null}),audit:async()=>{},remoteListener:true,experience:'fleet',desktopSites:sites.map(s=>s.siteId),remoteSessions:new LocalSessions(accounts,Date.now,true,true)}));
+const server=app.listen(3214,'127.0.0.1',()=>console.log('http://127.0.0.1:3214/fleet/ — synthetic admin@example.test / Preview fixture only — no equipment connected'));
+process.once('SIGINT',()=>{server.closeAllConnections();server.close(()=>{fs.rmSync(dir,{recursive:true,force:true});process.exit(0);});});

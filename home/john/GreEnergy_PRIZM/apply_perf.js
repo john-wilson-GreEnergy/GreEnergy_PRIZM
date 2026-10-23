@@ -42,10 +42,10 @@ if (!sdStr.includes('const [refreshing, setRefreshing]')) {
 fs.writeFileSync('src/components/SiteDistributionDashboard.tsx', sdStr);
 
 // File 4: SiteSensorsDashboard.tsx -> Wait, it's actually SensorsView.tsx
-let svStr = fs.readFileSync('src/components/kobold/SensorsView.tsx', 'utf8');
+let svStr = fs.readFileSync('src/components/site-monitor/SensorsView.tsx', 'utf8');
 if (!svStr.includes('import { markPerf }')) {
     svStr = `import { markPerf } from '../../lib/perf';\n` + svStr;
 }
 svStr = svStr.replace('const loadData = async () => {\n    if (rows.length === 0) setLoading(true);\n    setRefreshing(true);', 'const loadData = async () => {\n    const t0 = performance.now();\n    if (rows.length === 0) setLoading(true);\n    setRefreshing(true);');
 svStr = svStr.replace(/setRefreshing\(false\);\n\s*\}\n\s*};\n/, `setRefreshing(false);\n      markPerf('SensorsView Refresh', t0);\n    }\n  };\n`);
-fs.writeFileSync('src/components/kobold/SensorsView.tsx', svStr);
+fs.writeFileSync('src/components/site-monitor/SensorsView.tsx', svStr);

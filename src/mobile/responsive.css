@@ -1,0 +1,59 @@
+@import "../components/bpcListDisclosure.css";
+@import "../components/hvacIssueDisclosure.css";
+@import "../components/sitePowerFlow.css";
+/* Monitoring presentation only. No new data routes or control permissions. */
+.m-wordmark img { flex: 0 0 34px; object-fit: contain; }
+.m-wordmark { min-width: 0; }
+.m-header button { flex: 0 0 46px; }
+.m-bottom { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.m-app main, .m-site-section, .m-card { min-width: 0; }
+.m-app .m-login { max-width: 520px; margin-inline: auto; }
+
+/* Portrait tablets should not be constrained to the original 480px phone frame. */
+@media (min-width: 700px) {
+  .m-app { max-width: none; border: 0; }
+  .m-bottom { width: 100%; }
+  .m-selector { display: flex; align-items: center; gap: 16px; }
+  .m-selector label { margin: 0; }
+  .m-selector select { width: min(420px, 75%); }
+  .m-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+  .m-overview > :not(.m-site-card), .m-overview.m-single-site > .m-site-card { grid-column: 1 / -1; }
+  .m-overview > .m-card { margin-bottom: 0; }
+  .m-pcs-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .m-quantities { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); }
+}
+
+/* On larger tablets and computers, keep navigation alongside the workspace. */
+@media (min-width: 1100px) and (min-height: 600px) {
+  .m-authenticated { padding-left: 188px; padding-bottom: 24px; }
+  .m-authenticated .m-bottom {
+    top: 0; bottom: 0; left: 0; width: 188px; transform: none;
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    padding: 24px 12px; border-top: 0; border-right: 1px solid #d9e4db;
+    background: #edf3ee;
+  }
+  .m-authenticated .m-bottom button {
+    flex: 0 0 auto; flex-direction: row; justify-content: flex-start;
+    gap: 12px; min-height: 48px; padding: 12px; font-size: 13px;
+  }
+  .m-authenticated .m-header, .m-authenticated .m-preview,
+  .m-authenticated .m-selector, .m-authenticated main { padding-inline: 28px; }
+  .m-authenticated main { max-width: 1800px; margin-inline: auto; }
+}
+ .m-desktop-links{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 24px;background:#eef5f1;border-bottom:1px solid #ccddd3;grid-column:1/-1}
+ .m-desktop-links a{display:inline-flex;gap:8px;align-items:center;border:1px solid #94b5a2;border-radius:7px;padding:10px 16px;color:#123c32;text-decoration:none;background:white;font-weight:600}
+.m-more { margin-block: 16px; padding: 12px; }
+.m-more summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; font-weight: 650; color: #174c3e; }
+.m-reading-list { margin: 0; }
+.m-reading-list > div { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1.4fr); gap: 12px; padding-block: 12px; border-bottom: 1px solid #dce7df; }
+.m-reading-list dt { font-size: 13px; color: #425d51; }
+.m-reading-list dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.m-reading-list small, .m-range-scroll small { display: block; font-size: 11px; color: #536c61; line-height: 1.5; margin-top: 4px; }
+.m-range-scroll { overflow-x: auto; }
+.m-range-scroll table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: right; }
+.m-range-scroll caption { text-align: left; margin-block: 12px; font-weight: 650; }
+.m-range-scroll th, .m-range-scroll td { padding: 10px 6px; border-bottom: 1px solid #dce7df; }
+.m-range-scroll th:first-child { text-align: left; }
+@media (min-width: 700px) {
+ .m-reading-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+}

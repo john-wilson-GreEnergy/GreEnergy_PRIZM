@@ -18,7 +18,7 @@ if [ ! -d ${CRON_DIR} ]; then
   exit 10
 fi
 
-# Install scripts in /etc/powin/scripts
+# Install scripts in the equipment script directory
 cd ${CRON_DIR}
 for f in ${@: 2}
 do

@@ -1,0 +1,20 @@
+# Staged pilot: SS3 stays in the host namespace. This unit moves ONLY SS4.
+[Unit]
+Description=GreEnergy Fleet staged isolated network
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory=prizm-fleet-pilot
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/flock -w 30 /run/prizm-fleet-pilot/lock /usr/bin/node /opt/prizm-fleet/current/scripts/fleet-pilot-network.mjs start /etc/prizm-fleet/network-plan.json
+ExecStop=/usr/bin/flock -w 30 /run/prizm-fleet-pilot/lock /usr/bin/node /opt/prizm-fleet/current/scripts/fleet-pilot-network.mjs stop /etc/prizm-fleet/network-plan.json
+TimeoutStartSec=90
+TimeoutStopSec=90
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

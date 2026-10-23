@@ -1,5 +1,9 @@
 import {emptyMetrics,metricKeys,type FleetView,type Reading,type SiteEnrollment,type SiteSummary,type SiteView} from '../../core/fleet/model';
 import {parseFleetDetails,ageFleetDetails} from './detailValidation';
+import {attachBpcIssueReview} from './bpcIssueReview';
+import {parseOperatingCharts} from '../analytics/operatingCharts';
+import {projectSitePowerFlow} from './powerFlow';
+import {attachFleetHvacs} from '../notifications/hvacIssueReview';
 
 export const FLEET_TTL_MS=15_000;
 const record=(v:unknown):v is Record<string,unknown>=>!!v && typeof v==='object' && !Array.isArray(v);
@@ -30,8 +34,12 @@ export function parseSummary(value:unknown,site:SiteEnrollment):SiteSummary {
       (['strings','warnings','alarms'].includes(key) && !Number.isSafeInteger(v))))throw new Error('Invalid metric range');
     metrics[key]={value:v,observedAt:r.observedAt as string|null,quality:r.quality as Reading['quality'],source:r.source};
   }
+  const details=parseFleetDetails(value.details);
+  const operatingCharts=parseOperatingCharts(value.operatingCharts);
+  if(operatingCharts&&operatingCharts.site!==`${site.stationCode} / Block ${site.blockIndex}`)throw new IdentityConflict('Chart site identity conflict');
+  if(process.env.PRIZM_FLEET_BPC_REVIEW!=='false')attachBpcIssueReview(details.issues,site,details.arrays.map(a=>a.number));
   return {schema:'prizm-site-summary-v1',siteId:site.siteId,blockId:site.blockId,stationCode:site.stationCode,blockIndex:site.blockIndex,
-    stale:value.stale,observedAt:value.observedAt as string|null,metrics,details:parseFleetDetails(value.details)};
+    stale:value.stale,observedAt:value.observedAt as string|null,metrics,details,...(operatingCharts?{operatingCharts}:{})};
 }
 type Entry={summary:SiteSummary|null; receivedAt:string|null; failure:'unavailable'|'identity-conflict'|null};
 /** Canonical fleet state only. Never accesses equipment, credentials or routes. */
@@ -67,7 +75,10 @@ export class FleetBroker {
       const metrics=structuredClone(summary?.metrics ?? emptyMetrics());
       for(const key of metricKeys){const r=metrics[key],age=observationAge(r.observedAt,now);
         if(status!=='current' || age===null || age>=FLEET_TTL_MS)r.quality=r.value===null?'unknown':'stale';}
-      return {...site,status,observedAt:summary?.observedAt ?? null,ageMs,lastReceivedAt:entry?.receivedAt ?? null,metrics,details:ageFleetDetails(summary?.details,now,status==='current')};
+      const view:SiteView={...site,status,observedAt:summary?.observedAt ?? null,ageMs,lastReceivedAt:entry?.receivedAt ?? null,metrics,details:ageFleetDetails(summary?.details,now,status==='current'),operatingCharts:status==='identity-conflict'?undefined:structuredClone(summary?.operatingCharts)};
+      if(process.env.PRIZM_FLEET_POWER_FLOW!=='false')view.powerFlow=projectSitePowerFlow(view,now);
+      attachFleetHvacs(view.details.issues);
+      return view;
     });
     const totals=Object.fromEntries(metricKeys.map(key=>{
       const eligible=sites.filter(s=>s.status==='current' && s.metrics[key].quality==='live' && s.metrics[key].value!==null &&

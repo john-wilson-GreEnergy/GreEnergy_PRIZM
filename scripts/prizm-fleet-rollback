@@ -1,0 +1,4 @@
+#!/bin/sh
+# Host-admin recovery for the reviewed Dell staged pilot; retains saved data.
+set -eu
+exec /usr/bin/node /opt/prizm-fleet/current/scripts/fleet-pilot-rollback.mjs --restore-staged-pilot

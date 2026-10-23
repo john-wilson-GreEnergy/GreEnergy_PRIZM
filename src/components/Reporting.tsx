@@ -1,4 +1,5 @@
 import { markPerf } from '../lib/perf';
+import { workspaceReadUrl } from '../lib/fleetWorkspace';
 import React, { useState, useEffect } from "react";
 import { 
   FileSpreadsheet, 
@@ -627,7 +628,7 @@ export default function Reporting({
 
             <div className="flex gap-2">
               <a
-                href={`/api/local/diagnostic-session/${diagnosticSession.id}/export/json`}
+                href={workspaceReadUrl(`/api/local/diagnostic-session/${diagnosticSession.id}/export/json`)}
                 download={`diagnostic_session_${diagnosticSession.id}_export.json`}
                 className="px-3 py-2 bg-black/40 hover:bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-1 cursor-pointer"
               >
@@ -635,7 +636,7 @@ export default function Reporting({
                 Export JSON
               </a>
               <a
-                href={`/api/local/diagnostic-session/${diagnosticSession.id}/export/csv`}
+                href={workspaceReadUrl(`/api/local/diagnostic-session/${diagnosticSession.id}/export/csv`)}
                 className="px-3 py-2 bg-black/40 hover:bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <FileArchive size={11} />
@@ -710,7 +711,7 @@ export default function Reporting({
                 </span>
                 <div className="flex gap-2">
                   <a
-                    href={`/api/local/diagnostic-session/${diagnosticSession.id}/export/json`}
+                    href={workspaceReadUrl(`/api/local/diagnostic-session/${diagnosticSession.id}/export/json`)}
                     download={`diagnostic_session_${diagnosticSession.id}_export.json`}
                     className="px-2 py-1 bg-black/40 hover:bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-[9px] uppercase font-bold transition-colors flex items-center gap-1 cursor-pointer"
                   >
@@ -718,7 +719,7 @@ export default function Reporting({
                     JSON Journal
                   </a>
                   <a
-                    href={`/api/local/diagnostic-session/${diagnosticSession.id}/export/csv`}
+                    href={workspaceReadUrl(`/api/local/diagnostic-session/${diagnosticSession.id}/export/csv`)}
                     className="px-2 py-1 bg-black/40 hover:bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-[9px] uppercase font-bold transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <FileArchive size={10} />

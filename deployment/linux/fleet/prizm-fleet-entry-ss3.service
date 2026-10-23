@@ -1,0 +1,24 @@
+[Unit]
+Description=GreEnergy Fleet HTTPS entry on existing SS3 host
+BindsTo=prizm-fleet-network.service
+After=prizm-fleet-network.service
+
+[Service]
+Type=simple
+User=prizm-entry-ss3
+Group=prizm-entry-ss3
+Environment=PRIZM_FLEET_ENTRY_CONFIG=/etc/prizm-fleet/entry-ss3.json
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/dist/fleet-entry.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

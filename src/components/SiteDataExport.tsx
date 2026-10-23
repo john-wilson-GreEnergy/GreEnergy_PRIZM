@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { workspaceReadUrl } from '../lib/fleetWorkspace';
 import { Camera, FileText, Download, Trash2, CheckCircle, AlertTriangle, FileJson, RefreshCw, FileArchive, Activity, Layers } from 'lucide-react';
 
 export default function SiteDataExport() {
@@ -330,8 +331,8 @@ export default function SiteDataExport() {
                   <td className="p-2 font-bold text-prizm-text">{r.title}</td>
                   <td className="p-2 text-prizm-text-muted">{new Date(r.createdAt).toLocaleString()}</td>
                   <td className="p-2 flex gap-2">
-                    {r.pdfPath && <a href={`/api/local/reports/download/${r.reportId}/report.pdf`} download className="text-cyan-400 hover:underline">PDF</a>}
-                    {r.jsonPath && <a href={`/api/local/reports/download/${r.reportId}/report.json`} download className="text-cyan-400 hover:underline">JSON</a>}
+                    {r.pdfPath && <a href={workspaceReadUrl(`/api/local/reports/download/${r.reportId}/report.pdf`)} download className="text-cyan-400 hover:underline">PDF</a>}
+                    {r.jsonPath && <a href={workspaceReadUrl(`/api/local/reports/download/${r.reportId}/report.json`)} download className="text-cyan-400 hover:underline">JSON</a>}
                     {r.csvPaths?.length > 0 && <span className="text-cyan-400 cursor-help" title="CSV available via direct download">CSV</span>}
                   </td>
                   <td className="p-2 text-right">

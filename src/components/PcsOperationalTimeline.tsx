@@ -28,15 +28,15 @@ export function TimelineResults({report}: {report: TimelineReport}) {
     </>}
     {report.balancing && <BalancingProgressReview report={report.balancing} selectedString={report.selectedString}/>}
     <h3 className="font-bold text-sm mt-4">State changes &amp; recorded PRIZM commands</h3>
-    <p className="text-xs text-prizm-text-muted mb-2">Observed changes are not command acknowledgments or fault diagnoses. Command results are labeled separately and do not prove causation. Commands issued through Kobold or other tools are not captured here. Unobserved transitions during gaps are unknown. Times use this browser’s local timezone.</p>
+    <p className="text-xs text-prizm-text-muted mb-2">Observed changes are not command acknowledgments or fault diagnoses. Command results are labeled separately and do not prove causation. Commands issued through external tools are not captured here. Unobserved transitions during gaps are unknown. Times use this browser’s local timezone.</p>
     {report.eventsTruncated && <p className="text-amber-800 text-xs">Showing the latest 300 events. Choose a shorter window for earlier detail.</p>}
     {report.samples > 0 && !report.events.length && <p className="text-xs">No recorded state changes in this window. Check coverage before concluding the equipment was unchanged.</p>}
     <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-xs text-left"><thead><tr><th className="p-2">Recorded at</th><th className="p-2">Target</th><th className="p-2">Evidence</th><th className="p-2">Source</th><th className="p-2">Detail</th></tr></thead><tbody>{report.events.slice(page * 20, (page + 1) * 20).map((event, i) => <tr key={i} className="border-t border-prizm-border align-top"><td className="p-2 whitespace-nowrap">{new Date(event.at).toLocaleString()}</td><td className="p-2 whitespace-nowrap">{event.label}</td><td className="p-2">{event.kind === "command" ? "COMMAND" : "OBSERVED"}</td><td className="p-2">{event.source}</td><td className="p-2 min-w-[260px]">{event.message}{event.commandId && <div className="text-prizm-text-muted mt-1 break-all">Command ID: {event.commandId}</div>}</td></tr>)}</tbody></table></div>
     {report.events.length > 20 && <div className="flex gap-3 items-center text-xs mt-3"><button disabled={!page} onClick={() => setPage(p => p - 1)}>Previous events</button><span>Page {page + 1} of {Math.ceil(report.events.length / 20)}</span><button disabled={(page + 1) * 20 >= report.events.length} onClick={() => setPage(p => p + 1)}>Next events</button></div>}
   </>;
 }
-export default function PcsOperationalTimeline({arrays}: {arrays: number[]}) {
-  const [open, setOpen] = useState(false), [array, setArray] = useState(arrays[0] || 1), [hours, setHours] = useState(1);
+export default function PcsOperationalTimeline({arrays,embedded=false}: {arrays: number[];embedded?:boolean}) {
+  const [open, setOpen] = useState(embedded), [array, setArray] = useState(arrays[0] || 1), [hours, setHours] = useState(1);
   const [string, setString] = useState(0), [strings, setStrings] = useState<number[]>([]);
   const [status, setStatus] = useState<Status | null>(null), [report, setReport] = useState<TimelineReport | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
@@ -63,8 +63,9 @@ export default function PcsOperationalTimeline({arrays}: {arrays: number[]}) {
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: "application/json"}));
     const link = document.createElement("a"); link.href = url; link.download = `prizm-history-array-${report.array}${report.selectedString ? `-string-${report.selectedString}` : ""}-${report.to}.json`; link.click(); URL.revokeObjectURL(url);
   }
-  return <details className="rounded border border-prizm-border bg-white p-4 mb-5" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer font-bold text-sm">Operational history &amp; incident timeline</summary>
+  const Container=embedded?'section':'details';
+  return <Container className={embedded?'':'rounded border border-prizm-border bg-white p-4 mb-5'} open={embedded?undefined:open} onToggle={embedded?undefined:event => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
+    {!embedded&&<summary className="cursor-pointer font-bold text-sm">Operational history &amp; incident timeline</summary>}
     {open && <div className="mt-3">
       <p className="text-xs text-prizm-text-muted mb-3">Seven-day local recording from existing telemetry. Review balancing progress, PCS readings, string contactor requests and feedback, rotation, EMS app states and power settings, and PRIZM command results. This review never sends equipment commands.</p>
       <p className="text-xs text-prizm-text-muted mb-3">Historical reviews refresh on request and may reuse a result for up to 30 seconds. Live telemetry above continues independently.</p>
@@ -80,5 +81,5 @@ export default function PcsOperationalTimeline({arrays}: {arrays: number[]}) {
       {error && <p role="alert" className="text-amber-900 bg-amber-50 border border-amber-300 rounded p-3 mt-3 text-xs">{error}</p>}
       {report && <TimelineResults report={report}/>}
     </div>}
-  </details>;
+  </Container>;
 }

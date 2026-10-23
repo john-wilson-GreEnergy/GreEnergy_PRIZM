@@ -1,0 +1,45 @@
+# Only reviewed ss3/ss4 instances may be installed.
+[Unit]
+Description=GreEnergy PRIZM Fleet HTTPS entry for %i
+BindsTo=prizm-fleet-network.service
+After=prizm-fleet-network.service prizm-fleet.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=prizm-entry-%i
+Group=prizm-entry-%i
+WorkingDirectory=/opt/prizm-fleet/current
+NetworkNamespacePath=/run/netns/prizm-%i
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=32
+Environment=PRIZM_FLEET_ENTRY_CONFIG=/etc/prizm-fleet/entry-%i/entry.json
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/dist/fleet-entry.cjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TasksMax=32
+MemoryAccounting=yes
+MemoryHigh=96M
+MemoryMax=128M
+MemorySwapMax=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

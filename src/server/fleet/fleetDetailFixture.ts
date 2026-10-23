@@ -3,7 +3,9 @@ export function fleetDetailFixture(stationCode:string,stamp:string,siteIndex=0){
   const identity={stationCode,blockIndex:1},strings:Record<string,unknown>[]=[],sensors:Record<string,unknown>[]=[],summaries:Record<string,unknown>[]=[],pcs:Record<string,unknown>[]=[],health:Record<string,unknown>[]=[];
   for(let array=1;array<=8;array++){
     summaries.push({arrayIndex:array,stringCount:40,onlineStringCount:array===3?38:40,outOfRotationCount:array===3?2:0,onlineSOC:48.2+siteIndex*14.2+(array-4)*.4,voltageVolt:1371+array*2});
-    pcs.push({arrayNumber:array,pcsIndex:1,state:array===3?'Standby':'Grid feed',rotationStatus:'IN',acRealPowerKW:(siteIndex?720:1250)/8,fetchedAt:stamp,communicating:true,sourceOk:true,stale:false});
+    pcs.push({arrayNumber:array,pcsIndex:1,state:array===3?'Standby':'Grid feed',rotationStatus:'IN',acRealPowerKW:(siteIndex?720:1250)/8,fetchedAt:stamp,communicating:true,sourceOk:true,stale:false,
+      pcsSwitches:{source:'SMA_WEB_PROCESS_DATA',capturedAt:stamp,stale:false,inverterOperatingState:array===3?'Waiting DC':'Grid feed',acSwitch:array===3?'OPEN':'CLOSED',dcSwitch1:'CLOSED',dcSwitch2:'CLOSED',dcSwitch3:'CLOSED',
+        smaProcessData:{insulationResistanceKOhm:{value:749.9,readingState:'live',observedAt:stamp},maxIgbtTemperatureC:{value:37.8,readingState:'live',observedAt:stamp}}}});
     health.push({name:`array-${array}-report`,ok:true,stale:false,lastUpdated:stamp});
     for(let string=1;string<=40;string++){
       const v=3260+array*2+string%7,t=23+siteIndex+array*.6+(string%5)*.2;
@@ -18,7 +20,7 @@ export function fleetDetailFixture(stationCode:string,stamp:string,siteIndex=0){
         gasStatus:'NOT_TRIPPED',gasCommunicating:true,smokeStatus:'NOT_TRIPPED',smokeCommunicating:true,fireSuppressionStatus:'NOT_TRIPPED',fireSuppressionCommunicating:true});
     }
   }
-  const target=(array:number,string:number)=>({id:`string:${array}:${string}`,label:`Array ${array} / String ${string}`});
+  const target=(array:number,string:number)=>({id:`string:${array}:${string}`,label:`Array ${array} / String ${string}`,array,location:{string}});
   const groups=siteIndex===0?[
     {code:'1003',title:'String high voltage',category:'String / Cell',section:'equipment',severity:'alarm',targets:[target(1,2)]},
     {code:'2008',title:'Battery pack voltage delta',category:'String / Cell',section:'equipment',severity:'warning',targets:[target(2,4),target(2,8),target(4,11)]},
@@ -26,7 +28,7 @@ export function fleetDetailFixture(stationCode:string,stamp:string,siteIndex=0){
     {code:'CONTACTOR',title:'String contactors open',category:'String / Cell',section:'availability',severity:'warning',targets:[target(3,17),target(3,18)]},
   ]:[{code:'2008',title:'Battery pack voltage delta',category:'String / Cell',section:'equipment',severity:'warning',targets:[target(4,5),target(4,6)]},
     {code:'HVAC',title:'Cooling performance review',category:'HVAC / Environmental',section:'equipment',severity:'warning',targets:[{id:'hvac:2:3',label:'Array 2 / ES3 · HVAC 1'}]}];
-  const view={siteIdentity:identity,liveStatus:{lastUpdated:stamp,stale:false,liveSucceeded:true,cacheUsed:false},arraySummary:summaries,pcsSummary:pcs,sourceHealth:health,
+  const view={siteIdentity:identity,liveStatus:{lastUpdated:stamp,stale:false,liveSucceeded:true,cacheUsed:false},arraySummary:summaries,pcsSummary:pcs,sourceHealth:health,fleetPcsView:{siteIdentity:{...identity},pcs},
     notificationReview:{version:1,capturedAt:stamp,groups,sourceWarnings:[]}};
   return {view,snapshot:{siteIdentity:{...identity},normalized:{strings,sensors}}};
 }

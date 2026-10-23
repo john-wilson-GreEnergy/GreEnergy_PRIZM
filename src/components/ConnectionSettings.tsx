@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import { workspaceReadUrl } from '../lib/fleetWorkspace';
+import { formatStorageBytes, formatStorageFolder, storageUsedPercent, type StorageStatus } from '../lib/storagePresentation';
 import { 
   Plus, 
   Edit, 
@@ -132,7 +134,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Storage and policy states
-  const [storageStatus, setStorageStatus] = useState<any>(null);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   const [storagePolicyState, setStoragePolicyState] = useState<any>(null);
   const [storageLoading, setStorageLoading] = useState<boolean>(false);
   const [localDataLoading, setLocalDataLoading] = useState<boolean>(true);
@@ -731,7 +733,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
   };
 
   const handleExport = () => {
-    window.location.href = "/api/settings/profiles/export";
+    window.location.href = workspaceReadUrl("/api/settings/profiles/export");
   };
 
   const handleImportClick = () => {
@@ -1144,7 +1146,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
                       onClick={() => setFormProfile(prev => ({ ...prev, sensorMonitoringProfile: JSON.parse(JSON.stringify(DEFAULT_SENSOR_PROFILE)) }))}
                       className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-semibold transition-colors"
                     >
-                      Reset to Stack750/Kobold Default
+                      Reset to Stack750 EMS Default
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-500 italic">
@@ -1442,14 +1444,8 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
       )}
 
       {(() => {
-        const formatBytesUI = (bytes: number | null | undefined): string => {
-          if (bytes === null || bytes === undefined || bytes < 0) return "0 MB";
-          const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-          const i = Math.floor(Math.log(bytes) / Math.log(1024));
-          if (i <= 0) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-          const val = bytes / Math.pow(1024, i);
-          return `${val.toFixed(1)} ${sizes[i]}`;
-        };
+        const formatBytesUI = formatStorageBytes;
+        const usedPercent = storageUsedPercent(storageStatus?.disk);
 
         return mode !== "profile" && storageStatus && storagePolicyState && (
           <div className="p-4 border border-prizm-border rounded-lg bg-prizm-surface-strong mt-6 space-y-6">
@@ -1510,25 +1506,17 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
               <div className="flex justify-between text-[11px]">
                 <span className="text-prizm-text-muted">Root Filesystem Status:</span>
                 <span className="text-prizm-text font-bold">
-                  {formatBytesUI(storageStatus.freeBytes)} Free of {formatBytesUI(storageStatus.totalBytes)}
+                  {formatBytesUI(storageStatus.disk?.freeBytes)} Free of {formatBytesUI(storageStatus.disk?.totalBytes)}
                 </span>
               </div>
               {/* Custom Progress Bar */}
-              <div className="h-2 w-full bg-prizm-border rounded-full overflow-hidden">
+              <div className="h-2 w-full bg-prizm-border rounded-full overflow-hidden" aria-label={usedPercent === null ? "Disk usage unavailable" : "Disk usage"}>
                 <div
                   className={`h-full transition-all duration-500 ${
                     storageStatus.lowDisk ? "bg-red-500 animate-pulse" : "bg-cyan-500"
                   }`}
                   style={{
-                    width: `${Math.min(
-                      100,
-                      Math.max(
-                        5,
-                        ((storageStatus.totalBytes - storageStatus.freeBytes) /
-                          (storageStatus.totalBytes || 1)) *
-                          100
-                      )
-                    )}%`,
+                    width: `${usedPercent ?? 0}%`,
                   }}
                 />
               </div>
@@ -1537,15 +1525,15 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
             {/* Directory Sizes Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { label: ".prizm-history", bytes: storageStatus.folders.prizmHistory },
-                { label: ".prizm-cache", bytes: storageStatus.folders.prizmCache },
-                { label: "node_modules", bytes: storageStatus.folders.nodeModules },
-                { label: "data/", bytes: storageStatus.folders.data },
-                { label: "dist/", bytes: storageStatus.folders.dist },
+                { label: ".prizm-history", folder: storageStatus.folders?.history },
+                { label: ".prizm-cache", folder: storageStatus.folders?.runtimeCache },
+                { label: "node_modules", folder: storageStatus.folders?.nodeModules },
+                { label: "data/", folder: storageStatus.folders?.data },
+                { label: "dist/", folder: storageStatus.folders?.dist },
               ].map((dir, i) => (
                 <div key={i} className="bg-black/10 p-2.5 rounded border border-white/[0.03] flex flex-col justify-between">
                   <span className="text-[10px] text-prizm-text-muted truncate block">{dir.label}</span>
-                  <span className="text-xs font-bold text-prizm-primary mt-1">{formatBytesUI(dir.bytes)}</span>
+                  <span className="text-xs font-bold text-prizm-primary mt-1">{formatStorageFolder(dir.folder)}</span>
                 </div>
               ))}
             </div>
@@ -1693,7 +1681,7 @@ export default function ConnectionSettings({ onProfileChanged, mode = "all" }: C
             {/* Footer Metadata */}
             <div className="flex justify-between items-center text-[10px] text-prizm-text-muted">
               <span>
-                Last Cleanup: {storageStatus.lastCleanupTime ? new Date(storageStatus.lastCleanupTime).toLocaleString() : "Running periodically"}
+                Last Cleanup: {storageStatus.lastCleanupAt ? new Date(storageStatus.lastCleanupAt).toLocaleString() : "Unavailable"}
               </span>
               <span>Policy synced to `prizm_storage_policy.json`</span>
             </div>

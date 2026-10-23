@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
+import {mkdtemp,readFile,chmod,lstat,symlink} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {refresh,validateKeys,issuer} from './refreshRemoteKeys.mjs';
+const dir=await mkdtemp(path.join(os.tmpdir(),'prizm-jwks-')),file=path.join(dir,'keys.json');
+const {publicKey}=generateKeyPairSync('rsa',{modulusLength:2048}),key={...publicKey.export({format:'jwk'}),kid:'fixture'};
+assert.equal(validateKeys({keys:[key]}).length,1);
+for(const keys of [[],[key,key],[{...key,d:'private'}],[{...key,alg:'none'}]])assert.throws(()=>validateKeys({keys}));
+const mock=async(url,options)=>{assert.equal(url,issuer+'/cdn-cgi/access/certs');assert.equal(options.redirect,'error');return new Response(JSON.stringify({keys:[key]}),{headers:{'content-type':'application/json'}});};
+assert.equal(await refresh(mock,file),1);const good=await readFile(file,'utf8');assert.equal((await lstat(file)).mode&0o777,0o644);
+await assert.rejects(refresh(async()=>new Response('x'),file));assert.equal(await readFile(file,'utf8'),good);
+await assert.rejects(refresh(async()=>new Response('x'.repeat(65537),{headers:{'content-type':'application/json'}}),file));
+await symlink(file,file+'.new');await assert.rejects(refresh(mock,file));assert.equal(await readFile(file,'utf8'),good);
+await chmod(dir,0o777);await assert.rejects(refresh(mock,file));
+console.log('PASS bounded public-key refresh, validated RSA keys, atomic replacement, permissions and fail-closed retention');

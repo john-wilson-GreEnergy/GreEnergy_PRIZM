@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import {FleetStore} from './FleetStore';
+import {fleetRefreshMs} from '../core/fleet/pollingCadence';
+for(const invalid of [undefined,null,0,-1,500,5000,NaN,Infinity,'bad'])assert.equal(fleetRefreshMs(invalid),4000);
+assert.equal(fleetRefreshMs(1000),1000);assert.equal(fleetRefreshMs('2000'),2000);assert.equal(fleetRefreshMs(4000),4000);
 import {FleetBroker} from '../server/fleet/FleetBroker';
 const broker=new FleetBroker([{siteId:'test',blockId:'1',stationCode:'TEST',blockIndex:1,name:'Fixture'}]);
 let resolveSummary:((response:Response)=>void)|undefined;

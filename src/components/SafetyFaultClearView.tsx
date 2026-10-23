@@ -1,5 +1,35 @@
 import React, { useState, useEffect } from "react";
 import { ShieldAlert, AlertTriangle, RefreshCw, Cpu, CheckCircle, XCircle } from "lucide-react";
+import SafetyFaultCandidatesPanel from './SafetyFaultCandidatesPanel';
+import {candidateBlockedReason, type SafetyCandidate} from '../lib/safetyFaultSelection';
+
+export default function SafetyFaultClearView() {
+  const [legacy] = useState(() => new URLSearchParams(window.location.search).get('safetyView') === 'legacy');
+  return legacy ? <LegacySafetyFaultClearView/> : <SelectedSafetyFaultClearView/>;
+}
+
+function SelectedSafetyFaultClearView() {
+  const [data, setData] = useState<{profileId?: string; eligible?: SafetyCandidate[]; sources?: {blockviewer?: {ok: boolean}; lastCall?: {ok: boolean}}}>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/local/safety-fault-clear/candidates');
+      const payload = await response.json();
+      if (!response.ok || payload.error) throw Error(payload.error || 'Safety data unavailable');
+      setData(payload); setError('');
+    } catch (error) {setError(error instanceof Error ? error.message : String(error));}
+    finally {setLoading(false);}
+  };
+  useEffect(() => {void refresh();}, []);
+  return <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
+    <div className="flex items-center justify-between"><h1 className="text-lg font-bold">Safety Clear</h1><button type="button" disabled={loading} onClick={refresh} className="rounded border border-prizm-border px-3 py-2">{loading ? 'Refreshing…' : 'Refresh candidates'}</button></div>
+    {error && <p role="alert">{error}</p>}
+    <SafetyFaultCandidatesPanel key={data?.profileId || 'no-profile'} profileId={data?.profileId} candidates={data?.eligible || []}
+      stale={!!error || loading} unavailable={!data || !data.sources?.blockviewer?.ok || !data.sources?.lastCall?.ok}/>
+  </div>;
+}
 
 interface Candidate {
   id: string;
@@ -15,6 +45,7 @@ interface Candidate {
   ready: boolean;
   communicating: boolean;
   allowFaultReset: boolean;
+  resetBlockedReason?: string;
   stationCode: string;
   blockIndex: string;
   source: string;
@@ -24,7 +55,7 @@ interface Candidate {
   lastSeen: string;
 }
 
-export default function SafetyFaultClearView() {
+function LegacySafetyFaultClearView() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
@@ -57,7 +88,7 @@ export default function SafetyFaultClearView() {
   }, []);
 
   const handleExecute = async () => {
-    if (!selectedCandidate) return;
+    if (!selectedCandidate || !isEligible(selectedCandidate)) return;
     setProcessing(true);
     setExecuteResult(null);
 
@@ -91,7 +122,8 @@ export default function SafetyFaultClearView() {
     }
   };
 
-  const isEligible = (c: Candidate) => c.allowFaultReset && c.entityKeyToken && data?.profileId;
+  const isEligible = (c: Candidate) => !candidateBlockedReason(c) && data?.profileId &&
+    data?.sources?.blockviewer?.ok && data?.sources?.lastCall?.ok && !loading && !loadError;
 
   if (loading && !data) {
      return <div className="p-8 text-prizm-text-muted font-mono uppercase text-xs flex justify-center">Loading Blockviewer Topology...</div>;
@@ -193,6 +225,7 @@ export default function SafetyFaultClearView() {
                                <span className="bg-prizm-danger/10 text-prizm-danger rounded px-2 py-0.5 font-bold uppercase">TRUE</span>
                             </td>
                             <td className="px-4 py-3 text-center">
+                                {candidateBlockedReason(item) && <p className="text-xs mb-2">{candidateBlockedReason(item)}</p>}
                                 <button 
                                    disabled={!isEligible(item)}
                                    onClick={() => {
@@ -384,7 +417,7 @@ export default function SafetyFaultClearView() {
                   {!executeResult && (
                      <button
                         onClick={handleExecute}
-                        disabled={processing || (confirmationInput !== selectedCandidate.entityKeyToken && confirmationInput !== "CLEAR FAULT")}
+                        disabled={processing || !isEligible(selectedCandidate) || (confirmationInput !== selectedCandidate.entityKeyToken && confirmationInput !== "CLEAR FAULT")}
                         className="bg-prizm-danger hover:bg-red-500 text-white px-6 py-2 rounded font-bold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                      >
                         {processing ? <RefreshCw size={14} className="animate-spin" /> : null}

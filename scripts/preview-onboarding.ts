@@ -1,0 +1,25 @@
+// Disposable loopback-only UI fixture. No production accounts or equipment.
+import express from 'express';
+import {createServer} from 'node:http';
+import {mkdtemp,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {FleetBroker} from '../src/server/fleet/FleetBroker';
+import {createFleetApp} from '../src/server/fleet/fleetApp';
+import {createMobileApp} from '../src/server/fleet/mobileApp';
+import {passwordSetup} from '../src/server/fleet/passwordSetup';
+import {LocalSessions} from '../src/server/security/localSessions';
+import {hashLocalPassword,readAccounts} from '../src/server/security/localAccounts';
+import {manageFleetAccount} from '../src/server/fleet/accountManagement';
+import {unavailableHvac} from '../src/server/fleet/mobileHvacProjection';
+const directory=await mkdtemp(path.join(tmpdir(),'prizm-onboarding-preview-'));
+const file=path.join(directory,'accounts.json'),origin='http://127.0.0.1:3209',password='Preview fixture only';
+const sites=[3,4].map(n=>({siteId:'sample-ss'+n,blockId:'1',blockIndex:1,stationCode:'SIMULATED-SS'+n,name:'Solar Star '+n+' · Sample'}));
+await writeFile(file,JSON.stringify([{id:'preview-admin',email:'admin@example.test',version:1,disabled:false,fleetAdmin:true,password:await hashLocalPassword(password),grants:sites.map(s=>({capability:'telemetry.view',siteId:s.siteId,blockId:s.blockId,scope:{kind:'block'}}))}]),{mode:0o600});
+await manageFleetAccount(file,sites,{kind:'invite',email:'tech@example.test',siteIds:[sites[0].siteId],remoteAccess:true});
+const broker=new FleetBroker(sites),app=express(),accounts=()=>readAccounts(file),audit=async()=>{};
+app.use('/mobile',createMobileApp(broker,{origin,allowLoopbackHttp:true,publicDirectory:path.resolve('dist'),accounts,hvac:()=>unavailableHvac(),audit,setup:passwordSetup(file,sites,audit)}));
+app.use(createFleetApp(broker,new LocalSessions(accounts,Date.now,true),{origin,allowLoopbackHttp:true,simulated:true,publicDirectory:path.resolve('dist'),accountsFile:file,audit}));
+const server=createServer(app);
+server.listen(3209,'127.0.0.1',()=>console.log('Fixture only: '+origin+' — admin@example.test / Preview fixture only'));
+for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>{server.closeAllConnections();server.close(()=>process.exit(0));});

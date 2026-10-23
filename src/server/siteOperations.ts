@@ -25,6 +25,7 @@ import { telemetryBindingRuntime } from "./telemetry/binding/TelemetryBindingRun
 import { observationRuntime } from "./observations/ObservationRuntime";
 import { buildSafetyFaultCandidateSnapshot } from "./safetyFaultClear";
 import { siteArrayCandidates } from './normalizers/arrayCandidateSearch';
+import { findPcsCandidates } from './normalizers/pcsCandidateSearch';
 import { coordinatorProfiler } from './telemetry/profiler';
 
 const router = Router();
@@ -1057,27 +1058,8 @@ export async function buildSiteOperationsSummaryFromCache() {
         });
 
         // Part G - PCS
-        const pcsDebugKeys: string[] = [];
-        const pcsCandidates: any[] = [];
-        function dig(obj: any, path: string = "") {
-            if (!obj || typeof obj !== 'object') return;
-            if (Array.isArray(obj)) {
-                 obj.forEach((o, i) => dig(o, `${path}[${i}]`));
-            } else {
-                 for (const [k, v] of Object.entries(obj)) {
-                     const tl = k.toLowerCase();
-                     if (tl.includes('pcs') || tl.includes('inverter') || tl.includes('converter')) {
-                         pcsDebugKeys.push(`${path ? path + '.' : ''}${k}`);
-                         if (Array.isArray(v)) pcsCandidates.push(...v);
-                         else if (typeof v === 'object' && v !== null) pcsCandidates.push(v);
-                     }
-                     dig(v, `${path ? path + '.' : ''}${k}`);
-                 }
-            }
-        }
-        dig(block, "block");
-        dig(status, "status");
-        dig(lastCall, "lastCall");
+        const {pcsDebugKeys, pcsCandidates} = coordinatorProfiler.withSyncPhase('PCS Candidate Search',
+            {waitState:'NORMALIZATION',blocking:true}, () => findPcsCandidates({block, status, lastCall}));
         
         const pcsCnds = [
             ...(block.arrays || []).flatMap((a:any) => a.pcs || a.arrayPcs || []),

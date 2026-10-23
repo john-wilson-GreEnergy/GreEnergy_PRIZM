@@ -11,13 +11,14 @@ export interface PcsProcessReading {
   value: unknown;
   readingState?: PcsReadingState;
   ageMs?: number | null;
+  clockSkew?:boolean;
 }
 
 export function formatPcsProcessReading(point: PcsProcessReading | undefined, unit = "", digits = 1): string {
   const value = pcsNumber(point?.value);
   if (value === null || point?.readingState === "unavailable") return "Not reported";
   const reading = `${value.toFixed(digits)}${unit ? ` ${unit}` : ""}`;
-  if (point?.readingState === "live") return reading;
+  if (point?.readingState === "live") return reading+(point.clockSkew?' · device clock differs':'');
   if (point?.readingState === "stale") return `${reading} · stale (${Math.round((point.ageMs || 0) / 1000)}s)`;
   return `${reading} · freshness unknown`;
 }

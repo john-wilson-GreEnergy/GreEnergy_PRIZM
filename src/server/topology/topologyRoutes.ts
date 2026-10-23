@@ -1194,6 +1194,13 @@ topologyRouter.post("/topology/profiles/import", (req, res) => {
 topologyRouter.get("/topology/active", (req, res) => {
   try {
     const active = getActiveTopologyProfile();
+    // Workspace consumers need configuration only, not live discovery/normalization.
+    // Retain the original full report for topology tools and rollback clients.
+    if (req.query.view === "profile") {
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true, profile: active });
+      return;
+    }
     const normalized = mergeLiveDiscoveryIntoTopology(active);
     res.json({ success: true, profile: active, normalized });
   } catch (err: any) {

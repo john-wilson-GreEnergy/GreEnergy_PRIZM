@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { FeatherHvacDevice } from "../server/feather/deviceEnrichment";
 import { formatTemperatureF } from "../utils/temperatureScale";
+import { getFleetWorkspace } from "../lib/fleetWorkspace";
 import { getTopologyUiCapabilities } from "../lib/topologyUiCapabilities";
 import { getArrayLocalEnergySegmentNumber } from "../lib/segmentNumbering";
 import { supportsFanSpeedFeedback } from "../lib/hvacFeedbackProfile";
@@ -1534,9 +1535,9 @@ export default function FeatherDetailsView({
         <div className="flex justify-between items-center bg-prizm-surface p-3 rounded border border-prizm-border">
           <div className="flex flex-col">
             <span className="text-prizm-text-muted text-[10px] uppercase font-bold">Direct JSON Source</span>
-            <a href={`http://${selectedDevice.ip}:8080/feather/status/report.json`} target="_blank" rel="noreferrer" className="text-prizm-primary hover:text-cyan-400 text-[10px] underline leading-tight mt-1">
+            {getFleetWorkspace() ? <span className="text-prizm-text-muted text-[10px] mt-1">Use the processed payload below. Direct device links cannot identify the selected site across overlapping networks.</span> : <a href={`http://${selectedDevice.ip}:8080/feather/status/report.json`} target="_blank" rel="noreferrer" className="text-prizm-primary hover:text-cyan-400 text-[10px] underline leading-tight mt-1">
               http://{selectedDevice.ip}:8080/feather/status/report.json
-            </a>
+            </a>}
           </div>
           <button
             onClick={() => setAdvancedDrawerShowJson(!advancedDrawerShowJson)}

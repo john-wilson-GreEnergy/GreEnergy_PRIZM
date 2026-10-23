@@ -10,6 +10,8 @@ coverage/
 .prizm-data/
 .prizm-history/
 reports/generated/
+deployment/production-baselines/
+scripts/.collector-processing-test-*/
 
 # Local runtime output and site-specific operational state
 data/audit/

@@ -1,0 +1,10 @@
+# PRIZM fixed actions only. No wildcard commands or caller-supplied paths.
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance status
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance check-ss3
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance check-ss4
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance check-fleet
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance restart-ss3
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance restart-ss4
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance restart-fleet
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance deploy-shift
+ebc ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/prizm-maintenance rollback-shift

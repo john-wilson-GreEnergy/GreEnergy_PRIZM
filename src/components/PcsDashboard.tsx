@@ -1,5 +1,8 @@
 import { markPerf } from '../lib/perf';
+import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import {usePresentation,useReviewTarget} from '../lib/workspacePreferences';
+import {EquipmentToolbar} from './WorkspaceTableTools';
 import { Zap, Activity, CheckCircle2, XOctagon, AlertTriangle, PanelTop } from "lucide-react";
 import RotationModal, { RotationTarget } from "./RotationModal";
 import { requireVerifiedRotation } from '../lib/rotationCommandResult';
@@ -159,7 +162,12 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     const [modbusTelemetry, setModbusTelemetry] = useState<any>(null);
 
     // Row selection for array/PCS details
-    const [selectedPcsId, setSelectedPcsId] = useState<string | null>(null);
+    const [selectedPcsId, setSelectedPcsId] = usePresentation<string | null>('pcs-detail-id',null);
+    const [equipmentQuery,setEquipmentQuery]=usePresentation('pcs-query','');
+    const [equipmentArray,setEquipmentArray]=usePresentation('pcs-array','all');
+    const [showElectrical]=usePresentation('pcs-show-electrical',true),[showExtra]=usePresentation('pcs-show-extra',true);
+    const reviewTarget=useReviewTarget();
+    useEffect(()=>{if(reviewTarget){setEquipmentArray(String(reviewTarget.array));setEquipmentQuery('');}},[reviewTarget?.array]);
     const [pcsDetailTab, setPcsDetailTab] = useState<"overview" | "electrical" | "thermal" | "diagnostics" | "controls">("overview");
 
     // Modal state
@@ -503,6 +511,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
         return list.sort((a, b) => Number(a) - Number(b));
     }, [pcsList]);
 
+    const visiblePcs=useMemo(()=>pcsList.filter(p=>(equipmentArray==='all'||String(p.arrayIndex)===equipmentArray)&&`array ${p.arrayIndex} pcs ${p.pcsIndex} ${p.id} ${p.state} ${p.rotation}`.toLowerCase().includes(equipmentQuery.toLowerCase().trim())),[pcsList,equipmentArray,equipmentQuery]);
     const pcsByArray = useMemo(() => {
         const grouped = new Map<number, any[]>();
         for (const row of pcsList) {
@@ -515,7 +524,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
     }, [pcsList]);
 
     return (
-        <div className="flex flex-col font-sans transition-all bg-transparent text-prizm-text h-full">
+        <div data-equipment="pcs" data-electrical={showElectrical} data-extra={showExtra} className="ops-equipment-page flex flex-col font-sans transition-all bg-transparent text-prizm-text h-full">
             <div className="max-w-7xl mx-auto space-y-6 w-full pb-20">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0 mb-6 mt-6 font-mono border-b border-prizm-border pb-4">
                     <div>
@@ -559,7 +568,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     </div>
                 )}
                 
-                {selectedIds.size > 0 && (
+                {selectedIds.size > 0 && !remoteReadOnlyWorkspace() && (
                     <div className="flex items-center justify-between px-1.5 py-0.5 bg-[#001a1a] border border-prizm-border shadow-md z-[60] relative saturate-150 rounded">
                        <div className="flex items-center gap-4">
                           <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest">{selectedIds.size} Selected</span>
@@ -595,10 +604,11 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     </div>
                 )}
 
+                <EquipmentToolbar query={equipmentQuery} onQuery={setEquipmentQuery} array={equipmentArray} onArray={setEquipmentArray} arrays={arrays.map(Number)} count={visiblePcs.length} onReset={()=>{setEquipmentQuery('');setEquipmentArray('all');}}/>
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
                     <div className="lg:col-span-12">
-                        <div className="bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
-                    <table className="w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
+                        <div className="ops-data-scroll bg-prizm-surface border border-prizm-border rounded-lg relative overflow-x-auto no-scrollbar pb-12">
+                    <table className="ops-standard-table w-full text-left text-[9px] font-mono whitespace-nowrap border-collapse">
                         <thead className="bg-prizm-surface-strong shadow-sm text-prizm-text-muted uppercase tracking-wider">
                             <tr>
                                 <th className="px-1 py-1 border-b border-prizm-border font-bold w-[30px]" title="Select Array"></th>
@@ -617,11 +627,12 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-prizm-border/20">
-                            {pcsList.map((pcs, idx) => {
+                            {!!pcsList.length&&!visiblePcs.length&&<tr><td colSpan={13}>No PCS units match these filters. Reset filters to see the full list.</td></tr>}
+                            {visiblePcs.map((pcs, idx) => {
                                 const rot = (pcs.rotation || "UNKNOWN").toUpperCase();
                                 
-                                const isArrFirst = idx === 0 || pcsList[idx-1].arrayIndex !== pcs.arrayIndex;
-                                const arrRows = pcsByArray.get(Number(pcs.arrayIndex)) || [];
+                                const isArrFirst = idx === 0 || visiblePcs[idx-1].arrayIndex !== pcs.arrayIndex;
+                                const arrRows = visiblePcs.filter(p=>Number(p.arrayIndex)===Number(pcs.arrayIndex));
                                 const arrSelectedCount = arrRows.filter(p => selectedIds.has(p.id)).length;
                                 const isArrAllSelected = arrSelectedCount > 0 && arrSelectedCount === arrRows.length;
                                 const isArrIndeterminate = arrSelectedCount > 0 && arrSelectedCount < arrRows.length;
@@ -720,7 +731,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <td className="px-1.5 py-1 text-center">
                                         <div className="flex justify-center items-center gap-2">
                                             <button
-                                              disabled={rot === "IN"}
+                                              disabled={remoteReadOnlyWorkspace()||rot === "IN"}
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 setModalAction('in');
@@ -732,7 +743,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                               In
                                             </button>
                                             <button
-                                              disabled={rot === "OUT"}
+                                              disabled={remoteReadOnlyWorkspace()||rot === "OUT"}
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 setModalAction('out');
@@ -1198,7 +1209,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                         ].map(([label, value]) => <div key={label} className="rounded border border-prizm-border bg-prizm-surface-strong p-3"><div className="text-[7px] font-bold uppercase text-prizm-text-muted">{label}</div><div className="mt-1 text-sm font-extrabold text-prizm-text">{value}</div></div>)}
                     </div>
                 )}
-                {oneLinePcs && pcsDetailTab === "controls" && (
+                {oneLinePcs && pcsDetailTab === "controls" && !remoteReadOnlyWorkspace() && (
                     <div className="rounded border border-prizm-border bg-prizm-surface p-4">
                         <div className="mb-3 text-[8px] font-bold uppercase text-prizm-text-muted">PCS rotation controls · Array {oneLinePcs.arrayIndex} / PCS {oneLinePcs.pcsIndex}</div>
                         <div className="flex flex-wrap gap-2">
@@ -1269,7 +1280,9 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                 {oneLinePcs && (
                     <div className="flex flex-wrap justify-between gap-2 text-[7px] uppercase text-prizm-text-muted">
                         <span>
-                            {oneLinePcs.pcsSwitches?.source === "SMA_WEB_PROCESS_DATA"
+                            {oneLinePcs.pcsSwitches?.source === "SMA_MQTT"
+                                ? `SMA LIVE STREAM · ${oneLinePcs.pcsSwitches?.host}:443`
+                                : oneLinePcs.pcsSwitches?.source === "SMA_WEB_PROCESS_DATA"
                                 ? `SMA GUI PROCESS DATA · ${oneLinePcs.pcsSwitches?.host || `10.0.${oneLinePcs.arrayIndex}.118`}:443`
                                 : `${oneLinePcs.pcsSwitches?.host || `10.0.${oneLinePcs.arrayIndex}.118`}:502`}
                         </span>

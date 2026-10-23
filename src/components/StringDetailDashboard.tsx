@@ -1,4 +1,5 @@
 import { markPerf } from '../lib/perf';
+import {remoteReadOnlyWorkspace} from '../lib/fleetWorkspace';
 import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Download, AlertTriangle, Layers, Cpu, Zap, Activity, Thermometer } from "lucide-react";
 import { formatPrizmUtcTimestamp } from '../lib/timeFormat';
@@ -122,7 +123,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
     const fetchDetail = async () => {
       const t0 = performance.now();
       try {
-        const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?captureHistory=true`);
+        const res = await fetch(remoteReadOnlyWorkspace()?`/api/local/site-data/strings-canonical/${stringDataArrayNumber}/${stringDataStringNumber}`:`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?captureHistory=true`);
         const contentType = res.headers.get("content-type");
         if (contentType && contentType.includes("text/html")) {
           throw new Error("Server is restarting or unreachable");
@@ -175,7 +176,7 @@ export default function StringDetailDashboard({ stringData, onBack }: { stringDa
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const res = await fetch(`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?refresh=true&captureHistory=true`);
+      const res = await fetch(remoteReadOnlyWorkspace()?`/api/local/site-data/strings-canonical/${stringDataArrayNumber}/${stringDataStringNumber}`:`/api/local/strings/dashboard/${stringDataArrayNumber}/${stringDataStringNumber}/detail?refresh=true&captureHistory=true`);
       const contentType = res.headers.get("content-type");
       if (contentType && contentType.includes("text/html")) {
         throw new Error("Server is restarting or unreachable");

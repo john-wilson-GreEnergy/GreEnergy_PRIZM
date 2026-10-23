@@ -1,4 +1,5 @@
 import {createHash,timingSafeEqual} from 'node:crypto';
+import {fleetRefreshMs} from '../../core/fleet/pollingCadence';
 import express, {type RequestHandler} from 'express';
 import {readPrivateJson} from '../security/localAccounts';
 import {buildSiteSummary,parseCollectorIdentity,type CollectorIdentity} from './siteSummary';
@@ -6,6 +7,7 @@ import {parseCollector} from './CollectorPoller';
 import type {SiteSummary} from '../../core/fleet/model';
 import type {Server} from 'node:https';
 import {parseCollectorTls,startCollectorTls} from './collectorTls';
+import {collectorWorkspace} from './workspaceCollector';
 
 export interface ExportConfig {identity:CollectorIdentity; token:string; host:string; allowLoopbackHttp:boolean}
 export function parseExportConfig(value:unknown):ExportConfig {
@@ -21,12 +23,19 @@ const hash=(text:string)=>createHash('sha256').update(text).digest();
 export class CollectorExport {
   private snapshot:SiteSummary|null=null;
   private timer:ReturnType<typeof setInterval>|undefined;
-  constructor(readonly config:ExportConfig,private source:()=>unknown,private identityMatches:()=>boolean){}
+  constructor(readonly config:ExportConfig,private source:()=>unknown,private identityMatches:()=>boolean,private workspace?:{token:string;handler:RequestHandler}){}
   prepare(){try{this.snapshot=buildSiteSummary(this.source(),this.config.identity);}catch{this.snapshot=null;}}
-  start(){if(this.timer)return;this.prepare();this.timer=setInterval(()=>this.prepare(),4000);this.timer.unref();}
+  start(){if(this.timer)return;this.prepare();this.timer=setInterval(()=>this.prepare(),fleetRefreshMs(process.env.PRIZM_FLEET_REFRESH_MS));this.timer.unref();}
   stop(){clearInterval(this.timer);this.timer=undefined;this.snapshot=null;}
   router():RequestHandler {
     const router=express.Router({caseSensitive:true,strict:true});
+    if(this.workspace){
+      if(this.workspace.token===this.config.token)throw Error('Separate workspace credential required');
+      router.use('/workspace',(req,res,next)=>{
+        if(!req.secure || req.headers.host!==this.config.host)return res.status(403).json({error:'Dedicated collector TLS required'});
+        next();
+      },collectorWorkspace(this.workspace.token,this.identityMatches,this.workspace.handler));
+    }
     router.use((req,res)=>{
       res.set('Cache-Control','no-store');
       if(req.method!=='GET' || req.path!=='/site-summary' || Object.keys(req.query).length)return res.status(403).json({error:'Collector route not enabled'});
@@ -42,7 +51,7 @@ export class CollectorExport {
   }
 }
 /** Off by default. Invalid enabled configuration fails closed without legacy fallthrough. */
-export function collectorExportFromEnvironment(source:()=>unknown,identityMatches:(identity:CollectorIdentity)=>boolean):{router:RequestHandler;stop:()=>void;ready:Promise<void>}|null {
+export function collectorExportFromEnvironment(source:()=>unknown,identityMatches:(identity:CollectorIdentity)=>boolean,workspaceHandler?:RequestHandler):{router:RequestHandler;stop:()=>void;ready:Promise<void>}|null {
   const file=process.env.PRIZM_FLEET_EXPORT_CONFIG;if(!file)return null;
   let service:CollectorExport|undefined, stopped=false;
   let handler:RequestHandler|undefined;
@@ -51,7 +60,9 @@ export function collectorExportFromEnvironment(source:()=>unknown,identityMatche
   const ready=readPrivateJson(file).then(async raw=>{
     if(stopped)return;
     const config=parseExportConfig(raw), row=raw as Record<string,unknown>;
-    service=new CollectorExport(config,source,()=>identityMatches(config.identity));
+    if(row.workspaceToken!==undefined && (typeof row.workspaceToken!=='string' || !workspaceHandler || config.allowLoopbackHttp || row.workspaceToken===config.token))throw Error('Invalid workspace export configuration');
+    const workspace=typeof row.workspaceToken==='string'?{token:row.workspaceToken,handler:workspaceHandler!}:undefined;
+    service=new CollectorExport(config,source,()=>identityMatches(config.identity),workspace);
     service.start();
     if(config.allowLoopbackHttp){
       if(row.tls!==undefined)throw new Error('HTTP test mode cannot include TLS configuration');

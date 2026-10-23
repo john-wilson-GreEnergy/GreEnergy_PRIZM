@@ -15,11 +15,14 @@ export interface SiteSummary extends SiteIdentity {
   schema:'prizm-site-summary-v1'; observedAt:string|null; stale:boolean;
   metrics:Record<MetricKey,Reading>;
   details?:FleetDetails;
+  operatingCharts?:import('../operatingCharts').OperatingCharts;
 }
 export interface SiteView extends SiteEnrollment {
+  powerFlow?:import('./powerFlow').SitePowerFlow;
   status:'current'|'stale'|'unavailable'|'identity-conflict'; lastReceivedAt:string|null;
   observedAt:string|null; ageMs:number|null; metrics:Record<MetricKey,Reading>;
   details?:FleetDetails;
+  operatingCharts?:import('../operatingCharts').OperatingCharts;
 }
 export interface AggregateReading {value:number|null; contributors:string[]; excluded:string[]; complete:boolean}
 export interface FleetView {

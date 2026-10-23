@@ -1,0 +1,52 @@
+# Candidate read-only collector deployment. Do not copy active control/hold state.
+# The namespace firewall must deny LAN access to standalone port 3000.
+[Unit]
+Description=GreEnergy PRIZM site collector for %i
+BindsTo=prizm-fleet-network.service
+After=prizm-fleet-network.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=prizm-%i
+Group=prizm-%i
+WorkingDirectory=/var/lib/prizm-sites/%i
+NetworkNamespacePath=/run/netns/prizm-%i
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=PRIZM_COLLECTOR_ONLY=true
+Environment=NODE_OPTIONS=--max-old-space-size=1536
+Environment=PRIZM_CACHE_DIR=/var/lib/prizm-sites/%i/.prizm-cache
+Environment=PRIZM_HISTORY_DIR=/var/lib/prizm-sites/%i/.prizm-data/history
+Environment=PRIZM_FLEET_EXPORT_CONFIG=/etc/prizm-fleet/%i/export.json
+EnvironmentFile=/etc/prizm-fleet/%i/collector.env
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/dist/server.cjs
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/prizm-sites/%i
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TasksMax=128
+MemoryAccounting=yes
+MemoryHigh=2304M
+MemoryMax=2816M
+MemorySwapMax=256M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

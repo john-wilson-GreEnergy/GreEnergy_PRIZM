@@ -36,5 +36,5 @@ export function buildSiteSummary(view:unknown, enrolled:CollectorIdentity):SiteS
   const topology=obj(data.topologyStatus);
   put('warnings',topology.warningTargetCount,stamp,!stale,'Canonical warning targets');
   put('alarms',topology.alarmTargetCount,stamp,!stale,'Canonical alarm targets');
-  return parseSummary({schema:'prizm-site-summary-v1',...enrolled,observedAt:stamp,stale,metrics,details:buildFleetDetails(data,data.fleetDetailSnapshot)},enrolled);
+  return parseSummary({schema:'prizm-site-summary-v1',...enrolled,observedAt:stamp,stale,metrics,details:buildFleetDetails(data,data.fleetDetailSnapshot),operatingCharts:data.operatingCharts},enrolled);
 }

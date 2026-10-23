@@ -12,7 +12,7 @@ if (!sdStr.includes('const [refreshing, setRefreshing]')) {
 fs.writeFileSync('src/components/SiteDistributionDashboard.tsx', sdStr);
 
 // File 4: SensorsView.tsx
-let svStr = fs.readFileSync('src/components/kobold/SensorsView.tsx', 'utf8');
+let svStr = fs.readFileSync('src/components/site-monitor/SensorsView.tsx', 'utf8');
 if (!svStr.includes('import { markPerf }')) {
     svStr = "import { markPerf } from '../../lib/perf';\n" + svStr;
 }
@@ -20,7 +20,7 @@ svStr = svStr.replace('const loadData = async () => {\n    if (rows.length === 0
 if (!svStr.includes('markPerf(\'SensorsView Refresh\'')) {
     svStr = svStr.replace(/setRefreshing\(false\);\n\s*\}\n\s*\};\n/, "setRefreshing(false);\n      markPerf('SensorsView Refresh', t0);\n    }\n  };\n");
 }
-fs.writeFileSync('src/components/kobold/SensorsView.tsx', svStr);
+fs.writeFileSync('src/components/site-monitor/SensorsView.tsx', svStr);
 
 // App.tsx tab transition indicator
 let appStr = fs.readFileSync('src/App.tsx', 'utf8');

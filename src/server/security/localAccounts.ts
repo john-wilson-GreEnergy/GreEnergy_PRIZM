@@ -9,15 +9,24 @@ export interface LocalAccount {
   id: string; email: string; disabled: boolean; version: number;
   password: {algorithm: 'scrypt-v1'; salt: string; digest: string};
   grants: Grant[];
+  fleetAdmin?: boolean;
+  remoteAccess?: boolean;
+  /** Explicit opt-in, independent of LAN workspace and administrator rights. */
+  remoteControlSites?: string[];
+  passwordSetup?: {digest:string; expiresAt:number};
 }
 const capabilities = new Set(['telemetry.view','history.view','diagnostics.acquire','diagnostics.record','storage.manage',
-  'controls.balancing','controls.rotation','controls.contactors','controls.ems-apps','controls.power']);
+  'controls.balancing','controls.rotation','controls.contactors','controls.ems-apps','controls.power','workspace.full']);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const identifier = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/.test(v);
 export function parseAccounts(raw: unknown): LocalAccount[] {
   if (!Array.isArray(raw) || !raw.length || raw.length > 256) throw new Error('Invalid local account store');
   const ids = new Set<string>(), names = new Set<string>();
   for (const row of raw) {
+    if(object(row) && row.remoteAccess!==undefined && typeof row.remoteAccess!=='boolean')throw Error('Invalid remote access flag');
+    if(object(row) && row.remoteControlSites!==undefined && (!Array.isArray(row.remoteControlSites)||row.remoteControlSites.length>16||row.remoteControlSites.some(id=>!identifier(id))||new Set(row.remoteControlSites).size!==row.remoteControlSites.length))throw Error('Invalid remote control sites');
+    if(object(row) && row.passwordSetup!==undefined && (!object(row.passwordSetup)||typeof row.passwordSetup.digest!=='string'||!/^[a-f0-9]{64}$/.test(row.passwordSetup.digest)||!Number.isSafeInteger(row.passwordSetup.expiresAt)||Number(row.passwordSetup.expiresAt)<=0||row.fleetAdmin===true))throw Error('Invalid password setup');
+    if (object(row) && row.fleetAdmin !== undefined && typeof row.fleetAdmin !== 'boolean') throw new Error('Invalid administrator flag');
     if (!object(row) || !identifier(row.id) || typeof row.email !== 'string' || !normalizeLocalEmail(row.email) || normalizeLocalEmail(row.email) !== row.email || typeof row.disabled !== 'boolean' ||
         !Number.isSafeInteger(row.version) || Number(row.version) < 1 || !object(row.password) ||
         row.password.algorithm !== 'scrypt-v1' || typeof row.password.salt !== 'string' || !/^[a-f0-9]{32}$/.test(row.password.salt) ||
@@ -36,8 +45,8 @@ async function derive(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve,reject) => scrypt(password, Buffer.from(salt,'hex'), 64,
     {N: 131072, r: 8, p: 1, maxmem: 192 * 1024 * 1024}, (error,key) => error ? reject(error) : resolve(key)));
 }
-export async function hashLocalPassword(password: string): Promise<LocalAccount['password']> {
-  if ([...password].length < 15 || password.length > 256) throw new Error('Use a password of at least 15 characters and no more than 256 UTF-16 code units');
+export async function hashLocalPassword(password: string, minimumLength:6|15=15): Promise<LocalAccount['password']> {
+  if ([...password].length < minimumLength || password.length > 256) throw new Error(`Use a password of at least ${minimumLength} characters and no more than 256 UTF-16 code units`);
   const salt = randomBytes(16).toString('hex');
   return {algorithm:'scrypt-v1', salt, digest:(await derive(password,salt)).toString('hex')};
 }

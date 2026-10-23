@@ -45,6 +45,7 @@ export interface CoordinatorDebugState {
   refreshQueueDepth: number;
   nextScheduledCycle: string | null;
   cycleHistory: CoordinatorCycleRecord[];
+  snapshotRetention: unknown;
 }
 
 type CycleExecutor<TSnapshot> = (context: { cycleId: number; reasons: string[]; refreshRequestCount: number }) => Promise<CoordinatorCycleOutcome<TSnapshot>>;
@@ -79,8 +80,12 @@ export class CoordinatorRuntime<TSnapshot> {
   private lastCompletedCycle: CoordinatorCycleRecord | null = null;
   private cycleHistory: CoordinatorCycleRecord[] = [];
   private lastAcquisition: string | null = null;
+  private snapshotRevision = 0;
 
-  constructor(private readonly executeCycle: CycleExecutor<TSnapshot>) {}
+  constructor(private readonly executeCycle: CycleExecutor<TSnapshot>, private readonly retainer?: {
+    clone(snapshot: TSnapshot): Promise<TSnapshot>;
+    status(): unknown;
+  }) {}
 
   start(intervalMs: number): void {
     if (this.interval) clearInterval(this.interval);
@@ -158,8 +163,20 @@ export class CoordinatorRuntime<TSnapshot> {
   }
 
   setCurrentSnapshot(snapshot: TSnapshot | null): void {
-    this.currentSnapshot = cloneValue(snapshot);
-    if (snapshot) this.lastSuccessfulSnapshot = cloneValue(snapshot);
+    this.snapshotRevision++;
+    this.retainSnapshot(snapshot, Boolean(snapshot));
+  }
+
+  private retainSnapshot(snapshot: TSnapshot | null, successful: boolean): void {
+    // Own one defensive copy. These private publications are replaced, never
+    // mutated; every public read/selector result still receives its own copy.
+    // Do not serialize the same multi-megabyte graph twice per successful cycle.
+    const owned = cloneValue(snapshot);
+    const retained = successful
+      ? process.env.PRIZM_SNAPSHOT_RETENTION === 'legacy' ? cloneValue(snapshot) : owned
+      : this.lastSuccessfulSnapshot;
+    this.currentSnapshot = owned;
+    this.lastSuccessfulSnapshot = retained;
   }
 
   getDebugState(): CoordinatorDebugState {
@@ -188,6 +205,7 @@ export class CoordinatorRuntime<TSnapshot> {
       refreshQueueDepth: this.pendingRefreshRequests > 0 ? 1 : 0,
       nextScheduledCycle: this.nextScheduledCycle,
       cycleHistory: cloneValue(this.cycleHistory),
+      snapshotRetention: {enabled: !!this.retainer && process.env.PRIZM_RETENTION_WORKER !== 'false' && process.env.PRIZM_SNAPSHOT_RETENTION !== 'legacy', worker: this.retainer?.status() ?? null},
     };
   }
 
@@ -234,19 +252,30 @@ export class CoordinatorRuntime<TSnapshot> {
 
     let cycleFailedUnexpectedly = false;
     let cycleSuccessful = false;
+    const snapshotRevision = this.snapshotRevision;
     this.collectionPromise = (async () => {
       let successful = false;
       try {
         const outcome = await runInTelemetryCycle(cycleId, () => this.executeCycle({ cycleId, reasons, refreshRequestCount: requestCount }));
-        successful = outcome.successful;
-        cycleSuccessful = outcome.successful;
+        if (snapshotRevision !== this.snapshotRevision) throw new Error('Snapshot invalidated during acquisition');
         if (outcome.snapshot) {
-          this.currentSnapshot = cloneValue(outcome.snapshot);
-          if (outcome.successful) this.lastSuccessfulSnapshot = cloneValue(outcome.snapshot);
+          if (this.retainer && process.env.PRIZM_RETENTION_WORKER !== 'false' && process.env.PRIZM_SNAPSHOT_RETENTION !== 'legacy') {
+            const owned = await runInTelemetryCycle(cycleId, () => coordinatorProfiler.withPhase("Snapshot Retention", {waitState:"CACHE",blocking:false},
+              () => this.retainer!.clone(outcome.snapshot!)));
+            if (snapshotRevision !== this.snapshotRevision) throw new Error('Snapshot invalidated during retention');
+            this.currentSnapshot = owned;
+            if (outcome.successful) this.lastSuccessfulSnapshot = owned;
+          } else {
+            runInTelemetryCycle(cycleId, () => coordinatorProfiler.withSyncPhase("Snapshot Retention", {waitState:"CACHE",blocking:true},
+              () => this.retainSnapshot(outcome.snapshot, outcome.successful)));
+          }
         } else if (!outcome.successful && this.lastSuccessfulSnapshot) {
-          this.currentSnapshot = cloneValue(this.lastSuccessfulSnapshot);
+          this.currentSnapshot = process.env.PRIZM_SNAPSHOT_RETENTION === 'legacy'
+            ? cloneValue(this.lastSuccessfulSnapshot) : this.lastSuccessfulSnapshot;
         }
         if (outcome.successful) this.lastAcquisition = outcome.acquisitionTimestamp || new Date().toISOString();
+        successful = outcome.successful;
+        cycleSuccessful = outcome.successful;
         this.state = this.stopping
           ? "STOPPING"
           : this.pendingRefreshRequests > 0
@@ -255,7 +284,8 @@ export class CoordinatorRuntime<TSnapshot> {
       } catch {
         cycleFailedUnexpectedly = true;
         this.state = this.stopping ? "STOPPING" : "FAILED";
-        if (this.lastSuccessfulSnapshot) this.currentSnapshot = cloneValue(this.lastSuccessfulSnapshot);
+        if (snapshotRevision === this.snapshotRevision && this.lastSuccessfulSnapshot) this.currentSnapshot = process.env.PRIZM_SNAPSHOT_RETENTION === 'legacy'
+          ? cloneValue(this.lastSuccessfulSnapshot) : this.lastSuccessfulSnapshot;
       } finally {
         const completedAt = new Date().toISOString();
         const record: CoordinatorCycleRecord = {

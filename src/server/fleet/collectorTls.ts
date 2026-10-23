@@ -20,7 +20,8 @@ export function parseCollectorTls(value:unknown, origin:string):CollectorTlsConf
 }
 
 /** Keys and certificates are provisioned, never generated or logged at startup. */
-async function readPrivatePem(file:string):Promise<Buffer> {
+export async function readPrivatePem(file:string):Promise<Buffer> {
+  if (!path.isAbsolute(file)) throw new Error('Absolute TLS path required');
   const parent=await lstat(path.dirname(file));
   if(!parent.isDirectory() || parent.isSymbolicLink() || (parent.mode & 0o022)!==0)throw new Error('TLS directory must be private');
   const handle=await open(file,constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -41,7 +42,7 @@ export async function startCollectorTls(config:CollectorTlsConfig, handler:Reque
   app.use('/api/fleet',handler);
   app.use((_req,res)=>res.status(403).json({error:'Collector route not enabled'}));
   const server=createServer({key,cert,minVersion:'TLSv1.2',handshakeTimeout:5000,maxHeaderSize:8192},app);
-  server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=2000;
+  server.requestTimeout=60000;server.headersTimeout=5000;server.keepAliveTimeout=2000;
   server.maxRequestsPerSocket=32;server.maxConnections=16;
   try {
     await new Promise<void>((resolve,reject)=>{

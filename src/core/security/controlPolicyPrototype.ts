@@ -6,7 +6,7 @@
  */
 export type Capability = 'telemetry.view' | 'history.view' | 'diagnostics.acquire' |
   'diagnostics.record' | 'storage.manage' | 'controls.balancing' | 'controls.rotation' |
-  'controls.contactors' | 'controls.ems-apps' | 'controls.power';
+  'controls.contactors' | 'controls.ems-apps' | 'controls.power' | 'workspace.full';
 export interface Grant {
   capability: Capability;
   siteId: string;

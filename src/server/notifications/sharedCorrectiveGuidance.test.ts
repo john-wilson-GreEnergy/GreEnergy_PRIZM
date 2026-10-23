@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {CorrectiveGuidanceStore,applyCorrectiveGuidance,GuidanceConflict} from './correctiveGuidance';
+import {emptyCorrectiveGuidance,correctiveGuidanceKey} from '../../core/correctiveGuidance';
+import {buildNotificationReview} from './notificationReview';
+import {projectNotificationBpcs} from './notificationBpcs';
+import {correctivePacket,packetCsv} from '../../lib/correctivePacket';
+
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'prizm-shared-guidance-'));
+const file=path.join(dir,'shared.json'),ss3=new CorrectiveGuidanceStore(file,true),ss4=new CorrectiveGuidanceStore(file,true);
+const site3=new CorrectiveGuidanceStore(path.join(dir,'ss3.json')),site4=new CorrectiveGuidanceStore(path.join(dir,'ss4.json'));
+const review=buildNotificationReview([{code:'2074',severity:'warning',affected:[{arrayIndex:1,stringIndex:4,batteryPackIndex:3,cellGroupIndex:1}]}],'2026-10-20T19:00:00Z');
+review.bpcReview=projectNotificationBpcs(review,{stationCode:'TEST',blockIndex:1});
+const untouched=JSON.stringify(review),key=correctiveGuidanceKey(review.groups[0]);
+const entry={key,category:'Shared balancing',actions:['Shared approved procedure'],validation:['Shared verification'],clearing:['Source notification absent'],reference:'Test procedure',reason:'Fixture'};
+assert.equal(ss4.read().revision,0);
+ss3.save(0,entry,'admin');
+assert.equal(ss4.read().revision,1,'Second collector sees an atomic publication');
+assert.equal(fs.statSync(file).mode&0o777,0o660,'Only catalog owner/group can access shared guidance');
+for(const store of [site3,site4]){
+ const result=applyCorrectiveGuidance(review,store.read(),ss4.read());
+ assert.equal(result.groups[0].guidanceScope,'shared');assert.equal(result.groups[0].displayCategory,'Shared balancing');
+ assert.equal(result.groups[0].targets,review.groups[0].targets);assert.equal(result.bpcReview,review.bpcReview);
+ assert.equal(result.groups[0].severity,review.groups[0].severity);assert.equal(result.guidanceSharedRevision,1);
+ const packet=correctivePacket(result,result.groups,'all','','TEST',false);
+ assert.equal(packet.sharedRevision,1);assert(packetCsv(packet).includes('Shared guidance revision'));
+}
+site4.save(0,{...entry,category:'SS4 exception'},'admin');
+assert.equal(applyCorrectiveGuidance(review,site4.read(),ss4.read()).groups[0].guidanceScope,'site');
+ss3.save(1,{...entry,category:'Shared updated'},'admin');
+assert.equal(applyCorrectiveGuidance(review,site3.read(),ss3.read()).groups[0].displayCategory,'Shared updated');
+assert.equal(applyCorrectiveGuidance(review,site4.read(),ss4.read()).groups[0].displayCategory,'SS4 exception','Shared edit never overwrites site exceptions');
+assert.throws(()=>ss4.save(1,entry,'other-admin'),GuidanceConflict);
+fs.mkdirSync(file+'.lock');assert.throws(()=>ss3.save(2,entry,'admin'),GuidanceConflict);fs.rmdirSync(file+'.lock');
+assert.equal(ss3.read().revision,2,'Busy/crashed writer does not change catalog');
+site4.save(1,entry,'admin',true);
+assert.equal(applyCorrectiveGuidance(review,site4.read(),ss4.read()).groups[0].displayCategory,'Shared updated');
+ss4.save(2,entry,'admin',true);
+assert.deepEqual(applyCorrectiveGuidance(review,site4.read(),ss4.read()).groups,review.groups,'Reset restores built-in guidance');
+assert.equal(ss3.read().history.length,3);assert.equal(ss3.read().history[2].next,null);
+site3.save(0,{...entry,category:'Site only'},'admin');
+assert.equal(applyCorrectiveGuidance(review,site3.read()).groups[0].displayCategory,'Site only','No shared configuration retains prior behavior');
+assert.deepEqual(applyCorrectiveGuidance(review,emptyCorrectiveGuidance()).groups,review.groups);
+assert.equal(JSON.stringify(review),untouched);
+console.log('PASS shared catalog parity, site exceptions, reset, audit, stale revision, writer lock, permissions, exports and rollback');

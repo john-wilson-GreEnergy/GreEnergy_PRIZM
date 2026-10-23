@@ -46,6 +46,8 @@ const Reporting = React.lazy(() => import("./components/Reporting"));
 const LineupLightbarControl = React.lazy(() => import("./components/LineupLightbarControl"));
 const OneLineView = React.memo(React.lazy(() => import("./components/OneLineView")));
 const ThermalWorkspace = React.memo(React.lazy(() => import("./components/ThermalWorkspace")));
+const CellHistoryWorkspace = React.memo(React.lazy(() => import('./components/CellHistoryWorkspace')));
+const SiteAnalyticsWorkspace = React.memo(React.lazy(() => import('./components/SiteAnalyticsWorkspace')));
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
 const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
@@ -54,10 +56,15 @@ import DashboardLoadingSkeleton from "./components/common/DashboardLoadingSkelet
 import { formatPrizmUtcTimestamp } from "./lib/timeFormat";
 import { useSiteDataFields } from "./context/SiteDataContext";
 import PrizmLoadingIndicator from "./components/common/PrizmLoadingIndicator";
+import {OperationsFrame} from './workspaces/OperationsShell';
+import {operationsLayoutEnabled,isLocalOperationsReview,legacyLayoutUrl} from './lib/operationsReview';
+import {workspaceScope,readPreference,preferenceKey} from './lib/workspacePreferences';
+import {getFleetWorkspace,remoteReadOnlyWorkspace,remoteViewTabs} from './lib/fleetWorkspace';
+const LiveCorrectiveActionsWorkspace = React.lazy(()=>import('./components/LiveCorrectiveActionsWorkspace'));
 
 const SourceStreamHealth = React.lazy(()=>import("./components/SourceStreamHealth"));
 
-type AppTabId = "source-health" | "overview" | "one-line" | "thermal-controls" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
+type AppTabId = "source-health" | "overview" | "one-line" | "thermal-controls" | "cell-history" | "site-analytics" | "corrective-actions" | "arrays-strings" | "site-health" | "pcs-dashboard" | "balancer-test" | "site-configuration" | "feather-hvac" | "lightbar-control" | "reports" | "safety-fault" | "advanced" | "troubleshooting-library";
 
 interface TabItem {
   id: string;
@@ -68,6 +75,8 @@ const MASTER_TABS_MAP: Record<string, { label: string, icon: any }> = {
   "overview": { label: "Block Summary", icon: Activity },
   "one-line": { label: "One-Line View", icon: Network },
   "thermal-controls": { label: "Thermal Controls", icon: Activity },
+  "cell-history": {label: "Cell History", icon: BarChart3},
+  "site-analytics": {label: "Site Analytics", icon: BarChart3},
   "corrective-actions": { label: "Corrective Actions", icon: ShieldAlert },
   "arrays-strings": { label: "String List", icon: Cpu },
   "site-health": { label: "Site Health", icon: Shield },
@@ -95,6 +104,8 @@ const DEFAULT_TABS_ORDER: string[] = [
   "site-configuration",
   "feather-hvac",
   "thermal-controls",
+  "cell-history",
+  "site-analytics",
   "lightbar-control",
   "reports",
   "safety-fault",
@@ -103,31 +114,48 @@ const DEFAULT_TABS_ORDER: string[] = [
 ];
 
 export default function App() {
+  const operations=operationsLayoutEnabled();
+  const localReview=isLocalOperationsReview();
+  const fleetWorkspace=getFleetWorkspace();
+  const remoteReadOnly=remoteReadOnlyWorkspace();
+  const {siteIdentity,liveStatus}=useSiteDataFields(['siteIdentity','liveStatus']);
+  const presentationScope=workspaceScope(fleetWorkspace?{stationCode:fleetWorkspace.stationCode,blockIndex:fleetWorkspace.blockIndex}:localReview?{stationCode:'BHE0020',blockIndex:1}:siteIdentity,fleetWorkspace?.email);
   const [activeTab, setActiveTab] = useState<AppTabId>(() => {
     const searchParams = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
     const requested = searchParams?.get('tab') ?? searchParams?.get('legacyTab') ?? null;
-    const persisted = typeof window === 'undefined' ? null : window.localStorage.getItem("prizm_active_tab") || window.localStorage.getItem("prizm_active_tab_technician") || window.localStorage.getItem("prizm_active_tab_operator");
+    let persisted:string|null=null;try{persisted=typeof window==='undefined'?null:operations?readPreference(window.localStorage,presentationScope,'active-tab','overview'):window.localStorage.getItem('prizm_active_tab');}catch{}
+    if(remoteReadOnly)return requested&&remoteViewTabs.has(requested)?requested as AppTabId:'overview';
     if (requested && requested in MASTER_TABS_MAP) return requested as AppTabId;
     return persisted && persisted in MASTER_TABS_MAP ? persisted as AppTabId : "overview";
   });
+  const tabScope=useRef(presentationScope);
+  const requestedAtOpen=useRef(typeof window!=='undefined'&&new URLSearchParams(window.location.search).has('tab'));
   useEffect(() => {
-    window.localStorage.setItem("prizm_active_tab", activeTab);
+    if(operations&&presentationScope&&tabScope.current!==presentationScope){
+      const firstIdentity=tabScope.current===null;tabScope.current=presentationScope;
+      if(!firstIdentity||!requestedAtOpen.current){
+        let saved='overview';try{saved=readPreference(window.localStorage,presentationScope,'active-tab','overview');}catch{}
+        setActiveTab(saved in MASTER_TABS_MAP&&(!remoteReadOnly||remoteViewTabs.has(saved))?saved as AppTabId:'overview');
+        return;
+      }
+    }
+    try{if(operations&&presentationScope)window.localStorage.setItem(preferenceKey(presentationScope,'active-tab'),JSON.stringify(activeTab));else if(!operations)window.localStorage.setItem("prizm_active_tab",activeTab);}catch{}
     const url = new URL(window.location.href);
     if (url.searchParams.get("tab") !== activeTab || url.searchParams.has("portal")) {
       url.searchParams.delete("portal");
       url.searchParams.set("tab", activeTab);
       window.history.replaceState(window.history.state, "", url);
     }
-  }, [activeTab]);
+  }, [activeTab,presentationScope,operations]);
 
   const [isPending, startTransition] = useTransition();
   const handleSetActiveTab = useCallback((tab: AppTabId | string) => {
-    if (!(tab in MASTER_TABS_MAP)) return;
+    if (!(tab in MASTER_TABS_MAP)||remoteReadOnly&&!remoteViewTabs.has(tab)) return;
     const nextTab = tab as AppTabId;
-    window.localStorage.setItem("prizm_active_tab", nextTab);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", nextTab);
-    window.history.replaceState(window.history.state, "", url);
+    for(const key of ['targetSite','targetarray','targetstring','targetbpc','returnTo'])url.searchParams.delete(key);
+    window.history.pushState(window.history.state, "", url);
     startTransition(() => setActiveTab(nextTab));
   }, []);
   const [featherSub, setFeatherSub] = useState<"feather" | "simulation" | "fan-hold" | "serial-mode" | "iologik" | "provisioning">("feather");
@@ -324,7 +352,7 @@ export default function App() {
 
   const warmStartRanRef = useRef(false);
   useEffect(() => {
-    if (warmStartRanRef.current) return;
+    if (warmStartRanRef.current || localReview) return;
     const ready =
       connectionStatus?.status === "LIVE" ||
       connectionStatus?.status === "PARTIAL";
@@ -440,8 +468,14 @@ export default function App() {
     let cancelled = false;
     const runInitial = async () => {
       if (!cancelled) {
-        await fetchAllData();
-        lastPollRef.current = Date.now();
+        // The timer below starts immediately. A slow initial status read must
+        // not launch a second overlapping sequence after its first two seconds.
+        pollInFlightRef.current = true;
+        try { await fetchAllData(); }
+        finally {
+          lastPollRef.current = Date.now();
+          pollInFlightRef.current = false;
+        }
       }
     };
     runInitial();
@@ -488,11 +522,23 @@ export default function App() {
   }, []);
 
 
+  const Toolbar = operations ? 'details' : 'div';
+  const WorkspaceContent = operations ? 'div' : 'main';
   return (
-    <div className="min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col">
+    <OperationsFrame enabled={operations} scopeKey={presentationScope} activeTab={activeTab} onNavigate={handleSetActiveTab}
+      siteName={fleetWorkspace?.siteName || (localReview?'Solar Star 3':siteIdentity?.activeProfileName||'PRIZM site')}
+      siteDetail={`${siteIdentity?.stationCode||fleetWorkspace?.stationCode||'Verifying site'} · Block ${siteIdentity?.blockIndex||fleetWorkspace?.blockIndex||'—'}`}
+      status={isTerminated?'Connection terminated':!isPollingEnabled?'Polling paused':consecutiveFailureCount>0?'Refresh failed':liveStatus?.stale?'Stale data':liveStatus?.state==='LIVE'?'Live data':'Verifying connection'}
+      statusTone={isTerminated||consecutiveFailureCount>0?'danger':!isPollingEnabled||liveStatus?.stale?'warning':'neutral'}
+      readOnly={localReview||remoteReadOnly} fleetUrl={fleetWorkspace?.fleetUrl || (localReview?'https://10.0.0.15:3443/':undefined)}
+      visibleTabs={effectiveTabsOrder.filter(tab=>tab.visible&&(!remoteReadOnly||remoteViewTabs.has(tab.id))).map(tab=>tab.id)}>
+    <div className={operations?'ops-connected-app text-prizm-text font-sans flex flex-col':'min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col'}>
       <PrizmLoadingIndicator show={isPending} />
+      {operations&&<div className="ops-demo-notice"><span><strong>{remoteReadOnly?'Remote workspace · Read-only':localReview?'Local live review · Solar Star 3':'Operations workspace'}</strong> · {remoteReadOnly?'Live telemetry and recorded history. Equipment commands and configuration changes are blocked on the server.':localReview?'Existing Dell telemetry. Production writes are blocked; corrective-guidance edits are Mac-only drafts.':'Existing permissions and control safeguards remain in effect.'}</span>{!remoteReadOnly&&<a className="underline whitespace-nowrap" href={legacyLayoutUrl(window.location.href)}>Previous layout</a>}</div>}
       
       {/* TOP NAVIGATION BAR (DAYLIGHT DESIGN THEME) */}
+      <Toolbar hidden={remoteReadOnly || (operations && activeTab !== "source-health")} className={operations?'ops-legacy-toolbar':'contents'}>
+      {operations&&<summary>Connection diagnostics & workspace tools{diagnosticSession?.active?' · Diagnostic recording active':''}</summary>}
       <header className="h-14 border-b border-prizm-border flex items-center justify-between px-4 sm:px-6 bg-prizm-header sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
             {manualRepollMessage && <span className="text-emerald-500 font-mono text-[10px] uppercase font-bold tracking-widest hidden sm:block mx-2">{manualRepollMessage}</span>}
@@ -664,6 +710,8 @@ export default function App() {
           </div>
         </div>
       </header>
+      {operations&&<button className="ops-reset m-2" onClick={()=>setIsConfigOpen(true)}>Arrange navigation</button>}
+      </Toolbar>
 
       {/* DASHBOARD CONTROL NAVIGATION TOOLBAR LINE */}
       {bootStatus?.warnings?.length > 0 && (
@@ -689,7 +737,7 @@ export default function App() {
    </div>
 ) : (
   <>
-      <section className="bg-prizm-surface-strong border-b border-prizm-border z-40 sticky top-14 transition-all shrink-0">
+      {!operations&&<section className="bg-prizm-surface-strong border-b border-prizm-border z-40 sticky top-14 transition-all shrink-0">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-2">
             
@@ -729,7 +777,7 @@ export default function App() {
 
           </div>
         </div>
-      </section>
+      </section>}
 
       {isConfigOpen && (
         <div className="fixed inset-0 z-[100] flex items-start justify-end bg-black/30 p-4 sm:p-6" onMouseDown={() => setIsConfigOpen(false)}>
@@ -765,7 +813,7 @@ export default function App() {
       )}
 
       {/* CORE WORKSPACE CONSOLE WINDOW */}
-      <main className="flex-1 p-4 sm:p-6 bg-prizm-bg w-full px-4 sm:px-6 lg:px-8">
+      <WorkspaceContent className={operations?'ops-workspace-content':'flex-1 p-4 sm:p-6 bg-prizm-bg w-full px-4 sm:px-6 lg:px-8'}>
         {topologyError && <div role="status" className="mb-3 rounded border border-amber-400/40 bg-amber-500/10 p-3 text-xs text-prizm-text">Topology could not be refreshed. Previously loaded layout, if available, is retained; telemetry updates continue independently.</div>}
         {loading && siteDataLoading && activeTab !== "arrays-strings" ? (
           <div className="h-[400px] flex flex-col items-center justify-center space-y-4 border border-prizm-border bg-prizm-surface rounded-lg">
@@ -851,6 +899,8 @@ export default function App() {
               )}
 
               {activeTab === "thermal-controls" && <RenderProbe id="thermal"><ThermalWorkspace /></RenderProbe>}
+              {activeTab === 'cell-history' && <RenderProbe id="cell-history"><CellHistoryWorkspace /></RenderProbe>}
+              {activeTab === 'site-analytics' && <RenderProbe id="site-analytics"><SiteAnalyticsWorkspace /></RenderProbe>}
               {activeTab === "one-line" && (
                 <div className="block animate-fade-in">
                   <OneLineView active />
@@ -859,7 +909,12 @@ export default function App() {
 
               {activeTab === "corrective-actions" && (
                 <div className="block animate-fade-in">
-                  <CorrectiveActionsDashboard active />
+                  {operations?<LiveCorrectiveActionsWorkspace onEditGuidance={entryId=>{
+                    if(entryId)localStorage.setItem('prizm_troubleshooting_selected_entry',entryId);
+                    else localStorage.removeItem('prizm_troubleshooting_selected_entry');
+                    localStorage.setItem('prizm_troubleshooting_open_matrix','true');
+                    handleSetActiveTab('troubleshooting-library');
+                  }}/>:<CorrectiveActionsDashboard active />}
                 </div>
               )}
 
@@ -897,7 +952,7 @@ export default function App() {
 
               {activeTab === "feather-hvac" && (
                 <div className="block space-y-4 animate-fade-in">
-                  <div className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
+                  <div hidden={remoteReadOnly} className="flex border-b border-prizm-border font-mono text-[10px] uppercase font-bold tracking-widest bg-prizm-surface p-1 rounded-t-md space-x-1">
                     <button
                       onClick={() => setFeatherSub("feather")}
                       className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
@@ -1031,7 +1086,7 @@ export default function App() {
             </Suspense>
           </div>
         )}
-      </main>
+      </WorkspaceContent>
 
       {/* FOOTER STATUS LINE (DAYLIGHT THEME) */}
       <footer className="h-8 bg-prizm-surface-strong border-t border-prizm-border px-4 sm:px-6 flex items-center justify-between text-[9px] font-mono tracking-widest text-prizm-text-muted uppercase shrink-0">
@@ -1060,5 +1115,6 @@ export default function App() {
       )}
 
     </div>
+    </OperationsFrame>
   );
 }

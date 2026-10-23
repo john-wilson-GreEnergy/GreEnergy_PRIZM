@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {rememberFlow} from './powerFlowPresentation';
+import type {SitePowerFlow} from '../core/fleet/powerFlow';
+const now=Date.now(),stamp=new Date(now-1000).toISOString();
+const reading={direction:'charging' as const,powerKw:-100,observedAt:stamp,validUntil:now+14000,label:'Charging'};
+const flow:SitePowerFlow={version:1,source:'Fixture',note:'',mixed:false,partial:false,net:reading,arrays:[{...reading,array:1,soc:{percent:42,observedAt:stamp,quality:'live',validUntil:now+14000,source:'Fixture'}}]};
+const first=rememberFlow(flow,undefined,now),missing=structuredClone(flow);
+missing.net={direction:'unknown',powerKw:null,observedAt:null,validUntil:null,label:'Unknown'};
+missing.arrays[0]={...missing.net,array:1};
+const retained=rememberFlow(missing,first,now+1000);
+assert.equal(retained.net?.powerKw,-100);
+assert.equal(retained.arrays.get(1)?.soc?.percent,42);
+assert.equal(retained.arrays.get(1)?.tone,'charging');
+assert.equal(retained.net?.observedAt,stamp);
+assert.equal(retained.net?.validUntil,now+14000,'Display memory cannot renew freshness');
+assert.equal(missing.net.direction,'unknown','Input remains authoritative and unchanged');
+const stale=structuredClone(flow);stale.net.direction='stale' as any;stale.arrays[0].soc!.quality='stale';
+assert.equal(rememberFlow(stale,first,now).tone,'charging');
+for(const percent of [NaN,-1,101]){
+ const invalid=structuredClone(flow);invalid.arrays[0].soc!.percent=percent;
+ assert.equal(rememberFlow(invalid,first,now).arrays.get(1)?.soc?.percent,42);
+}
+const future=structuredClone(flow);future.net.observedAt=new Date(now+10000).toISOString();future.net.powerKw=999;
+assert.equal(rememberFlow(future,first,now).net?.powerKw,-100);
+const next=structuredClone(flow);next.arrays[0].soc!.percent=0;next.net.powerKw=0;
+assert.equal(rememberFlow(next,first,now).net?.powerKw,0);
+assert.equal(rememberFlow(next,first,now).arrays.get(1)?.soc?.percent,0);
+assert.equal(rememberFlow({...flow,arrays:[]},first,now).arrays.size,0,'Removed topology is not invented');
+assert.equal(rememberFlow(missing,undefined,now).net,undefined,'New context starts empty');
+console.log('PASS display retention, original timestamps/deadlines, invalid/future values, zero values, topology removal and fresh scope');

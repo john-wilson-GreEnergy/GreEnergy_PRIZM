@@ -6,6 +6,13 @@ import {SelectedStore} from './selectedStore';
 function deferred<T>() {let resolve!:(value:T)=>void;let reject!:(error:Error)=>void;const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 const json=(value:unknown,etag='revision-1')=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json',etag}});
 
+test('workspace loads only the layout profile and explicit refresh requests it again',async()=>{
+  const urls:string[]=[];
+  const loader=new SiteDataRequests(async input=>{urls.push(String(input));return json({success:true,profile:{id:'site',assumptions:{arrayCount:8}}});});
+  await loader.topology();await loader.topology();await loader.topology(true);
+  assert.deepEqual(urls,Array(2).fill('/api/local/topology/active?view=profile'));
+});
+
 test('telemetry resolves while topology is held; topology failure stays isolated and retries',async()=>{
   const topology=deferred<Response>();let calls=0;
   const loader=new SiteDataRequests(async input=>{

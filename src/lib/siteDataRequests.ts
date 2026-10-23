@@ -30,9 +30,9 @@ export class SiteDataRequests {
     } finally { clearTimeout(timer); }
   }
 
-  snapshot(view: string, force = false, compactStrings = true): Promise<SnapshotResult | null> {
+  snapshot(view: string, force = false, compactStrings = true, stringContextOnly = false): Promise<SnapshotResult | null> {
     const qs = new URLSearchParams({view});
-    if (view === 'arrays-strings' && compactStrings) qs.set('shape','list');
+    if (view === 'arrays-strings' && compactStrings) qs.set('shape',stringContextOnly && !force ? 'list-context' : 'list');
     const key = qs.toString();
     if (!force && this.pendingSnapshot?.key === key) return this.pendingSnapshot.promise;
     this.snapshotController?.abort();
@@ -59,7 +59,7 @@ export class SiteDataRequests {
     this.topologyController?.abort();
     const controller = new AbortController(); this.topologyController = controller;
     const generation = ++this.topologyGeneration;
-    const promise = this.json('/api/local/topology/active',controller).then(({data})=>{
+    const promise = this.json('/api/local/topology/active?view=profile',controller).then(({data})=>{
       if(generation !== this.topologyGeneration)return null;
       if(!data?.success)throw new Error('Topology response could not be verified.');
       // A warming server may have no active profile yet; retry on later polls.

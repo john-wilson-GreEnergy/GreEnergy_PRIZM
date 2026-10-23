@@ -4,6 +4,7 @@ import protobuf from "protobufjs";
 import { getEmsCachedBlock, getEmsCachedLastCall } from "./emsTurtleClient";
 import { ProfileStore } from "./profiles/profileStore";
 import { buildEmsBaseUrl } from "./profiles/profileManager";
+import { safetyFaultEquipment } from './safetyFaultIdentity';
 
 const router = Router();
 
@@ -164,159 +165,119 @@ export interface SafetyFaultClearCandidate {
   blockviewerMatched: boolean;
   lastCallMatched: boolean;
   lastSeen: string;
+  equipment?: ReturnType<typeof safetyFaultEquipment>;
+  resetBlockedReason?: string;
+  resetEvidence?: SafetyResetEvidence[];
   raw?: any;
+}
+
+interface SafetyResetEvidence {
+  source: string;
+  allowFaultReset: boolean | null;
+  enabled: boolean | null;
+  communicating: boolean | null;
+  identityProblem: boolean;
 }
 
 function normalizeKey(key: string): string {
     if (!key) return "";
-    return key.replace(/[-:]/g, "_");
+    return key.trim().replace(/[-:]/g, "_");
 }
 
-function extractLastCallCandidates(obj: any, candidates: SafetyFaultClearCandidate[] = []): SafetyFaultClearCandidate[] {
-    if (!obj || typeof obj !== 'object') return candidates;
-    
-    if (obj.entityKey && typeof obj.entityKey === 'string') {
-        if (obj.allowFaultReset === true || 'allowFaultReset' in obj) {
-            const rawHtml = obj.statusMessage || "";
-            const plainText = rawHtml.replace(/<[^>]*>?/gm, '');
-
-            candidates.push({
-                id: obj.entityKey,
-                displayKey: obj.displayKey || obj.entityKey,
-                entityKey: obj.entityKey,
-                entityKeyToken: normalizeKey(obj.entityKey),
-                resetEntityKey: obj.entityKey,
-                entityType: obj.entityType || "",
-                entitySubType: obj.entitySubType || "",
-                statusMessage: obj.statusMessage || "",
-                statusMessageText: plainText,
-                enabled: obj.enabled === true,
-                ready: obj.ready === true,
-                communicating: obj.communicating === true,
-                allowFaultReset: Boolean(obj.allowFaultReset),
-                stationCode: obj.stationCode || "",
-                blockIndex: obj.blockIndex || "",
-                source: "lastCall",
-                sourceEndpoint: "/tools/report/ems/lastCall.json",
-                blockviewerMatched: false,
-                lastCallMatched: true,
-                lastSeen: new Date().toISOString(),
-                raw: obj
-            });
+/** Inspect both feeds fully, including keyed maps and deeply nested controller records.
+ * A missing identity must not hide a positive flag: retain a diagnostic-only row.
+ * Iteration + WeakSet tolerate deep/cyclic offline fixtures without truncating discovery.
+ */
+function collectSafetyCandidates(data: unknown, source: 'blockviewer' | 'lastCall'): SafetyFaultClearCandidate[] {
+    const candidates: SafetyFaultClearCandidate[] = [];
+    const pending: {value: unknown; path: string}[] = [{value: data, path: '$'}];
+    const seen = new WeakSet<object>();
+    const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+    const flag = (value: unknown) => typeof value === 'boolean' ? value : null;
+    while (pending.length) {
+        const {value, path} = pending.pop()!;
+        if (!value || typeof value !== 'object' || seen.has(value)) continue;
+        seen.add(value);
+        const raw = value as Record<string, unknown>;
+        for (const [key, child] of Object.entries(raw)) {
+            if (child && typeof child === 'object') pending.push({value: child, path: path + '[' + JSON.stringify(key) + ']'});
         }
+        if (!Object.prototype.hasOwnProperty.call(raw, 'allowFaultReset')) continue;
+        const entityKey = text(raw.entityKey);
+        const suppliedToken = text(raw.entityKeyToken);
+        const token = normalizeKey(entityKey || suppliedToken);
+        const identityProblem = !token || !!(entityKey && suppliedToken && normalizeKey(suppliedToken) !== token);
+        const statusMessage = text(raw.statusMessage);
+        candidates.push({
+            id: token || `unresolved:${source}:${path}`,
+            entityKey, entityKeyToken: token || `unresolved:${source}:${path}`,
+            resetEntityKey: identityProblem ? '' : entityKey || suppliedToken,
+            displayKey: text(raw.displayKey) || entityKey || suppliedToken || 'Equipment identity unavailable',
+            entityType: text(raw.entityType), entitySubType: text(raw.entitySubType),
+            statusMessage, statusMessageText: statusMessage.replace(/<[^>]*>?/gm, ''),
+            enabled: raw.enabled === true, ready: raw.ready === true, communicating: raw.communicating === true,
+            allowFaultReset: raw.allowFaultReset === true,
+            stationCode: text(raw.stationCode), blockIndex: String(raw.blockIndex ?? ''),
+            source, sourceEndpoint: source === 'lastCall' ? '/tools/report/ems/lastCall.json' : '/tools/monitor/ems/blockviewer/data',
+            blockviewerMatched: source === 'blockviewer', lastCallMatched: source === 'lastCall',
+            lastSeen: new Date().toISOString(), raw,
+            resetEvidence: [{source, allowFaultReset: flag(raw.allowFaultReset), enabled: flag(raw.enabled),
+                communicating: flag(raw.communicating), identityProblem}],
+        });
     }
-    
-    for (const key of Object.keys(obj)) {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-            extractLastCallCandidates(obj[key], candidates);
-        }
-    }
-    
     return candidates;
 }
 
-function extractBlockviewerCandidate(item: any): SafetyFaultClearCandidate {
-    const rawHtml = item.statusMessage || "";
-    const plainText = rawHtml.replace(/<[^>]*>?/gm, '');
-    return {
-        id: item.entityKeyToken || item.entityKey || item.displayKey || Math.random().toString(),
-        displayKey: item.displayKey || "",
-        entityKey: item.entityKey || "",
-        entityKeyToken: item.entityKeyToken || "",
-        resetEntityKey: item.entityKeyToken || "",
-        entityType: item.entityType || "",
-        entitySubType: item.entitySubType || "",
-        statusMessage: item.statusMessage || "",
-        statusMessageText: plainText,
-        enabled: Boolean(item.enabled),
-        ready: Boolean(item.ready),
-        communicating: Boolean(item.communicating),
-        allowFaultReset: Boolean(item.allowFaultReset),
-        stationCode: item.stationCode || "",
-        blockIndex: item.blockIndex || "",
-        source: "blockviewer",
-        sourceEndpoint: "/tools/monitor/ems/blockviewer/data",
-        blockviewerMatched: true,
-        lastCallMatched: false,
-        lastSeen: new Date().toISOString(),
-        raw: item
-    };
+function extractLastCallCandidates(data: unknown): SafetyFaultClearCandidate[] {
+    return collectSafetyCandidates(data, 'lastCall');
 }
 
-function normalizeBlockviewerTopology(topologyData: any): SafetyFaultClearCandidate[] {
-    const candidates: SafetyFaultClearCandidate[] = [];
-    if (!topologyData) return candidates;
-
-    const list = Array.isArray(topologyData) ? topologyData : (Array.isArray(topologyData.topology) ? topologyData.topology : []);
-
-    for (const item of list) {
-        if (!item || !item.entityKeyToken) continue;
-        candidates.push(extractBlockviewerCandidate(item));
-    }
-
-    if (topologyData.arrays && Array.isArray(topologyData.arrays)) {
-        for (const arr of topologyData.arrays) {
-            if (arr.entityKeyToken) {
-                 candidates.push(extractBlockviewerCandidate(arr));
-            }
-            if (arr.strings && Array.isArray(arr.strings)) {
-                for (const str of arr.strings) {
-                    if (str.entityKeyToken) {
-                        candidates.push(extractBlockviewerCandidate(str));
-                    }
-                }
-            }
-        }
-    }
-    
-    const uniqueMap = new Map<string, SafetyFaultClearCandidate>();
-    for (const cand of candidates) {
-        uniqueMap.set(cand.entityKeyToken, cand);
-    }
-    
-    return Array.from(uniqueMap.values());
+function normalizeBlockviewerTopology(data: unknown): SafetyFaultClearCandidate[] {
+    return collectSafetyCandidates(data, 'blockviewer');
 }
 
 function mergeCandidates(bvCandidates: SafetyFaultClearCandidate[], lcCandidates: SafetyFaultClearCandidate[]): SafetyFaultClearCandidate[] {
-    const map = new Map<string, SafetyFaultClearCandidate>();
-    
-    for (const bv of bvCandidates) {
-        map.set(bv.entityKeyToken, bv);
+    const groups = new Map<string, SafetyFaultClearCandidate[]>();
+    for (const candidate of [...bvCandidates, ...lcCandidates]) {
+        const group = groups.get(candidate.entityKeyToken) || [];
+        group.push(candidate);
+        groups.set(candidate.entityKeyToken, group);
     }
-    
-    for (const lc of lcCandidates) {
-        const normKey = normalizeKey(lc.entityKey);
-        const existing = map.get(normKey);
-        if (existing) {
-            existing.lastCallMatched = true;
-            existing.allowFaultReset = lc.allowFaultReset;
-            if (lc.statusMessage) {
-                existing.statusMessage = lc.statusMessage;
-            }
-            if (lc.statusMessageText) {
-                existing.statusMessageText = lc.statusMessageText;
-            }
-            existing.enabled = lc.enabled;
-            if ('ready' in lc.raw) existing.ready = lc.ready;
-            existing.communicating = lc.communicating;
-            existing.resetEntityKey = lc.entityKey;
-            existing.source = "lastCall";
-        } else {
-            map.set(normKey, lc);
-        }
-    }
-    
-    return Array.from(map.values());
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => {
+        // Prefer a positive issue description, then lastCall's canonical reset key.
+        // Never let iteration order or an unversioned negative erase positive evidence.
+        group.sort((a, b) => Number(b.allowFaultReset) - Number(a.allowFaultReset) ||
+            Number(b.source === 'lastCall') - Number(a.source === 'lastCall') ||
+            a.statusMessage.localeCompare(b.statusMessage) || a.displayKey.localeCompare(b.displayKey));
+        const evidence = group.flatMap(c => c.resetEvidence || []);
+        const positive = evidence.some(e => e.allowFaultReset === true);
+        const identityProblem = evidence.some(e => e.identityProblem) ||
+            new Set(group.map(c => c.entityKey).filter(Boolean)).size > 1;
+        const resetConflict = positive && evidence.some(e => e.allowFaultReset !== true);
+        const stateIncomplete = positive && evidence.some(e => e.enabled === null || e.communicating === null);
+        const reason = identityProblem ? 'Equipment identity missing or inconsistent; reset blocked.' :
+            resetConflict ? 'Reset reports disagree or are incomplete; refresh and review before clearing.' :
+            stateIncomplete ? 'Equipment state incomplete; refresh and review before clearing.' : undefined;
+        const canonicalKey = group.find(c => c.entityKey)?.entityKey;
+        return {...group[0],
+            entityKey: canonicalKey || group[0].entityKey,
+            resetEntityKey: identityProblem ? '' : canonicalKey || group[0].resetEntityKey,
+            allowFaultReset: positive,
+            enabled: evidence.every(e => e.enabled === true),
+            communicating: evidence.every(e => e.communicating === true),
+            blockviewerMatched: group.some(c => c.blockviewerMatched),
+            lastCallMatched: group.some(c => c.lastCallMatched),
+            resetEvidence: evidence, resetBlockedReason: reason,
+        };
+    });
 }
 
 export function buildSafetyFaultCandidateSnapshot(blockData: any, lastCallData: any) {
     const blockviewerCandidates = normalizeBlockviewerTopology(blockData);
     const lastCallCandidates = extractLastCallCandidates(lastCallData);
-    const uniqueLastCall = new Map<string, SafetyFaultClearCandidate>();
-    for (const candidate of lastCallCandidates) {
-        uniqueLastCall.set(normalizeKey(candidate.entityKey), candidate);
-    }
-    const merged = mergeCandidates(blockviewerCandidates, Array.from(uniqueLastCall.values()));
+    const merged = mergeCandidates(blockviewerCandidates, lastCallCandidates).map(candidate => ({
+        ...candidate, equipment: safetyFaultEquipment(candidate.raw || {}, candidate.entityKey || candidate.entityKeyToken, candidate.displayKey),
+    }));
     return {
         eligible: merged.filter(candidate => candidate.allowFaultReset === true),
         notEligible: merged.filter(candidate => candidate.allowFaultReset !== true),
@@ -409,32 +370,46 @@ router.post("/execute", async (req, res) => {
         
         // Preflight fetch
         let blockData: any = [];
+        let blockVerified = false;
         try {
              const r = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
-             if (r.ok) blockData = await r.json();
+             if (r.ok) {
+                 blockData = await r.json();
+                 blockVerified = !!blockData && typeof blockData === 'object';
+             }
         } catch(e) {}
         
         let lastCallData: any = {};
+        let lastCallVerified = false;
         try {
              const r = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
-             if (r.ok) lastCallData = await r.json();
+             if (r.ok) {
+                 lastCallData = await r.json();
+                 lastCallVerified = !!lastCallData && typeof lastCallData === 'object';
+             }
         } catch(e) {}
 
-        const bvCandidates = normalizeBlockviewerTopology(blockData);
-        const lcCandidates = extractLastCallCandidates(lastCallData);
-        
-        const lcUnique = new Map<string, SafetyFaultClearCandidate>();
-        for (const c of lcCandidates) {
-             const nk = normalizeKey(c.entityKey);
-             lcUnique.set(nk, c);
+        // A missing feed must not make an earlier disagreement look resolved.
+        if (!blockVerified || !lastCallVerified) {
+            return res.status(409).json({error: 'Both safety reports must be available for live reset verification.'});
         }
-        
-        const merged = mergeCandidates(bvCandidates, Array.from(lcUnique.values()));
+
+        const preflight = buildSafetyFaultCandidateSnapshot(blockData, lastCallData);
+        const merged = [...preflight.eligible, ...preflight.notEligible];
         
         const targetEntity = merged.find(c => c.entityKeyToken === entityKeyToken || normalizeKey(c.entityKey) === entityKeyToken);
         
         if (!targetEntity) {
              return res.status(404).json({ error: "Entity not found in live topology or lastCall" });
+        }
+        if (targetEntity.resetBlockedReason || !targetEntity.resetEntityKey) {
+             return res.status(409).json({ error: targetEntity.resetBlockedReason || 'Equipment identity unavailable' });
+        }
+        // Selection is bound to the reviewed issue, not just a reusable entity token.
+        if ((req.body.expectedDisplayKey !== undefined && req.body.expectedDisplayKey !== targetEntity.displayKey) ||
+            (req.body.expectedStatusMessage !== undefined && req.body.expectedStatusMessage !== targetEntity.statusMessage) ||
+            (req.body.expectedResetEntityKey !== undefined && req.body.expectedResetEntityKey !== targetEntity.resetEntityKey)) {
+            return res.status(409).json({ error: "The selected fault changed. Review fresh candidates before clearing." });
         }
         if (targetEntity.allowFaultReset !== true) {
              return res.status(400).json({ error: "allowFaultReset expects true but was false" });
@@ -469,26 +444,33 @@ router.post("/execute", async (req, res) => {
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         let postBlockData: any = [];
+        let postBlockVerified = false;
         try {
              const r = await fetch(baseUrl + "/tools/monitor/ems/blockviewer/data");
-             if (r.ok) postBlockData = await r.json();
+             if (r.ok) {
+                 postBlockData = await r.json();
+                 postBlockVerified = !!postBlockData && typeof postBlockData === 'object';
+             }
         } catch(e) {}
         
         let postLastCallData: any = {};
+        let postLastCallVerified = false;
         try {
              const r = await fetch(baseUrl + "/tools/report/ems/lastCall.json");
-             if (r.ok) postLastCallData = await r.json();
+             if (r.ok) {
+                 postLastCallData = await r.json();
+                 postLastCallVerified = !!postLastCallData && typeof postLastCallData === 'object';
+             }
         } catch(e) {}
         
-        const postBv = normalizeBlockviewerTopology(postBlockData);
-        const postLc = extractLastCallCandidates(postLastCallData);
-        const postLcUnique = new Map<string, SafetyFaultClearCandidate>();
-        for (const c of postLc) postLcUnique.set(normalizeKey(c.entityKey), c);
-        
-        const postMerged = mergeCandidates(postBv, Array.from(postLcUnique.values()));
+        const postflight = buildSafetyFaultCandidateSnapshot(postBlockData, postLastCallData);
+        const postMerged = [...postflight.eligible, ...postflight.notEligible];
         const afterEntity = postMerged.find(c => c.entityKeyToken === targetEntity.entityKeyToken || normalizeKey(c.entityKey) === targetEntity.entityKeyToken) || null;
 
-        const appearsCleared = afterEntity ? (afterEntity.allowFaultReset === false) : true;
+        // Missing telemetry is not evidence of clearance.
+        const appearsCleared = queued && postBlockVerified && postLastCallVerified &&
+            afterEntity?.allowFaultReset === false && afterEntity.communicating === true &&
+            !afterEntity.resetBlockedReason && afterEntity.resetEvidence?.every(e => e.allowFaultReset === false) === true;
         
         res.json({
             ok: queued,

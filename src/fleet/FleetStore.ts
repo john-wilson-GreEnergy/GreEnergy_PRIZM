@@ -1,5 +1,6 @@
 import type {FleetView} from '../core/fleet/model';
-type Session={email:string;csrf:string;idleExpiresAt:number;simulated:boolean};
+import {fleetRefreshMs} from '../core/fleet/pollingCadence';
+type Session={email:string;csrf:string;idleExpiresAt:number;simulated:boolean;localReview?:boolean;remoteReadOnly?:boolean;administrator?:boolean;refreshIntervalMs?:number;workspaces?:Array<{siteId:string;origin:string}>};
 export interface FleetState {session:Session|null;view:FleetView|null;loading:boolean;error:string|null;checking:boolean}
 /** One browser subscriber service; components never poll and no credentials are persisted. */
 export class FleetStore {
@@ -25,6 +26,7 @@ export class FleetStore {
     catch{if(generation===this.generation)this.publish({session:null,view:null,checking:false});}
   }
   stop(){this.generation++;clearTimeout(this.timer);this.abort?.abort();}
+  sessionEnded=()=>{this.stop();this.publish({session:null,view:null,checking:false,error:'Your session ended. Sign in again to resume your selected view.'});};
   async login(email:string,password:string){
     this.publish({loading:true,error:null});
     try{await this.json('login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});await this.start();}
@@ -53,7 +55,8 @@ export class FleetStore {
       if(error instanceof Error && error.message==='SIGN_IN'){this.stop();this.publish({session:null,view:null,error:'Your session ended. Sign in again.'});return;}
       this.publish({view:null,error:'Fleet connection unavailable. Current totals are withheld until it recovers.'});
     }finally{clearTimeout(timeout);}
-    if(generation===this.generation)this.timer=setTimeout(()=>void this.poll(generation),4000);
+    if(generation===this.generation)this.timer=setTimeout(()=>void this.poll(generation),fleetRefreshMs(this.state.session?.refreshIntervalMs));
   }
 }
-export const fleetStore=new FleetStore();
+export const remoteFleet=typeof window!=='undefined'&&window.location.pathname.startsWith('/fleet/');
+export const fleetStore=new FleetStore((input,init)=>fetch(remoteFleet&&typeof input==='string'&&input.startsWith('/api/fleet/')?'/fleet'+input:input,init));

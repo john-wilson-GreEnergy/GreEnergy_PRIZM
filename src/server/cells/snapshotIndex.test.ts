@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
+import {CellHistory} from './CellHistory';
+import {selectSnapshotIndex} from './snapshotIndex';
+import {loadSnapshotTimes,frameAtOrAfter} from '../../lib/analyticsReplay';
+const now=1792420000000,site={stationCode:'BHE0020',blockIndex:1,emsBaseUrl:'http://ems/turtle'};
+const directory=await fs.mkdtemp(path.join(os.tmpdir(),'prizm-analytics-test-'));
+const key=createHash('sha256').update(JSON.stringify([site.stationCode,site.blockIndex,site.emsBaseUrl])).digest('hex');
+let active=site;
+const history=new CellHistory({directory,enabled:true,currentSite:()=>active,reserveBytes:0});
+try{
+  const dir=path.join(directory,key);await fs.mkdir(dir);
+  const times=Array.from({length:1205},(_,i)=>now+i*60000);
+  const frame={schema:1,site,acquiredAt:now,reportAt:now,issues:[],strings:[{array:1,string:1,bpcCount:1,groupsPerBpc:1,observedAt:[now],millivolts:[3300],temperatureF:[75],ignoredTemperatures:[]}]};
+  await Promise.all(times.map(at=>fs.writeFile(path.join(dir,`${at}.cells.json.gz`),gzipSync(JSON.stringify({...frame,acquiredAt:at})))));
+  await fs.writeFile(path.join(dir,`${now+1}.cells.json.gz.tmp`),'temporary');
+  await fs.symlink(path.join(dir,`${now}.cells.json.gz`),path.join(dir,`${now+2}.cells.json.gz`));
+  const first=await history.index({limit:1000});assert.equal(first.timestamps.length,1000);assert.equal(first.total,1205);assert.equal(first.nextAfter,times[999]);
+  const all=await loadSnapshotTimes(q=>history.index(Object.fromEntries([...q].map(([k,v])=>[k,Number(v)]))),undefined,times.at(-1)!);
+  assert.deepEqual(all.times,times,'All 1205 frames accessible; not the 180-point sampled trend list');
+  assert.equal(frameAtOrAfter(times,now+1),now+60000);assert.equal(frameAtOrAfter(times,times.at(-1)!+1),null);
+  const exact=await history.snapshot({array:1,metric:'millivolts',at:times[600]});assert.equal(exact.acquiredAt,times[600]);
+  assert.equal(exact.statistics.stale,1,'Old measurement remains stale at newer acquisition time');
+  await fs.unlink(path.join(dir,`${times[600]}.cells.json.gz`));
+  await assert.rejects(history.snapshot({array:1,metric:'millivolts',at:times[600]}),/unavailable|expired/);
+  assert.equal((await history.index()).total,1204,'Pruned frame removed from next index');
+  await assert.rejects(history.index({limit:1001}),/page size/);await assert.rejects(history.index({from:4,to:2}),/range/);
+  active={...site,stationCode:'BHE0021'};assert.equal((await history.index()).total,0,'Site isolation');
+  assert.equal((await new CellHistory({directory,enabled:false}).index()).total,0);
+  await assert.rejects(loadSnapshotTimes(async()=>({...selectSnapshotIndex([now],'x',{}),nextAfter:now})),/sequence|advance/);
+}finally{await history.close();await fs.rm(directory,{recursive:true,force:true});}
+console.log('Exact snapshot metadata, 1205-frame pagination, stale quality, expiry, site isolation and replay lookup passed');

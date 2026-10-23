@@ -35,7 +35,7 @@ NETMAP_ENTITY=$FILE_DIR'netmap_entity.csv'
 NETMAP_STRING=$FILE_DIR'netmap_string.csv'
 NETMAP_OTHER=$FILE_DIR'netmap_other.csv'
 
-#make the powin folders
+# Create equipment configuration folders
 sudo mkdir -p /etc/powin
 sudo mkdir -p /etc/powin/fw/feather/deploy/
 sudo mkdir -p /etc/powin/scripts

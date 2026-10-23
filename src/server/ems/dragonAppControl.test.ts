@@ -75,7 +75,7 @@ async function runTests() {
     assert.fail("Native protobuf payload should build. Err: " + err.message);
   }
 
-  // Test 3: The five Kobold-observed application interactions stay mapped correctly.
+  // Test 3: The five EMS-observed application interactions stay mapped correctly.
   console.log("Test 3: Verifying EMS application control matrix...");
   for (const appCode of ["BP00001", "SSPC001", "ADB0001", "CTC0001"]) {
     const interaction = getAppInteraction(appCode);

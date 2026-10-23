@@ -1,5 +1,7 @@
 import {FleetBroker, IdentityConflict, parseEnrollment} from './FleetBroker';
 import type {SiteEnrollment} from '../../core/fleet/model';
+import {fleetDetailLimits} from '../../core/fleet/details';
+import {fleetRefreshMs} from '../../core/fleet/pollingCadence';
 
 export interface Collector extends SiteEnrollment {url:string; token:string}
 export const LOOPBACK_HOSTS=['localhost','127.0.0.1','[::1]'];
@@ -17,7 +19,7 @@ export async function fetchCollector(collector:Collector,signal:AbortSignal,fetc
     await response.body?.cancel(); throw new Error('Collector response unavailable');
   }
   const reader=response.body?.getReader();if(!reader)throw new Error('Collector response empty');
-  const limit=256*1024,chunks:Uint8Array[]=[];let total=0;
+  const limit=fleetDetailLimits.summaryBytes,chunks:Uint8Array[]=[];let total=0;
   try {
     for(;;){const part=await reader.read();if(part.done)break;total+=part.value.byteLength;if(total>limit)throw new Error('Collector response too large');chunks.push(part.value);}
     return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
@@ -29,7 +31,7 @@ export class CollectorPoller {
   private timers=new Set<ReturnType<typeof setTimeout>>();
   private active=new Map<string,AbortController>();
   private work=new Set<Promise<void>>();
-  constructor(private broker:FleetBroker,private collectors:Collector[],private read=fetchCollector){}
+  constructor(private broker:FleetBroker,private collectors:Collector[],private read=fetchCollector,private intervalMs=fleetRefreshMs(process.env.PRIZM_FLEET_REFRESH_MS)){}
   start(){if(this.running)return;this.running=true;for(const collector of this.collectors)this.enqueue(collector,0);}
   private enqueue(collector:Collector,delay:number){
     if(!this.running)return;
@@ -42,7 +44,7 @@ export class CollectorPoller {
     const timeout=setTimeout(()=>controller.abort(),5000);timeout.unref();
     try{const payload=await this.read(collector,controller.signal);if(this.running)this.broker.accept(collector.siteId,payload);}
     catch(error){if(this.running)this.broker.fail(collector.siteId,error instanceof IdentityConflict?'identity-conflict':'unavailable');}
-    finally{clearTimeout(timeout);this.active.delete(collector.siteId);this.enqueue(collector,4000);}
+    finally{clearTimeout(timeout);this.active.delete(collector.siteId);this.enqueue(collector,fleetRefreshMs(this.intervalMs));}
   }
   async stop(){this.running=false;for(const timer of this.timers)clearTimeout(timer);this.timers.clear();for(const controller of this.active.values())controller.abort();await Promise.all(this.work);}
 }

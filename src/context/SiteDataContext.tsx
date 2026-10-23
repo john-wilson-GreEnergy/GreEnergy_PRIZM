@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useSyncExternalStore, ReactNode, useCallback, useRef, useMemo } from 'react';
 import { SiteDataRequests } from '../lib/siteDataRequests';
 import { SelectedStore } from '../lib/selectedStore';
+import {hasHealthyStringStream} from '../lib/stringStreamHealth';
 
 export interface SiteDataContextType {
   snapshot: any | null;
@@ -48,7 +49,7 @@ function getSnapshotQuality(snapshot: any) {
 
 const STRING_HEAVY_VIEWS = new Set(["arrays-strings", "site-health", "one-line"]);
 // Must match the deliberately compact heartbeat views in siteDataRoutes.
-const HEARTBEAT_VIEWS = new Set(["overview", "pcs-dashboard", "thermal-controls"]);
+const HEARTBEAT_VIEWS = new Set(["overview", "pcs-dashboard", "thermal-controls", "cell-history"]);
 
 function isRenderableSnapshot(snapshot: any, view = "overview"): boolean {
   const q = getSnapshotQuality(snapshot);
@@ -144,7 +145,8 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     try {
       const query=new URLSearchParams(window.location.search);
-      const snapshotJob=requests.snapshot(activeView,force,query.get('stringPayload')!=='legacy');
+      const contextOnly = query.get('stringRefresh') !== 'legacy' && hasHealthyStringStream();
+      const snapshotJob=requests.snapshot(activeView,force,query.get('stringPayload')!=='legacy',contextOnly);
       // Rollback/comparison switch retains coupled waiting without duplicating acquisition.
       const response=query.get('siteLoading')==='legacy' ? (await Promise.all([snapshotJob,topologyJob]))[0] : await snapshotJob;
       if(!response || token!==requestToken.current)return;
@@ -223,7 +225,7 @@ export const SiteDataProvider: React.FC<{ children: ReactNode }> = ({ children }
       return;
     }
 
-    const liveTelemetryViews = new Set(["overview", "one-line", "pcs-dashboard", "thermal-controls"]);
+    const liveTelemetryViews = new Set(["overview", "one-line", "pcs-dashboard", "thermal-controls", "cell-history"]);
     const diagnosticViews = new Set(["corrective-actions", "site-health", "feather-hvac", "balancer-test"]);
     // String rows arrive through the page's dedicated broker stream. Keep the
     // larger site snapshot as a slower enrichment/recovery path while visible.

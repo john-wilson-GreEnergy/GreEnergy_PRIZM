@@ -16,6 +16,7 @@ type StoredRow<T> = { row: T; updatedAtMs: number; updatedAt: string; fingerprin
 export class EntityDomainBroker<T extends Record<string, any>> {
   private rows = new Map<string, StoredRow<T>>();
   private listeners = new Set<(publication: DomainPublication<T>) => void>();
+  private projectedListeners = new Set<(publication: DomainPublication<T>) => void>();
   private version = 0;
 
   constructor(readonly domain: string, private readonly keyOf: (row: T) => string | null) {}
@@ -76,10 +77,21 @@ export class EntityDomainBroker<T extends Record<string, any>> {
     return () => this.listeners.delete(listener);
   }
 
+  /** Internal pure projection only, as with projectSnapshot. Projectors must
+   * not mutate or retain input. Copy only the selected payload before giving
+   * it to a consumer, so omitted diagnostics are not copied per connection.
+   */
+  subscribeProjected<R>(project: (publication: Readonly<DomainPublication<T>>) => R, listener: (publication: R) => void): () => void {
+    const deliver = (publication: DomainPublication<T>) => listener(structuredClone(project(publication)));
+    this.projectedListeners.add(deliver);
+    return () => this.projectedListeners.delete(deliver);
+  }
+
   private emit(changes: DomainChange<T>[], capturedAt: string): DomainPublication<T> {
     if (changes.length === 0) return { domain: this.domain, version: this.version, capturedAt, changes };
     const publication = { domain: this.domain, version: ++this.version, capturedAt, changes };
     this.listeners.forEach((listener) => listener(structuredClone(publication)));
+    this.projectedListeners.forEach((listener) => listener(publication));
     return publication;
   }
 }

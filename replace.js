@@ -37,7 +37,7 @@ function processFile(path) {
 }
 
 processFile('src/components/ToolDashboards.tsx');
-processFile('src/components/KoboldMonitor.tsx');
+processFile('src/components/demo/SiteMonitor.tsx');
 processFile('src/components/FeatherDashboard.tsx');
 processFile('src/components/ConnectionSettings.tsx');
 processFile('src/components/Dashboard.tsx');

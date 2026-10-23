@@ -130,7 +130,7 @@ export default function ContactorControlModal({ isOpen, onClose, onConfirm, targ
                 <input type="checkbox" checked={ignoreVoltageDelta} onChange={(e) => setIgnoreVoltageDelta(e.target.checked)} disabled={pending || action !== 'close'} className="rounded border-prizm-border bg-prizm-surface text-prizm-warning focus:ring-0 focus:ring-offset-0" />
                 <div className="flex flex-col">
                   <span className="font-bold text-prizm-text uppercase text-[10px]">Ignore DC Bus VΔ Limit</span>
-                  <span className="text-[9px] text-prizm-text-muted">Kobold-compatible close override</span>
+                  <span className="text-[9px] text-prizm-text-muted">EMS-compatible close override</span>
                 </div>
               </label>
               <label className="flex flex-col gap-1">

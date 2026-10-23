@@ -1,0 +1,17 @@
+[Unit]
+Description=PRIZM authenticated site workspace entry rules
+BindsTo=prizm-fleet-network.service
+After=prizm-fleet-network.service
+Before=prizm-workspace-entry@ss3-3444.service prizm-workspace-entry@ss3-3445.service prizm-workspace-entry@ss4-3444.service prizm-workspace-entry@ss4-3445.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/node /opt/prizm-fleet/current/scripts/fleet-workspace-network.mjs start
+ExecStop=/usr/bin/node /opt/prizm-fleet/current/scripts/fleet-workspace-network.mjs stop
+TimeoutStartSec=30
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

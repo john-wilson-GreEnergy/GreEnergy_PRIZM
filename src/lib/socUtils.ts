@@ -26,7 +26,7 @@ export function getSystemSocAndSource(sum: any, rollups: any) {
   }
 
   if (soc !== null && !isNaN(soc)) {
-    if (soc < 1 && soc > 0) soc = soc * 100;
+    // Canonical inputs are percent, including sub-1% readings.
     soc = Math.max(0, Math.min(100, soc));
     return { soc, source };
   }

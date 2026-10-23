@@ -485,7 +485,7 @@ Never expose raw payloads to UI by default.
 
 Current:
 
-Powin EMS
+EMS
 
 Feather
 

@@ -508,7 +508,7 @@ export function buildProvisioningPlanPreview(
       category: 'install',
       executionType: 'future-controlled-command',
       riskLevel: 'high',
-      description: 'Execute hatchery_configure_feather_powin.sh',
+      description: 'Execute the equipment configuration script',
       wouldModifyTarget: true,
       requiresCredentials: true,
       requiresSudo: true,
