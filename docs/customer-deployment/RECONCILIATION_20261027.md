@@ -119,6 +119,13 @@ no longer needs the private capture. It still labels whole-program source parity
 or network. It detects changed/missing/extra files and prohibits symlinks. The
 payload's Git attributes prevent line-ending conversion on another computer.
 
+Publication review also identified built-in device-password fallback logic in
+the archived server files. It matches the already-published ioLogik service source
+at `ea4744511a036a9761a332bebe7a8530315236ff`; credential-detection strings likewise
+match the existing provisioning validator. These are retained application code,
+not imported site credentials. No equipment authentication was attempted, so this
+review does not establish whether any device still accepts a factory default.
+
 Credentials, account/password files, keys, tunnel tokens, telemetry, caches and
 private capture archives must remain outside published source, whether the
 repository stays public or becomes private. No repository visibility change,

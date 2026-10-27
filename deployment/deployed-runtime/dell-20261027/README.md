@@ -52,7 +52,13 @@ here. This is not a complete machine backup or a ready-to-run deployment package
   per release in `manifest.json`; no included file was redacted or rewritten.
 - The compiled code retains its existing program defaults and validation strings;
   removing code constants would break exact-byte equivalence. Credential-pattern
-  review found UI labels and credential-detection signatures, not live secrets.
+  review found UI labels, credential-detection signatures, and built-in device
+  password fallbacks. The latter match `src/server/iologik/iologikFleetService.ts`
+  in the already-published source at `ea4744511a036a9761a332bebe7a8530315236ff`;
+  they were not obtained from site configuration or an account store. Whether any
+  equipment still uses a built-in default was not tested. No authentication or
+  equipment command was attempted. Exact-byte preservation retains this existing
+  code behavior; it is not an endorsement of default passwords.
 - SS3's worker link was directly observed. SS4's worker-folder link still requires
   administrator read access (`ADMIN_READ_REQUIRED`); its collector entry is verified.
 - Hashes prove deployed files on disk, not the bytes loaded earlier into a running
