@@ -1,0 +1,1 @@
+import{j as s}from"./client-cy5FG22B.js";function c({label:a,children:p}){return s.jsxs("details",{className:"prizm-bpc-list",children:[s.jsxs("summary",{children:[a,s.jsx("span",{className:"prizm-bpc-expand",children:"Expand"}),s.jsx("span",{className:"prizm-bpc-collapse",children:"Collapse"})]}),s.jsx("div",{className:"prizm-bpc-list-body",children:p})]})}export{c as B};

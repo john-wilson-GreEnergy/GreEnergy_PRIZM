@@ -1,5 +1,16 @@
 # GreEnergy Prizm - Automated Setup & Run Guide
 
+## Dell production reference
+
+The exact deployed application files are versioned in
+[deployment/deployed-runtime/dell-20261027](deployment/deployed-runtime/dell-20261027/README.md),
+alongside the editable source. Run `node scripts/verify-deployed-runtime.mjs`
+to verify the reference offline without starting PRIZM. This is a code-only,
+point-in-time reference, not a machine backup or proof that a full source rebuild
+matches production. See [Home development](docs/customer-deployment/HOME_DEVELOPMENT.md).
+Ravenswood remains separate. Do not use the installers below to replace the Dell
+baseline without a separately reviewed deployment.
+
 **GreEnergy Prizm** is a professional diagnostic lens, telemetry monitor, and field operations control center for Battery Energy Storage Systems (BESS). 
 
 This guide describes how a technician can unzip the package and run the automated **Windows or Linux installer** to configure dependencies, compile optimized assets, and automatically create a **Desktop Icon / Shortcut** for simple one-click operations.

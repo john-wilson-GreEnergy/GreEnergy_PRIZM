@@ -1,0 +1,2 @@
+# Preserve the exact deployed bytes even on clones with core.autocrlf enabled.
+payload/** -text

@@ -5,15 +5,17 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {build} from 'esbuild';
 import {definitions,compareFunction} from './dell-source-parity-lib.mjs';
-const baseline=process.argv[2];
-assert(baseline,'Usage: node scripts/check-dell-source-parity.mjs <captured-dell-baseline> (after npm run build)');
+import {verifyRuntime} from './deployed-runtime-lib.mjs';
+const baseline=process.argv[2] || 'deployment/deployed-runtime/dell-20261027';
 const read=p=>fs.readFileSync(p,'utf8');
-const captured=path.resolve(baseline,'production');
-const lock=JSON.parse(read(path.resolve(baseline,'production-lock.json')));
+const published=fs.existsSync(path.resolve(baseline,'manifest.json'));
+if(published)verifyRuntime(path.resolve(baseline));
+const captured=path.resolve(baseline,published?'payload/releases':'production');
+const lock=JSON.parse(read(path.resolve(baseline,published?'manifest.json':'production-lock.json')));
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 function artifact(release,file){
  const bytes=fs.readFileSync(path.join(captured,release,'dist',file));
- assert.equal(sha(bytes),lock.roots[release].files[file],`Captured artifact changed: ${release}/${file}`);
+ assert.equal(sha(bytes),(published?lock.releases:lock.roots)[release].files[file],`Captured artifact changed: ${release}/${file}`);
  return bytes;
 }
 const production=read(path.join(captured,'safety-filtering-collector-20261022/dist/server.cjs'));

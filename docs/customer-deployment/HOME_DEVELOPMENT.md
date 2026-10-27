@@ -1,12 +1,15 @@
-# Home development — reviewed source handoff
+# Home development — source and exact deployed-file reference
 
 ## Current production reconciliation status
 
 The owner chose Dell-authoritative source on 2026-10-27. Read the
 [current reconciliation report](RECONCILIATION_20261027.md) before making changes.
 Known undeployed additions have been removed from this source line and preserved
-on `archive/pre-dell-sync-20261027`. Full production equivalence remains
-unverified; this is not authorization to replace the running Dell release.
+on `archive/pre-dell-sync-20261027`. The owner subsequently approved committing
+the [exact deployed application files](../../deployment/deployed-runtime/dell-20261027/README.md)
+alongside editable source. This reference matches the included Dell application
+files byte-for-byte, verified read-only on October 27. A full source rebuild is
+still not proven equivalent; this is not authorization to replace the Dell release.
 
 Reconciliation completed for the known differences:
 
@@ -25,6 +28,7 @@ Reconciliation completed for the known differences:
 git clone https://github.com/john-wilson-GreEnergy/GreEnergy_PRIZM.git
 cd GreEnergy_PRIZM
 git log -3 --oneline
+node scripts/verify-deployed-runtime.mjs
 npm ci --ignore-scripts --no-audit --no-fund
 npm run lint
 ```
@@ -40,6 +44,8 @@ NODE_OPTIONS='--require ./scripts/test-network-guard.cjs' npm run build
 npm run test:safety-candidates
 npm run test:account-roles
 node --require ./scripts/test-network-guard.cjs scripts/dell-source-parity-lib.test.mjs
+node --require ./scripts/test-network-guard.cjs scripts/deployed-runtime.test.mjs
+node --require ./scripts/test-network-guard.cjs scripts/check-dell-source-parity.mjs
 ```
 
 Do not start the normal server, live preview, enrollment, deployment or verifier
@@ -52,9 +58,12 @@ qualification.
 ## Publication boundary
 
 This handoff includes editable application code, tests with synthetic values,
-build/release tooling and the reconciliation notes. No new runtime-data changes,
-captured site fixtures, credentials, generated release artifacts or private
-production-baseline archive are selected for these commits.
+build/release tooling, reconciliation notes, and the explicitly approved exact
+deployed-code reference. No new runtime-data changes, captured site fixtures,
+credentials or raw private baseline archive are selected for these commits.
+The committed runtime directory is an immutable reference: do not run or edit it.
+It deliberately omits site configuration, installed dependencies, source maps
+and filesystem metadata. It is not a complete Dell machine backup.
 
 The following pending work is deliberately retained locally, not published:
 
@@ -70,10 +79,13 @@ claim that a clone is free of historical site data. The owner elected to keep
 the repository public after that limitation was disclosed. History cleanup is
 a separate task; no force-push or history rewrite is included here.
 
-The ignored production baseline is required by check-dell-source-parity.mjs and
-is not available from a Git clone. Without it, use the report as scoped evidence,
-not a fresh parity result. With the baseline, the parity checker now passes its
+The committed runtime reference is now the default for check-dell-source-parity.mjs;
+the ignored private capture is no longer required at home. The checker passes its
 scoped checks but explicitly reports whole-program parity as NOT_VERIFIED.
+The exact-byte verifier is separate and does not need npm dependencies. It verifies
+3,495 archived files against the manifest without executing any application code.
+SS4's worker-folder link remains an administrator-read verification limitation;
+both collectors' running entry paths and the captured release files were verified.
 
 No Dell service, equipment command, startup cleanup, latency setting or live
 configuration is changed by this Git handoff. Future releases must record their

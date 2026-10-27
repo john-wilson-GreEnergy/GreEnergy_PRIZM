@@ -3,7 +3,10 @@
 Latest status: [October 27 reconciliation](RECONCILIATION_20261027.md). The Dell
 was recaptured read-only; identified undeployed features are now preserved on a
 separate archive branch and removed from the production source line. Complete
-source-to-runtime equivalence remains unverified. The following is historical.
+source-to-runtime equivalence remains unverified. The owner approved committing
+an [exact deployed-file reference](../../deployment/deployed-runtime/dell-20261027/README.md)
+alongside source, which is now available in an ordinary clone and verifiable offline.
+The following is historical.
 
 This is the historical artifact-capture record. For the later reviewed-source
 Git handoff, start with [Home development](HOME_DEVELOPMENT.md). References below

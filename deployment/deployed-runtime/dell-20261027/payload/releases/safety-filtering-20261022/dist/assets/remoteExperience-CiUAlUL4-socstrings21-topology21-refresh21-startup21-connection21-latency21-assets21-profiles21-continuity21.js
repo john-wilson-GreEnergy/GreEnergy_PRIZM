@@ -1,0 +1,1 @@
+function n(e){return/iPhone|iPad|iPod|Android/i.test(e.userAgent)||/Macintosh/i.test(e.userAgent)&&e.maxTouchPoints>1?"mobile":"fleet"}function o(){return"/"+n(navigator)+"/"}function r(e){if(document.documentElement.dataset.prizmAdaptive!=="true")return!1;const t=o();return t===`/${e}/`?!1:(window.location.replace(t+window.location.hash),!0)}export{r as a,o as r};

@@ -11,6 +11,9 @@ coverage/
 .prizm-history/
 reports/generated/
 deployment/production-baselines/
+# User-approved immutable deployed-code reference; ordinary build output stays ignored.
+!deployment/deployed-runtime/dell-20261027/payload/releases/*/dist/
+!deployment/deployed-runtime/dell-20261027/payload/releases/*/dist/**
 scripts/.collector-processing-test-*/
 
 # Local runtime output and site-specific operational state

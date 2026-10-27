@@ -2,6 +2,20 @@
 
 ## Status and publication boundary
 
+**Final handoff choice:** the owner approved including exact deployed application
+files alongside editable source. The committed
+[Dell runtime reference](../../deployment/deployed-runtime/dell-20261027/README.md)
+now preserves 3,495 code/dependency-manifest files from the four captured release
+folders. A second read-only live comparison at `2026-10-27T16:24:13.297Z` matched
+all captured release hashes and all nine active service entry paths. Included
+files are unchanged bytes, verified independently by an offline manifest checker.
+Source maps and AppleDouble metadata are explicitly omitted; secrets, live
+configuration and site data were never imported. Ravenswood is excluded.
+
+This completes the **exact deployed-file reference alongside source** approach,
+not the alternative source-only reproducible-build approach. The limitations
+below still apply. Ordinary full builds must not be presented as exact Dell code.
+
 The owner now wants the Dell deployment to be authoritative, superseding the
 October 23 decision to leave known development-only features in the production
 checkout. This update removes the identified undeployed additions from source.
@@ -12,8 +26,9 @@ the strength of the scoped tests below.
 The previous committed source remains at `23de78e81216026020bfa0534de52987a7685c6e`
 on `archive/pre-dell-sync-20261027`. Original uncommitted files were copied into
 a private local preservation directory before editing, with a verified Git
-bundle and a file-hash manifest. No runtime data or private capture is selected
-for publication. Historical site files already in Git are not sanitized by this
+bundle and a file-hash manifest. No runtime data or raw private capture is selected
+for publication; only reviewed application files are imported into the new reference.
+Historical site files already in Git are not sanitized by this
 commit; a visibility change would not remove them from existing clones.
 
 ## Fresh production reference
@@ -74,7 +89,7 @@ was sent. Only synthetic fixture writes were used in tests.
   formatting normalization. Seven rebuilt sidecar/worker artifacts match exactly;
   the retention worker matches executable text apart from its source-map trailer.
 
-## Remaining work before calling the repository an exact production clone
+## Remaining source-build work (not hidden by the exact-file reference)
 
 The Dell uses incremental compiled overlays and sidecar factories rather than a
 single clean build of this source tree. The full frontend module graph, server
@@ -84,9 +99,25 @@ byte-identical to the captured release. Matching selected functions and passing
 tests do not close that gap. No complete source-to-runtime equivalence certificate
 or live acceptance of a full rebuild is claimed here.
 
-Keep the Ravenswood package outside this production line until that gap is
-closed. It remains preserved locally and can then be placed on its own branch,
-with its two-block configuration and reviewed differences from this baseline.
+Keep the Ravenswood package outside this production line. It remains preserved
+locally and can be placed on its own branch, with its two-block configuration and
+reviewed differences from the now-versioned deployed-file reference. Its packaging
+must use that immutable reference rather than assume an ordinary build is equivalent.
+
+## Portable verification
+
+```sh
+node scripts/verify-deployed-runtime.mjs
+node --require ./scripts/test-network-guard.cjs scripts/deployed-runtime.test.mjs
+# After installing development dependencies and building the source offline:
+node --require ./scripts/test-network-guard.cjs scripts/check-dell-source-parity.mjs
+```
+
+The source parity checker now defaults to the committed reference, so a home clone
+no longer needs the private capture. It still labels whole-program source parity
+`NOT_VERIFIED`. The runtime verifier hashes files only and requires no dependencies
+or network. It detects changed/missing/extra files and prohibits symlinks. The
+payload's Git attributes prevent line-ending conversion on another computer.
 
 Credentials, account/password files, keys, tunnel tokens, telemetry, caches and
 private capture archives must remain outside published source, whether the
