@@ -41,6 +41,32 @@ export function parseAccounts(raw: unknown): LocalAccount[] {
   return structuredClone(raw) as LocalAccount[];
 }
 
+/** Captured Dell collector contract. Fleet continues to use strict parseAccounts.
+ * Kept separately so production reconciliation cannot weaken Fleet controls grants.
+ * This historical collector parser does not interpret remoteControlSites. */
+export function parseCollectorAccounts(raw: unknown): LocalAccount[] {
+  if (!Array.isArray(raw) || !raw.length || raw.length > 256) throw new Error('Invalid local account store');
+  const ids = new Set<string>(), names = new Set<string>();
+  for (const row of raw) {
+    if(object(row) && row.remoteAccess!==undefined && typeof row.remoteAccess!=='boolean')throw Error('Invalid remote access flag');
+    if(object(row) && row.passwordSetup!==undefined && (!object(row.passwordSetup)||typeof row.passwordSetup.digest!=='string'||!/^[a-f0-9]{64}$/.test(row.passwordSetup.digest)||!Number.isSafeInteger(row.passwordSetup.expiresAt)||Number(row.passwordSetup.expiresAt)<=0||row.fleetAdmin===true))throw Error('Invalid password setup');
+    if (object(row) && row.fleetAdmin !== undefined && typeof row.fleetAdmin !== 'boolean') throw new Error('Invalid administrator flag');
+    if (!object(row) || !identifier(row.id) || typeof row.email !== 'string' || !normalizeLocalEmail(row.email) || normalizeLocalEmail(row.email) !== row.email || typeof row.disabled !== 'boolean' ||
+        !Number.isSafeInteger(row.version) || Number(row.version) < 1 || !object(row.password) ||
+        row.password.algorithm !== 'scrypt-v1' || typeof row.password.salt !== 'string' || !/^[a-f0-9]{32}$/.test(row.password.salt) ||
+        typeof row.password.digest !== 'string' || !/^[a-f0-9]{128}$/.test(row.password.digest) || !Array.isArray(row.grants) || row.grants.length > 100) throw new Error('Invalid local account');
+    if (ids.has(row.id) || names.has(row.email)) throw new Error('Duplicate local identity');
+    ids.add(row.id); names.add(row.email);
+    for (const grant of row.grants) {
+      if (!object(grant) || !capabilities.has(String(grant.capability)) || !identifier(grant.siteId) || !identifier(grant.blockId) || !object(grant.scope) ||
+          (grant.scope.kind !== 'block' && (grant.scope.kind !== 'targets' || !Array.isArray(grant.scope.ids) || !grant.scope.ids.length || grant.scope.ids.length > 5000 || grant.scope.ids.some(id => !identifier(id))))) throw new Error('Invalid local grant');
+    }
+  }
+  return structuredClone(raw) as LocalAccount[];
+}
+
+export const readCollectorAccounts = async (file: string) => parseCollectorAccounts(await readPrivateJson(file));
+
 async function derive(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve,reject) => scrypt(password, Buffer.from(salt,'hex'), 64,
     {N: 131072, r: 8, p: 1, maxmem: 192 * 1024 * 1024}, (error,key) => error ? reject(error) : resolve(key)));

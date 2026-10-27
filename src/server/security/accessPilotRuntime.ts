@@ -2,7 +2,7 @@ import type {RequestHandler} from 'express';
 import {open} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import path from 'node:path';
-import {readAccounts, readPrivateJson} from './localAccounts';
+import {readCollectorAccounts as readAccounts, readPrivateJson} from './localAccounts';
 import {LocalSessions} from './localSessions';
 import {OwnedJobs} from './ownedJobs';
 import {createLocalAccessPilot, type PilotPorts} from './localAccessPilot';

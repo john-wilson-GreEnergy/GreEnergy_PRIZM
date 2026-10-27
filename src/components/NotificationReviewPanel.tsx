@@ -12,7 +12,7 @@ import {CorrectiveExportMenu} from './CorrectiveExportMenu';
 const severityStyle: Record<string,string> = {critical:'bg-red-100 text-red-900',alarm:'bg-red-100 text-red-800',warning:'bg-amber-100 text-amber-900',info:'bg-sky-100 text-sky-900',unknown:'bg-slate-200 text-slate-800'};
 export default function NotificationReviewPanel(props:{review?:NotificationReview;stale?:boolean;onEditGuidance?:(id:string|null)=>void}){
   if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('correctiveLayout')==='legacy')return <LegacyNotificationReviewPanel {...props}/>;
-  return <CorrectiveGuidanceBoundary revision={props.review?.guidanceRevision??0} sharedRevision={props.review?.guidanceSharedRevision??0}><CorrectiveSummary {...props}/></CorrectiveGuidanceBoundary>;
+  return <CorrectiveGuidanceBoundary revision={props.review?.guidanceRevision??0}><CorrectiveSummary {...props}/></CorrectiveGuidanceBoundary>;
 }
 function CorrectiveSummary({review,stale=false}:{review?:NotificationReview;stale?:boolean}){
   const [array,setArray]=useState('all');

@@ -1,5 +1,10 @@
 # Dell production / offline development baseline
 
+Latest status: [October 27 reconciliation](RECONCILIATION_20261027.md). The Dell
+was recaptured read-only; identified undeployed features are now preserved on a
+separate archive branch and removed from the production source line. Complete
+source-to-runtime equivalence remains unverified. The following is historical.
+
 This is the historical artifact-capture record. For the later reviewed-source
 Git handoff, start with [Home development](HOME_DEVELOPMENT.md). References below
 to uncommitted work and no push describe the original capture, not later commits.

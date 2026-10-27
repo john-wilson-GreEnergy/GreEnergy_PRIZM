@@ -32,9 +32,6 @@ async function main(){
   // One release owns presentation; collectors retain acquisition and command execution.
   // Explicit rollback restores legacy LAN asset forwarding without changing permissions.
   const workspaceUi=process.env.PRIZM_UNIFIED_WORKSPACE_UI==='false'?undefined:createWorkspaceUi(publicDirectory);
-  const sharedIds=config.correctiveGuidanceSites??[];
-  if(!Array.isArray(sharedIds)||(sharedIds.length!==0&&sharedIds.length<2)||new Set(sharedIds).size!==sharedIds.length||sharedIds.some(id=>typeof id!=='string'||!workspaces.some(w=>w.siteId===id)))throw Error('Shared guidance requires explicit enrolled site IDs');
-  const sharedGuidanceSites=collectors.filter(c=>sharedIds.includes(c.siteId));
   const audit:WorkspaceAudit=async event=>{process.stdout.write(JSON.stringify({at:new Date().toISOString(),...event})+'\n');};
   const fleetApp=createFleetApp(broker,sessions,{
     origin:config.origin,allowLoopbackHttp:config.allowLoopbackHttp===true,publicDirectory,workspaceUi,
@@ -55,7 +52,7 @@ async function main(){
   try{
     for(const workspace of workspaces){
       const collector=collectors.find(c=>c.siteId===workspace.siteId)!;
-      const gateway=createWorkspaceGateway(sessions,collector,workspace,config.origin,audit,workspaceForwarder(collector,workspace),false,sharedGuidanceSites,workspaceUi);
+      const gateway=createWorkspaceGateway(sessions,collector,workspace,config.origin,audit,workspaceForwarder(collector,workspace),false,[],workspaceUi);
       const listener=httpsServer({key:await readPrivatePem(config.tlsKeyFile as string),cert:await readPrivatePem(config.tlsCertFile as string),minVersion:'TLSv1.2',handshakeTimeout:5000,maxHeaderSize:8192},gateway);
       listener.requestTimeout=60000;listener.headersTimeout=10000;listener.maxConnections=64;listener.keepAliveTimeout=5000;
       workspaceServers.push(listener);

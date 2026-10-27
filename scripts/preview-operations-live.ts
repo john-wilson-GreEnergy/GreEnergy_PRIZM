@@ -21,7 +21,6 @@ import {hvacReviewFixture} from './hvac-review-fixture';
 import {projectNotificationHvacs,auditNotificationGuidance,annotateNotificationNames} from '../src/server/notifications/hvacIssueReview';
 import {CorrectiveGuidanceStore,createCorrectiveGuidanceRouter,applyCorrectiveGuidance} from '../src/server/notifications/correctiveGuidance';
 const guidanceDrafts=new CorrectiveGuidanceStore('/private/tmp/prizm-corrective-guidance-preview.json');
-const sharedGuidanceDrafts={store:new CorrectiveGuidanceStore('/private/tmp/prizm-shared-guidance-preview.json',true),sites:['Solar Star 3 (preview)','Solar Star 4 (preview)']};
 
 const charts=new OperatingChartsStore();
 const reviewSite={siteId:'ss3-review',blockId:'1',blockIndex:1,stationCode:'BHE0020',name:'Solar Star 3 · LOCAL READ-ONLY REVIEW'};
@@ -68,7 +67,7 @@ async function readPublished(path:string):Promise<string>{
     for(const review of [data.normalized?.notificationReview,data.notificationReview])if(review){
       annotateNotificationNames(review);
       review.hvacReview=projectNotificationHvacs(review);
-      Object.assign(review,applyCorrectiveGuidance(review,guidanceDrafts.read(),sharedGuidanceDrafts.store.read()));
+      Object.assign(review,applyCorrectiveGuidance(review,guidanceDrafts.read()));
       review.guidanceGaps=auditNotificationGuidance(review);
     }
     const body=JSON.stringify(data);
@@ -90,10 +89,9 @@ app.use('/api/local/corrective-guidance',(req,res,next)=>{
   res.setHeader('Cache-Control','no-store');
   if(req.method!=='GET'&&req.headers.origin!==reviewOrigin)return res.status(403).json({error:'Same-origin local draft request required'});
   res.locals.prizmGuidanceActor='Mac preview administrator (draft only)';
-  res.locals.prizmGuidanceShared=true;
-  if(req.method==='GET'){const local=guidanceDrafts.read(),shared=sharedGuidanceDrafts.store.read();return res.json({canEdit:true,localDraft:true,revision:local.revision,canEditShared:true,sharedRevision:shared.revision,sharedSites:sharedGuidanceDrafts.sites,localKeys:Object.keys(local.entries),sharedKeys:Object.keys(shared.entries)});}
+  if(req.method==='GET')return res.json({canEdit:true,localDraft:true,revision:guidanceDrafts.read().revision});
   res.once('finish',()=>{if(res.statusCode===200)cache.clear();});next();
-},express.json({limit:'256kb'}),createCorrectiveGuidanceRouter(guidanceDrafts,sharedGuidanceDrafts));
+},express.json({limit:'256kb'}),createCorrectiveGuidanceRouter(guidanceDrafts));
 app.use('/api',async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   // Local preview routes are never forwarded to production; all writes remain denied.

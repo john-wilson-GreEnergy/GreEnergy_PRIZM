@@ -44,7 +44,7 @@ import { getContactorStateView } from "./domainBrokers/contactorStateView";
 import { analyzeContactorStates } from "./correctiveActionsEngine";
 import { normalizeFeatherHvacCorrectiveFindings } from "./normalizers/featherHvacCorrectiveNormalizer";
 import { buildNotificationReview, buildRotationStatusFindings, type NotificationReview } from "./notifications/notificationReview";
-import {applyCorrectiveGuidance,correctiveGuidanceStore,sharedCorrectiveGuidance} from './notifications/correctiveGuidance';
+import {applyCorrectiveGuidance,correctiveGuidanceStore} from './notifications/correctiveGuidance';
 import {projectNotificationBpcs} from './notifications/notificationBpcs';
 import {projectNotificationHvacs,auditNotificationGuidance} from './notifications/hvacIssueReview';
 import { contactorStateFromCanonicalRow } from "./domainBrokers/contactorStateView";
@@ -2916,7 +2916,7 @@ async function executeCoordinatorCycle(context: { cycleId: number; reasons: stri
       newSnap.normalized.notificationReview.bpcReview = projectNotificationBpcs(newSnap.normalized.notificationReview,newSnap.siteIdentity);
       newSnap.normalized.notificationReview.hvacReview = projectNotificationHvacs(newSnap.normalized.notificationReview);
       if(process.env.PRIZM_CORRECTIVE_GUIDANCE!=='false') {
-          try {newSnap.normalized.notificationReview=applyCorrectiveGuidance(newSnap.normalized.notificationReview,correctiveGuidanceStore.read(),sharedCorrectiveGuidance?.store.read());newSnap.normalized.notificationReview.guidanceGaps=auditNotificationGuidance(newSnap.normalized.notificationReview);}
+          try {newSnap.normalized.notificationReview=applyCorrectiveGuidance(newSnap.normalized.notificationReview,correctiveGuidanceStore.read());newSnap.normalized.notificationReview.guidanceGaps=auditNotificationGuidance(newSnap.normalized.notificationReview);}
           catch {newSnap.normalized.notificationReview.sourceWarnings.push('Saved corrective guidance is unavailable. Built-in guidance is shown; verify the approved field procedure.');}
       }
       let acceptSnapshot = true;

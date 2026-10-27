@@ -2,7 +2,6 @@ import {createHash} from 'node:crypto';
 import {lstatSync,readFileSync,readdirSync,realpathSync} from 'node:fs';
 import path from 'node:path';
 import type {Response} from 'express';
-import {isStringStartupRequest,stringStartupHtml} from './stringStartupPreloads';
 
 export interface WorkspaceUi {
   readonly releaseId:string;
@@ -33,21 +32,12 @@ export function createWorkspaceUi(directory:string):WorkspaceUi {
     if(!['fleet.html','mobile.html'].includes(file))entries.set(file==='index.html'?'/':'/'+file,absolute);
   }
   const releaseId=digest.digest('hex');
-  // Discover string dependencies with the HTML, not after the main module,
-  // workspace-context round trip and React lazy boundary. Static code only;
-  // every API still performs the same authentication and freshness checks.
-  const stringHtml=process.env.PRIZM_STRING_STARTUP_PRELOAD==='false'?null:stringStartupHtml(
-    readFileSync(path.join(root,'index.html'),'utf8'),
-    {get(name){const file=entries.get('/assets/'+name);return file?readFileSync(file,'utf8'):undefined;}});
   return Object.freeze({publicDirectory:root,releaseId,send(pathname:string,res:Response){
     if(pathname!=='/'&&!pathname.startsWith('/assets/')&&!['/logo-transparent.svg','/favicon.ico'].includes(pathname))return false;
     const file=entries.get(pathname);
     res.set({'X-Prizm-UI-Release':releaseId,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
     // Do not fall back to a collector's older asset when a release is incomplete.
     if(!file){res.sendStatus(404);return true;}
-    if(pathname==='/'&&stringHtml&&isStringStartupRequest(res.req.originalUrl)){
-      res.set('X-Prizm-Startup-Preload','strings');res.type('html');res.end(stringHtml);return true;
-    }
     // Only static interface files may be retained, privately and with mandatory
     // revalidation. HTML, account context and telemetry remain no-store. The
     // caller still applies its existing access checks before conditional delivery.

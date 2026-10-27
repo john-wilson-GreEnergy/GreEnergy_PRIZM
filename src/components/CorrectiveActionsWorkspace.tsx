@@ -15,7 +15,7 @@ const empty:IssueFilters={query:'',severity:'all',array:'all',category:'all'};
 type Props={review?:NotificationReview;stale?:boolean;loading?:boolean;error?:string;onEditGuidance?:(entryId:string|null)=>void};
 export function CorrectiveActionsWorkspace(props:Props){
   if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('correctiveLayout')==='legacy')return <LegacyCorrectiveActionsWorkspace {...props}/>;
-  return <CorrectiveGuidanceBoundary revision={props.review?.guidanceRevision??0} sharedRevision={props.review?.guidanceSharedRevision??0}><Workspace {...props}/></CorrectiveGuidanceBoundary>;
+  return <CorrectiveGuidanceBoundary revision={props.review?.guidanceRevision??0}><Workspace {...props}/></CorrectiveGuidanceBoundary>;
 }
 function Workspace({review,stale=false,loading=false,error}:Props){
   const [filters,setFilters]=usePresentation<IssueFilters>('corrective-v2-filters',empty);
@@ -31,7 +31,7 @@ function Workspace({review,stale=false,loading=false,error}:Props){
     {(stale||error)&&<p className="ops-alert" role="status">{error||'This snapshot is stale. Verify current equipment conditions before field work.'}</p>}
     {review?.sourceWarnings?.map(w=><p key={w} className="ops-alert" role="status">{w}</p>)}
     <div className="ops-stats">{[['Unique BPCs',bpcs?.uniqueBpcs,bpcs?.partial?'At least · incomplete coverage':'Each physical BPC counted once'],['Balancing candidates',review?.bpcReview?.balancerInventory?.total,'Charge + discharge combined; not replacement orders'],['Alarm / critical',review?.totals.alarm,'Reported occurrences'],['Issue groups',review?.totals.groups,'All severities and categories']].map(([label,value,note])=><div className="ops-stat" key={String(label)}><span>{label}</span><strong>{value==null?'—':Number(value).toLocaleString()}</strong><small>{note}</small></div>)}</div>
-    <p className="ops-count-note">Complete snapshot totals · Fault occurrences are not replacement quantities. Unknown severity: {review?.totals.unknown??'—'}. Guidance revisions: site {review?.guidanceRevision??0} / shared {review?.guidanceSharedRevision??0}.</p>
+    <p className="ops-count-note">Complete snapshot totals · Fault occurrences are not replacement quantities. Unknown severity: {review?.totals.unknown??'—'}. Guidance revision: {review?.guidanceRevision??0}.</p>
     {review?.bpcReview?.balancerInventory?.partial&&<p className="ops-alert">Balancing coverage is incomplete. The displayed quantity is a lower bound, not a complete replacement count.</p>}
     <section className="ops-issues" aria-label="Issue review">
       <div className="ops-view-switch"><div><button aria-pressed={mode==='issue'} onClick={()=>setMode('issue')}>Faults by category</button><button aria-pressed={mode==='bpc'} onClick={()=>setMode('bpc')}>Unique BPCs & balancing quantities</button></div><span className="ops-muted">Read-only review · No equipment commands</span></div>

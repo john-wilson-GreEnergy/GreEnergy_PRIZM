@@ -1,5 +1,10 @@
 # Dell source reconciliation audit — 2026-10-23
 
+Historical report. The owner's later Dell-authoritative decision and the
+subsequent source changes are recorded in the
+[October 27 report](RECONCILIATION_20261027.md). The undeployed features described
+below are no longer retained in the main source line.
+
 ## Status
 
 For the subsequent source-publication handoff, see

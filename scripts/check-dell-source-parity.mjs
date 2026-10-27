@@ -23,6 +23,8 @@ const a=definitions(production),b=definitions(source),passed=[];
 for(const name of ['normalizeKey','collectSafetyCandidates','extractLastCallCandidates','normalizeBlockviewerTopology','mergeCandidates','buildSafetyFaultCandidateSnapshot'])passed.push(compareFunction(a,b,name));
 passed.push(compareFunction(a,b,'safetyFaultEquipment',{aliases:{__safetyStringToEnergySegment:'stringNumberToEnergySegment'}}));
 passed.push(compareFunction(a,b,'stringNumberToEnergySegment',{deployedName:'__safetyStringToEnergySegment'}));
+for(const name of ['validateGuidance','applyCorrectiveGuidance','createCorrectiveGuidanceRouter'])passed.push(compareFunction(a,b,name));
+passed.push(compareFunction(a,b,'parseCollectorAccounts',{deployedName:'parseAccounts'}));
 const exactArtifacts=[],sidecarDifferences=[];
 for(const [entry,file,release]of [
  ['scripts/soc-strings-runtime.ts','soc-strings-runtime.cjs','safety-filtering-20261022'],
@@ -45,19 +47,8 @@ for(const [file,release]of [
 }
 const withoutMap=text=>text.replace(/^\/\/# sourceMappingURL=.*$/m,'').trim();
 assert.equal(withoutMap(read('dist/snapshot-retention-worker.cjs')),withoutMap(artifact('safety-filtering-collector-20261022','snapshot-retention-worker.cjs').toString()),'Retention worker executable code differs');
-// These sources intentionally differ from production. Do not let a subset
-// passing be mistaken for approval to deploy the entire source build.
-const unshipped=[
- 'src/server/notifications/correctiveGuidance.ts',
- 'src/server/prizmDataCoordinator.ts',
- 'src/server/fleet/main.ts',
- 'src/server/fleet/workspaceGateway.ts',
- 'src/server/fleet/workspaceCollector.ts',
- 'src/components/CorrectiveGuidanceEditor.tsx',
- 'src/components/CorrectiveActionsWorkspace.tsx',
- 'src/components/NotificationReviewPanel.tsx',
- 'src/components/NotificationTroubleshootingPanel.tsx',
-];
-console.log(JSON.stringify({scope:'Selected deployed safety functions, sidecars and workers; not the whole application',passed,exactArtifacts,sidecarDifferences,codeMatchesIgnoringSourceMap:['snapshot-retention-worker.cjs'],wholeProgramParity:'NOT_VERIFIED',unshippedSharedGuidance:unshipped,equipmentCommandsSent:false},null,2));
+// Known guidance/preload differences were reconciled on 2026-10-27. This
+// scoped checker still does not compare complete entrypoints, classes or UI.
+console.log(JSON.stringify({scope:'Selected deployed safety/guidance/collector-account functions, sidecars and workers; not the whole application',passed,exactArtifacts,sidecarDifferences,codeMatchesIgnoringSourceMap:['snapshot-retention-worker.cjs'],wholeProgramParity:'NOT_VERIFIED',equipmentCommandsSent:false},null,2));
 // A successful build or a matching subset is not permission to replace Dell.
 if(sidecarDifferences.length)process.exitCode=2;

@@ -70,7 +70,6 @@ export function workspaceForwarder(collector:Collector,enrollment:WorkspaceEnrol
       const headers:Record<string,string>={Authorization:'Bearer '+enrollment.token,Accept:String(req.headers.accept ?? '*/*')};
       // Set only by the authenticated local gateway, never copied from client headers.
       if(typeof res.locals.prizmGuidanceActor==='string')headers['x-prizm-guidance-actor']=res.locals.prizmGuidanceActor;
-      if(res.locals.prizmGuidanceShared===true)headers['x-prizm-guidance-shared']='true';
       for(const key of ['content-type','content-length'])if(typeof req.headers[key]==='string')headers[key]=req.headers[key] as string;
       if(optimized && req.method==='GET' && !streamRequest){
         for(const key of ['accept-encoding','if-none-match'])if(typeof req.headers[key]==='string')headers[key]=req.headers[key] as string;
@@ -141,7 +140,7 @@ export function workspaceForwarder(collector:Collector,enrollment:WorkspaceEnrol
 }
 
 export function createWorkspaceGateway(sessions:LocalSessions,collector:Collector,enrollment:WorkspaceEnrollment,
-  fleetOrigin:string,audit:WorkspaceAudit,forward:WorkspaceForward,allowLoopbackHttp=false,sharedGuidanceSites:readonly Collector[]=[],workspaceUi?:WorkspaceUi){
+  fleetOrigin:string,audit:WorkspaceAudit,forward:WorkspaceForward,allowLoopbackHttp=false,_reservedSharedSites:readonly Collector[]=[],workspaceUi?:WorkspaceUi){
   const origin=validateFleetOrigin(enrollment.origin,allowLoopbackHttp),fleet=validateFleetOrigin(fleetOrigin,allowLoopbackHttp),app=express();
   if(origin.hostname!==fleet.hostname || origin.origin===fleet.origin)throw Error('Distinct workspace origin on the Fleet host required');
   app.disable('x-powered-by');app.set('trust proxy',false);app.set('case sensitive routing',true);app.set('strict routing',true);
@@ -155,15 +154,12 @@ export function createWorkspaceGateway(sessions:LocalSessions,collector:Collecto
       if(req.headers.host!==origin.host || (req.headers.origin && req.headers.origin!==origin.origin) ||
         (!req.secure && !(allowLoopbackHttp && origin.protocol==='http:' && loopback)))throw new AccessError(403,'Trusted workspace origin required');
       const path=workspacePath(req.url),token=fleetSessionToken(req);
-      const recheck=async()=>{const auth=await sessions.authenticate(token,false);requireFullWorkspace(auth.principal,collector);if(res.locals.prizmGuidanceShared===true){if(!auth.administrator)throw new AccessError(403,'Local administrator access required');for(const site of sharedGuidanceSites)requireFullWorkspace(auth.principal,site);}return auth;};
+      const recheck=async()=>{const auth=await sessions.authenticate(token,false);requireFullWorkspace(auth.principal,collector);return auth;};
       const auth=await recheck();
       if(req.method!=='GET'&&path.startsWith('/api/local/troubleshooting/overrides')&&!auth.administrator)throw new AccessError(403,'Local administrator access required');
       if(path==='/api/local/corrective-guidance'){
         if(req.method!=='GET'&&!auth.administrator)throw new AccessError(403,'Local administrator access required');
         if(auth.administrator)res.locals.prizmGuidanceActor=auth.principal.subject;
-        if(auth.administrator&&sharedGuidanceSites.length>=2&&sharedGuidanceSites.some(s=>s.siteId===collector.siteId)){
-          try{for(const site of sharedGuidanceSites)requireFullWorkspace(auth.principal,site);res.locals.prizmGuidanceShared=true;}catch{/* Keep site editing available without granting shared writes. */}
-        }
       }
       if(path==='/api/fleet/workspace-context' && req.method==='GET' && !req.url.includes('?')){
         res.json({siteId:collector.siteId,siteName:collector.name,stationCode:collector.stationCode,blockIndex:collector.blockIndex,

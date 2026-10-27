@@ -13,7 +13,6 @@ import {hashLocalPassword,type LocalAccount} from '../security/localAccounts';
 import {createWorkspaceGateway,workspaceForwarder} from './workspaceGateway';
 import {collectorWorkspace} from './workspaceCollector';
 import {CorrectiveGuidanceStore,createCorrectiveGuidanceRouter} from '../notifications/correctiveGuidance';
-import type {Collector} from './CollectorPoller';
 
 const dir=await mkdtemp(path.join(tmpdir(),'prizm-workspace-tls-'));
 const certConfig=path.join(dir,'cert.conf');
@@ -36,10 +35,9 @@ async function send(port:number,url:string,method='GET',body?:unknown,headers:Re
 }
 try{
   const entries:{port:number;siteId:string}[]=[];
-  const sharedSites:Collector[]=[];
   for(const n of [1,2]){
     const token=String(n).repeat(43),app=express(),legacy=express();legacy.use(express.json());
-    legacy.use('/api/local/corrective-guidance',createCorrectiveGuidanceRouter(new CorrectiveGuidanceStore(path.join(dir,`guidance-${n}.json`)),{store:new CorrectiveGuidanceStore(path.join(dir,'shared.json'),true),sites:['Fixture 1','Fixture 2']}));
+    legacy.use('/api/local/corrective-guidance',createCorrectiveGuidanceRouter(new CorrectiveGuidanceStore(path.join(dir,`guidance-${n}.json`))));
     legacy.post('/api/local/mock-control',(req,res)=>{calls.push({site:n,body:req.body,cookie:req.headers.cookie,authorization:req.headers.authorization,csrf:req.headers['x-prizm-csrf']});res.cookie('unsafe','never-forward');res.json({site:n,accepted:true});});
     legacy.get('/api/local/snapshot',(_req,res)=>res.json({site:n,source:'fixture'}));
     legacy.get('/api/local/redirect',(_req,res)=>res.redirect('https://example.invalid'));
@@ -47,12 +45,11 @@ try{
     app.use('/api/fleet/workspace',collectorWorkspace(token,()=>true,legacy));
     const upstreamPort=await listen(tlsServer({key,cert},app));
     const collector={siteId:'fixture-'+n,blockId:'1',blockIndex:1,stationCode:'LAB'+n,name:'Fixture '+n,url:`https://127.0.0.1:${upstreamPort}/api/fleet/site-summary`,token:'s'.repeat(43)};
-    sharedSites.push(collector);
     user.grants.push(...(['telemetry.view','workspace.full'] as const).map(capability=>({capability,siteId:collector.siteId,blockId:'1',scope:{kind:'block' as const}})));
     // Reserve the actual frontend port before constructing its fixed-origin guard.
     const frontend=express(),port=await listen(createServer(frontend));
     const enrollment={siteId:collector.siteId,origin:`http://localhost:${port}`,token};
-    frontend.use(createWorkspaceGateway(sessions,collector,enrollment,'http://localhost:3443',async()=>{},workspaceForwarder(collector,enrollment,cert),true,sharedSites));
+    frontend.use(createWorkspaceGateway(sessions,collector,enrollment,'http://localhost:3443',async()=>{},workspaceForwarder(collector,enrollment,cert),true));
     entries.push({port,siteId:collector.siteId});
   }
   auth=await sessions.login(user.email,'Loopback-only workspace fixture','fixture');
@@ -80,16 +77,6 @@ try{
   assert.equal(guidance.history[0].actor,user.id);assert.equal(guidance.revision,1);
   assert.equal((await send(port,route,'PUT',patch)).status,409,'Stale revision cannot overwrite edits');
   assert.equal(JSON.parse((await send(entries[1].port,route)).body).revision,0,'Guidance remains site-specific');
-  const sharedPatch={...patch,scope:'shared'};
-  assert.equal(JSON.parse((await send(port,route)).body).canEditShared,true);
-  assert.equal((await send(port,route,'PUT',sharedPatch)).status,200);
-  assert.equal(JSON.parse((await send(entries[1].port,route)).body).sharedRevision,1,'Both collectors observe one shared catalog');
-  assert.equal((await send(entries[1].port,route,'PUT',sharedPatch)).status,409,'Cross-site stale writers cannot overwrite shared edits');
-  user.grants=user.grants.filter(g=>g.siteId!==entries[1].siteId);user.version++;
-  auth=await sessions.login(user.email,'Loopback-only workspace fixture','fixture');
-  assert.equal(JSON.parse((await send(port,route)).body).canEditShared,false);
-  assert.equal((await send(port,route,'PUT',{...sharedPatch,revision:1},{'X-Prizm-Guidance-Shared':'true'})).status,403,'Client cannot spoof all-site permission');
-  assert.equal(JSON.parse(await readFile(path.join(dir,'shared.json'),'utf8')).revision,1);
   user.version++;
   assert.equal((await send(entries[0].port,'/api/local/mock-control','POST',{})).status,401);
   assert.equal(calls.length,2);

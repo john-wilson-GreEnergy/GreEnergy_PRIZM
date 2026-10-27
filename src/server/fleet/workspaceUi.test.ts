@@ -63,9 +63,9 @@ try{
     const a=await local('/?tab=arrays-strings'),b=await distant('/?tab=arrays-strings');
     assert.equal(a.status,200);assert.equal(b.status,200);assert.equal(a.body,b.body);
     assert.equal(a.headers['cache-control'],'no-store');assert.equal(b.headers['cache-control'],'no-store');
-    assert.equal(a.headers['x-prizm-startup-preload'],'strings');assert.equal(b.headers['x-prizm-startup-preload'],'strings');
-    assert(a.body.includes('rel="modulepreload" crossorigin href="/assets/StringDashboard-test.js"'));
-    assert(a.body.includes('href="/assets/rows-test.js"'));assert(!a.body.includes('History-test.js'));
+    assert.equal(a.headers['x-prizm-startup-preload'],undefined);assert.equal(b.headers['x-prizm-startup-preload'],undefined);
+    assert(!a.body.includes('modulepreload'),'Production HTML is served unchanged; development preload is not deployed');
+    assert(!a.body.includes('History-test.js'));
     assert(!(await local('/?tab=overview')).body.includes('modulepreload'));
     assert(!(await distant('/?tab=overview')).body.includes('modulepreload'));
     assert.equal(a.headers['x-prizm-ui-release'],ui.releaseId);assert.equal(b.headers['x-prizm-ui-release'],ui.releaseId);
@@ -104,9 +104,6 @@ try{
   if(priorFlag===undefined)delete process.env.PRIZM_UI_ASSET_REVALIDATION;else process.env.PRIZM_UI_ASSET_REVALIDATION=priorFlag;
   const rollbackUi=await start(createWorkspaceGateway(sessions,sites[0],{siteId:'one',origin:'http://localhost:3444',token:'w'.repeat(43)},'http://localhost:3443',async()=>{},forwards[0],true,[],legacyUi),'cache-rollback',true);
   assert.equal((await send(rollbackUi,'localhost:3444','/assets/workspace.js',localCookie)).headers['cache-control'],'no-store','Explicit static cache rollback');
-  process.env.PRIZM_STRING_STARTUP_PRELOAD='false';const preloadRollback=createWorkspaceUi(dir);delete process.env.PRIZM_STRING_STARTUP_PRELOAD;
-  const noPreload=await start(createWorkspaceGateway(sessions,sites[0],{siteId:'one',origin:'http://localhost:3444',token:'w'.repeat(43)},'http://localhost:3443',async()=>{},forwards[0],true,[],preloadRollback),'preload-rollback',true);
-  assert(!(await send(noPreload,'localhost:3444','/?tab=arrays-strings',localCookie)).body.includes('modulepreload'));
   account.grants=account.grants.filter(g=>g.siteId==='one');account.version++;
   assert.equal((await send(lan[1],'localhost:3444','/',localCookie)).status,303,'Revocation also blocks cached UI delivery');
   assert.equal((await send(lan[1],'localhost:3444','/assets/workspace.js',localCookie,'GET',undefined,{'If-None-Match':'*'})).status,401,'Revocation precedes conditional asset delivery');

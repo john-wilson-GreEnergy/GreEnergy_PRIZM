@@ -28,13 +28,13 @@ export function correctivePacket(review:NotificationReview,groups:NotificationGr
     guidanceSource:(g.troubleshooting?.sources??[]).filter(s=>s.targetIds.includes(t.id)).map(s=>s.label+(s.advisory?' (general advisory)':'')).join('; ')||'Not supplied',
     telemetrySource:t.source.join('; '),
   })));
-  return {site,capturedAt:review.capturedAt,generatedAt:new Date().toISOString(),revision:review.guidanceRevision??0,sharedRevision:review.guidanceSharedRevision??0,
+  return {site,capturedAt:review.capturedAt,generatedAt:new Date().toISOString(),revision:review.guidanceRevision??0,
     stale,warnings:review.sourceWarnings??[],filters:{...filters,array,target:query||'all',...(selection?{selection:'Operator-selected fault / target subset; not a complete site fault list'}:{})},selected,targets,bpcs,bpcChecklist,
     partialBpcs:review.bpcReview?.scopes['all:all']?.partial??true,
     inventory:selection&&!selection.includeSiteInventory?undefined:review.bpcReview?.balancerInventory,textFor,
   };
 }
 export type CorrectivePacket=ReturnType<typeof correctivePacket>;
-export const exportColumns=['Site','Snapshot (UTC)','Freshness / coverage','Category','Severity','Code','Fault','Target','Block','Array','String','BPC','Cell group','Observed at','Recommended actions','Validation checks','Clear conditions','Safety / prerequisites','Documented clearing behavior','Guidance source','Telemetry source','Guidance revision','Shared guidance revision'] as const;
-export function packetRows(p:CorrectivePacket){return p.targets.map(t=>[p.site,p.capturedAt,[p.stale?'RETAINED - VERIFY FRESHNESS':'Published snapshot - verify before field work',...p.warnings].join('; '),t.category,t.severity,t.code,t.title,t.target,t.block,t.array,t.string,t.bpc,t.cell,t.observed,t.actions,t.validation,t.clearing,t.safety,t.documentedClearing,t.guidanceSource,t.telemetrySource,p.revision,p.sharedRevision]);}
+export const exportColumns=['Site','Snapshot (UTC)','Freshness / coverage','Category','Severity','Code','Fault','Target','Block','Array','String','BPC','Cell group','Observed at','Recommended actions','Validation checks','Clear conditions','Safety / prerequisites','Documented clearing behavior','Guidance source','Telemetry source','Guidance revision'] as const;
+export function packetRows(p:CorrectivePacket){return p.targets.map(t=>[p.site,p.capturedAt,[p.stale?'RETAINED - VERIFY FRESHNESS':'Published snapshot - verify before field work',...p.warnings].join('; '),t.category,t.severity,t.code,t.title,t.target,t.block,t.array,t.string,t.bpc,t.cell,t.observed,t.actions,t.validation,t.clearing,t.safety,t.documentedClearing,t.guidanceSource,t.telemetrySource,p.revision]);}
 export function packetCsv(p:CorrectivePacket){const safe=(v:unknown)=>{const s=v==null?'':String(v);return '"'+(/^[\s]*[=+\-@]|^[\t\r]/.test(s)?"'":'')+s.replaceAll('"','""')+'"';};return [exportColumns,...packetRows(p)].map(row=>row.map(safe).join(',')).join('\r\n');}

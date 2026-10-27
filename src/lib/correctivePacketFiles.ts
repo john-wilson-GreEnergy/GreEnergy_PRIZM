@@ -21,7 +21,7 @@ export function packetWorkbook(p:CorrectivePacket){
     ...(p.inventory?.rows??[]).map(r=>[p.site+' - entire site',r.bpc,r.chargeOnly,r.dischargeOnly,r.both,r.quantity,p.inventory?.partial?'Partial - lower bound':'Mapped candidates']),
   ],[40,14,14,16,14,18,35]);
   append('Snapshot notes',[
-    ['Field','Value'],['Brand','GreEnergy PRIZM'],['Site',p.site],['Snapshot UTC',p.capturedAt],['Exported UTC',p.generatedAt],['Site guidance revision',p.revision],['Shared guidance revision',p.sharedRevision],
+    ['Field','Value'],['Brand','GreEnergy PRIZM'],['Site',p.site],['Snapshot UTC',p.capturedAt],['Exported UTC',p.generatedAt],['Guidance revision',p.revision],
     ['Filters',JSON.stringify(p.filters)],['Fault groups selected',p.selected.length],['Reported target rows',p.targets.length],['Unique BPCs in selected faults',p.bpcs?.length??'Unavailable'],
     ['BPC coverage',p.partialBpcs?'Partial / unavailable - counts are lower bounds':'Mapped physical devices'],
     ['Balancing quantities scope',p.inventory?'Entire site, independent of export filters. Charge 2074 + discharge 2073; each physical BPC counted once.':'Not included in this selected worklist.'],
@@ -50,7 +50,7 @@ export function packetPdf(p:CorrectivePacket,logo?:string,options:{compactBpcs?:
   p.warnings.forEach(w=>line('Coverage warning: '+w,10,true));
   line(p.selected.length+' fault groups | '+p.targets.length+' reported target rows | '+(p.bpcs?p.bpcs.length:'Unavailable')+' unique mapped BPCs in selected faults',11,true);
   if(p.partialBpcs)line('BPC counts are incomplete or unavailable. Treat available counts as lower bounds.');
-  line('Guidance revision: site '+p.revision+' / shared '+p.sharedRevision+'. Inspection / replacement candidates are not confirmed replacement orders. This ticket does not authorize equipment commands, switching or field work. Follow approved site procedures.');
+  line('Guidance revision: '+p.revision+'. Inspection / replacement candidates are not confirmed replacement orders. This ticket does not authorize equipment commands, switching or field work. Follow approved site procedures.');
   section('Dispatch', ['Work order / permit: __________________________________________________','Assigned technician: _________________________  Planned date: ______________','Supervisor / dispatcher: __________________________________________________']);
   if(p.inventory){section('Balancing configuration quantities - entire site', ['Independent of filters. Charge 2074 + discharge 2073, each BPC counted once. '+(p.inventory.partial?'Partial coverage; lower bounds.':''),...p.inventory.rows.map(r=>'BPC '+r.bpc+': '+r.quantity+' total ('+r.chargeOnly+' charge only; '+r.dischargeOnly+' discharge only; '+r.both+' both)')]);}
   if(checklist.length){
@@ -77,7 +77,7 @@ export function packetPdf(p:CorrectivePacket,logo?:string,options:{compactBpcs?:
   p.selected.forEach((g,index)=>{
     const ticket='CA-'+p.capturedAt.replace(/[^0-9]/g,'').slice(0,14)+'-'+String(index+1).padStart(3,'0');context=ticket+' | '+g.code;next();
     line(p.site+' | Snapshot: '+p.capturedAt);line(g.code+' - '+g.title,16,true);line((g.displayCategory||g.category)+' | '+g.severity.toUpperCase()+' | '+g.targets.length+' selected targets | '+g.targetCount+' whole-group targets',10,true);
-    line('Reference guidance revision: site '+p.revision+' / shared '+p.sharedRevision+'. Controller clearing behavior is unchanged.');
+    line('Reference guidance revision '+p.revision+'. Controller clearing behavior is unchanged.');
     section('Safety / prerequisites',p.textFor(g,'safety'));
     for(const [key,label] of [['actions','Recommended actions'],['validation','Validation checks'],['clearing','Clear conditions / required state']] as const){
       const selectedIds=new Set(g.targets.map(t=>t.id));

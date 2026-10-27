@@ -20,7 +20,7 @@ export interface NotificationTarget {
   observations: { title: string; condition: string; at: string | null; evidence: NotificationEvidence[]; guidance: string[] }[];
 }
 export interface NotificationGroup {
-  displayCategory?:string; guidanceOverride?:import('../../core/correctiveGuidance').CorrectiveGuidanceEntry; guidanceScope?:'site'|'shared';
+  displayCategory?:string; guidanceOverride?:import('../../core/correctiveGuidance').CorrectiveGuidanceEntry;
   id: string; code: string; title: string; category: string; severity: NotificationSeverity;
   section?: 'equipment' | 'availability'; explanation?: string;
   documentedClearing?: string; catalogSource?: NotificationCatalogEntry['source']; sourceNotes?: string[];
@@ -29,7 +29,7 @@ export interface NotificationGroup {
   troubleshooting?:NotificationTroubleshooting;
 }
 export interface NotificationReview {
-  guidanceRevision?:number; guidanceSharedRevision?:number;
+  guidanceRevision?:number;
   hvacReview?:import('../../core/hvacIssueReview').HvacIssueReview;
   guidanceGaps?:import('../../core/hvacIssueReview').GuidanceGap[];
   bpcReview?:import('../../core/fleet/details').FleetBpcReview & {targetIdsByDevice:Record<string,string[]>};

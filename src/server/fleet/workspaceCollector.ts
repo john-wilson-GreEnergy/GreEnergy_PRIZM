@@ -13,8 +13,6 @@ export function collectorWorkspace(token:string,identityMatches:()=>boolean,hand
     // Never expose this credential to legacy logging, adapters or responses.
     const actor=req.headers['x-prizm-guidance-actor'];
     if(typeof actor==='string'&&actor.length<=200&&workspacePath(req.url)==='/api/local/corrective-guidance')res.locals.prizmGuidanceActor=actor;
-    if(res.locals.prizmGuidanceActor&&req.headers['x-prizm-guidance-shared']==='true')res.locals.prizmGuidanceShared=true;
-    delete req.headers['x-prizm-guidance-shared'];
     delete req.headers['x-prizm-guidance-actor'];
     delete req.headers.authorization;
     handler(req,res,next);

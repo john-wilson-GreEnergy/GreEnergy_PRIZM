@@ -1,20 +1,23 @@
 # Home development — reviewed source handoff
 
-## Source is not the production release
+## Current production reconciliation status
 
-The owner chose one working tree and authorized publishing reviewed source to
-the existing public repository on 2026-10-23. This is a development snapshot,
-not a release or authorization to deploy it. Read the
-[reconciliation audit](RECONCILIATION_20261023.md) before making changes.
+The owner chose Dell-authoritative source on 2026-10-27. Read the
+[current reconciliation report](RECONCILIATION_20261027.md) before making changes.
+Known undeployed additions have been removed from this source line and preserved
+on `archive/pre-dell-sync-20261027`. Full production equivalence remains
+unverified; this is not authorization to replace the running Dell release.
 
-Known differences from the Dell remain preserved:
+Reconciliation completed for the known differences:
 
-- Shared corrective-guidance catalogs, headers and editor fields are not deployed.
-- String startup preloading in the UI-server sidecar is not deployed.
-- Collector account parsing differs from the older deployed collector; do not
-  remove security validation merely to match it.
-- Complete frontend/server equivalence remains unverified, despite passing
-  scoped parity tests and two matching clean builds.
+- Shared corrective-guidance catalogs, headers and editor fields are removed
+  together; source now uses the deployed site-local contract.
+- Undeployed string startup preloading is removed; the UI-serving sidecar now
+  rebuilds byte-identically to the Dell reference.
+- Collector and Fleet account parsers are separated to match their respective
+  deployed behavior without weakening Fleet controls-permission validation.
+- Complete frontend/server equivalence remains unverified despite passing
+  scoped parity tests and a fresh isolated build. See the report's remaining work.
 
 ## Get the code
 
@@ -35,6 +38,7 @@ For a network-blocked build and synthetic safety regression tests on macOS/Linux
 ```sh
 NODE_OPTIONS='--require ./scripts/test-network-guard.cjs' npm run build
 npm run test:safety-candidates
+npm run test:account-roles
 node --require ./scripts/test-network-guard.cjs scripts/dell-source-parity-lib.test.mjs
 ```
 
@@ -68,8 +72,8 @@ a separate task; no force-push or history rewrite is included here.
 
 The ignored production baseline is required by check-dell-source-parity.mjs and
 is not available from a Git clone. Without it, use the report as scoped evidence,
-not a fresh parity result. With the baseline, the parity checker intentionally
-reports the known UI-sidecar difference rather than declaring full equivalence.
+not a fresh parity result. With the baseline, the parity checker now passes its
+scoped checks but explicitly reports whole-program parity as NOT_VERIFIED.
 
 No Dell service, equipment command, startup cleanup, latency setting or live
 configuration is changed by this Git handoff. Future releases must record their

@@ -27,7 +27,7 @@ export function NotificationTroubleshootingPanel({group,array,onEditGuidance}: {
     <header className="flex flex-wrap justify-between gap-2 mb-2"><h5 className="font-bold text-slate-900">Troubleshooting & resolution</h5>
       {edit?<button type="button" onClick={()=>edit(group)} className="text-emerald-800 underline font-semibold">Edit guidance & category</button>:onEditGuidance&&<button type="button" onClick={()=>onEditGuidance(sources.length===1?sources[0].entryId:null)} className="text-emerald-800 underline font-semibold">Edit Guidance</button>}
     </header>
-    {group.guidanceOverride&&<p className="mb-2 text-emerald-900">{group.guidanceScope==='shared'?'Shared administrator guidance':'Site-specific administrator guidance'} · {group.guidanceOverride.reference}. Recommended actions, validation and clear conditions replace the built-in guidance for this fault. Original safety notes remain in effect.</p>}
+    {group.guidanceOverride&&<p className="mb-2 text-emerald-900">Local administrator guidance · {group.guidanceOverride.reference}. Recommended actions, validation and clear conditions replace the built-in guidance for this fault. Original safety notes remain in effect.</p>}
     {!!safety.length&&<div className="mb-2 rounded border border-amber-200 bg-amber-50 p-2"><h6 className="font-semibold text-amber-900 mb-1">Safety / prerequisites</h6>{items(safety,'')}</div>}
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div><h6 className="font-semibold text-emerald-800 mb-1">Recommended Actions</h6>{items(visible(guidance?.actions),guidance?'No recommended steps supplied.': 'Detailed guidance is not available in this snapshot.')}</div>
