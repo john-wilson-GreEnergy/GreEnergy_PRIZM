@@ -49,7 +49,9 @@ export function verifyRuntime(root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
   assert.equal(manifest.schema, 1);
   assert.equal(manifest.kind, 'dell-deployed-application-reference');
-  assert.deepEqual(Object.keys(manifest.releases).sort(), releaseIds);
+  const archivedReleaseIds = Object.keys(manifest.releases).sort();
+  assert(archivedReleaseIds.length > 0, 'No archived releases');
+  for (const id of archivedReleaseIds) safeRelative(id);
   const expected = {};
   for (const [id, record] of Object.entries(manifest.releases)) {
     for (const [name, digest] of Object.entries(record.files)) {
@@ -58,8 +60,11 @@ export function verifyRuntime(root) {
       expected[`releases/${id}/dist/${name}`] = digest;
     }
   }
-  assert.deepEqual(Object.keys(manifest.dependencies).sort(), ['package-lock.json', 'package.json']);
-  for (const [name, digest] of Object.entries(manifest.dependencies)) {
+  const dependencies = manifest.dependencies ?? {};
+  if (Object.keys(dependencies).length > 0) {
+    assert.deepEqual(Object.keys(dependencies).sort(), ['package-lock.json', 'package.json']);
+  }
+  for (const [name, digest] of Object.entries(dependencies)) {
     assert(/^[a-f0-9]{64}$/.test(digest), 'Invalid dependency hash');
     expected[`dependency-manifests/${name}`] = digest;
   }
@@ -68,5 +73,5 @@ export function verifyRuntime(root) {
     assert(Object.hasOwn(expected, entry), `Entry is not in the snapshot: ${entry}`);
   }
   assert.deepEqual(inventory(path.join(root, 'payload')), expected, 'Runtime snapshot differs from its manifest');
-  return {files: Object.keys(expected).length, releases: releaseIds.length, verifiedAt: manifest.liveVerifiedAt};
+  return {files: Object.keys(expected).length, releases: archivedReleaseIds.length, verifiedAt: manifest.liveVerifiedAt};
 }

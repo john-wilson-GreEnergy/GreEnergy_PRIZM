@@ -1,0 +1,51 @@
+{
+  "status": "offline_verified_not_deployed",
+  "date": "2026-11-05",
+  "tests": {
+    "productionBuild": "passed",
+    "typescript": "passed",
+    "lanAdminRoutes": "passed",
+    "remoteAdminRoutes": "passed",
+    "accountManagement": "passed",
+    "workspacePreviews": "passed",
+    "mobileCanonicalRendering": "passed",
+    "remoteExperience": "passed",
+    "remoteExperienceChoice": "passed",
+    "browserWorkflows": 12,
+    "browserViewportSizes": [
+      [
+        390,
+        844
+      ],
+      [
+        844,
+        390
+      ],
+      [
+        768,
+        1024
+      ],
+      [
+        1024,
+        768
+      ],
+      [
+        1180,
+        820
+      ],
+      [
+        1440,
+        1000
+      ]
+    ],
+    "iPadViewSwitch": "passed"
+  },
+  "limits": [
+    "Synthetic fixtures only",
+    "No real iPad/Safari verification",
+    "Other maintenance dialogs and charts require device acceptance"
+  ],
+  "dellChanged": false,
+  "liveAccountsChanged": false,
+  "equipmentCommandsSent": false
+}

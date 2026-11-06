@@ -1,0 +1,50 @@
+/* Presentation only. Never changes acquisition, freshness or control permissions. */
+@media (pointer:coarse), (max-width:1024px) {
+  :root :is(.fleet-shell,.ops-shell) :is(button,select,summary,a.workspace-link,.ops-fleet-link) { min-height:44px; touch-action:manipulation; }
+  :root :is(.fleet-shell,.ops-shell) button { white-space:normal; }
+  :root :is(.fleet-shell,.ops-shell) input:not([type=checkbox]):not([type=radio]),
+  :root :is(.fleet-shell,.ops-shell) select,
+  :root :is(.fleet-shell,.ops-shell) textarea { font-size:16px; max-width:100%; }
+  :root :is(.fleet-shell,.ops-shell) input:is([type=checkbox],[type=radio]) { width:22px; height:22px; flex-shrink:0; }
+  :root :is(.fleet-shell,.ops-shell) :is(.table-wrap,.ops-table-scroll,.ops-target-scroll) { max-width:100%; overscroll-behavior-x:contain; }
+  .fleet-shell main { width:100%; min-width:0; }
+  .fleet-shell :is(.asof,.site-name,.header-right) { min-width:0; overflow-wrap:anywhere; }
+  .ops-site { min-width:0; overflow-wrap:anywhere; }
+  .ops-sidebar { overscroll-behavior:contain; padding-bottom:max(16px,env(safe-area-inset-bottom)); }
+  .ops-main { padding-bottom:max(30px,env(safe-area-inset-bottom)); }
+}
+
+/* Account actions remain readable without horizontally scrolling on phones/tablets. */
+.admin-space .danger { color:var(--prizm-danger); border-color:var(--prizm-danger); }
+.admin-space th,.admin-space td { overflow-wrap:anywhere; }
+.admin-editor h2 { scroll-margin-top:24px; }
+@media (max-width:1024px) {
+  .admin-user-list table,.admin-user-list tbody { display:block; }
+  .admin-user-list thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .admin-user-list tr { display:block; padding:16px; margin-bottom:16px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+  .admin-user-list tbody th,.admin-user-list td { display:block; padding:10px 0; }
+  .admin-user-list tbody th { font-size:16px; font-weight:650; }
+  .admin-user-list td::before { content:attr(data-label); display:block; font:700 12px var(--sans); margin-bottom:8px; color:var(--muted); }
+  .admin-user-list td:last-child { border-bottom:0; }
+  .admin-user-list .admin-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .admin-space table button { font-size:13px; min-height:44px; }
+  .admin-editor { padding:16px; }
+  .site-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .site-metrics > div { border-bottom:1px solid var(--border); }
+  .fleet-shell .header-right { flex-wrap:wrap; }
+  .fleet-shell .workspace-launch { flex-wrap:wrap; }
+}
+@media (max-width:420px) {
+  .site-heading { flex-wrap:wrap; }
+  .site-heading-actions { flex-direction:row; flex-wrap:wrap; align-items:center; }
+  .admin-user-list .admin-actions { grid-template-columns:1fr; }
+  .site-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+.monitor-link{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid var(--border);border-radius:4px;color:var(--green);font-size:13px;text-decoration:none}
+
+@media(max-width:1024px){.ops-header{height:62px;padding:0 12px;gap:10px}.ops-brand{width:auto}.ops-brand>div>span,.ops-brand strong span{display:none}.ops-brand strong{font-size:19px}.ops-logo{width:24px;height:28px}.ops-site{margin-left:auto;padding-left:12px}.ops-site strong{font-size:12px}.ops-site>span{font-size:9px}.ops-preview-tag{display:none}.ops-mobile-menu{display:grid}.ops-sidebar,.ops-collapsed .ops-sidebar{display:none;position:fixed;left:0;top:62px;z-index:70;height:calc(100dvh - 62px);width:234px;padding:17px 13px 12px}.ops-sidebar.is-open{display:flex}.ops-collapsed .ops-sidebar h2,.ops-collapsed .ops-sidebar button span,.ops-collapsed .ops-nav-foot span,.ops-collapsed .ops-nav-heading>span{display:block}.ops-collapsed .ops-nav-group button{justify-content:flex-start;padding:8px 11px}.ops-collapsed .ops-nav-group+.ops-nav-group{border:0}.ops-collapse{display:none}.ops-nav-scrim{display:block;position:fixed;inset:62px 0 0;background:#17382a50;z-index:65;border:0}.ops-main{padding:17px 12px 30px}.ops-demo-notice{align-items:flex-start;flex-direction:column;gap:8px;margin-bottom:18px}.ops-page-heading{align-items:flex-start;flex-direction:column;gap:10px;margin-bottom:17px}.ops-snapshot{text-align:left;flex-direction:row;font-size:10px;gap:8px}.ops-page-heading h1{font-size:25px}.ops-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-stat:nth-child(2){border-right:0}.ops-stat:nth-child(-n+2){border-bottom:1px solid var(--ops-line)}.ops-count-note{font-size:10px}.ops-filter-bar{padding:14px;gap:10px}.ops-filter-bar label:not(.ops-search){flex:1;min-width:90px}.ops-filter-bar select{min-width:0;max-width:none;width:100%;font-size:11px}.ops-filter-bar input{font-size:16px}.ops-table-toolbar{padding:5px 14px 12px}.ops-table-toolbar .ops-muted{display:none}.ops-sections{padding:0 14px;gap:18px}.ops-sections button{font-size:11px}.ops-issue-table{min-width:680px}.ops-issue-detail{padding:12px}.ops-table-footer{padding:12px 14px;flex-wrap:wrap}.ops-target-heading{align-items:flex-start;flex-direction:column;gap:4px}}
+@media(max-width:1024px){.ops-shell .ops-equipment-toolbar{align-items:stretch}.ops-shell .ops-equipment-toolbar label.ops-density{margin-left:0}.ops-shell .ops-equipment-toolbar input:not([type=checkbox]),.ops-shell .ops-equipment-toolbar select{font-size:16px}.ops-shell .ops-data-table{min-width:650px}.ops-shell .ops-detail-drawer{padding:0 16px 24px}.ops-shell .ops-bpc-workspace{padding:12px}}
+@media(max-width:1024px){.ops-header{display:grid;grid-template-columns:30px 90px 1fr;height:94px;gap:4px 9px;padding:9px 12px}.ops-site{margin:0;padding:0;border:0;align-items:flex-end}.ops-connection{grid-column:2 / 3;margin:0;font-size:10px;white-space:normal;line-height:1.25}.ops-fleet-link{grid-column:3;justify-self:end;font-size:11px}.ops-sidebar,.ops-collapsed .ops-sidebar{top:94px;height:calc(100dvh - 94px)}.ops-nav-scrim{top:94px}}
+@media(max-width:1024px){.ops-header{grid-template-columns:44px 90px minmax(0,1fr)}.ops-mobile-menu{width:44px;height:44px}.ops-nav-group button{min-height:44px}.ops-site strong,.ops-site>span{max-width:100%;overflow-wrap:anywhere}}
+.m-full-fleet{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:12px 16px;border-bottom:1px solid #ccddd3;background:#eef5f1;color:#123c32}.m-full-fleet a{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #94b5a2;border-radius:7px;background:white;color:inherit;font-weight:600;text-decoration:none}.m-full-fleet span{font-size:13px}

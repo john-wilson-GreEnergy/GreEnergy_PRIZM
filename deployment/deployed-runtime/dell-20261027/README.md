@@ -15,7 +15,7 @@ service, equipment command, data store, cleanup policy or latency setting change
 From the repository root, with Node installed:
 
 ```sh
-node scripts/verify-deployed-runtime.mjs
+node scripts/verify-deployed-runtime.mjs deployment/deployed-runtime/dell-20261027
 ```
 
 No npm install, Dell connection, application startup or credentials are needed.

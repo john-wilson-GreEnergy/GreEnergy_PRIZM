@@ -1,0 +1,1 @@
+(function(){"use strict";function e(o){const t=JSON.stringify(o,null,2);if(t===void 0)throw new Error("No export data available");return t}self.onmessage=o=>{try{self.postMessage({blob:new Blob([e(o.data)],{type:"application/json"})})}catch(t){self.postMessage({error:String(t)})}}})();

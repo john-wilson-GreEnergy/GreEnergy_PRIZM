@@ -1,0 +1,187 @@
+{
+  "accountsPreserved": true,
+  "completedAt": "2026-11-05T21:42:34.159Z",
+  "rolledBack": false,
+  "error": null,
+  "rollbackErrors": [],
+  "checks": {
+    "solar-star-3": {
+      "observedAt": "2026-11-05T21:42:03.421Z",
+      "ageMs": 2168,
+      "safeStates": [
+        {
+          "channel": "DO-00",
+          "state": "Off"
+        },
+        {
+          "channel": "DO-01",
+          "state": "Off"
+        },
+        {
+          "channel": "DO-02",
+          "state": "Off"
+        }
+      ],
+      "ioLogik": {
+        "available": true,
+        "path": "/home/ebc/GreEnergy_PRIZM/data/iologik-assets/golden-config.txt",
+        "sha256": "53690626d1046d53714572660549f40322d13047fa26ec609b8e689f538badd9",
+        "policyVerified": true,
+        "safeStates": [
+          {
+            "channel": "DO-00",
+            "state": "Off"
+          },
+          {
+            "channel": "DO-01",
+            "state": "Off"
+          },
+          {
+            "channel": "DO-02",
+            "state": "Off"
+          }
+        ]
+      },
+      "editor": {
+        "available": true,
+        "fieldCount": 933,
+        "watchdogSecondsInput": true,
+        "inputAndOutputSelectors": true,
+        "networkAndAccessPreserved": true
+      },
+      "firmware": {
+        "available": true,
+        "verified": true,
+        "version": "4.0",
+        "build": "24071616",
+        "sha256": "8b6b084ff8117a5badaa81a69c52b87fe14a5746976fbf7999b1f091a31197ed"
+      },
+      "hvac": {
+        "trackedPairs": 168,
+        "readyUnits": 0,
+        "learnedUnits": 229,
+        "lastSourceAt": 1793914919898,
+        "sourceAgeMs": 6153,
+        "warning": null,
+        "readinessAvailable": true
+      },
+      "incidentCount": 536,
+      "incidentLimit": 2048,
+      "advancing": true,
+      "baselinesRetained": true
+    },
+    "solar-star-4": {
+      "observedAt": "2026-11-05T21:42:27.261Z",
+      "ageMs": 2234,
+      "safeStates": [
+        {
+          "channel": "DO-00",
+          "state": "Off"
+        },
+        {
+          "channel": "DO-01",
+          "state": "Off"
+        },
+        {
+          "channel": "DO-02",
+          "state": "Off"
+        }
+      ],
+      "ioLogik": {
+        "available": true,
+        "path": "/var/lib/prizm-sites/ss4/data/iologik-assets/golden-config.txt",
+        "sha256": "9b33ab47bd094e8afdef873f8eab3edd1e0f4ae6722be4b2be46393dbd77f4b4",
+        "policyVerified": true,
+        "safeStates": [
+          {
+            "channel": "DO-00",
+            "state": "Off"
+          },
+          {
+            "channel": "DO-01",
+            "state": "Off"
+          },
+          {
+            "channel": "DO-02",
+            "state": "Off"
+          }
+        ]
+      },
+      "editor": {
+        "available": true,
+        "fieldCount": 933,
+        "watchdogSecondsInput": true,
+        "inputAndOutputSelectors": true,
+        "networkAndAccessPreserved": true
+      },
+      "firmware": {
+        "available": true,
+        "verified": true,
+        "version": "4.0",
+        "build": "24071616",
+        "sha256": "8b6b084ff8117a5badaa81a69c52b87fe14a5746976fbf7999b1f091a31197ed"
+      },
+      "hvac": {
+        "trackedPairs": 168,
+        "readyUnits": 0,
+        "learnedUnits": 301,
+        "lastSourceAt": 1793914944207,
+        "sourceAgeMs": 5695,
+        "warning": null,
+        "readinessAvailable": true
+      },
+      "incidentCount": 1030,
+      "incidentLimit": 2048,
+      "advancing": true,
+      "baselinesRetained": true
+    },
+    "fleet": {
+      "uiRelease": "b55e555dccb451ddbcdb2f86ee9ad9fc6619569020411e4930d6a7c49e4a52ee"
+    },
+    "remote": {
+      "authenticationPreserved": true,
+      "release": "b55e555dccb451ddbcdb2f86ee9ad9fc6619569020411e4930d6a7c49e4a52ee",
+      "assetVerified": true
+    }
+  },
+  "baselinePreflight": {
+    "solar-star-3": {
+      "trackedPairs": 168,
+      "readyUnits": 8,
+      "learnedUnits": 229,
+      "lastSourceAt": 1793914896192,
+      "sourceAgeMs": 4344,
+      "warning": "Active incident limit reached; additional incidents not recorded",
+      "readinessAvailable": true
+    },
+    "solar-star-4": {
+      "trackedPairs": 168,
+      "readyUnits": 7,
+      "learnedUnits": 301,
+      "lastSourceAt": 1793914890843,
+      "sourceAgeMs": 10056,
+      "warning": null,
+      "readinessAvailable": true
+    }
+  },
+  "ioLogikPreflight": {
+    "solar-star-3": {
+      "available": true,
+      "path": "/home/ebc/GreEnergy_PRIZM/data/iologik-assets/golden-config.txt",
+      "sha256": "53690626d1046d53714572660549f40322d13047fa26ec609b8e689f538badd9",
+      "policyVerified": false,
+      "safeStates": null
+    },
+    "solar-star-4": {
+      "available": true,
+      "path": "/var/lib/prizm-sites/ss4/data/iologik-assets/golden-config.txt",
+      "sha256": "9b33ab47bd094e8afdef873f8eab3edd1e0f4ae6722be4b2be46393dbd77f4b4",
+      "policyVerified": false,
+      "safeStates": null
+    }
+  },
+  "startupCleanupSkipped": true,
+  "latencySettingsChanged": false,
+  "equipmentCommandsSent": false,
+  "browserAcceptancePending": true
+}
