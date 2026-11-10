@@ -5,6 +5,12 @@ import {buildFleetDetails} from './detailProjection';
 
 export interface CollectorIdentity extends SiteEnrollment {profileId:string; emsBaseUrl:string}
 const obj=(value:unknown):Record<string,unknown>=>value && typeof value==='object' && !Array.isArray(value)?value as Record<string,unknown>:{};
+let lastOptionalProjectionError='';
+const reportOptionalProjectionError=(message:string)=>{
+  if(message===lastOptionalProjectionError)return;
+  lastOptionalProjectionError=message;
+  console.error(`[fleet-export] Optional projection omitted: ${message}`);
+};
 export function parseCollectorIdentity(value:unknown):CollectorIdentity {
   const row=obj(value), site=parseEnrollment(value);
   if(typeof row.profileId!=='string' || !row.profileId || typeof row.emsBaseUrl!=='string')throw new Error('Collector profile and EMS enrollment required');
@@ -38,13 +44,26 @@ export function buildSiteSummary(view:unknown, enrolled:CollectorIdentity):SiteS
   put('warnings',topology.warningTargetCount,stamp,!stale,'Canonical warning targets');
   put('alarms',topology.alarmTargetCount,stamp,!stale,'Canonical alarm targets');
   const base={schema:'prizm-site-summary-v1' as const,...enrolled,observedAt:stamp,stale,metrics};
-  try{return parseSummary({...base,details:buildFleetDetails(data,data.fleetDetailSnapshot),operatingCharts:data.operatingCharts},enrolled);}
+  let details=emptyDetails();
+  try{details=buildFleetDetails(data,data.fleetDetailSnapshot);}
   catch(error){
     if(error instanceof IdentityConflict)throw error;
-    // A malformed optional drill-down or chart must not suppress otherwise
-    // valid site totals. Keep the strict base schema and expose the projection
-    // failure in service logs for repair instead of declaring the collector dead.
-    console.error(`[fleet-export] Optional detail projection omitted: ${error instanceof Error?error.message:String(error)}`);
-    return parseSummary({...base,details:emptyDetails()},enrolled);
+    reportOptionalProjectionError(`detail projection: ${error instanceof Error?error.message:String(error)}`);
+  }
+  let summary;
+  try{summary=parseSummary({...base,details},enrolled);}
+  catch(error){
+    if(error instanceof IdentityConflict)throw error;
+    reportOptionalProjectionError(`detail validation: ${error instanceof Error?error.message:String(error)}`);
+    summary=parseSummary({...base,details:emptyDetails()},enrolled);
+  }
+  if(data.operatingCharts===undefined){lastOptionalProjectionError='';return summary;}
+  try{const complete=parseSummary({...base,details:summary.details,operatingCharts:data.operatingCharts},enrolled);lastOptionalProjectionError='';return complete;}
+  catch(error){
+    if(error instanceof IdentityConflict)throw error;
+    // Charts are independent of array, PCS, notification, and sensor detail.
+    // Reject an invalid chart without suppressing the other valid sections.
+    reportOptionalProjectionError(`operating charts: ${error instanceof Error?error.message:String(error)}`);
+    return summary;
   }
 }

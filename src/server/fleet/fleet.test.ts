@@ -52,13 +52,13 @@ const view={siteIdentity:{activeProfileId:enrolled.profileId,emsBaseUrl:enrolled
 const adapted=buildSiteSummary(view,enrolled);
 assert.equal(adapted.metrics.powerKw.value,0);assert.equal(adapted.metrics.reactiveKvar.value,-1);assert.equal(adapted.metrics.storedKwh.value,null);
 assert(!JSON.stringify(adapted).includes('never export'));
-const circularCharts:Record<string,unknown>={};circularCharts.self=circularCharts;
 const previousConsoleError=console.error;let projectionWarning='';console.error=(...args)=>{projectionWarning=args.join(' ');};
-const withoutOptionalDetails=buildSiteSummary({...view,operatingCharts:circularCharts},enrolled);
+const withoutOptionalDetails=buildSiteSummary({...view,operatingCharts:{version:0}},enrolled);
 console.error=previousConsoleError;
 assert.equal(withoutOptionalDetails.metrics.powerKw.value,0,'Primary totals survive malformed optional details');
-assert.deepEqual(withoutOptionalDetails.details.arrays,[],'Malformed optional details fail soft');
-assert.match(projectionWarning,/Optional detail projection omitted/);
+assert.equal(withoutOptionalDetails.details.quality,'live','Valid detail survives malformed charts');
+assert.equal(withoutOptionalDetails.operatingCharts,undefined,'Malformed charts fail independently');
+assert.match(projectionWarning,/Optional projection omitted: operating charts/);
 assert.throws(()=>buildSiteSummary({...view,siteIdentity:{...view.siteIdentity,emsBaseUrl:'http://10.0.0.9'}},enrolled),IdentityConflict);
 assert.equal(buildSiteSummary({...view,modbusTelemetry:{...view.modbusTelemetry,stale:true}},enrolled).metrics.powerKw.quality,'stale');
 const token='a'.repeat(43),collector=parseCollector({...one,url:'https://collector.example/api/fleet/site-summary',token});
