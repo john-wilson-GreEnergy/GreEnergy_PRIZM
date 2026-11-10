@@ -116,6 +116,7 @@ const SMA_EXTENDED_PROCESS_POINTS: Record<string, number> = {
   dcVoltageDynamicMaxV: 7272, dcVoltageDynamicMinV: 7273,
   dcCurrentDynamicMaxA: 7274, dcCurrentDynamicMinA: 7275,
   insulationResistanceKOhm: 6644, maxPcbTemperatureC: 6099, maxIgbtTemperatureC: 6100,
+  electronicsAreaHumidityPct: 760, acAreaHumidityPct: 761, dcAreaHumidityPct: 762,
   inverterFaultNumber: 823, smaFaultNumber: 927, gridWaitSeconds: 614, errorRemainingSeconds: 7114,
   powerFactor: 404, apparentPowerKva: 401, uptimeSeconds: 4852, communicationFirmwareRaw: 4853,
   acEnergyTodayMwh: 6767, acEnergyYesterdayMwh: 7073, acEnergyTotalMwh: 7118,

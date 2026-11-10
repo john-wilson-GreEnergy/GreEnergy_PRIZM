@@ -1202,6 +1202,9 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                 {oneLinePcs && pcsDetailTab === "thermal" && (
                     <div className="grid grid-cols-1 gap-3 rounded border border-prizm-border bg-prizm-surface p-3 sm:grid-cols-2 lg:grid-cols-4">
                         {[
+                            ["Electronics humidity", smaDisplay("electronicsAreaHumidityPct", "% RH", 1)],
+                            ["AC area humidity", smaDisplay("acAreaHumidityPct", "% RH", 1)],
+                            ["DC area humidity", smaDisplay("dcAreaHumidityPct", "% RH", 1)],
                             ["Maximum PCB", smaDisplay("maxPcbTemperatureC", "°C", 1)],
                             ["Maximum IGBT", smaDisplay("maxIgbtTemperatureC", "°C", 1)],
                             ["Cabinet", hasVal(oneLinePcs.cabinetTemperatureC) && Number(oneLinePcs.cabinetTemperatureC) !== 0 ? `${Number(oneLinePcs.cabinetTemperatureC).toFixed(1)} °C` : "Not reported"],
@@ -1241,6 +1244,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <div className="flex justify-between gap-3"><dt>Insulation resistance</dt><dd className="font-bold">{smaDisplay("insulationResistanceKOhm", "kΩ", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Maximum PCB</dt><dd className="font-bold">{smaDisplay("maxPcbTemperatureC", "°C", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Maximum IGBT</dt><dd className="font-bold">{smaDisplay("maxIgbtTemperatureC", "°C", 1)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>Electronics humidity</dt><dd className="font-bold">{smaDisplay("electronicsAreaHumidityPct", "% RH", 1)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>AC / DC area humidity</dt><dd className="font-bold">{smaDisplay("acAreaHumidityPct", "% RH", 1)} / {smaDisplay("dcAreaHumidityPct", "% RH", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Inverter / SMA fault</dt><dd className="font-bold">{smaDisplay("inverterFaultNumber", "", 0)} / {smaDisplay("smaFaultNumber", "", 0)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>DC coupler / battery mask</dt><dd className="font-bold">{smaDisplay("dcCouplerStatusMask", "", 0)} / {smaDisplay("batteryStatusMask", "", 0)}</dd></div>
                                 </dl>
