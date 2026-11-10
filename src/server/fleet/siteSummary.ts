@@ -1,4 +1,5 @@
 import {emptyMetrics, type SiteEnrollment, type SiteSummary, type MetricKey} from '../../core/fleet/model';
+import {emptyDetails} from '../../core/fleet/details';
 import {IdentityConflict, parseEnrollment, parseSummary} from './FleetBroker';
 import {buildFleetDetails} from './detailProjection';
 
@@ -36,5 +37,14 @@ export function buildSiteSummary(view:unknown, enrolled:CollectorIdentity):SiteS
   const topology=obj(data.topologyStatus);
   put('warnings',topology.warningTargetCount,stamp,!stale,'Canonical warning targets');
   put('alarms',topology.alarmTargetCount,stamp,!stale,'Canonical alarm targets');
-  return parseSummary({schema:'prizm-site-summary-v1',...enrolled,observedAt:stamp,stale,metrics,details:buildFleetDetails(data,data.fleetDetailSnapshot),operatingCharts:data.operatingCharts},enrolled);
+  const base={schema:'prizm-site-summary-v1' as const,...enrolled,observedAt:stamp,stale,metrics};
+  try{return parseSummary({...base,details:buildFleetDetails(data,data.fleetDetailSnapshot),operatingCharts:data.operatingCharts},enrolled);}
+  catch(error){
+    if(error instanceof IdentityConflict)throw error;
+    // A malformed optional drill-down or chart must not suppress otherwise
+    // valid site totals. Keep the strict base schema and expose the projection
+    // failure in service logs for repair instead of declaring the collector dead.
+    console.error(`[fleet-export] Optional detail projection omitted: ${error instanceof Error?error.message:String(error)}`);
+    return parseSummary({...base,details:emptyDetails()},enrolled);
+  }
 }

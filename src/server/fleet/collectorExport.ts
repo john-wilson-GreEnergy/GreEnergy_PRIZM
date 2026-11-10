@@ -23,8 +23,13 @@ const hash=(text:string)=>createHash('sha256').update(text).digest();
 export class CollectorExport {
   private snapshot:SiteSummary|null=null;
   private timer:ReturnType<typeof setInterval>|undefined;
+  private lastPrepareError='';
   constructor(readonly config:ExportConfig,private source:()=>unknown,private identityMatches:()=>boolean,private workspace?:{token:string;handler:RequestHandler}){}
-  prepare(){try{this.snapshot=buildSiteSummary(this.source(),this.config.identity);}catch{this.snapshot=null;}}
+  prepare(){try{this.snapshot=buildSiteSummary(this.source(),this.config.identity);this.lastPrepareError='';}catch(error){
+    this.snapshot=null;
+    const message=error instanceof Error?`${error.name}: ${error.message}`:String(error);
+    if(message!==this.lastPrepareError){this.lastPrepareError=message;console.error(`[fleet-export] Collector summary preparation failed: ${message}`);}
+  }}
   start(){if(this.timer)return;this.prepare();this.timer=setInterval(()=>this.prepare(),fleetRefreshMs(process.env.PRIZM_FLEET_REFRESH_MS));this.timer.unref();}
   stop(){clearInterval(this.timer);this.timer=undefined;this.snapshot=null;}
   router():RequestHandler {
