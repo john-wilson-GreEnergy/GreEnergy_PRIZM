@@ -27,8 +27,8 @@ const previousFlag=process.env.PRIZM_OPERATING_CHARTS;process.env.PRIZM_OPERATIN
 assert.equal(projectPower(snapshot(at+6000),at).actualKw,null);
 const missing=snapshot();missing.normalized.pcs.pop();assert.equal(projectPower(missing,at).actualKw,null);assert.equal(projectPower(missing,at).expected,2);
 const duplicate=snapshot();duplicate.normalized.pcs[1].arrayIndex=1;assert.equal(projectPower(duplicate,at).actualKw,null);
-const offline=snapshot();offline.normalized.pcs[1].communicating=false;assert.equal(projectPower(offline,at).actualKw,null);
-const invalid=snapshot();invalid.normalized.pcs[0].acCmdRealPowerKW=NaN;assert.equal(projectPower(invalid,at).commandKw,null);assert.equal(projectPower(invalid,at).actualKw,-198);
+const offline=snapshot();offline.normalized.pcs[1].communicating=false;assert.equal(projectPower(offline,at).actualKw,-99);assert.equal(projectPower(offline,at).reporting.actualKw,1);
+const invalid=snapshot();invalid.normalized.pcs[0].acCmdRealPowerKW=NaN;assert.equal(projectPower(invalid,at).commandKw,-100);assert.equal(projectPower(invalid,at).reporting.commandKw,1);assert.equal(projectPower(invalid,at).actualKw,-198);
 const distribution=projectDistribution(input,at);assert.equal(distribution.length,2);assert.equal(distribution[0].temperatureF,68);assert.equal(distribution[0].currentA,0);assert.equal(distribution[0].powerKw,-20);
 assert.equal(projectDistribution(input,at+121000)[0].voltageMv,null);
 const store=new OperatingChartsStore();store.ingest(input,at);store.ingest(snapshot(at+1000),at+1000);assert.equal(store.view(input,at)!.power.length,1);

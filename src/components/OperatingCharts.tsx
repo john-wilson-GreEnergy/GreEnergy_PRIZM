@@ -13,6 +13,8 @@ export function OperatingCharts({data,stale=false,distributionLayout='lines',cha
   const [primary,setPrimary]=useState<Metric>('voltageMv'),[secondary,setSecondary]=useState<Metric|'none'>('currentA');
   if(!data)return <section className="operating-charts"><h3>Site distribution & power tracking</h3><p>Chart data has not been supplied by this collector. Older cell recordings do not contain power commands.</p></section>;
   const points=data.power.filter(p=>p.at>=data.capturedAt-hours*3600000),latest=data.power.at(-1);
+  const selectedKeys=mode==='real'?['commandKw','actualKw'] as const:mode==='reactive'?['commandKvar','actualKvar'] as const:['commandKw','actualKw','commandKvar','actualKvar'] as const;
+  const partial=points.some(p=>selectedKeys.some(key=>p.reporting[key]>0&&p.reporting[key]<p.expected));
   const outdated=stale||Date.now()-data.capturedAt>30000,rows=data.distribution.filter(d=>!array||String(d.array)===array);
   const second=secondary!=='none'&&secondary!==primary?secondary:null;
   const line={dot:false,isAnimationActive:false,connectNulls:false,strokeWidth:1.7};
@@ -22,7 +24,8 @@ export function OperatingCharts({data,stale=false,distributionLayout='lines',cha
     <article className="operating-chart-card"><header><div><h3>Command vs actual power</h3><p>{data.site} · Time trend</p></div><div className="operating-chart-controls">
       <label>Power<select value={mode} onChange={e=>setMode(e.target.value)}><option value="real">Real · kW</option><option value="reactive">Reactive · kVAR</option><option value="both">Real + reactive</option></select></label>
       <label>Window<select value={hours} onChange={e=>setHours(Number(e.target.value))}>{[1,6,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}</select></label></div></header>
-      <p className="operating-chart-note">Sum of canonical PCS AC reports—not the point-of-interconnection meter or EMS dispatch target. Each trace requires complete PCS coverage. Native signed readings.</p>
+      <p className="operating-chart-note">Sum of canonical PCS AC reports—not the point-of-interconnection meter or EMS dispatch target. Complete coverage is a site total; incomplete coverage is explicitly labelled as a reporting-inverter subtotal. Native signed readings.</p>
+      {partial&&<p role="status">Partial PCS coverage: plotted values are the subtotal of reporting inverters only. Missing inverters are not counted as zero; use the reporting counts below before comparing site totals.</p>}
       {!!points.length&&!points.some(p=>mode==='real'?p.commandKw!==null||p.actualKw!==null:mode==='reactive'?p.commandKvar!==null||p.actualKvar!==null:p.commandKw!==null||p.actualKw!==null||p.commandKvar!==null||p.actualKvar!==null)&&<p role="status">No complete, fresh PCS totals in this window. Check the reporting coverage below; unavailable inverters are not counted as zero.</p>}
       {points.length?<ResponsiveContainer width="100%" height={chartHeight??280}><LineChart data={points} margin={{top:16,right:12,bottom:8,left:8}}>
         <CartesianGrid stroke="#e1e9e5" strokeDasharray="3 3"/><XAxis dataKey="at" type="number" domain={['dataMin','dataMax']} tickFormatter={v=>new Date(v).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} minTickGap={55}/>

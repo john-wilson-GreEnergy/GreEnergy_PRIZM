@@ -25,7 +25,10 @@ export function projectPower(input:unknown,now=Date.now()):PowerSample {
   for(const key of powerKeys){
     const values=pcs.map((p,i)=>fresh[i]?num(p[fields[key]]):null);
     result.reporting[key]=values.filter(v=>v!==null).length;
-    if(expected>0&&mapped&&!duplicates&&result.reporting[key]===expected)result[key]=values.reduce<number>((s,v)=>s+(v??0),0);
+    // Preserve the sum of the reporting PCS units when topology is valid. The
+    // presentation labels incomplete coverage explicitly; missing units are
+    // never substituted with zero or hidden by suppressing the whole trace.
+    if(expected>0&&mapped&&!duplicates&&result.reporting[key]>0)result[key]=values.reduce<number>((s,v)=>s+(v??0),0);
   }
   return result;
 }

@@ -534,7 +534,6 @@ export default function App() {
       visibleTabs={effectiveTabsOrder.filter(tab=>tab.visible&&(!remoteReadOnly||remoteViewTabs.has(tab.id))).map(tab=>tab.id)}>
     <div className={operations?'ops-connected-app text-prizm-text font-sans flex flex-col':'min-h-screen bg-prizm-bg text-prizm-text font-sans flex flex-col'}>
       <PrizmLoadingIndicator show={isPending} />
-      {operations&&<div className="ops-demo-notice"><span><strong>{remoteReadOnly?'Remote workspace · Read-only':localReview?'Local live review · Solar Star 3':'Operations workspace'}</strong> · {remoteReadOnly?'Live telemetry and recorded history. Equipment commands and configuration changes are blocked on the server.':localReview?'Existing Dell telemetry. Production writes are blocked; corrective-guidance edits are Mac-only drafts.':'Existing permissions and control safeguards remain in effect.'}</span>{!remoteReadOnly&&<a className="underline whitespace-nowrap" href={legacyLayoutUrl(window.location.href)}>Previous layout</a>}</div>}
       
       {/* TOP NAVIGATION BAR (DAYLIGHT DESIGN THEME) */}
       <Toolbar hidden={remoteReadOnly || (operations && activeTab !== "source-health")} className={operations?'ops-legacy-toolbar':'contents'}>
