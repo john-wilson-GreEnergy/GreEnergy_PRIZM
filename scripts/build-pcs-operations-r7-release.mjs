@@ -1,0 +1,33 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+
+const repo=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
+const name='prizm-pcs-operations-20261110-r7';
+const releaseId='pcs-operations-20261110-r7';
+const root=`${repo}/deployment/prepared/${name}`;
+const sha=value=>crypto.createHash('sha256').update(value).digest('hex');
+const tree=directory=>Object.fromEntries(fs.readdirSync(directory,{recursive:true,withFileTypes:true}).filter(e=>e.isFile()).map(e=>{
+  const file=path.join(e.parentPath,e.name);return [path.relative(directory,file),sha(fs.readFileSync(file))];
+}).sort(([a],[b])=>a.localeCompare(b)));
+const sourceCommit=execFileSync('git',['rev-parse','--short','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+assert(!fs.existsSync(root),'Prepared release already exists: '+root);
+fs.mkdirSync(root+'/payload',{recursive:true});
+fs.cpSync(repo+'/dist',root+'/payload/dist',{recursive:true});
+fs.copyFileSync(repo+'/scripts/diagnose-ss4-path.mjs',root+'/diagnose-ss4-path.mjs');
+const manifest={schema:1,release:releaseId,sourceCommit,
+  scope:'Restore valid SS4 Fleet detail and partial-coverage operating charts while deduplicating projection warnings; includes all prior PCS operations changes',
+  files:tree(root+'/payload/dist'),diagnostic:sha(fs.readFileSync(root+'/diagnose-ss4-path.mjs'))};
+fs.writeFileSync(root+'/manifest.json',JSON.stringify(manifest,null,2)+'\n');
+let deploy=fs.readFileSync(repo+'/scripts/deploy-pcs-humidity.mjs','utf8');
+const once=(before,after)=>{assert.equal(deploy.split(before).length,2,`Expected one: ${before}`);deploy=deploy.replace(before,after);};
+once("const stage='/home/ebc/prizm-pcs-humidity-20261110';",`const stage='/home/ebc/${name}';`);
+once("const release='/opt/prizm-fleet/releases/pcs-humidity-20261110';",`const release='/opt/prizm-fleet/releases/${releaseId}';`);
+once("const backup='/var/lib/prizm-fleet/pcs-humidity-20261110';",`const backup='/var/lib/prizm-fleet/${releaseId}';`);
+deploy=deploy.replaceAll('~zzzz-pcs-humidity-20261110.conf','~zzzzzzzzzz-pcs-operations-20261110-r7.conf');
+once("assert.equal(manifest.release,'pcs-humidity-20261110');",`assert.equal(manifest.release,'${releaseId}');`);
+once("console.log('PCS humidity deployment complete for Solar Star 3, Solar Star 4, and Fleet.');","console.log('PCS operations R7 deployment complete for Solar Star 3, Solar Star 4, and Fleet.');");
+fs.writeFileSync(root+'/deploy.mjs',deploy);
+console.log(JSON.stringify({root,files:Object.keys(manifest.files).length,manifestHash:sha(fs.readFileSync(root+'/manifest.json')),deployHash:sha(deploy)}));
