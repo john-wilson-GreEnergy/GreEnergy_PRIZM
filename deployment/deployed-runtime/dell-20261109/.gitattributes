@@ -1,0 +1,3 @@
+# Preserve exact deployed bytes even when a clone enables newline conversion.
+payload/** -text
+provenance/** -text

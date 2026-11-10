@@ -1,0 +1,1 @@
+function t(e){const r=String(e??"").trim().toLowerCase();return r.includes("bergstrom")?"bergstrom":r.includes("dometic")?"dometic":"unknown"}function n(e){return t(e)==="bergstrom"}export{t as g,n as s};

@@ -1,0 +1,10 @@
+{
+  "verifiedAt": "2026-11-09T22:20:25.340Z",
+  "exactInventories": true,
+  "allPreexistingBytesReversible": true,
+  "importsAndExports": true,
+  "packagedAppsMapping": true,
+  "collectorFleetParity": true,
+  "wrongSiteRejected": true,
+  "noEquipmentRequests": true
+}

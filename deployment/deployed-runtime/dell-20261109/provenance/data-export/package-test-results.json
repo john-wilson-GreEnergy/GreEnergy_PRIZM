@@ -1,0 +1,73 @@
+{
+  "passed": true,
+  "exactArtifactInventories": true,
+  "unrelatedCodeReversal": true,
+  "readOnlyRemotePolicies": true,
+  "packagedRecorderAdapterParity": true,
+  "packagedWorkerExport": true,
+  "historyFilesUnchanged": true,
+  "siteSwitchRejectsOldPackages": true,
+  "installerSelfTest": true,
+  "browser": [
+    {
+      "width": 1400,
+      "port": 3281,
+      "route": "/?site=ss3",
+      "overflow": false,
+      "coverageSeries": 6
+    },
+    {
+      "width": 820,
+      "port": 3281,
+      "route": "/?site=ss4",
+      "overflow": false,
+      "coverageSeries": 6
+    },
+    {
+      "width": 1400,
+      "port": 3282,
+      "route": "/desktop/solar-star-3/",
+      "overflow": false,
+      "coverageSeries": 6
+    },
+    {
+      "width": 390,
+      "port": 3282,
+      "route": "/desktop/solar-star-4/",
+      "overflow": false,
+      "coverageSeries": 6
+    }
+  ],
+  "browserErrors": [],
+  "stage": {
+    "verifiedAt": "2026-11-09T21:50:22.604Z",
+    "manifestSha256": "1f6041e34e1b66f1e3f1d6b12a13f6e7289b108e23a6bf2687d89d96b30f6110",
+    "installerSha256": "f4b70ed986ed6b2f220a78fe7cc6ce3b484a4ca78b49697051fbcfd0a029f11d",
+    "changedFiles": {
+      "collector": 3,
+      "fleet": 42,
+      "lan": 39
+    },
+    "states": [
+      {
+        "unit": "prizm",
+        "active": true,
+        "reviewedRelease": true,
+        "ioLogikOperation": "complete"
+      },
+      {
+        "unit": "prizm-site@ss4",
+        "active": true,
+        "reviewedRelease": true,
+        "ioLogikOperation": "none"
+      },
+      {
+        "unit": "prizm-fleet",
+        "active": true,
+        "reviewedRelease": true,
+        "ioLogikOperation": "none"
+      }
+    ],
+    "readOnly": true
+  }
+}

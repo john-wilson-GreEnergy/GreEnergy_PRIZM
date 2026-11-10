@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';
+import {workspaceRead} from './deployed-adapter';
+for(const route of ['/api/local/clss/status','/api/local/strings/dashboard/corrective-actions','/api/local/site-data/thermal','/api/local/site-data/thermal/hvac-incidents/test-incident','/api/local/site-data/source-health','/api/local/site-data/cells?metric=millivolts&array=1'])assert.equal(workspaceRead('GET',route),route);
+assert.equal(workspaceRead('GET','/api/feather/devices?cache=cache-first&maxAgeMs=60000'),'/api/feather/devices?cache=cache-only');
+for(const route of ['/api/local/site-data/thermal/targets/query','/api/local/site-data/thermal/site-history/query'])assert.equal(workspaceRead('POST',route),route);
+for(const route of ['/api/local/clss/status?refresh=true','/api/feather/devices?cache=live-first','/api/feather/devices?refresh=true','/api/feather/devices?cache=cache-only&cache=live-first','/api/local/site-data/thermal?refresh=true','/api/local/site-data/thermal/hvac-incidents/../storage','/api/local/site-data/thermal/hvac-incidents/%2e%2e','/api/local/iologik/scan','/tools/controls/ems/array/1/contactors/open','/api/local/firmware/capture'])assert.equal(workspaceRead('GET',route),null,route);
+for(const route of ['/api/local/site-data/thermal/storage','/api/local/site-data/thermal/recordings','/api/local/site-data/thermal/morning-review','/api/local/site-data/thermal/site-history/query?refresh=true','/api/local/iologik/apply','/api/local/ems-apps/power-control'])assert.equal(workspaceRead('POST',route),null,route);
+console.log('PASS passive telemetry/history policy: exact routes, cache-only HVAC, no forced polls, controls, maintenance writes, storage mutations or path/query bypasses');

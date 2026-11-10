@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {CellHistory} from "/Volumes/Dock_Storage/Projects/PRIZM_Utility/GreEnergy_PRIZM/src/server/cells/CellHistory.ts";
+import {OperationalTimeline} from "/Volumes/Dock_Storage/Projects/PRIZM_Utility/GreEnergy_PRIZM/src/server/history/operationalTimeline.ts";
+import {SiteHistory} from "/Volumes/Dock_Storage/Projects/PRIZM_Utility/GreEnergy_PRIZM/src/server/thermal/siteHistory.ts";
+import {thermalUnits} from "/Volumes/Dock_Storage/Projects/PRIZM_Utility/GreEnergy_PRIZM/src/server/thermal/thermalModel.ts";
+import vm from 'node:vm';import {createRequire} from 'node:module';const require=createRequire("/Volumes/Dock_Storage/Projects/PRIZM_Utility/GreEnergy_PRIZM/package.json");const module={exports:{}};vm.runInNewContext(await fs.readFile("/Users/johnwilson/Documents/Codex/2026-08-31/in-app-browser-context-source-ambient/data-export-deployment-20261109/release/collector/data-export.cjs",'utf8'),{module,exports:module.exports,require,__dirname:"/Users/johnwilson/Documents/Codex/2026-08-31/in-app-browser-context-source-ambient/data-export-deployment-20261109/release/collector",process,Buffer,structuredClone,console,setTimeout,clearTimeout,URL,AbortController});const {install,adapters}=module.exports;
+const root=await fs.mkdtemp('/tmp/prizm-export-recorders-'),now=Date.now();
+const site={stationCode:'FIXTURE',blockIndex:1,emsBaseUrl:'http://offline.invalid'},historySite={id:JSON.stringify(Object.values(site)),label:'Fixture / Block 1'};
+let current=site;
+const cells=new CellHistory({directory:path.join(root,'cells'),enabled:true,reserveBytes:0,currentSite:()=>current});
+const timeline=new OperationalTimeline(path.join(root,'timeline'),{maxBytes:10*1024**2,reserveBytes:0},()=>now);
+const thermal=new SiteHistory(path.join(root,'thermal'),0,()=>now,false);
+try{
+ cells.offer({blockReport:{stationCode:site.stationCode,blockIndex:1,timeStamp:String(now),arrayReport:{'1':{cellGroupReportForArray:{timeStampLookup:[String(now)],millivoltsLookup:[3400],temperatureLookup:[200],condensedCellReportForString:{'40':{stringIndex:40,batteryPackCount:1,cellGroupPerBatteryPackCount:1,timestamps:[0],millivolts:[0],temperatures:[0],ignoredTempSensors:[]}}}}}}},site,now);
+ await cells.drain();
+ timeline.ingest({site:historySite,observations:[{array:1,entity:'1:1',label:'PCS 1',stream:'electrical',source:'Fixture',sourceAt:now,observedAt:now,quality:'live',values:{kw:0}}]});await timeline.flush();
+ const units=thermalUnits([{ip:'192.0.2.1',arrayIndex:1,segmentLabel:'ES1',lastSuccessUtc:new Date(now).toISOString(),hvac1:{currentA:16,compressorOn:true}}],now);
+ await thermal.status();thermal.ingest(units,historySite,now);await thermal.configure({enabled:true,retentionDays:7,maxGiB:1});thermal.ingest(units,historySite,now);await thermal.flush();
+ const snapshot=async()=>{const result:Record<string,string>={};for(const dir of ['cells','timeline','thermal'])for(const file of await fs.readdir(path.join(root,dir),{recursive:true})){const p=path.join(root,dir,file);if((await fs.stat(p)).isFile())result[dir+'/'+file]=createHash('sha256').update(await fs.readFile(p)).digest('hex');}return result;};
+ const before=await snapshot();
+ assert.deepEqual(JSON.parse(JSON.stringify(await adapters.cells.call(cells))),JSON.parse(JSON.stringify(await cells.exportPlan())));assert.deepEqual(JSON.parse(JSON.stringify(adapters.power.call(timeline))),JSON.parse(JSON.stringify(timeline.exportPlan())));assert.deepEqual(JSON.parse(JSON.stringify(await adapters.hvac.call(thermal))),JSON.parse(JSON.stringify(await thermal.exportPlan())));const service=install({use(){}},cells,()=>timeline,()=>({siteHistory:thermal}));const catalog=await service.catalog();
+ assert(catalog.targets.some(t=>t.id==='A1-S40'));assert(catalog.targets.some(t=>t.source==='hvac'));assert(catalog.targets.some(t=>t.source==='power'));
+ const request={identity:catalog.identity,from:now-3600000,to:now,selections:[{source:'power',target:'1:1|electrical',metrics:['kw']},{source:'cells',target:'A1-S40',metrics:['millivolts']},{source:'hvac',target:units[0].id,metrics:['current']}]};
+ const preview=await service.preview(request);assert.equal(preview.rows,3);assert.equal(preview.series.length,3);assert(preview.series.every(s=>s.valid===1));assert((await service.download(preview.ticket)).length>0);
+ assert.deepEqual(await snapshot(),before,'Real recorder adapters and worker export do not change any recorded file or setting');
+ current={...site,stationCode:'SECOND'};await assert.rejects(()=>service.download(preview.ticket),/switching sites|Site changed/);
+ assert.equal((await cells.exportPlan()).targets.length,0,'Old cell inventory does not cross a profile switch');
+ console.log('Actual recorder adapters: canonical identities agree, power/cell/HVAC files export at full resolution, no file/config changes, and site switching refuses old packages.');
+}finally{await cells.close();await timeline.close();await thermal.close();await fs.rm(root,{recursive:true,force:true});}

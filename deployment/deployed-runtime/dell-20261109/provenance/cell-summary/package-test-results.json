@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "at": "2026-11-09T21:11:01.873Z",
+  "strings": 1,
+  "incidentSamples": 12,
+  "passiveModuleReplay": true,
+  "restingReplay": true,
+  "restingSamples": 12,
+  "restingRestartPreserved": true,
+  "restingRollback": true,
+  "importExportsVerified": true,
+  "readOnlyRoutesVerified": true,
+  "unrelatedFunctionsUnchanged": true,
+  "rollbackDisabled": true
+}
