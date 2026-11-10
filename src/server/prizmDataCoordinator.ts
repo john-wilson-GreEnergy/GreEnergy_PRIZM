@@ -3730,6 +3730,9 @@ export function getPcsView(): any {
         const electronicsAreaHumidityPct = processPoint("electronicsAreaHumidityPct");
         const acAreaHumidityPct = processPoint("acAreaHumidityPct");
         const dcAreaHumidityPct = processPoint("dcAreaHumidityPct");
+        const dehumidificationTimerSeconds = processPoint("dehumidificationTimerSeconds");
+        const dehumidificationStatusCode = processPoint("dehumidificationStatusCode");
+        const dehumidificationStatus = dehumidificationStatusCode === 308 ? "ON" : dehumidificationStatusCode === 303 ? "OFF" : dehumidificationStatusCode === 973 ? "NOT REPORTED" : null;
         const identity = {entity: `${arrayIndex}:${row.pcsIndex ?? 1}`, array: arrayIndex, label: `Array ${arrayIndex} · PCS ${row.pcsIndex ?? 1}`, observedAt};
         const sourceAt = modbusTelemetry.capturedAt ? Date.parse(modbusTelemetry.capturedAt) : null;
         historyObservations.push({...identity, stream: "electrical", source: "EMS Modbus", sourceAt,
@@ -3743,7 +3746,8 @@ export function getPcsView(): any {
         historyObservations.push({...identity, stream: "pcs-environment", source: switchTelemetry?.source || "Direct PCS", sourceAt: switchTelemetry?.capturedAt ? Date.parse(switchTelemetry.capturedAt) : null,
             quality: historySiteMatches && switchTelemetry?.stale === false ? "live" : "unavailable",
             values: {"Electronics humidity %RH": electronicsAreaHumidityPct, "AC area humidity %RH": acAreaHumidityPct,
-                "DC area humidity %RH": dcAreaHumidityPct, "Inverter state": switchTelemetry?.inverterOperatingState ?? null}});
+                "DC area humidity %RH": dcAreaHumidityPct, "Dehumidification status": dehumidificationStatus,
+                "Dehumidification timer seconds": dehumidificationTimerSeconds, "Inverter state": switchTelemetry?.inverterOperatingState ?? null}});
         if (!live && !switchTelemetry) return row;
         return {
             ...row,
@@ -3768,6 +3772,9 @@ export function getPcsView(): any {
             electronicsAreaHumidityPct,
             acAreaHumidityPct,
             dcAreaHumidityPct,
+            dehumidificationStatus,
+            dehumidificationStatusCode,
+            dehumidificationTimerSeconds,
             modbusOperatingState: live?.OperatingState,
             modbusRotationState: live?.RotationState,
             modbusFaultCode: live?.FaultCode,

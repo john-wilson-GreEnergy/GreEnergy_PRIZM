@@ -36,7 +36,7 @@ assert.deepEqual([1,2,3,12].map(reconnectDelay),[5000,10000,20000,300000]);
 
 const now=Date.parse('2026-10-01T17:33:00Z'),oldStamp=39916854;
 const points=new StreamPoints(target.deviceId);
-const payload=(stamp:number,quality=0)=>Buffer.from(JSON.stringify({data:{processData:{332:[13,stamp,quality],6070:[613552417,stamp,quality],6644:[760.7,stamp,quality],6100:[44.7,stamp,quality],760:[42.1,stamp,quality],761:[43.2,stamp,quality],762:[44.3,stamp,quality]}}}));
+const payload=(stamp:number,quality=0)=>Buffer.from(JSON.stringify({data:{processData:{332:[13,stamp,quality],6070:[613552417,stamp,quality],6644:[760.7,stamp,quality],6100:[44.7,stamp,quality],760:[42.1,stamp,quality],761:[43.2,stamp,quality],762:[44.3,stamp,quality],9515:[120,stamp,quality],9517:[308,stamp,quality]}}}));
 points.begin();points.ingest('process/other',payload(oldStamp),false,now);assert.deepEqual(points.snapshot(),{});
 points.ingest(`process/${target.deviceId}`,payload(oldStamp),true,now);assert.deepEqual(points.snapshot(),{});
 points.ingest(`process/${target.deviceId}`,payload(oldStamp),false,now);
@@ -49,6 +49,7 @@ assert.equal(qualifyPcsProcessPoint(points.snapshot()[6644],now+16_001).readingS
 const live=mergeSmaStreamSnapshots([],[{array:2,host:target.host,points:points.snapshot(),status:'connected'}],now+1000);
 assert.equal(live[0].source,'SMA_MQTT');assert.equal(live[0].inverterOperatingState,'GridFeed');assert.equal(live[0].stale,false);
 assert.equal(live[0].smaProcessData.electronicsAreaHumidityPct.value,42.1);assert.equal(live[0].smaProcessData.acAreaHumidityPct.value,43.2);assert.equal(live[0].smaProcessData.dcAreaHumidityPct.value,44.3);
+assert.equal(live[0].smaProcessData.dehumidificationTimerSeconds.value,120);assert.equal(live[0].smaProcessData.dehumidificationStatusCode.value,308);
 const identity={stationCode:'BHE0021',blockIndex:1,activeProfileId:'ss4',emsBaseUrl:'http://10.0.0.3:8080/turtle'};
 const published={...live[0],smaProcessData:Object.fromEntries(Object.entries(live[0].smaProcessData).map(([k,p])=>[k,qualifyPcsProcessPoint(p,now+1000)]))};
 const fleet=projectFleetPcs({siteIdentity:identity,pcs:[{arrayIndex:2,pcsIndex:1,pcsSwitches:published}]},identity);

@@ -470,6 +470,9 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     electronicsAreaHumidityPct: finite(p.electronicsAreaHumidityPct) ?? processReading("electronicsAreaHumidityPct"),
                     acAreaHumidityPct: finite(p.acAreaHumidityPct) ?? processReading("acAreaHumidityPct"),
                     dcAreaHumidityPct: finite(p.dcAreaHumidityPct) ?? processReading("dcAreaHumidityPct"),
+                    dehumidificationStatusCode: finite(p.dehumidificationStatusCode) ?? processReading("dehumidificationStatusCode"),
+                    dehumidificationTimerSeconds: finite(p.dehumidificationTimerSeconds) ?? processReading("dehumidificationTimerSeconds"),
+                    dehumidificationStatus: p.dehumidificationStatus ?? (() => { const code=finite(p.dehumidificationStatusCode) ?? processReading("dehumidificationStatusCode"); return code===308?"ON":code===303?"OFF":code===973?"NOT REPORTED":null; })(),
                     rotation,
                     state,
                     sourcePath: p.sourcePath ?? "discovered",
@@ -633,12 +636,13 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                 <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">Elec RH%</th>
                                 <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">AC RH%</th>
                                 <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-right">DC RH%</th>
+                                <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-center">Dehumidification</th>
                                 <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-center">Rotation Status</th>
                                 <th className="px-1.5 py-1 border-b border-prizm-border font-bold text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-prizm-border/20">
-                            {!!pcsList.length&&!visiblePcs.length&&<tr><td colSpan={16}>No PCS units match these filters. Reset filters to see the full list.</td></tr>}
+                            {!!pcsList.length&&!visiblePcs.length&&<tr><td colSpan={17}>No PCS units match these filters. Reset filters to see the full list.</td></tr>}
                             {visiblePcs.map((pcs, idx) => {
                                 const rot = (pcs.rotation || "UNKNOWN").toUpperCase();
                                 
@@ -721,6 +725,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <td className="px-1.5 py-1 text-right font-bold text-prizm-text">{hasVal(pcs.electronicsAreaHumidityPct) ? Number(pcs.electronicsAreaHumidityPct).toFixed(1) : "--"}</td>
                                     <td className="px-1.5 py-1 text-right font-bold text-prizm-text">{hasVal(pcs.acAreaHumidityPct) ? Number(pcs.acAreaHumidityPct).toFixed(1) : "--"}</td>
                                     <td className="px-1.5 py-1 text-right font-bold text-prizm-text">{hasVal(pcs.dcAreaHumidityPct) ? Number(pcs.dcAreaHumidityPct).toFixed(1) : "--"}</td>
+                                    <td className="px-1.5 py-1 text-center font-bold text-prizm-text">{pcs.dehumidificationStatus || "--"}{hasVal(pcs.dehumidificationTimerSeconds) ? ` · ${Math.round(Number(pcs.dehumidificationTimerSeconds))}s` : ""}</td>
 
                                     <td className="px-1.5 py-1 text-center">
                                         <div className="flex justify-center items-center gap-1.5">
@@ -1147,6 +1152,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <span className="text-right font-bold text-prizm-text">{pcs.rotation || "Unknown"}</span>
                                     <span className="text-prizm-text-muted">Humidity E / AC / DC</span>
                                     <span className="text-right font-bold text-prizm-text">{[pcs.electronicsAreaHumidityPct, pcs.acAreaHumidityPct, pcs.dcAreaHumidityPct].map(value => hasVal(value) ? Number(value).toFixed(1) : "--").join(" / ")} %</span>
+                                    <span className="text-prizm-text-muted">Dehumidification</span>
+                                    <span className="text-right font-bold text-prizm-text">{pcs.dehumidificationStatus || "Not reported"}{hasVal(pcs.dehumidificationTimerSeconds) ? ` · ${Math.round(Number(pcs.dehumidificationTimerSeconds))}s` : ""}</span>
                                 </div>
                                 <div className={`mt-3 border-t pt-2 text-center text-[7px] font-bold uppercase ${isOpen ? "border-prizm-primary/30 text-prizm-primary" : "border-prizm-border text-prizm-text-muted"}`}>
                                     {isOpen ? "Close drill-down" : "Open drill-down"}
@@ -1221,6 +1228,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                             ["Electronics humidity", smaDisplay("electronicsAreaHumidityPct", "% RH", 1)],
                             ["AC area humidity", smaDisplay("acAreaHumidityPct", "% RH", 1)],
                             ["DC area humidity", smaDisplay("dcAreaHumidityPct", "% RH", 1)],
+                            ["Dehumidification", oneLinePcs.dehumidificationStatus || "Not reported"],
+                            ["Dehumidification timer", smaDisplay("dehumidificationTimerSeconds", "s", 0)],
                             ["Maximum PCB", smaDisplay("maxPcbTemperatureC", "°C", 1)],
                             ["Maximum IGBT", smaDisplay("maxIgbtTemperatureC", "°C", 1)],
                             ["Cabinet", hasVal(oneLinePcs.cabinetTemperatureC) && Number(oneLinePcs.cabinetTemperatureC) !== 0 ? `${Number(oneLinePcs.cabinetTemperatureC).toFixed(1)} °C` : "Not reported"],
@@ -1262,6 +1271,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <div className="flex justify-between gap-3"><dt>Maximum IGBT</dt><dd className="font-bold">{smaDisplay("maxIgbtTemperatureC", "°C", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Electronics humidity</dt><dd className="font-bold">{smaDisplay("electronicsAreaHumidityPct", "% RH", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>AC / DC area humidity</dt><dd className="font-bold">{smaDisplay("acAreaHumidityPct", "% RH", 1)} / {smaDisplay("dcAreaHumidityPct", "% RH", 1)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>Dehumidification status</dt><dd className="font-bold">{oneLinePcs.dehumidificationStatus || "Not reported"}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>Activation timer</dt><dd className="font-bold">{smaDisplay("dehumidificationTimerSeconds", "s", 0)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Inverter / SMA fault</dt><dd className="font-bold">{smaDisplay("inverterFaultNumber", "", 0)} / {smaDisplay("smaFaultNumber", "", 0)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>DC coupler / battery mask</dt><dd className="font-bold">{smaDisplay("dcCouplerStatusMask", "", 0)} / {smaDisplay("batteryStatusMask", "", 0)}</dd></div>
                                 </dl>

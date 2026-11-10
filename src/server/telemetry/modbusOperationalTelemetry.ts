@@ -117,6 +117,7 @@ const SMA_EXTENDED_PROCESS_POINTS: Record<string, number> = {
   dcCurrentDynamicMaxA: 7274, dcCurrentDynamicMinA: 7275,
   insulationResistanceKOhm: 6644, maxPcbTemperatureC: 6099, maxIgbtTemperatureC: 6100,
   electronicsAreaHumidityPct: 760, acAreaHumidityPct: 761, dcAreaHumidityPct: 762,
+  dehumidificationTimerSeconds: 9515, dehumidificationStatusCode: 9517,
   inverterFaultNumber: 823, smaFaultNumber: 927, gridWaitSeconds: 614, errorRemainingSeconds: 7114,
   powerFactor: 404, apparentPowerKva: 401, uptimeSeconds: 4852, communicationFirmwareRaw: 4853,
   acEnergyTodayMwh: 6767, acEnergyYesterdayMwh: 7073, acEnergyTotalMwh: 7118,
@@ -653,6 +654,8 @@ export function mergeSmaStreamSnapshots(rows:PcsSwitchTelemetry[],streams:Array<
     if(stream.points[760])extended.electronicsAreaHumidityPct=stream.points[760];
     if(stream.points[761])extended.acAreaHumidityPct=stream.points[761];
     if(stream.points[762])extended.dcAreaHumidityPct=stream.points[762];
+    if(stream.points[9515])extended.dehumidificationTimerSeconds=stream.points[9515];
+    if(stream.points[9517])extended.dehumidificationStatusCode=stream.points[9517];
     const state=operating?.readingState==='live'?operating.value:null;
     const value:PcsSwitchTelemetry={arrayIndex:stream.array,host:stream.host,port:443,unitId:3,
       capturedAt:diagram.freshnessAt,durationMs:null,stale:!live,error:live?null:'SMA stream is not current',addressOffset:null,source:'SMA_MQTT',streamHealth:stream.status,
