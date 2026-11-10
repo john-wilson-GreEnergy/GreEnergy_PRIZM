@@ -4,6 +4,7 @@ import "./dataExport.css";
 import {
   powerCommandSelections,
   powerComparisonSelections,
+  powerMovementSelections,
   presetWindow,
   toLocalInput,
   type ExportSelection,
@@ -57,7 +58,7 @@ function DataExportWorkspaceKeyed() {
   ])} />;
 }
 
-function DataExportWorkspace() {
+export function DataExportWorkspace() {
   const [reload, setReload] = useState(0);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [error, setError] = useState("");
@@ -73,6 +74,9 @@ function DataExportWorkspace() {
   const initial = presetWindow("24-hours");
   const [from, setFrom] = useState(() => toLocalInput(initial.from));
   const [to, setTo] = useState(() => toLocalInput(initial.to));
+  const [singleDay, setSingleDay] = useState(() => toLocalInput(Date.now()).slice(0, 10));
+  const [scope, setScope] = useState<"site" | "arrays">("site");
+  const [selectedArrays, setSelectedArrays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [saved, setSaved] = useState<SavedSelection[]>([]);
   const [saveName, setSaveName] = useState("");
@@ -117,22 +121,40 @@ function DataExportWorkspace() {
     setFrom(toLocalInput(window.from));
     setTo(toLocalInput(window.to));
   };
-  const applyQuickStart = (kind: "commands" | "comparison") => {
+  const applyDay = (value: string) => {
+    if (!value) return;
+    resetResult();
+    const start = new Date(`${value}T00:00`);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    setSingleDay(value);
+    setFrom(toLocalInput(start));
+    setTo(toLocalInput(end));
+  };
+  const addCommonMeasurements = (kind: "commands" | "movement" | "comparison") => {
     if (!catalog) return;
-    const next = kind === "commands"
-      ? powerCommandSelections(catalog.targets)
-      : powerComparisonSelections(catalog.targets);
+    const arrays = scope === "site" ? undefined : selectedArrays;
+    if (arrays && !arrays.length) {
+      setError("Select at least one array, or choose Entire site.");
+      return;
+    }
+    const next = kind === "commands" ? powerCommandSelections(catalog.targets, arrays)
+      : kind === "movement" ? powerMovementSelections(catalog.targets, arrays)
+      : powerComparisonSelections(catalog.targets, arrays);
     if (!next.length) {
       setError("No retained power-command series are available for this site. Power history may not cover that source yet.");
       return;
     }
     resetResult();
     setSource("power");
-    setSelections(next);
-    applyWindow("last-friday");
-    setMessage(kind === "commands"
-      ? `Ready: ${next.length} recorded power-command source${next.length === 1 ? "" : "s"} for last Friday.`
-      : `Ready: ${next.length} command and measured-power source${next.length === 1 ? "" : "s"} for last Friday.`);
+    setSelections(current => {
+      const ids = new Set(next.map(item => `${item.source}:${item.target}`));
+      return [...current.filter(item => !ids.has(`${item.source}:${item.target}`)), ...next].slice(0, 32);
+    });
+    const scopeLabel = scope === "site" ? "the entire site" : `Array${selectedArrays.length === 1 ? "" : "s"} ${selectedArrays.join(", ")}`;
+    setMessage(kind === "commands" ? `Added granular power-command data for ${scopeLabel}.`
+      : kind === "movement" ? `Added granular power-movement data for ${scopeLabel}.`
+      : `Added command and power-movement data for ${scopeLabel}.`);
   };
 
   if (loading) return <div className="data-export" role="status">Loading recorded measurement catalogue…</div>;
@@ -244,21 +266,48 @@ function DataExportWorkspace() {
     {message && <p role="status" className="export-ready">{message}</p>}
     {!catalog && <button onClick={() => setReload(value => value + 1)}>Reload available measurements</button>}
     {catalog && <Fragment>
-      <section className="export-quick-start" aria-labelledby="quick-export-heading">
-        <small>QUICK EXPORT</small><h2 id="quick-export-heading">What do you need?</h2>
-        <p>These shortcuts choose the recorded variables and the full previous Friday automatically. You can adjust them afterward.</p>
-        <div className="export-quick-grid">
-          <button className="export-quick-option" type="button" disabled={busy} onClick={() => applyQuickStart("commands")}>
-            <strong>Power commands · last Friday</strong><span>Reported real and reactive power commands, exported as CSV and graphs.</span>
-          </button>
-          <button className="export-quick-option" type="button" disabled={busy} onClick={() => applyQuickStart("comparison")}>
-            <strong>Commands + measured power · last Friday</strong><span>Compare recorded commands with PCS measured real power where available.</span>
-          </button>
-        </div>
-      </section>
-
       <fieldset disabled={busy} className="export-grid">
-        <section className="export-card"><h2>1. Choose data points</h2>
+        <section className="export-card export-date-card"><small>STEP 1</small><h2>Choose when</h2>
+          <label className="export-day-picker">Export one full day
+            <input type="date" value={singleDay} onChange={event => applyDay(event.target.value)} />
+          </label>
+          <p className="export-or"><span>or choose an exact range</span></p>
+          <div className="export-actions export-date-presets">
+            <button type="button" onClick={() => applyWindow("yesterday")}>Yesterday</button>
+            <button type="button" onClick={() => applyWindow("today")}>Today so far</button>
+            <button type="button" onClick={() => applyWindow("24-hours")}>Last 24 hours</button>
+            <button type="button" onClick={() => applyWindow("7-days")}>Last 7 days</button>
+          </div>
+          <div className="export-pair">
+            <label>Start · local time<input type="datetime-local" value={from} onChange={event => {resetResult(); setFrom(event.target.value);}} /></label>
+            <label>End · local time<input type="datetime-local" value={to} onChange={event => {resetResult(); setTo(event.target.value);}} /></label>
+          </div>
+          <p>Up to seven days, limited to retained history. Downloaded timestamps are UTC; missing periods appear in coverage.</p>
+        </section>
+
+        <section className="export-card"><small>STEP 2</small><h2>Choose measurements</h2>
+          <div className="export-common-measurements">
+            <p><strong>Export scope</strong></p>
+            <div className="export-scope-options">
+              <label><input type="radio" name="export-scope" checked={scope === "site"} onChange={() => setScope("site")} />Entire site</label>
+              <label><input type="radio" name="export-scope" checked={scope === "arrays"} onChange={() => setScope("arrays")} />Selected arrays</label>
+            </div>
+            {scope === "arrays" && <div className="export-array-picker" aria-label="Arrays to export">
+              {Array.from({length: 8}, (_, index) => index + 1).map(array => <label key={array}>
+                <input type="checkbox" checked={selectedArrays.includes(array)} onChange={event => setSelectedArrays(current =>
+                  event.target.checked ? [...current, array].sort((a, b) => a - b) : current.filter(value => value !== array))} />
+                Array {array}
+              </label>)}
+            </div>}
+            <p><strong>Power data</strong></p>
+            <div className="export-actions">
+              <button type="button" onClick={() => addCommonMeasurements("commands")}>Power commands</button>
+              <button type="button" onClick={() => addCommonMeasurements("movement")}>Power movement</button>
+              <button type="button" className="export-primary" onClick={() => addCommonMeasurements("comparison")}>Commands + movement</button>
+            </div>
+            <small>Commands include real/reactive setpoints and application state. Movement includes PCS real/reactive power, DC voltage and DC current. Every retained point is exported; your date range stays unchanged.</small>
+          </div>
+          <details className="export-fine-tune" open><summary>Fine-tune equipment and variables</summary>
           <label>Data source<select value={source} onChange={event => {
             setSource(event.target.value as ExportTarget["source"]); setTargetId(""); setMetrics([]);
             setBpc(""); setCell(""); setSearch("");
@@ -282,19 +331,7 @@ function DataExportWorkspace() {
               {Array.from({length: target.cells ?? 0}, (_, index) => <option value={index + 1} key={index}>Group {index + 1}</option>)}</select></label></div>}
           <button type="button" onClick={addSelection} disabled={!metrics.length || selections.length >= 32 &&
             !selections.some(item => item.source === source && item.target === targetId)}>Add / replace selection</button></Fragment>}
-        </section>
-
-        <section className="export-card"><h2>2. Choose the dates</h2>
-          <div className="export-actions">
-            <button type="button" onClick={() => applyWindow("last-friday")}>Last Friday</button>
-            <button type="button" onClick={() => applyWindow("yesterday")}>Yesterday</button>
-            <button type="button" onClick={() => applyWindow("today")}>Today</button>
-            <button type="button" onClick={() => applyWindow("24-hours")}>Last 24h</button>
-            <button type="button" onClick={() => applyWindow("7-days")}>Last 7d</button>
-          </div>
-          <label>From · local time<input type="datetime-local" value={from} onChange={event => {resetResult(); setFrom(event.target.value);}} /></label>
-          <label>To · local time<input type="datetime-local" value={to} onChange={event => {resetResult(); setTo(event.target.value);}} /></label>
-          <p>Up to seven days, limited to retained history. Downloaded timestamps are UTC; missing periods appear in coverage.</p>
+          </details>
           <h3>Saved selections</h3><label>Load a selection<select value="" onChange={event => {
             if (event.target.value === "") return;
             const item = saved[Number(event.target.value)];
@@ -309,21 +346,21 @@ function DataExportWorkspace() {
         </section>
       </fieldset>
 
-      <section className="export-card"><h2>Selected measurements · {selections.length} targets</h2>
+      <section className="export-card"><small>STEP 3</small><h2>Review selections · {selections.length} targets</h2>
         {selections.length ? <ul className="export-selection">{selections.map((selection, index) => {
           const selectedTarget = catalog.targets.find(item => item.source === selection.source && item.id === selection.target);
           return <li key={selection.source + selection.target}><div><strong>{selectedTarget?.label || selection.target}</strong>
             <p>{selection.metrics.map(id => selectedTarget?.metrics.find(metric => metric.id === id)?.label || id).join(" · ")}</p></div>
             <button disabled={busy} onClick={() => {resetResult(); setSelections(current => current.filter((_, position) => position !== index));}}
               aria-label={`Remove ${selectedTarget?.label || selection.target}`}>Remove</button></li>;
-        })}</ul> : <p>Use a quick export above, or add equipment and measurements manually.</p>}
+        })}</ul> : <p>Add a common measurement group or choose equipment and variables above.</p>}
         <div className="export-actions"><button className="export-primary" onClick={prepare} disabled={busy || !selections.length}>
           Preview CSV + graph package</button>{busy && <Fragment><span role="status">Reading retained history and building the package…</span>
           <button onClick={() => controller.current?.abort()}>Cancel</button></Fragment>}</div>
         <p><small>Full-resolution CSV is never silently downsampled. Large requests fail visibly so you can narrow the dates or selections.</small></p>
       </section>
 
-      {preview && <section className="export-card"><h2>3. Check coverage and download</h2>
+      {preview && <section className="export-card"><small>STEP 4</small><h2>Check coverage and download</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
         <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables.</p>
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + graphed HTML</button>

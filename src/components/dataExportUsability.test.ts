@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   powerCommandSelections,
   powerComparisonSelections,
+  powerMovementSelections,
   presetWindow,
   toLocalInput,
   type ExportTarget,
@@ -24,29 +25,43 @@ test("power shortcuts select commands and optional measured power", () => {
   const targets: ExportTarget[] = [{
     source: "power",
     id: "ems-app:PC00001:1|ems-app",
+    array: 1,
     label: "Array 1 power control",
     metrics: [
       {id: "Reported setpoint kW", label: "EMS reported real-power command", unit: "kW"},
       {id: "Reported setpoint kVAR", label: "EMS reported reactive-power command", unit: "kVAR"},
+      {id: "Reported enabled", label: "EMS reported application enabled"},
     ],
   }, {
     source: "power",
     id: "1:1|electrical",
+    array: 1,
     label: "PCS 1 electrical",
-    metrics: [{id: "kw", label: "PCS measured real power", unit: "kW"}],
+    metrics: [
+      {id: "kw", label: "PCS measured real power", unit: "kW"},
+      {id: "kvar", label: "PCS measured reactive power", unit: "kVAR"},
+      {id: "dcV", label: "PCS DC voltage", unit: "V"},
+      {id: "dcA", label: "PCS DC current", unit: "A"},
+    ],
   }];
   assert.deepEqual(powerCommandSelections(targets), [{
     source: "power",
     target: "ems-app:PC00001:1|ems-app",
-    metrics: ["Reported setpoint kW", "Reported setpoint kVAR"],
+    metrics: ["Reported setpoint kW", "Reported setpoint kVAR", "Reported enabled"],
+  }]);
+  assert.deepEqual(powerMovementSelections(targets), [{
+    source: "power",
+    target: "1:1|electrical",
+    metrics: ["kw", "kvar", "dcV", "dcA"],
   }]);
   assert.deepEqual(powerComparisonSelections(targets), [{
     source: "power",
     target: "ems-app:PC00001:1|ems-app",
-    metrics: ["Reported setpoint kW", "Reported setpoint kVAR"],
+    metrics: ["Reported setpoint kW", "Reported setpoint kVAR", "Reported enabled"],
   }, {
     source: "power",
     target: "1:1|electrical",
-    metrics: ["kw"],
+    metrics: ["kw", "kvar", "dcV", "dcA"],
   }]);
+  assert.deepEqual(powerComparisonSelections(targets, [2]), []);
 });

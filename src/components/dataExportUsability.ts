@@ -3,6 +3,7 @@ export type ExportTarget = {
   source: "power" | "cells" | "hvac";
   id: string;
   label: string;
+  array?: number;
   metrics: ExportMetric[];
   bpcs?: number;
   cells?: number;
@@ -48,12 +49,16 @@ export function presetWindow(preset: WindowPreset, now = new Date()): {from: Dat
 
 const commandMetric = (metric: ExportMetric) => {
   const text = `${metric.id} ${metric.label}`.toLowerCase();
-  return text.includes("setpoint") || text.includes("power command");
+  return text.includes("setpoint") || text.includes("power command") || text.includes("reported enabled") ||
+    text.includes("application enabled");
 };
 
-export function powerCommandSelections(targets: ExportTarget[]): ExportSelection[] {
+const targetArray = (target: ExportTarget) => target.array ?? Number(/array\s+(\d+)/i.exec(target.label)?.[1]);
+const inScope = (target: ExportTarget, arrays?: number[]) => !arrays || arrays.includes(targetArray(target));
+
+export function powerCommandSelections(targets: ExportTarget[], arrays?: number[]): ExportSelection[] {
   return targets
-    .filter(target => target.source === "power")
+    .filter(target => target.source === "power" && inScope(target, arrays))
     .map(target => ({
       source: "power" as const,
       target: target.id,
@@ -63,16 +68,20 @@ export function powerCommandSelections(targets: ExportTarget[]): ExportSelection
     .slice(0, 32);
 }
 
-export function powerComparisonSelections(targets: ExportTarget[]): ExportSelection[] {
+export function powerMovementSelections(targets: ExportTarget[], arrays?: number[]): ExportSelection[] {
   return targets
-    .filter(target => target.source === "power")
+    .filter(target => target.source === "power" && inScope(target, arrays))
     .map(target => ({
       source: "power" as const,
       target: target.id,
       metrics: target.metrics
-        .filter(metric => commandMetric(metric) || metric.id === "kw")
+        .filter(metric => ["kw", "kvar", "dcV", "dcA"].includes(metric.id))
         .map(metric => metric.id),
     }))
     .filter(selection => selection.metrics.length > 0)
     .slice(0, 32);
+}
+
+export function powerComparisonSelections(targets: ExportTarget[], arrays?: number[]): ExportSelection[] {
+  return [...powerCommandSelections(targets, arrays), ...powerMovementSelections(targets, arrays)].slice(0, 32);
 }
