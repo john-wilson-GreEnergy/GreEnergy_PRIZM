@@ -3732,7 +3732,7 @@ export function getPcsView(): any {
         const dcAreaHumidityPct = processPoint("dcAreaHumidityPct");
         const dehumidificationTimerSeconds = processPoint("dehumidificationTimerSeconds");
         const dehumidificationStatusCode = processPoint("dehumidificationStatusCode");
-        const dehumidificationStatus = dehumidificationStatusCode === 308 ? "ON" : dehumidificationStatusCode === 303 ? "OFF" : dehumidificationStatusCode === 973 ? "NOT REPORTED" : null;
+        const dehumidificationStatus = dehumidificationStatusCode === 308 ? "ON" : dehumidificationStatusCode === 303 ? "OFF" : dehumidificationStatusCode === 973 ? "NOT REPORTED" : dehumidificationStatusCode === null ? null : `UNMAPPED (${dehumidificationStatusCode})`;
         const identity = {entity: `${arrayIndex}:${row.pcsIndex ?? 1}`, array: arrayIndex, label: `Array ${arrayIndex} · PCS ${row.pcsIndex ?? 1}`, observedAt};
         const sourceAt = modbusTelemetry.capturedAt ? Date.parse(modbusTelemetry.capturedAt) : null;
         historyObservations.push({...identity, stream: "electrical", source: "EMS Modbus", sourceAt,

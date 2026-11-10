@@ -50,6 +50,7 @@ const live=mergeSmaStreamSnapshots([],[{array:2,host:target.host,points:points.s
 assert.equal(live[0].source,'SMA_MQTT');assert.equal(live[0].inverterOperatingState,'GridFeed');assert.equal(live[0].stale,false);
 assert.equal(live[0].smaProcessData.electronicsAreaHumidityPct.value,42.1);assert.equal(live[0].smaProcessData.acAreaHumidityPct.value,43.2);assert.equal(live[0].smaProcessData.dcAreaHumidityPct.value,44.3);
 assert.equal(live[0].smaProcessData.dehumidificationTimerSeconds.value,120);assert.equal(live[0].smaProcessData.dehumidificationStatusCode.value,308);
+const unknownStatus=new StreamPoints(target.deviceId);unknownStatus.begin();unknownStatus.ingest(`process/${target.deviceId}`,Buffer.from(JSON.stringify({data:{processData:{9517:[777,oldStamp,0]}}})),false,now);assert.equal(unknownStatus.snapshot()[9517].value,777);
 const identity={stationCode:'BHE0021',blockIndex:1,activeProfileId:'ss4',emsBaseUrl:'http://10.0.0.3:8080/turtle'};
 const published={...live[0],smaProcessData:Object.fromEntries(Object.entries(live[0].smaProcessData).map(([k,p])=>[k,qualifyPcsProcessPoint(p,now+1000)]))};
 const fleet=projectFleetPcs({siteIdentity:identity,pcs:[{arrayIndex:2,pcsIndex:1,pcsSwitches:published}]},identity);

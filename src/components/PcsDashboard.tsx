@@ -472,7 +472,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                     dcAreaHumidityPct: finite(p.dcAreaHumidityPct) ?? processReading("dcAreaHumidityPct"),
                     dehumidificationStatusCode: finite(p.dehumidificationStatusCode) ?? processReading("dehumidificationStatusCode"),
                     dehumidificationTimerSeconds: finite(p.dehumidificationTimerSeconds) ?? processReading("dehumidificationTimerSeconds"),
-                    dehumidificationStatus: p.dehumidificationStatus ?? (() => { const code=finite(p.dehumidificationStatusCode) ?? processReading("dehumidificationStatusCode"); return code===308?"ON":code===303?"OFF":code===973?"NOT REPORTED":null; })(),
+                    dehumidificationStatus: p.dehumidificationStatus ?? (() => { const code=finite(p.dehumidificationStatusCode) ?? processReading("dehumidificationStatusCode"); return code===308?"ON":code===303?"OFF":code===973?"NOT REPORTED":code===null?null:`UNMAPPED (${code})`; })(),
                     rotation,
                     state,
                     sourcePath: p.sourcePath ?? "discovered",
@@ -887,14 +887,6 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                         <span className="text-prizm-text-muted block text-[7.5px] uppercase">Source Endpoint</span>
                                         <span className="text-prizm-text-muted text-[8px] block truncate text-left uppercase" title={selectedPcs.telemetrySource || selectedPcs.sourcePath}>{selectedPcs.telemetrySource || selectedPcs.sourcePath || "discovered"}</span>
                                     </div>
-                                    <div>
-                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">Cabinet Temperature</span>
-                                        <span className="text-prizm-text font-bold text-xs">{hasVal(selectedPcs.cabinetTemperatureC) && Number(selectedPcs.cabinetTemperatureC) !== 0 ? `${Number(selectedPcs.cabinetTemperatureC).toFixed(1)} °C` : "Not reported"}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-prizm-text-muted block text-[7.5px] uppercase">Heatsink Temperature</span>
-                                        <span className="text-prizm-text font-bold text-xs">{hasVal(selectedPcs.heatSinkTemperatureC) && Number(selectedPcs.heatSinkTemperatureC) !== 0 ? `${Number(selectedPcs.heatSinkTemperatureC).toFixed(1)} °C` : "Not reported"}</span>
-                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-2 text-[8px] border-t border-prizm-border/40 pt-3">
@@ -1232,8 +1224,6 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                             ["Dehumidification timer", smaDisplay("dehumidificationTimerSeconds", "s", 0)],
                             ["Maximum PCB", smaDisplay("maxPcbTemperatureC", "°C", 1)],
                             ["Maximum IGBT", smaDisplay("maxIgbtTemperatureC", "°C", 1)],
-                            ["Cabinet", hasVal(oneLinePcs.cabinetTemperatureC) && Number(oneLinePcs.cabinetTemperatureC) !== 0 ? `${Number(oneLinePcs.cabinetTemperatureC).toFixed(1)} °C` : "Not reported"],
-                            ["Heatsink", hasVal(oneLinePcs.heatSinkTemperatureC) && Number(oneLinePcs.heatSinkTemperatureC) !== 0 ? `${Number(oneLinePcs.heatSinkTemperatureC).toFixed(1)} °C` : "Not reported"],
                         ].map(([label, value]) => <div key={label} className="rounded border border-prizm-border bg-prizm-surface-strong p-3"><div className="text-[7px] font-bold uppercase text-prizm-text-muted">{label}</div><div className="mt-1 text-sm font-extrabold text-prizm-text">{value}</div></div>)}
                     </div>
                 )}
@@ -1273,8 +1263,8 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <div className="flex justify-between gap-3"><dt>AC / DC area humidity</dt><dd className="font-bold">{smaDisplay("acAreaHumidityPct", "% RH", 1)} / {smaDisplay("dcAreaHumidityPct", "% RH", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Dehumidification status</dt><dd className="font-bold">{oneLinePcs.dehumidificationStatus || "Not reported"}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Activation timer</dt><dd className="font-bold">{smaDisplay("dehumidificationTimerSeconds", "s", 0)}</dd></div>
-                                    <div className="flex justify-between gap-3"><dt>Inverter / SMA fault</dt><dd className="font-bold">{smaDisplay("inverterFaultNumber", "", 0)} / {smaDisplay("smaFaultNumber", "", 0)}</dd></div>
-                                    <div className="flex justify-between gap-3"><dt>DC coupler / battery mask</dt><dd className="font-bold">{smaDisplay("dcCouplerStatusMask", "", 0)} / {smaDisplay("batteryStatusMask", "", 0)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>Retained inverter / SMA event number</dt><dd className="font-bold">{smaDisplay("inverterFaultNumber", "", 0)} / {smaDisplay("smaFaultNumber", "", 0)}</dd></div>
+                                    <div className="col-span-full text-[10px] text-prizm-text-muted">Retained event numbers are diagnostic history and do not by themselves indicate an active fault.</div>
                                 </dl>
                             </section>
                             <section className="border-b border-prizm-border p-3 md:border-r xl:border-b-0">
@@ -1285,7 +1275,7 @@ export default function PcsDashboard({ active = true }: { active?: boolean }) {
                                     <div className="flex justify-between gap-3"><dt>Error time remaining</dt><dd className="font-bold">{smaDisplay("errorRemainingSeconds", "s", 0)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>Power factor / apparent</dt><dd className="font-bold">{smaDisplay("powerFactor", "", 4)} / {smaDisplay("apparentPowerKva", "kVA", 1)}</dd></div>
                                     <div className="flex justify-between gap-3"><dt>PCS uptime</dt><dd className="font-bold">{smaUptime}</dd></div>
-                                    <div className="flex justify-between gap-3"><dt>Communication firmware</dt><dd className="font-bold">{smaDisplay("communicationFirmwareRaw", "", 0)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt>Communication firmware</dt><dd className="font-bold">{(() => { const raw=smaNumber("communicationFirmwareRaw"); if(raw===null)return "Not reported"; const n=Math.trunc(raw)>>>0; return `${(n>>>24)&255}.${String((n>>>16)&255).padStart(2,"0")}.${String((n>>>8)&255).padStart(2,"0")} · build ${n&255}`; })()}</dd></div>
                                 </dl>
                             </section>
                             <section className="p-3">
