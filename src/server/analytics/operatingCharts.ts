@@ -51,7 +51,7 @@ export function parseOperatingCharts(input:unknown):OperatingCharts|undefined {
   let last=0;
   const power=bounded(v.power,operatingChartLimits.points).map(value=>{const p=row(value),at=time(p.at);if(!at||at<=last||at>Number(v.capturedAt)+5000)fail();last=at!;
     const expected=integer(p.expected,256),report=row(p.reporting),reporting={} as PowerSample['reporting'],values={} as Pick<PowerSample,typeof powerKeys[number]>;
-    for(const k of powerKeys){reporting[k]=integer(report[k],256);values[k]=nullable(p[k]);if(reporting[k]>expected||(values[k]!==null&&(!expected||reporting[k]!==expected)))fail();}
+    for(const k of powerKeys){reporting[k]=integer(report[k],256);values[k]=nullable(p[k]);if(reporting[k]>expected||(values[k]!==null&&(!expected||reporting[k]===0)))fail();}
     return {at:at!,observedAt:stamp(p.observedAt),expected,reporting,...values};});
   const identities=new Set<string>();
   const distribution=bounded(v.distribution,operatingChartLimits.strings).map(value=>{const d=row(value),array=integer(d.array,64),string=integer(d.string,9999),id=`${array}:${string}`;
