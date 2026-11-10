@@ -7,6 +7,7 @@ export interface FleetPcs {
   status:FleetPcsReading<string>;rotation:FleetPcsReading<string>;
   acContactor:FleetPcsReading<string>;dc1:FleetPcsReading<string>;dc2:FleetPcsReading<string>;dc3:FleetPcsReading<string>;
   insulationKohm:FleetPcsReading<number>;maxIgbtF:FleetPcsReading<number>;
+  electronicsHumidityPct:FleetPcsReading<number>;acHumidityPct:FleetPcsReading<number>;dcHumidityPct:FleetPcsReading<number>;
 }
 export interface FleetIssueTarget {id:string;label:string;array:number|null;string:number|null;bpc:number|null;cell:number|null;pcs:number|null;segment:number|null;block?:number|null;hvacUnit?:number|null}
 export interface FleetConsolidatedTarget extends FleetIssueTarget {cells:string;reportedTargets:number;isBpc:boolean}

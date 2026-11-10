@@ -39,6 +39,7 @@ export function projectFleetPcs(view:unknown,identity:unknown):FleetPcs[]{
       status:directStatus && switchQuality==='live'?reading(directStatus,switchQuality,switchAt,source):reading(text(p.state),emsQuality,emsAt,'EMS'),
       rotation:reading(['IN','OUT'].includes(String(p.rotationStatus))?String(p.rotationStatus):null,emsQuality,emsAt,'EMS'),
       acContactor:contact('acSwitch'),dc1:contact('dcSwitch1'),dc2:contact('dcSwitch2'),dc3:contact('dcSwitch3'),
-      insulationKohm:process('insulationResistanceKOhm'),maxIgbtF:process('maxIgbtTemperatureC',true)}];
+      insulationKohm:process('insulationResistanceKOhm'),maxIgbtF:process('maxIgbtTemperatureC',true),
+      electronicsHumidityPct:process('electronicsAreaHumidityPct'),acHumidityPct:process('acAreaHumidityPct'),dcHumidityPct:process('dcAreaHumidityPct')}];
   });
 }

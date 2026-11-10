@@ -3723,6 +3723,13 @@ export function getPcsView(): any {
         const arrayIndex = Number(row.arrayIndex ?? row.pcsIndex);
         const live: any = modbusTelemetry.available && !modbusTelemetry.stale ? modbusByArray.get(arrayIndex) : null;
         const switchTelemetry: any = switchByArray.get(arrayIndex) || null;
+        const processPoint = (key: string) => {
+            const point = switchTelemetry?.smaProcessData?.[key];
+            return point?.readingState === "live" || point?.readingState === "stale" ? finiteOrNull(point.value) : null;
+        };
+        const electronicsAreaHumidityPct = processPoint("electronicsAreaHumidityPct");
+        const acAreaHumidityPct = processPoint("acAreaHumidityPct");
+        const dcAreaHumidityPct = processPoint("dcAreaHumidityPct");
         const identity = {entity: `${arrayIndex}:${row.pcsIndex ?? 1}`, array: arrayIndex, label: `Array ${arrayIndex} · PCS ${row.pcsIndex ?? 1}`, observedAt};
         const sourceAt = modbusTelemetry.capturedAt ? Date.parse(modbusTelemetry.capturedAt) : null;
         historyObservations.push({...identity, stream: "electrical", source: "EMS Modbus", sourceAt,
@@ -3733,6 +3740,10 @@ export function getPcsView(): any {
             values: {"Inverter state": switchTelemetry?.inverterOperatingState ?? null,
                 "DC 1": switchTelemetry?.dcSwitch1 ?? null, "DC 2": switchTelemetry?.dcSwitch2 ?? null, "DC 3": switchTelemetry?.dcSwitch3 ?? null,
                 "AC switch": switchTelemetry?.acSwitch ?? null, "Grid switch": switchTelemetry?.mvSwitch ?? null}});
+        historyObservations.push({...identity, stream: "pcs-environment", source: switchTelemetry?.source || "Direct PCS", sourceAt: switchTelemetry?.capturedAt ? Date.parse(switchTelemetry.capturedAt) : null,
+            quality: historySiteMatches && switchTelemetry?.stale === false ? "live" : "unavailable",
+            values: {"Electronics humidity %RH": electronicsAreaHumidityPct, "AC area humidity %RH": acAreaHumidityPct,
+                "DC area humidity %RH": dcAreaHumidityPct, "Inverter state": switchTelemetry?.inverterOperatingState ?? null}});
         if (!live && !switchTelemetry) return row;
         return {
             ...row,
@@ -3754,6 +3765,9 @@ export function getPcsView(): any {
             dcPowerKW: live?.DCWatts == null ? row.dcPowerKW : live.DCWatts / 1000,
             cabinetTemperatureC: live?.CabinetTemperature ?? row.cabinetTemperatureC,
             heatSinkTemperatureC: live?.HeatSinkTemperature ?? row.heatSinkTemperatureC,
+            electronicsAreaHumidityPct,
+            acAreaHumidityPct,
+            dcAreaHumidityPct,
             modbusOperatingState: live?.OperatingState,
             modbusRotationState: live?.RotationState,
             modbusFaultCode: live?.FaultCode,

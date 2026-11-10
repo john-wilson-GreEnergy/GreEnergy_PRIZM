@@ -37,11 +37,13 @@ export function parseFleetDetails(value:unknown):FleetDetails {
       return {value,quality:q,observedAt:at,source:p.source as FleetPcsReading['source'],...(p.source==='SMA stream'?{deviceObservedAt:stamp(p.deviceObservedAt??null),clockSkew:p.clockSkew===true}:{})};
     };
     const enumeration=(values:string[])=>(v:unknown)=>{if(v===null)return null;const s=text(v,80);if(!values.includes(s))throw new Error('Invalid PCS state');return s;};
+    const missingReading={value:null,quality:'unknown',observedAt:null,source:'Unknown'};
     result.pcs=list(r.pcs,64).map(value=>{const p=row(value),array=count(p.array),number=count(p.number);
       if(!array || !number || p.id!==`A${array}-PCS${number}`)throw new Error('Invalid PCS identity');
       return {id:text(p.id,80),array,number,status:reading(p.status,v=>v===null?null:text(v,80)),rotation:reading(p.rotation,enumeration(['IN','OUT'])),
         acContactor:reading(p.acContactor,enumeration(['OPEN','CLOSED'])),dc1:reading(p.dc1,enumeration(['OPEN','CLOSED'])),dc2:reading(p.dc2,enumeration(['OPEN','CLOSED'])),dc3:reading(p.dc3,enumeration(['OPEN','CLOSED'])),
-        insulationKohm:reading(p.insulationKohm,v=>num(v,0)),maxIgbtF:reading(p.maxIgbtF,v=>num(v,-459.67))};
+        insulationKohm:reading(p.insulationKohm,v=>num(v,0)),maxIgbtF:reading(p.maxIgbtF,v=>num(v,-459.67)),
+        electronicsHumidityPct:reading(p.electronicsHumidityPct??missingReading,v=>num(v,0,100)),acHumidityPct:reading(p.acHumidityPct??missingReading,v=>num(v,0,100)),dcHumidityPct:reading(p.dcHumidityPct??missingReading,v=>num(v,0,100))};
     });
     if(new Set(result.pcs.map(p=>p.id)).size!==result.pcs.length)throw new Error('Duplicate PCS identity');
   }
@@ -75,8 +77,8 @@ export function ageFleetDetails(value:FleetDetails|undefined,now:number,current:
   result.quality=age(result.quality,result.observedAt);
   result.issues.quality=age(result.issues.quality,result.issues.observedAt);result.sensors.quality=age(result.sensors.quality,result.sensors.observedAt);
   for(const array of result.arrays){array.quality=age(array.quality,array.observedAt);array.pcsQuality=age(array.pcsQuality,array.pcsObservedAt);array.socQuality=age(array.socQuality??'unknown',array.socObservedAt??null);}
-  for(const pcs of result.pcs ?? [])for(const key of ['status','rotation','acContactor','dc1','dc2','dc3','insulationKohm','maxIgbtF'] as const){
-    const reading=pcs[key],limit=key==='insulationKohm' || key==='maxIgbtF'?120000:reading.source==='EMS'?15000:20000;
+  for(const pcs of result.pcs ?? [])for(const key of ['status','rotation','acContactor','dc1','dc2','dc3','insulationKohm','maxIgbtF','electronicsHumidityPct','acHumidityPct','dcHumidityPct'] as const){
+    const reading=pcs[key],limit=['insulationKohm','maxIgbtF','electronicsHumidityPct','acHumidityPct','dcHumidityPct'].includes(key)?120000:reading.source==='EMS'?15000:20000;
     if(reading.quality!=='unknown' && (!current || !reading.observedAt || Date.parse(reading.observedAt)>now+30000 || now-Date.parse(reading.observedAt)>=limit))reading.quality='stale';
   }
   return result;

@@ -650,6 +650,9 @@ export function mergeSmaStreamSnapshots(rows:PcsSwitchTelemetry[],streams:Array<
     const extended:Record<string,SmaProcessPoint>=Object.fromEntries(Object.entries(previous?.smaProcessData??{}).map(([key,p])=>[key,{...p,source:p.source??previous?.source??undefined}]));
     if(stream.points[6644])extended.insulationResistanceKOhm=stream.points[6644];
     if(stream.points[6100])extended.maxIgbtTemperatureC=stream.points[6100];
+    if(stream.points[760])extended.electronicsAreaHumidityPct=stream.points[760];
+    if(stream.points[761])extended.acAreaHumidityPct=stream.points[761];
+    if(stream.points[762])extended.dcAreaHumidityPct=stream.points[762];
     const state=operating?.readingState==='live'?operating.value:null;
     const value:PcsSwitchTelemetry={arrayIndex:stream.array,host:stream.host,port:443,unitId:3,
       capturedAt:diagram.freshnessAt,durationMs:null,stale:!live,error:live?null:'SMA stream is not current',addressOffset:null,source:'SMA_MQTT',streamHealth:stream.status,

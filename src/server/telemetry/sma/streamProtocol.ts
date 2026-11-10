@@ -1,5 +1,5 @@
-// Only the four process IDs verified on live SS3/SS4 inverters are promoted.
-export const STREAM_IDS=[332,6070,6644,6100] as const;
+// Status, protection, thermal, and humidity process data promoted into PRIZM.
+export const STREAM_IDS=[332,6070,6644,6100,760,761,762] as const;
 export const STREAM_STALE_MS=15_000;
 export interface StreamPoint {
   id:number;value:number|null;quality:number|null;unitId:null;timestamp:number|null;
@@ -22,7 +22,7 @@ export class StreamPoints {
       const [value,stamp,quality]=v,previous=this.points.get(id);
       const validStamp=typeof stamp==='number' && Number.isFinite(stamp) && stamp>0 && stamp<8.64e12;
       const validValue=typeof value==='number' && Number.isFinite(value)
-        && (id===6070?Number.isInteger(value)&&value>=0&&value<=0xffffffff:id===332?Number.isInteger(value)&&value>=0&&value<256:id===6100?value>=-273.15&&value<=500:value>=0);
+        && (id===6070?Number.isInteger(value)&&value>=0&&value<=0xffffffff:id===332?Number.isInteger(value)&&value>=0&&value<256:id===6100?value>=-273.15&&value<=500:[760,761,762].includes(id)?value>=0&&value<=100:value>=0);
       // Repeated/cached or backwards timestamps cannot renew freshness. Invalid
       // quality invalidates immediately, including at an unchanged timestamp.
       const valid=validStamp && validValue && quality===0;
