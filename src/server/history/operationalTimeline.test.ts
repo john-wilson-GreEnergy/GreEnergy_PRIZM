@@ -90,4 +90,8 @@ await incompleteLock.flush();
 assert(incompleteLock.status().error, "An incomplete writer lock must fail closed");
 await incompleteLock.close();
 assert.equal(await fs.readFile(path.join(incompleteLockDir, "writer.json"), "utf8"), "", "Never remove a lock without verified ownership");
+const catalogDir=path.join(root,'catalog-restart'),catalogWriter=new OperationalTimeline(catalogDir,{maxBytes:1_000_000,reserveBytes:0},()=>now);
+catalogWriter.ingest({site,observations:[observation('electrical',{kw:1}),{...observation('electrical',{kw:8}),array:8,entity:'8:1',label:'Array 8 · PCS 1'}]});await catalogWriter.flush();await catalogWriter.close();
+const catalogReader=new OperationalTimeline(catalogDir,{maxBytes:1_000_000,reserveBytes:0},()=>now);catalogReader.ingest({site,observations:[]});await catalogReader.flush();
+assert.deepEqual((await catalogReader.exportObservations()).filter(row=>row.stream==='electrical').map(row=>row.array).sort(),[1,8],"Restart catalogue visits retained shards for every array");await catalogReader.close();
 console.log("Timeline persistence, freshness, quality, coverage, site isolation, ownership, limits and rollback passed");

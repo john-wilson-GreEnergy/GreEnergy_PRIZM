@@ -49,13 +49,13 @@ export class OperationalTimeline {
     if (!this.site) return [];
     const key=siteKey(this.site.id),latest=new Map<string,TimelineObservation>();
     for(const observation of this.previous.values())latest.set(`${observation.entity}:${observation.stream}`,structuredClone(observation));
-    if(latest.size)return [...latest.values()];
-    const names=[...this.files.keys()].filter(name=>name.startsWith(`${key}-`)).sort().reverse();
-    let scanned=0;
+    const grouped=new Map<number,string[]>();
+    for(const name of this.files.keys()){const match=pattern.exec(name);if(!match||match[1]!==key)continue;const array=Number(match[2]),names=grouped.get(array)||[];names.push(name);grouped.set(array,names);}
+    const names=[...grouped.entries()].sort(([a],[b])=>a-b).flatMap(([,items])=>items.sort((a,b)=>Number(pattern.exec(b)![3])-Number(pattern.exec(a)![3])).slice(0,2));
     for(const name of names){
       const input=createReadStream(path.join(this.directory,name),{encoding:'utf8'}),lines=createInterface({input,crlfDelay:Infinity});
-      try{for await(const line of lines){let record:Record;try{record=JSON.parse(line)}catch{continue}const observation=record.observation;if(!observation||observation.stream==='command')continue;const identity=`${observation.entity}:${observation.stream}`;if(!latest.has(identity))latest.set(identity,observation);if(++scanned>=200_000)break;}}finally{lines.close();input.destroy();}
-      if(scanned>=200_000)break;
+      let fileLines=0;
+      try{for await(const line of lines){let record:Record;try{record=JSON.parse(line)}catch{continue}const observation=record.observation;if(!observation||observation.stream==='command')continue;const identity=`${observation.entity}:${observation.stream}`;if(!latest.has(identity))latest.set(identity,observation);if(++fileLines>=50_000)break;}}finally{lines.close();input.destroy();}
     }
     return [...latest.values()];
   }
