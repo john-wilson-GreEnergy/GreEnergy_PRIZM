@@ -84,7 +84,7 @@ function validateRequest(raw, catalog, now = Date.now()) {
     seen.add(key);
     if (!Array.isArray(s.metrics) || !s.metrics.length || s.metrics.length > 32 || new Set(s.metrics).size !== s.metrics.length || s.metrics.some((m) => !t.metrics.some((d) => d.id === m))) throw Error("Select valid measurements for each target.");
     for (const [field, max] of [["bpc", t.bpcs], ["cell", t.cells]]) if (s[field] !== void 0 && (s.source !== "cells" || !Number.isInteger(s[field]) || s[field] < 1 || s[field] > max)) throw Error("Invalid BPC or cell selection");
-    count += s.metrics.reduce((n, m) => n + (s.source === "cells" && !m.startsWith("operating.") ? (s.bpc ? 1 : t.bpcs) * (s.cell ? 1 : t.cells) : 1), 0);
+    count += s.metrics.reduce((n, m) => n + (s.source === "cells" && !m.startsWith("operating.") ? 0 : 1), 0);
   }
   if (count > exportLimits.series) throw Error("Select at most 65,536 data series. Narrow the array, BPC, or cell selection.");
   return structuredClone(r);

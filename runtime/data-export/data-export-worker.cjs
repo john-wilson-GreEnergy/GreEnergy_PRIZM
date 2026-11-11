@@ -2775,6 +2775,7 @@ function offlineFamilyPage(title, items, from, to) {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>${htmlEscape(title)}</title><style>body{font:15px system-ui;color:#14312b;max-width:1320px;margin:28px auto;padding:0 18px}a{color:#087253}section{border:1px solid #c6d7d0;border-radius:8px;padding:16px;margin:18px 0}svg{width:100%;max-height:360px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:7px;border-bottom:1px solid #dbe5e1}details{max-height:520px;overflow:auto}small{color:#526760}</style><p><a href="../index.html">← Engineering package index</a></p><h1>${htmlEscape(title)}</h1><p>${htmlEscape(iso(from))} — ${htmlEscape(iso(to))} · UTC · missing values remain blank</p>${sections || "<p>No retained series in this report.</p>"}</html>`;
 }
 var engineeringColors = ["#2878bd", "#ef6c35", "#22a77a", "#8d62ba", "#d6a11d", "#d34f73", "#4b9ca6", "#7b7f35", "#666f8f"];
+var activeCellSnapshots = [];
 function engineeringFamily(s) {
   const metric = s.metric.toLowerCase(), unit = s.unit.toLowerCase();
   const array = /\bArray\s+(\d+)\b/i.exec(s.label)?.[1];
@@ -2845,15 +2846,30 @@ function engineeringFamilySections(all, from, to) {
     }
     const rows=[...document.querySelectorAll('details.series')],heading=[...document.querySelectorAll('h2')].find(function(node){return node.textContent.startsWith('Individual series evidence')});if(!rows.length||!heading)return;const label=heading.nextElementSibling,library=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');library.id='evidence-library';library.style.cssText='background:white;padding:16px;margin:12px 0;border:1px solid #c6d7d0;border-radius:8px';summary.textContent='Individual series evidence ('+rows.length+')';summary.style.cssText='cursor:pointer;font-weight:650';body.style.marginTop='16px';library.append(summary,body);if(label&&label.tagName==='LABEL')body.append(label);for(const row of rows)body.append(row);heading.replaceWith(library)
   })</script>`;
-  return `<div id="engineering-graphs">${index}${sections}</div>${organizeEvidence}`;
+  return `${activeCellSnapshots.length ? cellSpatialExplorer(activeCellSnapshots) : ""}<div id="engineering-graphs">${index}${sections}</div>${organizeEvidence}${activeCellSnapshots.length ? cellSpatialScript() : ""}`;
 }
 function engineeringFamilyIndex(all) {
   const families = /* @__PURE__ */ new Map();
   for (const item of all) { const key = engineeringFamily(item) + "|" + item.unit; if (!families.has(key)) families.set(key, []); families.get(key).push(item); }
   return [...families].map(([key, items], index) => `<a class="graph-card" href="#graph-${index + 1}"><strong>${htmlEscape(key.split("|")[0])}</strong><span>${htmlEscape(items[0].unit || "state")} · ${items.length} series</span></a>`).join("");
 }
+function cellSnapshotSvg(records, metric, title) {
+  const values = records.map((r) => metric === "voltage" ? r[4] : r[5]).filter(Number.isFinite);
+  if (!values.length) return `<svg viewBox="0 0 1000 240" role="img" aria-label="${htmlEscape(title)}"><text x="500" y="120" text-anchor="middle">No recorded ${htmlEscape(metric)} values</text></svg>`;
+  const low = Math.min(...values), high = Math.max(...values), span = high - low || 1;
+  return `<svg viewBox="0 0 1000 240" role="img" aria-label="${htmlEscape(title)}"><rect width="1000" height="240" fill="#fff"/><path d="M55 20V195H975" fill="none" stroke="#9baca5"/><text x="58" y="18">${high.toFixed(1)}</text><text x="58" y="191">${low.toFixed(1)}</text>${records.map((r, i) => { const value = metric === "voltage" ? r[4] : r[5]; if (!Number.isFinite(value)) return ""; const x = 60 + i * 905 / Math.max(1, records.length - 1), y = 190 - (value - low) / span * 165, color = engineeringColors[(r[1] - 1) % engineeringColors.length]; return `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="1.35" fill="${color}"><title>String ${r[1]} · BPC ${r[2]} · Cell ${r[3]}: ${value}</title></circle>`; }).join("")}</svg>`;
+}
+function cellSpatialExplorer(frames, onlyArray) {
+  const payload = frames.map((frame) => ({ at: frame.at, arrays: Object.fromEntries([...frame.arrays].filter(([array]) => !onlyArray || array === onlyArray)) }));
+  const json = JSON.stringify(payload).replace(/</g, "\\u003c"), id = `cell-replay-${onlyArray || "all"}`;
+  return `<section class="cell-spatial" id="${id}"><h2>${onlyArray ? `Array ${onlyArray} granular cells` : "Granular cell replay"}</h2><p>Actual retained historian frames. Move the timestamp selector to compare every recorded cell without converting each cell into a permanent time-series trace.</p>${onlyArray ? "" : `<label>Array <select class="cell-array">${Array.from({length:8},(_,i)=>`<option value="${i+1}">Array ${i+1}</option>`).join("")}</select></label>`}<input class="cell-time" type="range" min="0" max="${Math.max(0,payload.length-1)}" value="${Math.max(0,payload.length-1)}" step="1" aria-label="Cell historian timestamp"><p><strong class="cell-time-label"></strong></p><div class="cell-chart"></div><div class="scroll"><table><thead><tr><th>String</th><th>BPC</th><th>Cell</th><th>Voltage (mV)</th><th>Temperature (°F)</th><th>Source time UTC</th><th>Quality</th></tr></thead><tbody class="cell-values"></tbody></table></div><script type="application/json" class="cell-data">${json}</script></section>`;
+}
+function cellSpatialScript() {
+  return `<script>function initCellSpatial(){for(const root of document.querySelectorAll('.cell-spatial')){const frames=JSON.parse(root.querySelector('.cell-data').textContent),slider=root.querySelector('.cell-time'),arraySelect=root.querySelector('.cell-array'),label=root.querySelector('.cell-time-label'),chart=root.querySelector('.cell-chart'),body=root.querySelector('.cell-values');function escCell(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]))}function render(){if(!frames.length){label.textContent='No retained cell frames';chart.innerHTML='';body.innerHTML='<tr><td colspan="7">No granular cell frame was retained in this window.</td></tr>';return}const frame=frames[Number(slider.value)],array=Number(arraySelect?.value||Object.keys(frame.arrays)[0]),rows=frame.arrays[array]||[];label.textContent=new Date(frame.at).toISOString()+' · Array '+array+' · '+rows.length.toLocaleString()+' cells';const vals=rows.map(r=>r[4]).filter(Number.isFinite),low=Math.min(...vals),high=Math.max(...vals),span=high-low||1;chart.innerHTML='<svg viewBox="0 0 1000 250" role="img" aria-label="Cell voltages at selected historian timestamp"><path d="M55 20V205H975" fill="none" stroke="#9baca5"/><text x="58" y="18">'+escCell(Number.isFinite(high)?high.toFixed(1):'')+'</text><text x="58" y="201">'+escCell(Number.isFinite(low)?low.toFixed(1):'')+'</text>'+rows.map((r,i)=>{if(!Number.isFinite(r[4]))return'';const x=60+i*905/Math.max(1,rows.length-1),y=200-(r[4]-low)/span*175,color=['#2878bd','#ef6c35','#22a77a','#8d62ba','#d6a11d','#d34f73','#4b9ca6','#7b7f35','#666f8f'][(r[1]-1)%9];return'<circle cx="'+x.toFixed(2)+'" cy="'+y.toFixed(2)+'" r="1.5" fill="'+color+'"><title>String '+r[1]+' · BPC '+r[2]+' · Cell '+r[3]+': '+r[4]+' mV</title></circle>'}).join('')+'</svg>';body.innerHTML=rows.map(r=>'<tr><td>'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td><td>'+escCell(r[4])+'</td><td>'+escCell(r[5])+'</td><td>'+escCell(Number.isFinite(r[6])?new Date(r[6]).toISOString():'')+'</td><td>'+escCell(r[7])+'</td></tr>').join('')}slider.addEventListener('input',render);arraySelect?.addEventListener('change',render);render()}}initCellSpatial();</script>`;
+}
 async function buildExport(job) {
   const started = performance.now(), series = /* @__PURE__ */ new Map();
+  const cellSnapshotBuckets = /* @__PURE__ */ new Map(), rawCellFiles = [];
   let rows = 0, bytes = 0, outputEstimate = 0, skipped = 0;
   const warnings = [
     ...new Set(job.plans.flatMap((p) => p.notes)),
@@ -2882,6 +2898,7 @@ async function buildExport(job) {
   for (const plan of job.plans) for (const select of job.request.selections.filter((s) => s.source === plan.source)) {
     const target = plan.targets.find((t) => t.id === select.target);
     for (const m of target.metrics.filter((m2) => select.metrics.includes(m2.id))) {
+      if (plan.source === "cells" && !m.id.startsWith("operating.")) continue;
       const channels = plan.source === "cells" && !m.id.startsWith("operating.") ? Array.from({ length: target.bpcs * target.cells }, (_, i) => ({ b: Math.floor(i / target.cells) + 1, c: i % target.cells + 1 })).filter((x) => (!select.bpc || select.bpc === x.b) && (!select.cell || select.cell === x.c)) : [null];
       for (const c of channels) {
         const id = `${plan.source}:${target.id}${c ? `-B${c.b}-C${c.c}` : ""}:${m.id}`;
@@ -2953,14 +2970,20 @@ async function buildExport(job) {
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16 * 1024 ** 2) throw Error("Invalid cell history file");
         bytes += stat.size;
         if (bytes > exportLimits.readBytes) throw Error("History read limit reached. Select a shorter window.");
-        let f;
+        let f, compressed;
         try {
-          f = JSON.parse((await decompress(await import_promises.default.readFile(file.path), { maxOutputLength: 16 * 1024 ** 2 })).toString());
+          compressed = await import_promises.default.readFile(file.path);
+          f = JSON.parse((await decompress(compressed, { maxOutputLength: 16 * 1024 ** 2 })).toString());
         } catch {
           skipped++;
           continue;
         }
         if (f.schema !== 1 || !f.site || hash(JSON.stringify([f.site.stationCode, f.site.blockIndex, f.site.emsBaseUrl])) !== plan.identity || f.acquiredAt !== file.at || !Array.isArray(f.strings)) throw Error("Cell history identity mismatch");
+        if (f.acquiredAt < job.request.from || f.acquiredAt > job.request.to) continue;
+        rawCellFiles.push({ at: f.acquiredAt, path: file.path, bytes: compressed.length });
+        const bucket = Math.min(24, Math.max(0, Math.round((f.acquiredAt - job.request.from) / Math.max(1, job.request.to - job.request.from) * 24)));
+        const priorFrame = cellSnapshotBuckets.get(bucket), captureFrame = !priorFrame || Math.abs(f.acquiredAt - (job.request.from + bucket * (job.request.to - job.request.from) / 24)) <= Math.abs(priorFrame.at - (job.request.from + bucket * (job.request.to - job.request.from) / 24));
+        const spatialFrame = captureFrame ? { at: f.acquiredAt, arrays: /* @__PURE__ */ new Map() } : null;
         for (const r of f.strings) {
           const target = `A${r.array}-S${r.string}`, sel = selected.get(target);
           if (!sel) continue;
@@ -2972,14 +2995,15 @@ async function buildExport(job) {
           for (let i = 0; i < r.bpcCount * r.groupsPerBpc; i++) {
             const bpc = Math.floor(i / r.groupsPerBpc) + 1, cell = i % r.groupsPerBpc + 1;
             if (sel.bpc && sel.bpc !== bpc || sel.cell && sel.cell !== cell) continue;
-            for (const m of targets.get(target).metrics.filter((m2) => sel.metrics.includes(m2.id) && !m2.id.startsWith("operating."))) {
-              const id = `cells:${cellId(r, i)}:${m.id}`;
-              if (!series.has(id)) continue;
-              const v = finite(r[m.id]?.[i]), at = finite(r.observedAt[i]), quality = m.id === "temperatureF" && r.ignoredTemperatures?.includes(i) ? "ignored" : v === null || at === null || at > f.acquiredAt + 5e3 ? "missing" : freshCell(at, f.acquiredAt) ? "live" : "stale";
-              add(id, series.get(id).label, m.label, m.unit, "EMS recorded cell frame", 12e4, [f.acquiredAt, at, v, quality]);
+            if (spatialFrame && (sel.metrics.includes("millivolts") || sel.metrics.includes("temperatureF"))) {
+              const voltage = sel.metrics.includes("millivolts") ? finite(r.millivolts?.[i]) : null, temperature = sel.metrics.includes("temperatureF") ? finite(r.temperatureF?.[i]) : null, at = finite(r.observedAt[i]);
+              const quality = r.ignoredTemperatures?.includes(i) ? "ignored" : voltage === null && temperature === null || at === null || at > f.acquiredAt + 5e3 ? "missing" : freshCell(at, f.acquiredAt) ? "live" : "stale";
+              if (!spatialFrame.arrays.has(r.array)) spatialFrame.arrays.set(r.array, []);
+              spatialFrame.arrays.get(r.array).push([r.array, r.string, bpc, cell, voltage, temperature, at, quality]);
             }
           }
         }
+        if (spatialFrame) cellSnapshotBuckets.set(bucket, spatialFrame);
       } else await scan(file.path, (record) => {
         if (plan.source === "power") {
           const o = record?.observation;
@@ -3004,7 +3028,8 @@ async function buildExport(job) {
   }
   if (skipped) warnings.push(`${skipped} expired, unreadable or incomplete history records/files were skipped. Export may be incomplete.`);
   check();
-  const all = [...series.values()];
+  const all = [...series.values()], cellSnapshots = [...cellSnapshotBuckets.values()].sort((a, b) => a.at - b.at);
+  activeCellSnapshots = cellSnapshots;
   for (const s of all) s.points.sort((a, b) => a[0] - b[0]);
   const summaries = all.map((s) => coverage(s, job.request.from, job.request.to));
   const archive = new import_adm_zip.default();
@@ -3014,6 +3039,13 @@ async function buildExport(job) {
     if (total > exportLimits.outputBytes) throw Error("Package exceeds 512 MiB before compression. Narrow the selection.");
     archive.addFile(name, Buffer.from(body));
   };
+  const rawCellIndex = [["historian_frame_utc", "archive_path", "compressed_bytes"]];
+  for (let index = 0; index < rawCellFiles.length; index++) {
+    const frame = rawCellFiles[index], name = `raw/cell-frames/${String(index + 1).padStart(5, "0")}-${new Date(frame.at).toISOString().replace(/[:.]/g, "-")}.json.gz`;
+    addFile(name, await import_promises.default.readFile(frame.path));
+    rawCellIndex.push([iso(frame.at), name, frame.bytes]);
+  }
+  if (rawCellIndex.length > 1) addFile("csv/cell_history_frames.csv", csv(rawCellIndex));
   for (const source of ["power", "hvac", "cells"]) {
     const output = [["series_id", "equipment", "metric", "unit", "observation_time_utc", "source_time_utc", "value", "quality", "source", "received_time_utc"]];
     for (const s of all.filter((s2) => s2.id.startsWith(source + ":"))) for (const p of s.points) output.push([s.id, s.label, s.metric, s.unit, iso(p[0]), iso(p[1]), p[2], p[3], p[4] ?? s.source, iso(p[5] ?? null)]);
@@ -3024,15 +3056,19 @@ async function buildExport(job) {
     for (const s of items) for (const p of s.points) output.push([s.id, s.label, s.metric, s.unit, iso(p[0]), iso(p[1]), p[2], p[3], p[4] ?? s.source, iso(p[5] ?? null)]);
     return csv(output);
   };
-  const cells = all.filter((s) => s.id.startsWith("cells:")), cellDetail = cells.filter((s) => /cell voltage|cell temperature/i.test(s.metric)), stringMetrics = cells.filter((s) => !cellDetail.includes(s));
+  const cells = all.filter((s) => s.id.startsWith("cells:")), stringMetrics = cells;
   const power = all.filter((s) => s.id.startsWith("power:")), notifications = power.filter((s) => /notification|alarm|warning|information/i.test(s.metric)), pcsPower = power.filter((s) => !notifications.includes(s));
   const hvac = all.filter((s) => s.id.startsWith("hvac:")), environmental = hvac.filter((s) => /humidity|temperature|outside/i.test(s.metric));
   const reports = [];
   for (let array = 1; array <= 8; array++) {
-    const items = cellDetail.filter((s) => new RegExp(`\\bArray ${array}\\b`).test(s.label));
-    if (!items.length) continue;
+    const frames = cellSnapshots.map((frame) => ({ at: frame.at, arrays: new Map(frame.arrays.has(array) ? [[array, frame.arrays.get(array)]] : []) })).filter((frame) => frame.arrays.size);
+    if (!frames.length) continue;
+    const latest = frames.at(-1), items = latest.arrays.get(array);
     const csvName = `csv/cells_array_${array}.csv`, htmlName = `html/cells_array_${array}.html`, imageName = `images/cells_array_${array}.svg`;
-    addFile(csvName, csvRows(items));addFile(htmlName, offlineFamilyPage(`${job.site} · Array ${array} cell history`, items, job.request.from, job.request.to));addFile(imageName, latestSpatialSvg(items, `Array ${array} cell history`));
+    const snapshotCsv = [["historian_frame_utc","array","string","bpc","cell","voltage_mv","temperature_f","source_time_utc","quality"], ...items.map((r) => [iso(latest.at),r[0],r[1],r[2],r[3],r[4],r[5],iso(r[6]),r[7]])];
+    addFile(csvName, csv(snapshotCsv));
+    addFile(htmlName, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'unsafe-inline'"><title>${htmlEscape(job.site)} · Array ${array} cells</title><style>body{font:15px system-ui;color:#14312b;max-width:1320px;margin:28px auto;padding:0 18px}a{color:#087253}.cell-spatial{border:1px solid #c6d7d0;border-radius:8px;padding:16px}input{width:100%}.cell-chart svg{width:100%;height:360px}.scroll{max-height:520px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:7px;border-bottom:1px solid #dbe5e1}</style><p><a href="../index.html">← Engineering package index</a></p>${cellSpatialExplorer(frames,array)}${cellSpatialScript()}</html>`);
+    addFile(imageName, cellSnapshotSvg(items, "voltage", `Array ${array} cell voltage`));
     reports.push({label:`Array ${array} cells`,html:htmlName,csv:csvName,image:imageName});
   }
   for (const report of [
@@ -3049,14 +3085,14 @@ async function buildExport(job) {
   }
   addFile("index.html", `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';img-src 'self'"><title>${htmlEscape(job.site)} engineering package</title><style>body{font:16px system-ui;color:#14312b;max-width:1200px;margin:30px auto;padding:0 18px}a{color:#087253;text-decoration:none}li{padding:8px 0;border-bottom:1px solid #dbe5e1}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.card{border:1px solid #c6d7d0;border-radius:8px;padding:10px}.card img{display:block;width:100%;height:170px;object-fit:contain}.card span{display:block;margin-top:8px;font-weight:650}</style><h1>${htmlEscape(job.site)}</h1><p>${htmlEscape(iso(job.request.from))} — ${htmlEscape(iso(job.request.to))} · UTC</p><p><a href="report.html">Open the complete interactive data explorer</a></p><h2>Reports</h2><ul>${reports.map((r) => `<li><a href="${r.html}">${htmlEscape(r.label)}</a> · <a href="${r.csv}">CSV</a></li>`).join("")}</ul><h2>Graph gallery</h2><div class="gallery">${reports.map((r) => `<a class="card" href="${r.html}"><img src="${r.image}" alt="${htmlEscape(r.label)}"><span>${htmlEscape(r.label)}</span></a>`).join("")}</div><h2>Package evidence</h2><ul><li><a href="coverage.csv">Coverage and gaps</a></li><li><a href="manifest.json">Manifest</a></li><li><a href="README.txt">Interpretation notes</a></li></ul></html>`);
   addFile("coverage.csv", csv([["series_id", "equipment", "metric", "unit", "rows", "distinct_live_source_times", "first_live_utc", "last_live_utc", "largest_gap_seconds", "shortest_step_seconds", "longest_step_seconds"], ...summaries.map((s) => [s.id, s.label, s.metric, s.unit, s.rows, s.valid, iso(s.first), iso(s.last), s.largestGapMs / 1e3, s.shortestStepMs === null ? null : s.shortestStepMs / 1e3, s.longestStepMs === null ? null : s.longestStepMs / 1e3])]));
-  addFile("manifest.json", JSON.stringify({ schema: 1, site: job.site, from: iso(job.request.from), to: iso(job.request.to), createdAt: (/* @__PURE__ */ new Date()).toISOString(), selection: job.request.selections, rows, warnings, coverage: summaries }, null, 2));
+  addFile("manifest.json", JSON.stringify({ schema: 2, site: job.site, from: iso(job.request.from), to: iso(job.request.to), createdAt: (/* @__PURE__ */ new Date()).toISOString(), selection: job.request.selections, rows, cellHistory: { retainedFrames: rawCellFiles.length, interactiveFrames: cellSnapshots.map((frame) => iso(frame.at)), preservation: "Complete selected compressed historian frames are stored under raw/cell-frames; browser replay uses at most 25 representative actual frames." }, warnings, coverage: summaries }, null, 2));
   addFile("README.txt", `PRIZM selected history export
 Site: ${job.site}
 UTC window: ${iso(job.request.from)} to ${iso(job.request.to)}
 
 ${warnings.join("\n\n")}
 
-Open report.html offline. All times are UTC. Source time is when the provider reports the measurement; observation time is the recorded frame/point time. HVAC receipt time is included in received_time_utc when available in the recording (not fabricated). No fill-forward, interpolation, or zero substitution. Command values are reported states/setpoints, not proof of physical execution. Measured PCS power is telemetry, not independent meter verification. Whole-unit HVAC current includes compressor, fan and other loads. Temperature units are explicit. CSV text beginning with formula characters is prefixed with an apostrophe for spreadsheet safety.
+Open report.html offline. All times are UTC. Source time is when the provider reports the measurement; observation time is the recorded frame/point time. HVAC receipt time is included in received_time_utc when available in the recording (not fabricated). No fill-forward, interpolation, or zero substitution. Complete selected compressed cell historian frames are preserved under raw/cell-frames and indexed by csv/cell_history_frames.csv. Interactive cell replay uses at most 25 representative frames selected from actual historian timestamps; it never invents or interpolates a frame. Each array CSV is the final retained spatial frame in the selected window. Command values are reported states/setpoints, not proof of physical execution. Measured PCS power is telemetry, not independent meter verification. Whole-unit HVAC current includes compressor, fan and other loads. Temperature units are explicit. CSV text beginning with formula characters is prefixed with an apostrophe for spreadsheet safety.
 `);
   const h = htmlEscape;
   const sliderData = all.map((s) => {
