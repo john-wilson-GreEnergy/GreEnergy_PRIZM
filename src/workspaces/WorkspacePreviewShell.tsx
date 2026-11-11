@@ -1,9 +1,8 @@
-import React, {useCallback,useEffect, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {Contrast, Palette, Sun} from 'lucide-react';
 import App from '../App';
 import {SiteDataProvider} from '../context/SiteDataContext';
 import {getFleetWorkspace,refreshFleetWorkspace} from '../lib/fleetWorkspace';
-import {ShiftSessionBanner} from '../components/ShiftSessionBanner';
 import {operationsLayoutEnabled,isLocalOperationsReview} from '../lib/operationsReview';
 
 type WorkspacePalette = 'current' | 'contrast' | 'daylight';
@@ -24,7 +23,6 @@ export function WorkspacePreviewShell() {
   const workspace=getFleetWorkspace();
   const [accessEnded,setAccessEnded]=useState(false);
   const [resumeError,setResumeError]=useState('');
-  const ended=useCallback(()=>setAccessEnded(true),[]);
   useEffect(()=>{const ended=()=>setAccessEnded(true);window.addEventListener('prizm-workspace-access-ended',ended);return ()=>window.removeEventListener('prizm-workspace-access-ended',ended);},[]);
   useEffect(() => {
     // The old name/role chooser was a preference, never a verified identity.
@@ -56,6 +54,6 @@ export function WorkspacePreviewShell() {
       </div>
       {workspace?<span className="px-2 text-xs text-prizm-primary">{workspace.email}</span>:localReview?<span className="px-2 text-xs">Read-only local review</span>:<span className="px-2 text-xs text-amber-700" title="Legacy deployment: server-side sign-in has not been enabled.">Sign-in not enabled</span>}
     </div>
-    <div hidden={accessEnded} style={workspace&&!operations?{paddingTop:44}:undefined}>{workspace&&!accessEnded&&workspace.fullControl&&<ShiftSessionBanner workspace csrf={workspace.csrf} onExpired={ended}/>}<App/></div>
+    <div hidden={accessEnded}><App/></div>
   </SiteDataProvider>;
 }

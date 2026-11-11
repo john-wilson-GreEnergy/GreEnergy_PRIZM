@@ -7,7 +7,6 @@ import {fleetMetrics,metricKeys,type MetricKey} from '../core/fleet/model';
 import {SiteOverview} from './SiteOverview';
 import {PalettePicker} from './PalettePicker';
 import {AdminUsers} from './AdminUsers';
-import {ShiftSessionBanner} from '../components/ShiftSessionBanner';
 import './style.css';
 import '../components/operatingCharts.css';
 
@@ -24,7 +23,6 @@ function App(){
   useEffect(()=>{if(state.view && !state.view.sites.some(s=>s.siteId===selected))setSelected(null);},[state.view,selected]);
   const site=state.view?.sites.find(s=>s.siteId===selected);
   return <div className="fleet-shell">
-    {state.session&&!state.session.localReview&&!state.session.remoteReadOnly&&<ShiftSessionBanner csrf={state.session.csrf} onExpired={fleetStore.sessionEnded}/>}
     <header><a className="brand" href={remoteFleet?"/fleet/":"/"} aria-label="PRIZM fleet home"><img src="/logo-transparent.svg" alt=""/><span>GreEnergy <strong>PRIZM</strong><small>FLEET WORKSPACE</small></span></a><div className="header-right"><PalettePicker/><span className="read-only">Read-only overview</span>{state.session?.administrator&&<button aria-pressed={administration} onClick={()=>setAdministration(v=>!v)}>User administration</button>}{state.session && <button onClick={()=>{setAdministration(false);void fleetStore.logout();}}>Sign out</button>}</div></header>
     {remoteFleet&&setup?<PasswordSetup apiBase="/fleet" className="signin" onBack={()=>{setSetup(false);window.history.replaceState(null,'',window.location.pathname);}}/>:state.checking?<main><p>Checking access…</p></main>:!state.session?<main className="signin"><p className="eyebrow">{remoteFleet?'REMOTE · PROFILE-BASED ACCESS':'LOCAL · OFFLINE ACCESS'}</p><h1>Sign in to your fleet.</h1><p>One workspace. Separate site collectors.</p><form onSubmit={event=>{event.preventDefault();void fleetStore.login(email,password);setPassword('');}}><label>Email<input type="email" autoComplete="username" required value={email} onChange={event=>setEmail(event.target.value)}/></label><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event=>setPassword(event.target.value)}/></label><button className="primary" disabled={state.loading}>{state.loading?'Signing in…':'Sign in'}</button></form>{state.error && <p role="alert" className="notice">{state.error}</p>}{remoteFleet&&<button onClick={()=>setSetup(true)}>Have a setup code? Create your password</button>}<p className="fine">{remoteFleet?'Your regular Fleet workspace and assigned PRIZM sites. Remote controls require separate permission for each site. Administrators can manage users here with password confirmation.':'Access is assigned per site. Full site tools and equipment controls require workspace access. Administrators use this same sign-in to manage users.'}</p></main>:administration&&state.session.administrator?<AdminUsers apiBase={remoteFleet?'/fleet':''} csrf={state.session.csrf} onBack={()=>setAdministration(false)}/>:<main>
       {state.session.simulated && <div className="simulation">SIMULATED DATA · Local validation only · No equipment connected</div>}
