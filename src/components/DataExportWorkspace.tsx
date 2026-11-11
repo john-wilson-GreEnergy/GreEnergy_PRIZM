@@ -6,7 +6,6 @@ import {
   powerComparisonSelections,
   powerMovementSelections,
   presetWindow,
-  snapshotWindow,
   toLocalInput,
   type ExportMode,
   type ExportSelection,
@@ -75,7 +74,6 @@ export function DataExportWorkspace() {
   const [selections, setSelections] = useState<ExportSelection[]>([]);
   const initial = presetWindow("24-hours");
   const [mode, setMode] = useState<ExportMode>("range");
-  const [snapshotAt, setSnapshotAt] = useState(() => toLocalInput(Date.now()));
   const [from, setFrom] = useState(() => toLocalInput(initial.from));
   const [to, setTo] = useState(() => toLocalInput(initial.to));
   const [singleDay, setSingleDay] = useState(() => toLocalInput(Date.now()).slice(0, 10));
@@ -190,7 +188,16 @@ export function DataExportWorkspace() {
     const abort = new AbortController();
     controller.current = abort;
     try {
-      const window = mode === "snapshot" ? snapshotWindow(Date.parse(snapshotAt)) : {from: Date.parse(from), to: Date.parse(to)};
+      if (mode === "snapshot") {
+        const response = await fetch(endpoint + "/site-snapshot", {method: "POST", signal: abort.signal});
+        if (!response.ok) throw new Error((await response.json()).error || `Request failed (${response.status})`);
+        if (!response.headers.get("Content-Type")?.includes("application/zip")) throw new Error("Unexpected Site Snapshot response");
+        const url=URL.createObjectURL(await response.blob()),link=document.createElement("a");link.href=url;
+        link.download=`prizm-site-snapshot-${new Date().toISOString().replace(/:/g,"-").slice(0,19)}.zip`;link.click();setTimeout(()=>URL.revokeObjectURL(url),30_000);
+        setMessage("Site Snapshot downloaded with full retained cell-level evidence and published site data.");
+        return;
+      }
+      const window = {from: Date.parse(from), to: Date.parse(to)};
       const result = await responseJson(await fetch(endpoint + "/query", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -231,7 +238,7 @@ export function DataExportWorkspace() {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;
-      const stamp = new Date(mode === "snapshot" ? Date.parse(snapshotAt) : preview.from).toISOString().replace(/:/g, "-").slice(0, 19);
+      const stamp = new Date(preview.from).toISOString().replace(/:/g, "-").slice(0, 19);
       link.download = `prizm-${mode === "snapshot" ? "point-in-time" : "selected-history"}-${stamp}.zip`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
@@ -279,9 +286,7 @@ export function DataExportWorkspace() {
             <button type="button" className={mode === "range" ? "selected" : ""} aria-pressed={mode === "range"} onClick={() => {resetResult(); setMode("range");}}>Time range</button>
           </div>
           {mode === "snapshot" ? <Fragment>
-          <label>Snapshot time · local time<input type="datetime-local" max={toLocalInput(Date.now())} value={snapshotAt}
-            onChange={event => {resetResult(); setSnapshotAt(event.target.value);}} /></label>
-          <p className="export-help"><strong>Full-detail point-in-time package.</strong> Includes available site, array, string, BPC and cell-group evidence near this time. Every reading keeps its actual observation time, source time and quality. Missing nearby readings remain blank.</p>
+          <p className="export-help"><strong>Latest recorded Site Snapshot.</strong> Includes available site, array, string, BPC and cell-group evidence from the current retained frame. Every reading keeps its actual observation time, source time and quality. Missing readings remain blank.</p>
           </Fragment> : <Fragment>
           <label className="export-day-picker">Export one full day
             <input type="date" value={singleDay} onChange={event => applyDay(event.target.value)} />
@@ -370,8 +375,8 @@ export function DataExportWorkspace() {
             <button disabled={busy} onClick={() => {resetResult(); setSelections(current => current.filter((_, position) => position !== index));}}
               aria-label={`Remove ${selectedTarget?.label || selection.target}`}>Remove</button></li>;
         })}</ul> : <p>Add a common measurement group or choose equipment and variables above.</p>}
-        <div className="export-actions"><button className="export-primary" onClick={prepare} disabled={busy || !selections.length}>
-          Preview CSV + graph package</button>{busy && <Fragment><span role="status">Reading retained history and building the package…</span>
+        <div className="export-actions"><button className="export-primary" onClick={prepare} disabled={busy || (mode === "range" && !selections.length)}>
+          {mode === "snapshot" ? "Download Site Snapshot" : "Preview CSV + graph package"}</button>{busy && <Fragment><span role="status">Reading retained history and building the package…</span>
           <button onClick={() => controller.current?.abort()}>Cancel</button></Fragment>}</div>
         <p><small>Full-resolution CSV is never silently downsampled. Large requests fail visibly so you can narrow the dates or selections.</small></p>
       </section>

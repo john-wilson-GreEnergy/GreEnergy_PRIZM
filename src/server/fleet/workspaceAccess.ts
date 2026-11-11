@@ -76,6 +76,6 @@ export function monitoringWorkspaceGet(path:string):boolean {
 }
 export function monitoringWorkspaceRequest(method:string,path:string):boolean{
   return method==='GET'&&monitoringWorkspaceGet(path) || method==='POST'&&[
-    '/api/local/site-data/thermal/targets/query','/api/local/site-data/thermal/site-history/query',
+    '/api/local/site-data/thermal/targets/query','/api/local/site-data/thermal/site-history/query','/api/local/site-data/data-export/site-snapshot',
   ].includes(path);
 }

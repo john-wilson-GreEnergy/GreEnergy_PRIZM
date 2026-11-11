@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { gzipSync } from "node:zlib";
+import AdmZip from 'adm-zip';
 import { buildArrayCellMetrics } from './telemetry/arrayCellMetrics';
 import {compactStringRow, compactStringPublication, stringTransportEpoch} from './telemetry/compactStringList';
 import {StringFieldDeltas} from './telemetry/stringFieldDeltas';
@@ -36,11 +37,26 @@ import {
 } from "./notifications/siteNotificationEngine";
 import { stringDomainBroker } from "./domainBrokers/stringDomainBroker";
 import { getOperationalDomainBroker, operationalDomainBrokers } from "./domainBrokers/operationalDomainBrokers";
+import {buildEngineeringAnalyticsSnapshot,buildEngineeringCellSnapshot,buildEngineeringEnvironmentalSnapshot,buildEngineeringIndex,buildEngineeringNotificationSnapshot,buildEngineeringPcsSnapshot,frameFromArraySnapshots} from './dataExport/engineeringSnapshot';
 
 export const siteDataRouter = Router();
 siteDataRouter.use("/thermal", thermalRouter);
 siteDataRouter.use('/cells', createCellHistoryRouter(cellHistory));
 siteDataRouter.get('/analytics', (_req,res)=>{res.setHeader('Cache-Control','no-store');res.json(getSiteAnalyticsView());});
+siteDataRouter.post('/data-export/site-snapshot',async(_req,res)=>{try{
+  const snapshot=getSnapshotOrNull(),identity=snapshot?.siteIdentity;if(!snapshot)throw Error('Site Snapshot is unavailable while site data is warming');
+  if(!identity?.stationCode||!Number.isInteger(identity.blockIndex)||!identity.emsBaseUrl)throw Error('Verified site identity is required');
+  const arrays=[...new Set(cellHistory.view('millivolts').targets.map(t=>t.array))].sort((a,b)=>a-b);if(!arrays.length)throw Error('No retained cell snapshot is available');
+  const voltage=await Promise.all(arrays.map(array=>cellHistory.snapshot({array,metric:'millivolts'}))),temperature=await Promise.all(arrays.map(array=>cellHistory.snapshot({array,metric:'temperatureF'})));
+  const frame=frameFromArraySnapshots({stationCode:identity.stationCode,blockIndex:identity.blockIndex,emsBaseUrl:identity.emsBaseUrl},voltage,temperature),zip=new AdmZip();
+  const analytics=getSiteAnalyticsView(),pcs=getPcsView(),environmental=getFeatherView(),notifications=getSiteNotificationEngineView({filter:'export'});
+  const files=[...buildEngineeringCellSnapshot(frame),...buildEngineeringAnalyticsSnapshot(analytics),...buildEngineeringPcsSnapshot(pcs),...buildEngineeringEnvironmentalSnapshot(environmental),...buildEngineeringNotificationSnapshot(notifications),buildEngineeringIndex(`${identity.stationCode}-${identity.blockIndex}`,frame.acquiredAt,arrays)];
+  for(const file of files)zip.addFile(file.name,Buffer.from(file.body));
+  const add=(name:string,value:unknown)=>zip.addFile(`data/${name}.json`,Buffer.from(JSON.stringify(value,null,2)));
+  add('site-analytics',analytics);add('pcs',pcs);add('hvac-environmental',environmental);add('notifications',notifications);
+  zip.addFile('manifest.json',Buffer.from(JSON.stringify({schema:1,type:'prizm-site-snapshot',site:`${identity.stationCode}-${identity.blockIndex}`,createdAt:new Date().toISOString(),cellFrameAt:new Date(frame.acquiredAt).toISOString(),arrays,sections:['site-metrics','pcs','hvac-environmental','notifications','cell-level']},null,2)));
+  res.setHeader('Cache-Control','no-store');res.type('application/zip');res.setHeader('Content-Disposition',`attachment; filename="prizm-site-snapshot-${identity.stationCode}-${identity.blockIndex}.zip"`);res.send(zip.toBuffer());
+}catch(error){res.status(400).json({error:error instanceof Error?error.message:String(error)});}});
 siteDataRouter.use("/operational-timeline", operationalTimelineRouter);
 
 const cachedBrowserSnapshots = new Map<string, {
