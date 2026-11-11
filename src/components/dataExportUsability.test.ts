@@ -5,6 +5,7 @@ import {
   powerComparisonSelections,
   powerMovementSelections,
   presetWindow,
+  snapshotWindow,
   toLocalInput,
   type ExportTarget,
 } from "./dataExportUsability";
@@ -13,6 +14,11 @@ test("last Friday selects the full most recent completed Friday", () => {
   const {from, to} = presetWindow("last-friday", new Date(2026, 10, 10, 9, 30));
   assert.equal(toLocalInput(from), "2026-11-06T00:00");
   assert.equal(toLocalInput(to), "2026-11-07T00:00");
+});
+
+test("point-in-time mode uses a bounded evidence window", () => {
+  assert.deepEqual(snapshotWindow(1_000_000, 2_000_000), {from: 940_000, to: 1_060_000, at: 1_000_000});
+  assert.deepEqual(snapshotWindow(1_990_000, 2_000_000), {from: 1_930_000, to: 2_000_000, at: 1_990_000});
 });
 
 test("a current Friday selects the previous completed Friday", () => {

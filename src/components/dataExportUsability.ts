@@ -17,6 +17,7 @@ export type ExportSelection = {
 };
 
 export type WindowPreset = "last-friday" | "yesterday" | "today" | "24-hours" | "7-days";
+export type ExportMode = "snapshot" | "range";
 
 export function toLocalInput(value: number | Date): string {
   const date = new Date(value);
@@ -45,6 +46,14 @@ export function presetWindow(preset: WindowPreset, now = new Date()): {from: Dat
   const to = new Date(start);
   to.setDate(to.getDate() + 1);
   return {from: start, to};
+}
+
+/** A snapshot keeps actual recorder timestamps inside a narrow evidence window. */
+export function snapshotWindow(at: number, now = Date.now(), radiusMs = 60_000) {
+  if (!Number.isFinite(at) || !Number.isFinite(now) || radiusMs < 1_000) throw new Error("Choose a valid snapshot time");
+  const to = Math.min(now, at + radiusMs);
+  const from = Math.max(0, Math.min(at - radiusMs, to - 1_000));
+  return {from, to, at};
 }
 
 const commandMetric = (metric: ExportMetric) => {

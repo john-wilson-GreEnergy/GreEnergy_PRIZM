@@ -6,7 +6,9 @@ import {
   powerComparisonSelections,
   powerMovementSelections,
   presetWindow,
+  snapshotWindow,
   toLocalInput,
+  type ExportMode,
   type ExportSelection,
   type ExportTarget,
   type WindowPreset,
@@ -72,6 +74,8 @@ export function DataExportWorkspace() {
   const [cell, setCell] = useState("");
   const [selections, setSelections] = useState<ExportSelection[]>([]);
   const initial = presetWindow("24-hours");
+  const [mode, setMode] = useState<ExportMode>("range");
+  const [snapshotAt, setSnapshotAt] = useState(() => toLocalInput(Date.now()));
   const [from, setFrom] = useState(() => toLocalInput(initial.from));
   const [to, setTo] = useState(() => toLocalInput(initial.to));
   const [singleDay, setSingleDay] = useState(() => toLocalInput(Date.now()).slice(0, 10));
@@ -186,13 +190,14 @@ export function DataExportWorkspace() {
     const abort = new AbortController();
     controller.current = abort;
     try {
+      const window = mode === "snapshot" ? snapshotWindow(Date.parse(snapshotAt)) : {from: Date.parse(from), to: Date.parse(to)};
       const result = await responseJson(await fetch(endpoint + "/query", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           identity: catalog.identity,
-          from: Date.parse(from),
-          to: Date.parse(to),
+          from: window.from,
+          to: window.to,
           selections,
         }),
         signal: abort.signal,
@@ -226,7 +231,8 @@ export function DataExportWorkspace() {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;
-      link.download = "prizm-selected-history-" + new Date(preview.from).toISOString().slice(0, 10) + ".zip";
+      const stamp = new Date(mode === "snapshot" ? Date.parse(snapshotAt) : preview.from).toISOString().replace(/:/g, "-").slice(0, 19);
+      link.download = `prizm-${mode === "snapshot" ? "point-in-time" : "selected-history"}-${stamp}.zip`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       setMessage("Downloaded CSV files and report.html. Open report.html to view the graphs offline.");
@@ -259,7 +265,7 @@ export function DataExportWorkspace() {
 
   return <section className="data-export" aria-label="Data export workspace">
     <header><div><small>HISTORY & REPORTS</small><h1>Data export</h1>
-      <p>{catalog?.site || "Recorded site history"} · Download CSV data and an offline graphed HTML report.</p>
+      <p>{catalog?.site || "Recorded site history"} · Build a point-in-time engineering snapshot or export a detailed time range.</p>
     </div><span className="export-badge">Recorded data only</span></header>
     <p>Exports use existing history. No equipment reads or commands are triggered.</p>
     {error && <p role="alert" className="export-error">{error}</p>}
@@ -267,7 +273,16 @@ export function DataExportWorkspace() {
     {!catalog && <button onClick={() => setReload(value => value + 1)}>Reload available measurements</button>}
     {catalog && <Fragment>
       <fieldset disabled={busy} className="export-grid">
-        <section className="export-card export-date-card"><small>STEP 1</small><h2>Choose when</h2>
+        <section className="export-card export-date-card"><small>STEP 1</small><h2>Choose export type</h2>
+          <div className="export-mode" role="group" aria-label="Export type">
+            <button type="button" className={mode === "snapshot" ? "selected" : ""} aria-pressed={mode === "snapshot"} onClick={() => {resetResult(); setMode("snapshot");}}>Point in time</button>
+            <button type="button" className={mode === "range" ? "selected" : ""} aria-pressed={mode === "range"} onClick={() => {resetResult(); setMode("range");}}>Time range</button>
+          </div>
+          {mode === "snapshot" ? <Fragment>
+          <label>Snapshot time · local time<input type="datetime-local" max={toLocalInput(Date.now())} value={snapshotAt}
+            onChange={event => {resetResult(); setSnapshotAt(event.target.value);}} /></label>
+          <p className="export-help">Uses retained observations within one minute of this time. Every reading keeps its actual observation time, source time and quality. Missing nearby readings remain blank.</p>
+          </Fragment> : <Fragment>
           <label className="export-day-picker">Export one full day
             <input type="date" value={singleDay} onChange={event => applyDay(event.target.value)} />
           </label>
@@ -283,6 +298,7 @@ export function DataExportWorkspace() {
             <label>End · local time<input type="datetime-local" value={to} onChange={event => {resetResult(); setTo(event.target.value);}} /></label>
           </div>
           <p>Up to seven days, limited to retained history. Downloaded timestamps are UTC; missing periods appear in coverage.</p>
+          </Fragment>}
         </section>
 
         <section className="export-card"><small>STEP 2</small><h2>Choose measurements</h2>
@@ -362,7 +378,7 @@ export function DataExportWorkspace() {
 
       {preview && <section className="export-card"><small>STEP 4</small><h2>Check coverage and download</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
-        <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables.</p>
+        <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables. {mode === "snapshot" ? "The point-in-time package preserves nearby recorded evidence without interpolation." : "The time-range package contains every retained selected observation."}</p>
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + graphed HTML</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>

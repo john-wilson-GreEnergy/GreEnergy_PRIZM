@@ -30,6 +30,9 @@
 .data-export button:hover { border-color: #41cfa0; }
 .data-export button:disabled { opacity: .5; cursor: not-allowed; }
 .data-export .export-primary { background: #087253; color: #fff; border-color: #299d7b; }
+.data-export .export-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 16px; }
+.data-export .export-mode button.selected { background: #087253; color: #fff; border-color: #087253; }
+.data-export .export-help { padding: 10px 12px; border-left: 4px solid #299d7b; background: rgba(41,157,123,.1); font-size: 13px; }
 .export-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
 .export-selection { padding: 0; list-style: none; }
 .export-selection li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #61746955; }
