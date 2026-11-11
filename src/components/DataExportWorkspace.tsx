@@ -5,6 +5,7 @@ import {
   powerCommandSelections,
   powerComparisonSelections,
   powerMovementSelections,
+  completeEngineeringSelections,
   presetWindow,
   toLocalInput,
   type ExportMode,
@@ -159,6 +160,23 @@ export function DataExportWorkspace() {
     setMessage(kind === "commands" ? `Added granular power-command data for ${scopeLabel}.`
       : kind === "movement" ? `Added granular power-movement data for ${scopeLabel}.`
       : `Added command and power-movement data for ${scopeLabel}.`);
+  };
+  const addCompleteEngineeringData = () => {
+    if (!catalog) return;
+    const arrays = scope === "site" ? undefined : selectedArrays;
+    if (arrays && !arrays.length) {
+      setError("Select at least one array, or choose Entire site.");
+      return;
+    }
+    const next = completeEngineeringSelections(catalog.targets, arrays);
+    if (!next.length) {
+      setError("No retained historian measurements are available for this scope.");
+      return;
+    }
+    resetResult();
+    setSelections(next);
+    const scopeLabel = scope === "site" ? "the complete site" : `Array${selectedArrays.length === 1 ? "" : "s"} ${selectedArrays.join(", ")}`;
+    setMessage(`Selected every retained engineering measurement for ${scopeLabel}: cells, strings, PCS, EMS applications, notifications, HVAC, and environmental data.`);
   };
 
   if (loading) return <div className="data-export" role="status">Loading recorded measurement catalogue…</div>;
@@ -333,6 +351,9 @@ export function DataExportWorkspace() {
               <button type="button" className="export-primary" onClick={() => addCommonMeasurements("comparison")}>Commands + movement</button>
             </div>
             <small>Commands include real/reactive setpoints and application state. Movement includes PCS real/reactive power, DC voltage and DC current. Every retained point is exported; your date range stays unchanged.</small>
+            <p><strong>Complete engineering data</strong></p>
+            <button type="button" className="export-primary" onClick={addCompleteEngineeringData}>Select everything available</button>
+            <small>Selects every metric exposed by the retained cell, string, PCS, EMS application, notification, HVAC, and environmental historians for the chosen scope. The package is separated into report families and arrays.</small>
           </div>
           <details className="export-fine-tune" open><summary>Fine-tune equipment and variables</summary>
           <label>Data source<select value={source} onChange={event => {
@@ -356,8 +377,7 @@ export function DataExportWorkspace() {
               <option value={index + 1} key={index}>BPC {index + 1}</option>)}</select></label>
             <label>Cell group<select value={cell} onChange={event => setCell(event.target.value)}><option value="">All groups</option>
               {Array.from({length: target.cells ?? 0}, (_, index) => <option value={index + 1} key={index}>Group {index + 1}</option>)}</select></label></div>}
-          <button type="button" onClick={addSelection} disabled={!metrics.length || selections.length >= 32 &&
-            !selections.some(item => item.source === source && item.target === targetId)}>Add / replace selection</button></Fragment>}
+          <button type="button" onClick={addSelection} disabled={!metrics.length}>Add / replace selection</button></Fragment>}
           </details>
           <h3>Saved selections</h3><label>Load a selection<select value="" onChange={event => {
             if (event.target.value === "") return;
@@ -374,13 +394,14 @@ export function DataExportWorkspace() {
       </fieldset>
 
       <section className="export-card"><small>STEP 3</small><h2>Review selections · {selections.length} targets</h2>
-        {selections.length ? <ul className="export-selection">{selections.map((selection, index) => {
+        {selections.length ? <details><summary>Review or remove individual equipment targets</summary><ul className="export-selection">{selections.map((selection, index) => {
           const selectedTarget = catalog.targets.find(item => item.source === selection.source && item.id === selection.target);
           return <li key={selection.source + selection.target}><div><strong>{selectedTarget?.label || selection.target}</strong>
             <p>{selection.metrics.map(id => selectedTarget?.metrics.find(metric => metric.id === id)?.label || id).join(" · ")}</p></div>
             <button disabled={busy} onClick={() => {resetResult(); setSelections(current => current.filter((_, position) => position !== index));}}
               aria-label={`Remove ${selectedTarget?.label || selection.target}`}>Remove</button></li>;
-        })}</ul> : <p>Add a common measurement group or choose equipment and variables above.</p>}
+        })}</ul></details> : <p>Add a common measurement group or choose equipment and variables above.</p>}
+        {selections.length>0&&<button type="button" onClick={() => {resetResult();setSelections([]);}}>Clear all selections</button>}
         <div className="export-actions"><button className="export-primary" onClick={prepare} disabled={busy || (mode === "range" && !selections.length)}>
           {mode === "snapshot" ? "Download Site Snapshot" : "Preview CSV + graph package"}</button>{busy && <Fragment><span role="status">Reading retained history and building the package…</span>
           <button onClick={() => controller.current?.abort()}>Cancel</button></Fragment>}</div>
@@ -408,7 +429,7 @@ export function DataExportWorkspace() {
 }
 
 function validSavedSelection(value: any): value is SavedSelection {
-  return typeof value?.name === "string" && Array.isArray(value.selections) && value.selections.length <= 32 &&
+  return typeof value?.name === "string" && Array.isArray(value.selections) && value.selections.length <= 512 &&
     value.selections.every((selection: any) => selection && ["power", "cells", "hvac"].includes(selection.source) &&
       typeof selection.target === "string" && Array.isArray(selection.metrics) && selection.metrics.every((metric: any) => typeof metric === "string")) &&
     Number.isFinite(value.hours) && value.hours > 0 && value.hours <= 168;

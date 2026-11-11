@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {
   powerCommandSelections,
   powerComparisonSelections,
+  completeEngineeringSelections,
   powerMovementSelections,
   presetWindow,
   snapshotWindow,
@@ -71,6 +72,13 @@ test("power shortcuts select commands and optional measured power", () => {
     metrics: ["kw", "kvar", "dcV", "dcA"],
   }]);
   assert.deepEqual(powerComparisonSelections(targets, [2]), []);
+  assert.deepEqual(completeEngineeringSelections(targets), [{
+    source: "power", target: "ems-app:PC00001:1|ems-app", metrics: ["Reported setpoint kW", "Reported setpoint kVAR", "Reported enabled"],
+  }, {
+    source: "power", target: "1:1|electrical", metrics: ["kw", "kvar", "dcV", "dcA"],
+  }]);
+  assert.deepEqual(completeEngineeringSelections(targets, [1]), completeEngineeringSelections(targets));
+  assert.deepEqual(completeEngineeringSelections(targets, [2]), []);
 });
 
 test("embedded explorer renders authenticated report content from an isolated local document", () => {
@@ -79,4 +87,18 @@ test("embedded explorer renders authenticated report content from an isolated lo
   assert.match(source, /srcDoc=\{explorerHtml\}/);
   assert.doesNotMatch(source, /allow-same-origin/);
   assert.doesNotMatch(source, /explorerUrl/);
+});
+
+test("complete engineering packages retain structured array and report-family outputs", () => {
+  const worker = readFileSync(new URL("../../runtime/data-export/data-export-worker.cjs", import.meta.url), "utf8");
+  const service = readFileSync(new URL("../../runtime/data-export/data-export.cjs", import.meta.url), "utf8");
+  assert.match(worker, /csv\/cells_array_/);
+  assert.match(worker, /html\/cells_array_/);
+  assert.match(worker, /images\/cells_array_/);
+  assert.match(worker, /key:\s*"string_metrics"/);
+  assert.match(worker, /key:\s*"pcs_power"/);
+  assert.match(worker, /key:\s*"notifications"/);
+  assert.match(worker, /addFile\("index\.html"/);
+  assert.match(service, /selections: 512/);
+  assert.match(service, /series: 16384/);
 });

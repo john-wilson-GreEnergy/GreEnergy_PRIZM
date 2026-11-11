@@ -38,7 +38,7 @@ var import_node_path2 = __toESM(require("node:path"));
 var import_node_crypto2 = require("node:crypto");
 
 // src/server/dataExport/model.ts
-var exportLimits = { days: 7, selections: 32, series: 1024, rows: 12e4, readBytes: 256 * 1024 ** 2, outputBytes: 32 * 1024 ** 2, zipBytes: 16 * 1024 ** 2, ms: 25e3 };
+var exportLimits = { days: 7, selections: 512, series: 16384, rows: 5e6, readBytes: 2 * 1024 ** 3, outputBytes: 512 * 1024 ** 2, zipBytes: 256 * 1024 ** 2, ms: 6e5 };
 var powerMetrics = [
   { id: "kw", label: "PCS measured real power", unit: "kW" },
   { id: "kvar", label: "PCS measured reactive power", unit: "kVAR" },
@@ -74,7 +74,7 @@ function validateRequest(raw, catalog, now = Date.now()) {
   const r = raw;
   if (Object.keys(r).some((k) => !["identity", "from", "to", "selections"].includes(k)) || r.identity !== catalog.identity) throw Error("Site context changed. Reload available measurements.");
   if (!Number.isSafeInteger(r.from) || !Number.isSafeInteger(r.to) || r.from < 0 || r.to <= r.from || r.to > now + 1e3 || r.to - r.from > exportLimits.days * 864e5) throw Error("Choose a past time window of up to seven days.");
-  if (!Array.isArray(r.selections) || !r.selections.length || r.selections.length > exportLimits.selections) throw Error("Select between 1 and 32 equipment targets.");
+  if (!Array.isArray(r.selections) || !r.selections.length || r.selections.length > exportLimits.selections) throw Error("Select between 1 and 512 equipment targets.");
   const seen = /* @__PURE__ */ new Set();
   let count = 0;
   for (const s of r.selections) {
@@ -86,13 +86,13 @@ function validateRequest(raw, catalog, now = Date.now()) {
     for (const [field, max] of [["bpc", t.bpcs], ["cell", t.cells]]) if (s[field] !== void 0 && (s.source !== "cells" || !Number.isInteger(s[field]) || s[field] < 1 || s[field] > max)) throw Error("Invalid BPC or cell selection");
     count += s.metrics.reduce((n, m) => n + (s.source === "cells" && !m.startsWith("operating.") ? (s.bpc ? 1 : t.bpcs) * (s.cell ? 1 : t.cells) : 1), 0);
   }
-  if (count > exportLimits.series) throw Error("Select at most 1,024 data series. Narrow the BPC/cell selection.");
+  if (count > exportLimits.series) throw Error("Select at most 16,384 data series. Narrow the array, BPC, or cell selection.");
   return structuredClone(r);
 }
 function runExportWorker(job, signal) {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const worker = new import_node_worker_threads.Worker(import_node_path.default.join(__dirname, "data-export-worker.cjs"), { resourceLimits: { maxOldGenerationSizeMb: 256 } });
+    const worker = new import_node_worker_threads.Worker(import_node_path.default.join(__dirname, "data-export-worker.cjs"), { resourceLimits: { maxOldGenerationSizeMb: 1024 } });
     let done = false;
     const finish = (error, result) => {
       if (done) return;

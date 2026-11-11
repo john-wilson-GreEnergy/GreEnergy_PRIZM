@@ -2707,7 +2707,7 @@ function freshCell(time, now) {
 }
 
 // src/server/dataExport/model.ts
-var exportLimits = { days: 7, selections: 32, series: 1024, rows: 1e6, readBytes: 1024 * 1024 ** 2, outputBytes: 192 * 1024 ** 2, zipBytes: 64 * 1024 ** 2, ms: 12e4 };
+var exportLimits = { days: 7, selections: 512, series: 16384, rows: 5e6, readBytes: 2 * 1024 ** 3, outputBytes: 512 * 1024 ** 2, zipBytes: 256 * 1024 ** 2, ms: 6e5 };
 var hvacMetrics = [
   ...["space", "supply", "control", "outside", "cell", "cooling", "heating"].map((id) => ({ id, label: { space: "Enclosure temperature", supply: "Supply-air temperature", control: "Control temperature", outside: "Outside temperature", cell: "Average cell temperature", cooling: "Cooling setpoint", heating: "Heating setpoint" }[id], unit: "\xB0C" })),
   { id: "current", label: "Whole-unit supply current", unit: "A" },
@@ -2758,16 +2758,34 @@ function graph(s, from, to) {
     return `<path stroke="#06795c" stroke-width="3" d="M${x} ${y(v.min).toFixed(2)}V${y(v.max).toFixed(2)}"/><circle fill="#06795c" cx="${x}" cy="${y(v.max).toFixed(2)}" r="1.5"><title>${htmlEscape(iso(from + b * (to - from) / 240))}: ${v.min}\u2013${v.max}; ${v.count} samples</title></circle>`;
   }).join("")}</svg>`;
 }
+function latestSpatialSvg(items, title) {
+  const samples = items.map((s) => {
+    const point = [...s.points].reverse().find((p) => p[3] === "live" && typeof p[2] === "number");
+    return point ? { label: s.label, metric: s.metric, unit: s.unit, value: point[2], at: point[0] } : null;
+  }).filter(Boolean);
+  if (!samples.length) return `<svg viewBox="0 0 1000 220" role="img" aria-label="${htmlEscape(title)}"><text x="500" y="110" text-anchor="middle">No live numeric samples</text></svg>`;
+  const values = samples.map((s) => s.value), low = Math.min(...values), high = Math.max(...values), span = high - low || 1;
+  const x = (i) => 55 + i * 910 / Math.max(1, samples.length - 1), y = (v) => 180 - (v - low) / span * 140;
+  return `<svg viewBox="0 0 1000 220" role="img" aria-label="${htmlEscape(title)}"><rect width="1000" height="220" fill="#fff"/><path d="M55 20V180H965" fill="none" stroke="#9baca5"/><text x="60" y="18">${htmlEscape(high)}</text><text x="60" y="176">${htmlEscape(low)}</text>${samples.map((s, i) => `<circle cx="${x(i).toFixed(2)}" cy="${y(s.value).toFixed(2)}" r="2.2" fill="${engineeringColors[i % engineeringColors.length]}"><title>${htmlEscape(s.label)} · ${htmlEscape(s.metric)}: ${htmlEscape(s.value)} ${htmlEscape(s.unit)} · ${htmlEscape(iso(s.at))}</title></circle>`).join("")}</svg>`;
+}
+function offlineFamilyPage(title, items, from, to) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of items) { const key = engineeringFamily(item) + "|" + item.unit; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); }
+  const sections = [...groups].map(([key, rows]) => `<section><h2>${htmlEscape(key.split("|")[0])} <small>(${htmlEscape(rows[0].unit)})</small></h2>${latestSpatialSvg(rows, key)}<details><summary>${rows.length} retained series</summary><table><thead><tr><th>Equipment</th><th>Measurement</th><th>Rows</th><th>Latest observation UTC</th><th>Latest value</th></tr></thead><tbody>${rows.map((s) => { const point = [...s.points].reverse().find((p) => p[3] === "live" && p[2] !== null); return `<tr><td>${htmlEscape(s.label)}</td><td>${htmlEscape(s.metric)}</td><td>${s.points.length}</td><td>${htmlEscape(iso(point?.[0]) || "Not available")}</td><td>${htmlEscape(point?.[2] ?? "")} ${htmlEscape(s.unit)}</td></tr>`; }).join("")}</tbody></table></details></section>`).join("");
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>${htmlEscape(title)}</title><style>body{font:15px system-ui;color:#14312b;max-width:1320px;margin:28px auto;padding:0 18px}a{color:#087253}section{border:1px solid #c6d7d0;border-radius:8px;padding:16px;margin:18px 0}svg{width:100%;max-height:360px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:7px;border-bottom:1px solid #dbe5e1}details{max-height:520px;overflow:auto}small{color:#526760}</style><p><a href="../index.html">← Engineering package index</a></p><h1>${htmlEscape(title)}</h1><p>${htmlEscape(iso(from))} — ${htmlEscape(iso(to))} · UTC · missing values remain blank</p>${sections || "<p>No retained series in this report.</p>"}</html>`;
+}
 var engineeringColors = ["#2878bd", "#ef6c35", "#22a77a", "#8d62ba", "#d6a11d", "#d34f73", "#4b9ca6", "#7b7f35", "#666f8f"];
 function engineeringFamily(s) {
   const metric = s.metric.toLowerCase(), unit = s.unit.toLowerCase();
+  const array = /\bArray\s+(\d+)\b/i.exec(s.label)?.[1];
   if (metric.includes("reactive") || unit.includes("kvar")) return "Reactive power";
   if (metric.includes("real power") || metric.includes("real-power") || unit === "kw" && (metric.includes("command") || metric.includes("setpoint"))) return "Real power: command, setting, and actual";
   if (metric.includes("dc voltage")) return "PCS DC voltage";
   if (metric.includes("dc current")) return "PCS DC current";
   if (metric.includes("humidity")) return "Humidity";
+  if (metric.includes("cell temperature")) return `${array ? `Array ${array} · ` : ""}Cell temperature`;
   if (metric.includes("temperature")) return "Temperature";
-  if (metric.includes("cell voltage")) return "Cell voltage";
+  if (metric.includes("cell voltage")) return `${array ? `Array ${array} · ` : ""}Cell voltage`;
   if (metric.includes("string current")) return "String current";
   if (metric.includes("string soc")) return "String SOC";
   return s.metric;
@@ -2786,7 +2804,8 @@ function engineeringFamilyGraph(items, from, to) {
   }));
   const json = JSON.stringify({from,to,low,high,unit:items[0]?.unit ?? "",traces:payload}).replace(/</g,"\\u003c");
   const legend = payload.map((trace,index) => `<button type="button" class="plot-legend-item" data-trace="${index}" aria-pressed="true"><i style="background:${trace.color}"></i>${htmlEscape(trace.label)}</button>`).join("");
-  return `<div class="engineering-plot" data-title="${htmlEscape(engineeringFamily(items[0]))}"><div class="plot-toolbar"><span>Scroll to zoom · drag to pan · hover for exact recorded values</span><button type="button" class="plot-reset">Reset view</button></div><div class="plot-legend">${legend}</div><div class="plot-stage"><canvas role="img" aria-label="Interactive ${htmlEscape(engineeringFamily(items[0]))} engineering graph"></canvas><div class="plot-tooltip" hidden></div></div><script type="application/json" class="plot-data">${json}</script></div>`;
+  const legendBlock = payload.length > 24 ? `<details><summary>Choose visible traces (${payload.length})</summary><div class="plot-legend">${legend}</div></details>` : `<div class="plot-legend">${legend}</div>`;
+  return `<div class="engineering-plot" data-title="${htmlEscape(engineeringFamily(items[0]))}"><div class="plot-toolbar"><span>Scroll to zoom · drag to pan · hover for exact recorded values</span><button type="button" class="plot-reset">Reset view</button></div>${legendBlock}<div class="plot-stage"><canvas role="img" aria-label="Interactive ${htmlEscape(engineeringFamily(items[0]))} engineering graph"></canvas><div class="plot-tooltip" hidden></div></div><script type="application/json" class="plot-data">${json}</script></div>`;
 }
 function engineeringFamilySections(all, from, to) {
   const families = /* @__PURE__ */ new Map();
@@ -2801,7 +2820,7 @@ function engineeringFamilySections(all, from, to) {
   const timelineTimes = [...new Set(timelineSeries.flatMap((item) => item.points.map((point) => point[0])))].sort((a, b) => a - b);
   const exactTimelineJson = JSON.stringify({times: timelineTimes, series: timelineSeries}).replace(/</g, "\\u003c");
   const entries = [...families];
-  const cards = entries.map(([key, items], index) => `<a href="#graph-${index + 1}" style="display:flex;min-height:86px;flex-direction:column;justify-content:flex-end;border:1px solid #c6d7d0;border-radius:7px;padding:14px;background:linear-gradient(150deg,#f8fbfa,#e9f5f0);color:#087253;text-decoration:none"><strong>${htmlEscape(key.split("|")[0])}</strong><span style="font-size:12px;color:#526760;margin-top:6px">${htmlEscape(items[0].unit || "state")} · ${items.length} series</span></a>`).join("");
+  const cards = entries.map(([key, items], index) => `<a href="#graph-${index + 1}" style="display:flex;min-height:170px;flex-direction:column;justify-content:flex-end;border:1px solid #c6d7d0;border-radius:7px;padding:10px;background:linear-gradient(150deg,#f8fbfa,#e9f5f0);color:#087253;text-decoration:none"><span style="height:100px;overflow:hidden">${latestSpatialSvg(items, key)}</span><strong>${htmlEscape(key.split("|")[0])}</strong><span style="font-size:12px;color:#526760;margin-top:6px">${htmlEscape(items[0].unit || "state")} · ${items.length} series</span></a>`).join("");
   const index = `<section id="report-index" class="report-index"><h2>Reports</h2><nav style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px"><a href="#timeline-inspector">Point-in-time inspector</a><a href="#engineering-graphs">Engineering graphs</a><a href="#evidence-library">Individual series evidence</a></nav><h3>Graph gallery</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${cards}</div></section>`;
   const sections = entries.map(([key, items], position) => `<section class="engineering-family" id="graph-${position + 1}"><a style="float:right;color:#087253;text-decoration:none;font-size:12px" href="#report-index">↑ Reports</a><h2>${htmlEscape(key.split("|")[0])} <small>(${htmlEscape(items[0].unit)})</small></h2>${engineeringFamilyGraph(items, from, to)}<p><small>${items.length} coordinated series · every retained live reading in the selected window · no interpolation</small></p></section>`).join("");
   const organizeEvidence = `<script>addEventListener('DOMContentLoaded',function(){
@@ -2849,11 +2868,11 @@ async function buildExport(job) {
     check();
     let s = series.get(id);
     if (!s) {
-      if (series.size >= exportLimits.series) throw Error("Too many data series. Narrow the cell or equipment selection.");
+      if (series.size >= exportLimits.series) throw Error("Too many data series. Narrow the array, cell, or equipment selection.");
       s = { id, label, metric, unit, source, gapMs, points: [] };
       series.set(id, s);
     }
-    if (++rows > exportLimits.rows) throw Error("Export exceeds 1,000,000 readings. Select fewer measurements or a shorter window.");
+    if (++rows > exportLimits.rows) throw Error("Export exceeds 5,000,000 readings. Select fewer measurements or a shorter window.");
     outputEstimate += JSON.stringify(point).length + id.length + label.length + metric.length + 120;
     if (outputEstimate > exportLimits.outputBytes) throw Error("Export size limit reached. Narrow the selection.");
     s.source = source;
@@ -2866,7 +2885,7 @@ async function buildExport(job) {
       const channels = plan.source === "cells" && !m.id.startsWith("operating.") ? Array.from({ length: target.bpcs * target.cells }, (_, i) => ({ b: Math.floor(i / target.cells) + 1, c: i % target.cells + 1 })).filter((x) => (!select.bpc || select.bpc === x.b) && (!select.cell || select.cell === x.c)) : [null];
       for (const c of channels) {
         const id = `${plan.source}:${target.id}${c ? `-B${c.b}-C${c.c}` : ""}:${m.id}`;
-        if (series.size >= exportLimits.series && !series.has(id)) throw Error("Select at most 1,024 data series per package.");
+        if (series.size >= exportLimits.series && !series.has(id)) throw Error("Select at most 16,384 data series per package.");
         series.set(id, { id, label: target.label + (c ? ` \xB7 BPC ${c.b} \xB7 Cell ${c.c}` : ""), metric: m.label, unit: m.unit, source: plan.source, gapMs: 12e4, points: [] });
       }
     }
@@ -2992,7 +3011,7 @@ async function buildExport(job) {
   let total = 0;
   const addFile = (name, body) => {
     total += Buffer.byteLength(body);
-    if (total > exportLimits.outputBytes) throw Error("Package exceeds 192 MiB before compression. Narrow the selection.");
+    if (total > exportLimits.outputBytes) throw Error("Package exceeds 512 MiB before compression. Narrow the selection.");
     archive.addFile(name, Buffer.from(body));
   };
   for (const source of ["power", "hvac", "cells"]) {
@@ -3000,6 +3019,35 @@ async function buildExport(job) {
     for (const s of all.filter((s2) => s2.id.startsWith(source + ":"))) for (const p of s.points) output.push([s.id, s.label, s.metric, s.unit, iso(p[0]), iso(p[1]), p[2], p[3], p[4] ?? s.source, iso(p[5] ?? null)]);
     if (output.length > 1) addFile(source + ".csv", csv(output));
   }
+  const csvRows = (items) => {
+    const output = [["series_id", "equipment", "metric", "unit", "observation_time_utc", "source_time_utc", "value", "quality", "source", "received_time_utc"]];
+    for (const s of items) for (const p of s.points) output.push([s.id, s.label, s.metric, s.unit, iso(p[0]), iso(p[1]), p[2], p[3], p[4] ?? s.source, iso(p[5] ?? null)]);
+    return csv(output);
+  };
+  const cells = all.filter((s) => s.id.startsWith("cells:")), cellDetail = cells.filter((s) => /cell voltage|cell temperature/i.test(s.metric)), stringMetrics = cells.filter((s) => !cellDetail.includes(s));
+  const power = all.filter((s) => s.id.startsWith("power:")), notifications = power.filter((s) => /notification|alarm|warning|information/i.test(s.metric)), pcsPower = power.filter((s) => !notifications.includes(s));
+  const hvac = all.filter((s) => s.id.startsWith("hvac:")), environmental = hvac.filter((s) => /humidity|temperature|outside/i.test(s.metric));
+  const reports = [];
+  for (let array = 1; array <= 8; array++) {
+    const items = cellDetail.filter((s) => new RegExp(`\\bArray ${array}\\b`).test(s.label));
+    if (!items.length) continue;
+    const csvName = `csv/cells_array_${array}.csv`, htmlName = `html/cells_array_${array}.html`, imageName = `images/cells_array_${array}.svg`;
+    addFile(csvName, csvRows(items));addFile(htmlName, offlineFamilyPage(`${job.site} · Array ${array} cell history`, items, job.request.from, job.request.to));addFile(imageName, latestSpatialSvg(items, `Array ${array} cell history`));
+    reports.push({label:`Array ${array} cells`,html:htmlName,csv:csvName,image:imageName});
+  }
+  for (const report of [
+    {key:"string_metrics",label:"String metrics",items:stringMetrics},
+    {key:"pcs_power",label:"PCS power and EMS applications",items:pcsPower},
+    {key:"hvac",label:"HVAC",items:hvac},
+    {key:"environmental",label:"Environmental",items:environmental},
+    {key:"notifications",label:"Notifications",items:notifications},
+  ]) {
+    if (!report.items.length) continue;
+    const csvName = `csv/${report.key}.csv`, htmlName = `html/${report.key}.html`, imageName = `images/${report.key}.svg`;
+    addFile(csvName, csvRows(report.items));addFile(htmlName, offlineFamilyPage(`${job.site} · ${report.label}`, report.items, job.request.from, job.request.to));addFile(imageName, latestSpatialSvg(report.items, report.label));
+    reports.push({label:report.label,html:htmlName,csv:csvName,image:imageName});
+  }
+  addFile("index.html", `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';img-src 'self'"><title>${htmlEscape(job.site)} engineering package</title><style>body{font:16px system-ui;color:#14312b;max-width:1200px;margin:30px auto;padding:0 18px}a{color:#087253;text-decoration:none}li{padding:8px 0;border-bottom:1px solid #dbe5e1}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.card{border:1px solid #c6d7d0;border-radius:8px;padding:10px}.card img{display:block;width:100%;height:170px;object-fit:contain}.card span{display:block;margin-top:8px;font-weight:650}</style><h1>${htmlEscape(job.site)}</h1><p>${htmlEscape(iso(job.request.from))} — ${htmlEscape(iso(job.request.to))} · UTC</p><p><a href="report.html">Open the complete interactive data explorer</a></p><h2>Reports</h2><ul>${reports.map((r) => `<li><a href="${r.html}">${htmlEscape(r.label)}</a> · <a href="${r.csv}">CSV</a></li>`).join("")}</ul><h2>Graph gallery</h2><div class="gallery">${reports.map((r) => `<a class="card" href="${r.html}"><img src="${r.image}" alt="${htmlEscape(r.label)}"><span>${htmlEscape(r.label)}</span></a>`).join("")}</div><h2>Package evidence</h2><ul><li><a href="coverage.csv">Coverage and gaps</a></li><li><a href="manifest.json">Manifest</a></li><li><a href="README.txt">Interpretation notes</a></li></ul></html>`);
   addFile("coverage.csv", csv([["series_id", "equipment", "metric", "unit", "rows", "distinct_live_source_times", "first_live_utc", "last_live_utc", "largest_gap_seconds", "shortest_step_seconds", "longest_step_seconds"], ...summaries.map((s) => [s.id, s.label, s.metric, s.unit, s.rows, s.valid, iso(s.first), iso(s.last), s.largestGapMs / 1e3, s.shortestStepMs === null ? null : s.shortestStepMs / 1e3, s.longestStepMs === null ? null : s.longestStepMs / 1e3])]));
   addFile("manifest.json", JSON.stringify({ schema: 1, site: job.site, from: iso(job.request.from), to: iso(job.request.to), createdAt: (/* @__PURE__ */ new Date()).toISOString(), selection: job.request.selections, rows, warnings, coverage: summaries }, null, 2));
   addFile("README.txt", `PRIZM selected history export
@@ -3028,7 +3076,7 @@ Open report.html offline. All times are UTC. Source time is when the provider re
   check();
   const zipped = await archive.toBufferPromise();
   check();
-  if (zipped.length > exportLimits.zipBytes) throw Error("Compressed package exceeds 64 MiB. Narrow the selection.");
+  if (zipped.length > exportLimits.zipBytes) throw Error("Compressed package exceeds 256 MiB. Narrow the selection.");
   return { archive: zipped, coverage: summaries, rows, warnings };
 }
 

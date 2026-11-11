@@ -94,3 +94,12 @@ export function powerMovementSelections(targets: ExportTarget[], arrays?: number
 export function powerComparisonSelections(targets: ExportTarget[], arrays?: number[]): ExportSelection[] {
   return [...powerCommandSelections(targets, arrays), ...powerMovementSelections(targets, arrays)].slice(0, 32);
 }
+
+/** Select every retained metric exposed by the historian for the requested site/array scope. */
+export function completeEngineeringSelections(targets: ExportTarget[], arrays?: number[]): ExportSelection[] {
+  return targets.filter(target => inScope(target, arrays) || Boolean(arrays && target.array === undefined && target.source === "power")).map(target => ({
+    source: target.source,
+    target: target.id,
+    metrics: target.metrics.map(metric => metric.id),
+  }));
+}
