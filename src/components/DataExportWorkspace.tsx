@@ -381,10 +381,11 @@ export function DataExportWorkspace() {
         <p><small>Full-resolution CSV is never silently downsampled. Large requests fail visibly so you can narrow the dates or selections.</small></p>
       </section>
 
-      {preview && <section className="export-card"><small>STEP 4</small><h2>Check coverage and download</h2>
+      {preview && <section className="export-card"><small>STEP 4</small><h2>Explore selected data</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
-        <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables. {mode === "snapshot" ? "The Site Snapshot preserves detailed nearby recorded evidence without interpolation." : "The time-range package contains every retained selected observation."}</p>
-        <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + graphed HTML</button>
+        <p>Review and filter the generated graphs directly in PRIZM. Download remains optional when you need portable CSV files or an offline copy.</p>
+        {preview.rows>0&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" src={`${endpoint}/explore?ticket=${encodeURIComponent(preview.ticket)}`} />}
+        <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + offline graphs</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>
         <div className="export-table"><table><thead><tr><th>Equipment / measurement</th><th>Rows / live times</th>

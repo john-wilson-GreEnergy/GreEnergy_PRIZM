@@ -41,6 +41,7 @@
 .export-table table { width: 100%; text-align: left; font-size: 13px; border-collapse: collapse; }
 .export-table td, .export-table th { padding: 10px; border-bottom: 1px solid #61746955; vertical-align: top; }
 .export-table th { font-weight: 600; }
+.export-explorer { width: 100%; min-height: 720px; margin: 16px 0; border: 1px solid var(--ops-line, #dce4df); border-radius: 8px; background: #f4f7f6; }
 .export-error { border-left: 4px solid #ed8f75; padding: 12px; background: #9f302022; }
 .data-export details { margin-top: 16px; }
 .data-export summary { cursor: pointer; font-weight: 600; }

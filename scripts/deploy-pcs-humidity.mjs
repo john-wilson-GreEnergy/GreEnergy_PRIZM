@@ -23,7 +23,7 @@ const tree=directory=>Object.fromEntries(fs.readdirSync(directory,{recursive:tru
 }).sort(([a],[b])=>a.localeCompare(b)));
 const protectedHashes=()=>Object.fromEntries(['/etc/prizm-fleet/fleet/fleet.json','/etc/prizm-fleet/fleet/remote.json','/etc/prizm-fleet/ss3/export.json','/etc/prizm-fleet/ss4/export.json']
   .filter(fs.existsSync).map(file=>[file,sha(fs.readFileSync(file))]));
-const waitForActive=(unit,seconds=60)=>{for(let elapsed=0;elapsed<seconds;elapsed++){const state=prop(unit,'ActiveState');if(state==='active')return;if(state==='failed'||state==='inactive')throw Error(`${unit} entered ${state}`);run('/bin/sleep',['1']);}throw Error(`${unit} did not become active within ${seconds} seconds (state: ${prop(unit,'ActiveState')})`);};
+const waitForActive=(unit,seconds=60)=>{let stable=0;for(let elapsed=0;elapsed<seconds;elapsed++){const state=prop(unit,'ActiveState');if(state==='active'){if(++stable>=5)return;}else{stable=0;if(state==='failed'||state==='inactive')throw Error(`${unit} entered ${state}`);}run('/bin/sleep',['1']);}throw Error(`${unit} did not remain active for five seconds within ${seconds} seconds (state: ${prop(unit,'ActiveState')})`);};
 const healthy=plan=>{waitForActive(plan.unit);assert(prop(plan.unit,'ExecStart').includes(release+'/dist/'+plan.entry),prop(plan.unit,'ExecStart'));};
 const manifest=JSON.parse(fs.readFileSync(stage+'/manifest.json','utf8'));
 

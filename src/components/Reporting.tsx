@@ -43,6 +43,7 @@ interface ReportingProps {
 }
 
 import SiteDataExport from './SiteDataExport';
+import DataExportWorkspace from './DataExportWorkspace';
 
 export default function Reporting({ 
   devices, 
@@ -1196,6 +1197,7 @@ export default function Reporting({
 
         </div>
       </div>
+      <DataExportWorkspace />
       <SiteDataExport />
 
     </div>

@@ -269,7 +269,13 @@ const runtimeRequire=createRequire(path.join(process.cwd(),'server.ts'));
 const adjacentDataExportRuntime=typeof __dirname==='string'?path.join(__dirname,'data-export.cjs'):'';
 const dataExportRuntime=adjacentDataExportRuntime&&fs.existsSync(adjacentDataExportRuntime)?adjacentDataExportRuntime:path.join(process.cwd(),'runtime/data-export','data-export.cjs');
 if(!fs.existsSync(dataExportRuntime))throw new Error(`Required data export runtime is missing: ${dataExportRuntime}`);
-runtimeRequire(dataExportRuntime).install(siteDataRouter,cellHistory,operationalTimeline,thermalService);
+const dataExportService=runtimeRequire(dataExportRuntime).install(siteDataRouter,cellHistory,operationalTimeline,thermalService);
+siteDataRouter.get('/data-export/explore',async(req,res)=>{try{
+  if(Object.keys(req.query).join(',')!=='ticket'||typeof req.query.ticket!=='string'||!/^[a-f0-9-]{36}$/.test(req.query.ticket))throw Error('Invalid exploration ticket');
+  const archive=await dataExportService.download(req.query.ticket),report=new AdmZip(archive).readAsText('report.html');
+  if(!report)throw Error('Interactive report is unavailable');
+  res.setHeader('Cache-Control','no-store');res.setHeader('Content-Disposition','inline; filename="prizm-data-explorer.html"');res.type('text/html').send(report);
+}catch(error){res.status(400).json({error:error instanceof Error?error.message:String(error)});}});
 app.use("/api/local/site-data", siteDataRouter);
 app.use("/api/local/reports", reportRoutes);
 app.use("/api/local/firmware", firmwareInventoryRouter);
