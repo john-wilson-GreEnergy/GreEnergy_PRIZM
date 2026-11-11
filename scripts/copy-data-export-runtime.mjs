@@ -7,4 +7,5 @@ for(const name of ['data-export.cjs','data-export-worker.cjs']){
   const target=path.join(repo,'dist',name);
   if(!fs.existsSync(source))throw new Error(`Missing required data export runtime: ${source}`);
   fs.copyFileSync(source,target);
+  fs.chmodSync(target,0o644);
 }
