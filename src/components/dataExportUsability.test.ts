@@ -73,8 +73,9 @@ test("power shortcuts select commands and optional measured power", () => {
   assert.deepEqual(powerComparisonSelections(targets, [2]), []);
 });
 
-test("embedded explorer retains the authenticated same-origin session", () => {
+test("embedded explorer renders authenticated report content without a second frame request", () => {
   const source = readFileSync(new URL("./DataExportWorkspace.tsx", import.meta.url), "utf8");
-  assert.match(source, /sandbox="allow-scripts allow-same-origin"/);
-  assert.doesNotMatch(source, /sandbox="allow-scripts"/);
+  assert.match(source, /srcDoc=\{explorerHtml\}/);
+  assert.match(source, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(source, /iframe[^>]+src=\{/);
 });

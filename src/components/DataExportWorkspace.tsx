@@ -80,6 +80,7 @@ export function DataExportWorkspace() {
   const [scope, setScope] = useState<"site" | "arrays">("site");
   const [selectedArrays, setSelectedArrays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [explorerHtml, setExplorerHtml] = useState("");
   const [saved, setSaved] = useState<SavedSelection[]>([]);
   const [saveName, setSaveName] = useState("");
   const [message, setMessage] = useState("");
@@ -114,6 +115,7 @@ export function DataExportWorkspace() {
 
   const resetResult = () => {
     setPreview(null);
+    setExplorerHtml("");
     setError("");
     setMessage("");
   };
@@ -209,7 +211,11 @@ export function DataExportWorkspace() {
         }),
         signal: abort.signal,
       }));
-      if (!abort.signal.aborted) setPreview(result);
+      const explorer = await fetch(endpoint + "/explore?ticket=" + encodeURIComponent(result.ticket), {signal: abort.signal});
+      if (!explorer.ok) throw new Error((await explorer.json()).error || `Explorer request failed (${explorer.status})`);
+      if (!explorer.headers.get("Content-Type")?.includes("text/html")) throw new Error("Unexpected explorer response");
+      const html = await explorer.text();
+      if (!abort.signal.aborted) {setExplorerHtml(html);setPreview(result);}
     } catch (nextError: any) {
       setError(abort.signal.aborted ? "Export cancelled." : nextError.message);
     } finally {
@@ -384,7 +390,7 @@ export function DataExportWorkspace() {
       {preview && <section className="export-card"><small>STEP 4</small><h2>Explore selected data</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
         <p>Review and filter the generated graphs directly in PRIZM. Download remains optional when you need portable CSV files or an offline copy.</p>
-        {preview.rows>0&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts allow-same-origin" src={`${endpoint}/explore?ticket=${encodeURIComponent(preview.ticket)}`} />}
+        {preview.rows>0&&explorerHtml&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" srcDoc={explorerHtml} />}
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + offline graphs</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>
