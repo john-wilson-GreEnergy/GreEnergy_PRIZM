@@ -49,6 +49,7 @@ export function workspaceRouteAllowed(method:string,path:string):boolean {
 export function passiveWorkspaceGet(path:string):boolean {
   return path==='/' || path.startsWith('/assets/') || path==='/logo-transparent.svg' || path==='/favicon.ico' ||
     path==='/api/local/site-data/strings-stream' || path==='/api/settings/profiles/export' ||
+    path==='/api/local/site-data/data-export/explore' ||
     /^\/api\/local\/diagnostic-session\/[A-Za-z0-9_-]+\/export\/(json|csv)$/.test(path) ||
     /^\/api\/local\/reports\/download\/[A-Za-z0-9_.-]+(?:\/report\.(pdf|json))?$/.test(path) ||
     /^\/turtle\/tools\/report\/ems\/(ip_modbus_associations|stringIPMap|ipMap)\.csv$/.test(path);

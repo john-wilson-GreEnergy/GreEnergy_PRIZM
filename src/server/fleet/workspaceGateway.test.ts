@@ -25,6 +25,7 @@ assert.equal(workspaceRouteAllowed('POST','/api/settings/profiles/ss4/activate')
 for(const p of ['/api/settings/Profiles/ss4/activate','/api/settings/test-CONNECTION','/api/local/DEMO-toggle','/api/Fleet/login','/api/Access/login'])assert.equal(workspaceRouteAllowed('POST',p),false);
 assert.equal(passiveWorkspaceGet('/tools/controls/ems/array/1/contactors/open'),false);
 assert.equal(passiveWorkspaceGet('/api/local/site-data/strings-stream'),true);
+assert.equal(passiveWorkspaceGet('/api/local/site-data/data-export/explore'),true);
 assert.equal(isFleetWorkspacePort('3000'),false);
 assert.equal(isFleetWorkspacePort('3445'),true);
 assert.throws(()=>parseWorkspaceContext({fleetUrl:'https://evil.test'},'https://localhost:3444'));
