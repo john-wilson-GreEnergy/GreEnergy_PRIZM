@@ -54,6 +54,7 @@ import { featherScheduler } from "./telemetry/feather";
 import { publishBulkStringRows, stringDomainBroker } from "./domainBrokers/stringDomainBroker";
 import { publishOperationalDomains } from "./domainBrokers/operationalDomainBrokers";
 import {finiteReading, type TimelineObservation, type TimelineBatch} from "./history/operationalTimelineModel";
+import {projectNotificationTimeline} from "./history/notificationTimelineProjection";
 import {projectStringTimeline} from "./history/stringTimelineProjection";
 import {projectEmsAppTimeline} from "./history/emsAppTimelineProjection";
 import { getOperationalModbusSnapshot } from "./telemetry/modbusOperationalTelemetry";
@@ -3717,6 +3718,7 @@ export function getPcsView(): any {
     const observedAt = Date.now();
     const historyObservations: TimelineObservation[] = projectStringTimeline(snap.normalized.strings || [], observedAt, snap.liveStatus?.stale !== true);
     historyObservations.push(...projectEmsAppTimeline(snap.normalized.emsApps || [], snap.siteIdentity.emsBaseUrl, snap.siteIdentity.blockIndex, observedAt));
+    historyObservations.push(...projectNotificationTimeline(snap.normalized.correctiveActions, observedAt, getActiveSiteDimensions().arrayIndices));
     let historySiteMatches = false;
     try { historySiteMatches = new URL(snap.siteIdentity.emsBaseUrl).hostname === modbusTelemetry.host; } catch {}
     const pcs = (snap.normalized.pcs || []).map((row: any) => {

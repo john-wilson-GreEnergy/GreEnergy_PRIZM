@@ -47,7 +47,7 @@ const LineupLightbarControl = React.lazy(() => import("./components/LineupLightb
 const OneLineView = React.memo(React.lazy(() => import("./components/OneLineView")));
 const ThermalWorkspace = React.memo(React.lazy(() => import("./components/ThermalWorkspace")));
 const CellHistoryWorkspace = React.memo(React.lazy(() => import('./components/CellHistoryWorkspace')));
-const SiteAnalyticsWorkspace = React.memo(React.lazy(() => import('./components/SiteAnalyticsWorkspace')));
+const ExploreExportWorkspace = React.memo(React.lazy(() => import('./components/ExploreExportWorkspace')));
 import { GreEnergyLogo } from "./components/GreEnergyLogo";
 const SiteConfigurationDashboard = React.lazy(() => import("./components/SiteConfigurationDashboard"));
 const SafetyAdvancedDashboard = React.lazy(() => import("./components/SafetyAdvancedDashboard"));
@@ -899,7 +899,7 @@ export default function App() {
 
               {activeTab === "thermal-controls" && <RenderProbe id="thermal"><ThermalWorkspace /></RenderProbe>}
               {activeTab === 'cell-history' && <RenderProbe id="cell-history"><CellHistoryWorkspace /></RenderProbe>}
-              {activeTab === 'site-analytics' && <RenderProbe id="site-analytics"><SiteAnalyticsWorkspace /></RenderProbe>}
+              {activeTab === 'site-analytics' && <RenderProbe id="site-analytics"><ExploreExportWorkspace /></RenderProbe>}
               {activeTab === "one-line" && (
                 <div className="block animate-fade-in">
                   <OneLineView active />

@@ -169,7 +169,7 @@ export class OperationalTimeline {
     if (!this.maintenanceAt || now - this.maintenanceAt >= 60_000) await this.maintain(now);
     const groups = new Map<string, {records: Record[]; keys: string[]}>();
     for (const original of batch.observations) {
-      const blockScoped = original.scope === "block" && original.array === 0 && original.string == null && ["command", "ems-app"].includes(original.stream);
+      const blockScoped = original.scope === "block" && original.array === 0 && original.string == null && ["command", "ems-app", "notifications"].includes(original.stream);
       if ((!blockScoped && (!Number.isInteger(original.array) || original.array < 1 || original.array > 9999 || original.scope === "block")) || !Number.isFinite(original.observedAt)) continue;
       const observation = {...original, values: {...original.values}};
       const ageLimit = observation.stream === "electrical" ? 15_000 : 120_000;
@@ -184,7 +184,7 @@ export class OperationalTimeline {
       }
       if (observation.stream !== "command" && previous && previous.sourceAt === observation.sourceAt && previous.quality === observation.quality && previous.source === observation.source) continue;
       const events = timelineChanges(previous, observation);
-      const interval = ["string-state", "ems-app"].includes(observation.stream) ? 60_000 : 10_000;
+      const interval = ["string-state", "ems-app", "notifications"].includes(observation.stream) ? 60_000 : 10_000;
       if (!events.length && previous && observation.observedAt - previous.observedAt < interval) continue;
       const name = `${key}-${observation.array}-${Math.floor(now / HOUR) * HOUR}.jsonl`;
       const group = groups.get(name) || {records: [], keys: []};

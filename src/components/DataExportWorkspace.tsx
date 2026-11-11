@@ -352,7 +352,7 @@ export function DataExportWorkspace() {
           <label>Data source<select value={source} onChange={event => {
             setSource(event.target.value as ExportTarget["source"]); setTargetId(""); setMetrics([]);
             setBpc(""); setCell(""); setSearch("");
-          }}><option value="power">Power, PCS & reported commands</option><option value="cells">Cells & string context</option>
+          }}><option value="power">Operational history · power, PCS, commands & notifications</option><option value="cells">Cells & string context</option>
             <option value="hvac">HVAC & temperatures</option></select></label>
           <label>Find equipment<input type="search" value={search} onChange={event => setSearch(event.target.value)}
             placeholder="Power command, Array 1, String 40, HVAC…" /></label>

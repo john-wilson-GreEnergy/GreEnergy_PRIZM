@@ -50,7 +50,11 @@ var powerMetrics = [
   { id: "Positive contactor", label: "Positive contactor", unit: "" },
   { id: "Negative contactor", label: "Negative contactor", unit: "" },
   { id: "EMS close request", label: "EMS close request", unit: "" },
-  { id: "Rotation", label: "Rotation", unit: "" }
+  { id: "Rotation", label: "Rotation", unit: "" },
+  { id: "Alarm count", label: "Active alarm count", unit: "count" },
+  { id: "Warning count", label: "Active warning count", unit: "count" },
+  { id: "Info count", label: "Active information count", unit: "count" },
+  { id: "Active notifications", label: "Active notification set", unit: "" }
 ];
 var hvacMetrics = [
   ...["space", "supply", "control", "outside", "cell", "cooling", "heating"].map((id) => ({ id, label: { space: "Enclosure temperature", supply: "Supply-air temperature", control: "Control temperature", outside: "Outside temperature", cell: "Average cell temperature", cooling: "Cooling setpoint", heating: "Heating setpoint" }[id], unit: "\xB0C" })),
@@ -250,7 +254,7 @@ var power = /* @__PURE__ */ (() => {
       site: this.site?.label ?? "",
       targets,
       files: [...this.files].filter(([name]) => name.startsWith(key + "-")).map(([name, bytes]) => ({ path: import_node_path2.default.join(this.directory, name), at: Number(pattern.exec(name)[3]), array: Number(pattern.exec(name)[2]), bytes })),
-      notes: ["Power history retains source observations, normally 10-second electrical and 60-second state checkpoints plus changes. EMS reported setpoints and PCS measured power are separate evidence; neither proves a command was executed."]
+      notes: ["Operational history retains source observations, normally 10-second electrical and 60-second state checkpoints plus changes. Notification timestamps are PRIZM observation times; the EMS endpoint does not provide authoritative raised/cleared lifecycle timestamps. EMS reported setpoints and PCS measured power are separate evidence; neither proves a command was executed."]
     };
   };
 })();

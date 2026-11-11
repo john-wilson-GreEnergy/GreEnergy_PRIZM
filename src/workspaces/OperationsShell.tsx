@@ -9,7 +9,7 @@ export const operationsNavigation = [
   {label:'Monitor',items:[{id:'overview',label:'Block summary',icon:LayoutGrid},{id:'one-line',label:'One-line',icon:Network},{id:'site-health',label:'Site health',icon:Activity},{id:'source-health',label:'Data stream health',icon:Network}]},
   {label:'Equipment',items:[{id:'arrays-strings',label:'Strings & arrays',icon:Cpu},{id:'pcs-dashboard',label:'Inverters / PCS',icon:Zap},{id:'feather-hvac',label:'Feather / HVAC',icon:Network},{id:'thermal-controls',label:'Thermal controls',icon:Sliders},{id:'lightbar-control',label:'Lineup lightbar',icon:Sliders}]},
   {label:'Maintenance',items:[{id:'corrective-actions',label:'Corrective actions',icon:ShieldAlert},{id:'balancer-test',label:'BPC balance test',icon:Gauge},{id:'troubleshooting-library',label:'Troubleshooting',icon:BookOpen}]},
-  {label:'History & reports',items:[{id:'site-analytics',label:'Site analytics',icon:BarChart3},{id:'cell-history',label:'Cell history',icon:BarChart3},{id:'reports',label:'Reports & exports',icon:FileText}]},
+  {label:'History & reports',items:[{id:'site-analytics',label:'Explore & export',icon:BarChart3},{id:'reports',label:'Specialized reports',icon:FileText}]},
   {label:'Administration',items:[{id:'site-configuration',label:'Site configuration',icon:Settings},{id:'safety-fault',label:'Safety clear',icon:ShieldAlert},{id:'advanced',label:'Safety / advanced',icon:Shield}]},
 ] as const;
 

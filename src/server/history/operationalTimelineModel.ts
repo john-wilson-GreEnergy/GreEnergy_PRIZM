@@ -1,7 +1,7 @@
 import type {BalancingSample, BalancingProgressReport} from "./balancingProgress";
 // Canonical, source-separated observations. No acquisition and no control writes.
 export type TimelineObservation = {
-  entity: string; array: number; scope?: "block"; string?: number; label: string; stream: "electrical" | "pcs-status" | "string-state" | "ems-app" | "command";
+  entity: string; array: number; scope?: "block"; string?: number; label: string; stream: "electrical" | "pcs-status" | "pcs-environment" | "string-state" | "ems-app" | "notifications" | "command";
   source: string; sourceAt: number | null; observedAt: number; quality: "live" | "unavailable";
   values: Record<string, number | string | null>;
   balancing?: BalancingSample;
