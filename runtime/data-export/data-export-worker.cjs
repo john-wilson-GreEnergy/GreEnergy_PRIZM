@@ -2791,11 +2791,41 @@ function engineeringFamilyGraph(items, from, to) {
 function engineeringFamilySections(all, from, to) {
   const families = /* @__PURE__ */ new Map();
   for (const item of all) { const key = engineeringFamily(item) + "|" + item.unit; if (!families.has(key)) families.set(key, []); families.get(key).push(item); }
+  const timelineSeries = all.map((item) => ({
+    label: item.label,
+    metric: item.metric,
+    unit: item.unit,
+    points: item.points.filter((point) => Number.isFinite(point[0]) && point[0] >= from && point[0] <= to)
+      .map((point) => [point[0], point[1], point[2], point[3], point[4] ?? item.source]).sort((a, b) => a[0] - b[0])
+  }));
+  const timelineTimes = [...new Set(timelineSeries.flatMap((item) => item.points.map((point) => point[0])))].sort((a, b) => a - b);
+  const exactTimelineJson = JSON.stringify({times: timelineTimes, series: timelineSeries}).replace(/</g, "\\u003c");
   const entries = [...families];
   const cards = entries.map(([key, items], index) => `<a href="#graph-${index + 1}" style="display:flex;min-height:86px;flex-direction:column;justify-content:flex-end;border:1px solid #c6d7d0;border-radius:7px;padding:14px;background:linear-gradient(150deg,#f8fbfa,#e9f5f0);color:#087253;text-decoration:none"><strong>${htmlEscape(key.split("|")[0])}</strong><span style="font-size:12px;color:#526760;margin-top:6px">${htmlEscape(items[0].unit || "state")} · ${items.length} series</span></a>`).join("");
   const index = `<section id="report-index" class="report-index"><h2>Reports</h2><nav style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px"><a href="#timeline-inspector">Point-in-time inspector</a><a href="#engineering-graphs">Engineering graphs</a><a href="#evidence-library">Individual series evidence</a></nav><h3>Graph gallery</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${cards}</div></section>`;
   const sections = entries.map(([key, items], position) => `<section class="engineering-family" id="graph-${position + 1}"><a style="float:right;color:#087253;text-decoration:none;font-size:12px" href="#report-index">↑ Reports</a><h2>${htmlEscape(key.split("|")[0])} <small>(${htmlEscape(items[0].unit)})</small></h2>${engineeringFamilyGraph(items, from, to)}<p><small>${items.length} coordinated series · every retained live reading in the selected window · no interpolation</small></p></section>`).join("");
-  const organizeEvidence = `<script>addEventListener('DOMContentLoaded',function(){const inspector=document.querySelector('.time-inspector');if(inspector)inspector.id='timeline-inspector';const rows=[...document.querySelectorAll('details.series')],heading=[...document.querySelectorAll('h2')].find(function(node){return node.textContent.startsWith('Individual series evidence')});if(!rows.length||!heading)return;const label=heading.nextElementSibling,library=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');library.id='evidence-library';library.style.cssText='background:white;padding:16px;margin:12px 0;border:1px solid #c6d7d0;border-radius:8px';summary.textContent='Individual series evidence ('+rows.length+')';summary.style.cssText='cursor:pointer;font-weight:650';body.style.marginTop='16px';library.append(summary,body);if(label&&label.tagName==='LABEL')body.append(label);for(const row of rows)body.append(row);heading.replaceWith(library)})</script>`;
+  const organizeEvidence = `<script>addEventListener('DOMContentLoaded',function(){
+    const exact=${exactTimelineJson},inspector=document.querySelector('.time-inspector');
+    if(inspector){
+      inspector.id='timeline-inspector';
+      const old=document.getElementById('timeline'),slider=old.cloneNode(true),time=document.getElementById('timeline-time'),body=document.getElementById('timeline-values');
+      old.replaceWith(slider);slider.min='0';slider.max=String(Math.max(0,exact.times.length-1));slider.step='1';slider.value=slider.max;
+      slider.setAttribute('aria-label','Historian observation timestamp');
+      const scale=document.createElement('div');scale.style.cssText='display:grid;grid-template-columns:1fr auto 1fr;gap:12px;font-size:12px;color:#526760';
+      scale.innerHTML='<span id="timeline-start"></span><strong id="timeline-position"></strong><span id="timeline-end" style="text-align:right"></span>';slider.after(scale);
+      const header=body.closest('table').querySelector('thead tr');header.lastElementChild.textContent='Historian observation time';const sourceHeader=document.createElement('th');sourceHeader.textContent='Source time';header.append(sourceHeader);
+      const stamp=function(value){return Number.isFinite(value)?new Date(value).toISOString():'Not supplied'};
+      document.getElementById('timeline-start').textContent=exact.times.length?'Start: '+stamp(exact.times[0]):'No historian timestamps';
+      document.getElementById('timeline-end').textContent=exact.times.length?'End: '+stamp(exact.times.at(-1)):'';
+      const render=function(){
+        if(!exact.times.length){time.textContent='No historian observation timestamps';body.innerHTML='<tr><td colspan="6">No selected measurements were recorded in this window.</td></tr>';return}
+        const index=Number(slider.value),selectedAt=exact.times[index];time.textContent='Historian observation time: '+stamp(selectedAt);document.getElementById('timeline-position').textContent='Timestamp '+(index+1).toLocaleString()+' of '+exact.times.length.toLocaleString();
+        const rows=[];for(const series of exact.series){let low=0,high=series.points.length-1,found=null;while(low<=high){const middle=(low+high)>>1,point=series.points[middle];if(point[0]<=selectedAt){found=point;low=middle+1}else high=middle-1}if(found)rows.push('<tr><td>'+esc(series.label)+'</td><td>'+esc(series.metric)+'</td><td>'+esc(found[2])+' '+esc(series.unit)+'</td><td>'+esc(found[3])+'</td><td>'+esc(stamp(found[0]))+'</td><td>'+esc(stamp(found[1]))+'</td></tr>')}
+        body.innerHTML=rows.join('')||'<tr><td colspan="6">No selected measurements were recorded at or before this historian timestamp.</td></tr>';
+      };slider.addEventListener('input',render);render();
+    }
+    const rows=[...document.querySelectorAll('details.series')],heading=[...document.querySelectorAll('h2')].find(function(node){return node.textContent.startsWith('Individual series evidence')});if(!rows.length||!heading)return;const label=heading.nextElementSibling,library=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');library.id='evidence-library';library.style.cssText='background:white;padding:16px;margin:12px 0;border:1px solid #c6d7d0;border-radius:8px';summary.textContent='Individual series evidence ('+rows.length+')';summary.style.cssText='cursor:pointer;font-weight:650';body.style.marginTop='16px';library.append(summary,body);if(label&&label.tagName==='LABEL')body.append(label);for(const row of rows)body.append(row);heading.replaceWith(library)
+  })</script>`;
   return `<div id="engineering-graphs">${index}${sections}</div>${organizeEvidence}`;
 }
 function engineeringFamilyIndex(all) {
