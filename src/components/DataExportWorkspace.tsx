@@ -265,7 +265,7 @@ export function DataExportWorkspace() {
 
   return <section className="data-export" aria-label="Data export workspace">
     <header><div><small>HISTORY & REPORTS</small><h1>Data export</h1>
-      <p>{catalog?.site || "Recorded site history"} · Build a point-in-time engineering snapshot or export a detailed time range.</p>
+      <p>{catalog?.site || "Recorded site history"} · Build a detailed Site Snapshot or export a granular time range.</p>
     </div><span className="export-badge">Recorded data only</span></header>
     <p>Exports use existing history. No equipment reads or commands are triggered.</p>
     {error && <p role="alert" className="export-error">{error}</p>}
@@ -275,13 +275,13 @@ export function DataExportWorkspace() {
       <fieldset disabled={busy} className="export-grid">
         <section className="export-card export-date-card"><small>STEP 1</small><h2>Choose export type</h2>
           <div className="export-mode" role="group" aria-label="Export type">
-            <button type="button" className={mode === "snapshot" ? "selected" : ""} aria-pressed={mode === "snapshot"} onClick={() => {resetResult(); setMode("snapshot");}}>Point in time</button>
+            <button type="button" className={mode === "snapshot" ? "selected" : ""} aria-pressed={mode === "snapshot"} onClick={() => {resetResult(); setMode("snapshot");}}>Site Snapshot</button>
             <button type="button" className={mode === "range" ? "selected" : ""} aria-pressed={mode === "range"} onClick={() => {resetResult(); setMode("range");}}>Time range</button>
           </div>
           {mode === "snapshot" ? <Fragment>
           <label>Snapshot time · local time<input type="datetime-local" max={toLocalInput(Date.now())} value={snapshotAt}
             onChange={event => {resetResult(); setSnapshotAt(event.target.value);}} /></label>
-          <p className="export-help">Uses retained observations within one minute of this time. Every reading keeps its actual observation time, source time and quality. Missing nearby readings remain blank.</p>
+          <p className="export-help"><strong>Full-detail point-in-time package.</strong> Includes available site, array, string, BPC and cell-group evidence near this time. Every reading keeps its actual observation time, source time and quality. Missing nearby readings remain blank.</p>
           </Fragment> : <Fragment>
           <label className="export-day-picker">Export one full day
             <input type="date" value={singleDay} onChange={event => applyDay(event.target.value)} />
@@ -378,7 +378,7 @@ export function DataExportWorkspace() {
 
       {preview && <section className="export-card"><small>STEP 4</small><h2>Check coverage and download</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
-        <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables. {mode === "snapshot" ? "The point-in-time package preserves nearby recorded evidence without interpolation." : "The time-range package contains every retained selected observation."}</p>
+        <p>The ZIP contains CSV files plus <strong>report.html</strong> with graphs for the selected variables. {mode === "snapshot" ? "The Site Snapshot preserves detailed nearby recorded evidence without interpolation." : "The time-range package contains every retained selected observation."}</p>
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + graphed HTML</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>

@@ -22,7 +22,7 @@ function graph(rows:CellStringFrame[],metric:CellMetric){
 }
 function page(site:string,at:number,array:number,rows:CellStringFrame[]){
   const section=(metric:CellMetric)=>`<section><h2>${esc(metricInfo[metric].label)} by string</h2>${graph(rows,metric)}</section>`;
-  return `<!doctype html><html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>${esc(site)} Array ${array}</title><style>body{font:15px system-ui;max-width:1200px;margin:24px auto;padding:0 18px;color:#17372e}section{border:1px solid #ccd9d4;border-radius:8px;padding:14px;margin:18px 0}svg{width:100%;background:#fbfcfb}small{color:#50665f}</style><h1>${esc(site)} · Array ${array}</h1><p>${esc(new Date(at).toISOString())} · point-in-time retained cell evidence</p>${section('millivolts')}${section('temperatureF')}<small>Missing and ignored readings are blank; no interpolation or zero substitution.</small></html>`;
+  return `<!doctype html><html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>${esc(site)} Array ${array}</title><style>body{font:15px system-ui;max-width:1200px;margin:24px auto;padding:0 18px;color:#17372e}section{border:1px solid #ccd9d4;border-radius:8px;padding:14px;margin:18px 0}svg{width:100%;background:#fbfcfb}small{color:#50665f}</style><h1>${esc(site)} · Array ${array}</h1><p>${esc(new Date(at).toISOString())} · Site Snapshot retained cell evidence</p>${section('millivolts')}${section('temperatureF')}<small>Missing and ignored readings are blank; no interpolation or zero substitution.</small></html>`;
 }
 
 /** Builds the all-array spatial cell portion of the engineering ZIP contract. */
@@ -36,6 +36,6 @@ export function buildEngineeringCellSnapshot(frame:CellFrame):EngineeringSnapsho
     files.push({name:`csv/cells_array_${array}.csv`,body:csv(table)},{name:`html/cells_array_${array}.html`,body:page(site,frame.acquiredAt,array,rows)});
   }
   const links=arrays.map(a=>`<li>Array ${a}: <a href="html/cells_array_${a}.html">graphs</a> · <a href="csv/cells_array_${a}.csv">CSV</a></li>`).join('');
-  files.push({name:'index.html',body:`<!doctype html><html><meta charset="utf-8"><title>${esc(site)} engineering snapshot</title><style>body{font:16px system-ui;max-width:900px;margin:32px auto}li{margin:12px}</style><h1>${esc(site)} engineering snapshot</h1><p>${esc(new Date(frame.acquiredAt).toISOString())}</p><ul>${links}</ul></html>`});
+  files.push({name:'index.html',body:`<!doctype html><html><meta charset="utf-8"><title>${esc(site)} Site Snapshot</title><style>body{font:16px system-ui;max-width:900px;margin:32px auto}li{margin:12px}</style><h1>${esc(site)} Site Snapshot</h1><p>${esc(new Date(frame.acquiredAt).toISOString())}</p><ul>${links}</ul></html>`});
   return files;
 }
