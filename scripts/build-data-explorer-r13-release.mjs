@@ -21,7 +21,7 @@ const once=(before,after)=>{assert.equal(deploy.split(before).length,2,`Expected
 once("const stage='/home/ebc/prizm-pcs-humidity-20261110';",`const stage='/home/ebc/${name}';`);
 once("const release='/opt/prizm-fleet/releases/pcs-humidity-20261110';",`const release='/opt/prizm-fleet/releases/${releaseId}';`);
 once("const backup='/var/lib/prizm-fleet/pcs-humidity-20261110';",`const backup='/var/lib/prizm-fleet/${releaseId}';`);
-deploy=deploy.replaceAll('~zzzz-pcs-humidity-20261110.conf','~zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-data-explorer-r12.conf');
+deploy=deploy.replaceAll('~zzzz-pcs-humidity-20261110.conf','~zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-data-explorer-r13.conf');
 once("assert.equal(manifest.release,'pcs-humidity-20261110');",`assert.equal(manifest.release,'${releaseId}');`);
 once("console.log('PCS humidity deployment complete for Solar Star 3, Solar Star 4, and Fleet.');","console.log('Data Explorer R13 deployment complete for Solar Star 3, Solar Star 4, and Fleet.');");
 fs.writeFileSync(root+'/deploy.mjs',deploy);
