@@ -384,7 +384,7 @@ export function DataExportWorkspace() {
       {preview && <section className="export-card"><small>STEP 4</small><h2>Explore selected data</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
         <p>Review and filter the generated graphs directly in PRIZM. Download remains optional when you need portable CSV files or an offline copy.</p>
-        {preview.rows>0&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" src={`${endpoint}/explore?ticket=${encodeURIComponent(preview.ticket)}`} />}
+        {preview.rows>0&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts allow-same-origin" src={`${endpoint}/explore?ticket=${encodeURIComponent(preview.ticket)}`} />}
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + offline graphs</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>

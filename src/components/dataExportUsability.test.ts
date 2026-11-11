@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {readFileSync} from "node:fs";
 import {
   powerCommandSelections,
   powerComparisonSelections,
@@ -70,4 +71,10 @@ test("power shortcuts select commands and optional measured power", () => {
     metrics: ["kw", "kvar", "dcV", "dcA"],
   }]);
   assert.deepEqual(powerComparisonSelections(targets, [2]), []);
+});
+
+test("embedded explorer retains the authenticated same-origin session", () => {
+  const source = readFileSync(new URL("./DataExportWorkspace.tsx", import.meta.url), "utf8");
+  assert.match(source, /sandbox="allow-scripts allow-same-origin"/);
+  assert.doesNotMatch(source, /sandbox="allow-scripts"/);
 });
