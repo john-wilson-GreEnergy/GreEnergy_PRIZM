@@ -23,14 +23,15 @@ const tree=directory=>Object.fromEntries(fs.readdirSync(directory,{recursive:tru
 }).sort(([a],[b])=>a.localeCompare(b)));
 const protectedHashes=()=>Object.fromEntries(['/etc/prizm-fleet/fleet/fleet.json','/etc/prizm-fleet/fleet/remote.json','/etc/prizm-fleet/ss3/export.json','/etc/prizm-fleet/ss4/export.json']
   .filter(fs.existsSync).map(file=>[file,sha(fs.readFileSync(file))]));
-const healthy=plan=>{assert.equal(prop(plan.unit,'ActiveState'),'active');assert(prop(plan.unit,'ExecStart').includes(release+'/dist/'+plan.entry),prop(plan.unit,'ExecStart'));};
+const waitForActive=(unit,seconds=60)=>{for(let elapsed=0;elapsed<seconds;elapsed++){const state=prop(unit,'ActiveState');if(state==='active')return;if(state==='failed'||state==='inactive')throw Error(`${unit} entered ${state}`);run('/bin/sleep',['1']);}throw Error(`${unit} did not become active within ${seconds} seconds (state: ${prop(unit,'ActiveState')})`);};
+const healthy=plan=>{waitForActive(plan.unit);assert(prop(plan.unit,'ExecStart').includes(release+'/dist/'+plan.entry),prop(plan.unit,'ExecStart'));};
 const manifest=JSON.parse(fs.readFileSync(stage+'/manifest.json','utf8'));
 
 function restore(state){
   for(const plan of plans)if(fs.existsSync(plan.override))fs.unlinkSync(plan.override);
   run('systemctl',['daemon-reload']);
   for(const plan of plans)run('systemctl',['restart',plan.unit]);
-  for(const plan of plans){assert.equal(prop(plan.unit,'ActiveState'),'active');assert.equal(execTarget(plan.unit),state.services[plan.unit].execTarget);}
+  for(const plan of plans){waitForActive(plan.unit);assert.equal(execTarget(plan.unit),state.services[plan.unit].execTarget);}
   assert.deepEqual(protectedHashes(),state.protectedHashes);
   state.rolledBackAt=new Date().toISOString();fs.writeFileSync(backup+'/state.json',JSON.stringify(state,null,2));
   console.log('Previous PRIZM services restored.');
