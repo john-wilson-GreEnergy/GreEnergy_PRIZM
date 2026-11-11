@@ -429,7 +429,7 @@ export function DataExportWorkspace() {
 }
 
 function validSavedSelection(value: any): value is SavedSelection {
-  return typeof value?.name === "string" && Array.isArray(value.selections) && value.selections.length <= 512 &&
+  return typeof value?.name === "string" && Array.isArray(value.selections) && value.selections.length <= 2048 &&
     value.selections.every((selection: any) => selection && ["power", "cells", "hvac"].includes(selection.source) &&
       typeof selection.target === "string" && Array.isArray(selection.metrics) && selection.metrics.every((metric: any) => typeof metric === "string")) &&
     Number.isFinite(value.hours) && value.hours > 0 && value.hours <= 168;

@@ -2707,7 +2707,7 @@ function freshCell(time, now) {
 }
 
 // src/server/dataExport/model.ts
-var exportLimits = { days: 7, selections: 512, series: 16384, rows: 5e6, readBytes: 2 * 1024 ** 3, outputBytes: 512 * 1024 ** 2, zipBytes: 256 * 1024 ** 2, ms: 6e5 };
+var exportLimits = { days: 7, selections: 2048, series: 65536, rows: 5e6, readBytes: 2 * 1024 ** 3, outputBytes: 512 * 1024 ** 2, zipBytes: 256 * 1024 ** 2, ms: 6e5 };
 var hvacMetrics = [
   ...["space", "supply", "control", "outside", "cell", "cooling", "heating"].map((id) => ({ id, label: { space: "Enclosure temperature", supply: "Supply-air temperature", control: "Control temperature", outside: "Outside temperature", cell: "Average cell temperature", cooling: "Cooling setpoint", heating: "Heating setpoint" }[id], unit: "\xB0C" })),
   { id: "current", label: "Whole-unit supply current", unit: "A" },
@@ -2885,7 +2885,7 @@ async function buildExport(job) {
       const channels = plan.source === "cells" && !m.id.startsWith("operating.") ? Array.from({ length: target.bpcs * target.cells }, (_, i) => ({ b: Math.floor(i / target.cells) + 1, c: i % target.cells + 1 })).filter((x) => (!select.bpc || select.bpc === x.b) && (!select.cell || select.cell === x.c)) : [null];
       for (const c of channels) {
         const id = `${plan.source}:${target.id}${c ? `-B${c.b}-C${c.c}` : ""}:${m.id}`;
-        if (series.size >= exportLimits.series && !series.has(id)) throw Error("Select at most 16,384 data series per package.");
+        if (series.size >= exportLimits.series && !series.has(id)) throw Error("Select at most 65,536 data series per package.");
         series.set(id, { id, label: target.label + (c ? ` \xB7 BPC ${c.b} \xB7 Cell ${c.c}` : ""), metric: m.label, unit: m.unit, source: plan.source, gapMs: 12e4, points: [] });
       }
     }

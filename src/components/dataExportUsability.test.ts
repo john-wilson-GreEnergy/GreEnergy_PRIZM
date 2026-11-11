@@ -99,6 +99,6 @@ test("complete engineering packages retain structured array and report-family ou
   assert.match(worker, /key:\s*"pcs_power"/);
   assert.match(worker, /key:\s*"notifications"/);
   assert.match(worker, /addFile\("index\.html"/);
-  assert.match(service, /selections: 512/);
-  assert.match(service, /series: 16384/);
+  assert.match(service, /selections: 2048/);
+  assert.match(service, /series: 65536/);
 });
