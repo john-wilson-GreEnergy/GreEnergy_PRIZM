@@ -1,4 +1,4 @@
-import React, {Fragment, useEffect, useRef, useState} from "react";
+import React, {Fragment, useEffect, useMemo, useRef, useState} from "react";
 import {useSiteDataFields} from "../context/SiteDataContext";
 import "./dataExport.css";
 import {
@@ -81,7 +81,7 @@ export function DataExportWorkspace() {
   const [selectedArrays, setSelectedArrays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [explorerHtml, setExplorerHtml] = useState("");
-  const [explorerUrl, setExplorerUrl] = useState("");
+  const [explorerFilter, setExplorerFilter] = useState("");
   const [saved, setSaved] = useState<SavedSelection[]>([]);
   const [saveName, setSaveName] = useState("");
   const [message, setMessage] = useState("");
@@ -114,16 +114,22 @@ export function DataExportWorkspace() {
     };
   }, [reload]);
 
-  useEffect(() => {
-    if (!explorerHtml) {setExplorerUrl("");return;}
-    const url = URL.createObjectURL(new Blob([explorerHtml], {type: "text/html"}));
-    setExplorerUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [explorerHtml]);
+  const filteredExplorerHtml = useMemo(() => {
+    if (!explorerHtml || typeof DOMParser === "undefined") return explorerHtml;
+    const document = new DOMParser().parseFromString(explorerHtml, "text/html");
+    document.querySelectorAll("script").forEach(script => script.remove());
+    document.getElementById("filter")?.closest("label")?.remove();
+    const query = explorerFilter.trim().toLowerCase();
+    document.querySelectorAll<HTMLElement>("details.series").forEach(series => {
+      series.hidden = Boolean(query) && !series.querySelector("summary")?.textContent?.toLowerCase().includes(query);
+    });
+    return "<!doctype html>" + document.documentElement.outerHTML;
+  }, [explorerHtml, explorerFilter]);
 
   const resetResult = () => {
     setPreview(null);
     setExplorerHtml("");
+    setExplorerFilter("");
     setError("");
     setMessage("");
   };
@@ -398,7 +404,11 @@ export function DataExportWorkspace() {
       {preview && <section className="export-card"><small>STEP 4</small><h2>Explore selected data</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
         <p>Review and filter the generated graphs directly in PRIZM. Download remains optional when you need portable CSV files or an offline copy.</p>
-        {preview.rows>0&&explorerUrl&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" src={explorerUrl} />}
+        {preview.rows>0&&explorerHtml&&<Fragment>
+          <label>Find equipment or measurement<input type="search" value={explorerFilter}
+            onChange={event => setExplorerFilter(event.target.value)} placeholder="Array, string, HVAC, command…" /></label>
+          <iframe className="export-explorer" title="Selected data explorer" sandbox="" srcDoc={filteredExplorerHtml} />
+        </Fragment>}
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + offline graphs</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>

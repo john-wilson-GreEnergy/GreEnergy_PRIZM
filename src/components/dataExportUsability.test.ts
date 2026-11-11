@@ -75,8 +75,9 @@ test("power shortcuts select commands and optional measured power", () => {
 
 test("embedded explorer renders authenticated report content from an isolated local document", () => {
   const source = readFileSync(new URL("./DataExportWorkspace.tsx", import.meta.url), "utf8");
-  assert.match(source, /new Blob\(\[explorerHtml\], \{type: "text\/html"\}\)/);
-  assert.match(source, /sandbox="allow-scripts"/);
-  assert.match(source, /src=\{explorerUrl\}/);
-  assert.doesNotMatch(source, /srcDoc=/);
+  assert.match(source, /document\.querySelectorAll\("script"\)/);
+  assert.match(source, /details\.series/);
+  assert.match(source, /sandbox=""/);
+  assert.match(source, /srcDoc=\{filteredExplorerHtml\}/);
+  assert.doesNotMatch(source, /explorerUrl/);
 });
