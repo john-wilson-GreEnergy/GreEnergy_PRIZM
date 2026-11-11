@@ -235,9 +235,9 @@ var power = /* @__PURE__ */ (() => {
   const siteKey = (id) => (0, import_node_crypto2.createHash)("sha256").update(id).digest("hex");
   const pattern = /^([a-f0-9]{64})-(\d{1,4})-(\d{13})\.jsonl$/;
   ;
-  return function() {
+  return async function() {
     const key = this.site ? siteKey(this.site.id) : "";
-    const targets = [...this.writeSite === this.site?.id ? this.previous.values() : []].filter((o) => o.stream !== "command").map((o) => ({
+    const targets = (await this.exportObservations()).filter((o) => o.stream !== "command").map((o) => ({
       source: "power",
       id: o.entity + "|" + o.stream,
       label: o.label + " \xB7 " + o.stream,
@@ -273,7 +273,7 @@ var hvac = /* @__PURE__ */ (() => {
   };
 })();
 function install(router, cellHistory, timeline, thermal) {
-  const service = new DataExportService(async () => [power.call(timeline()), await cells.call(cellHistory), await hvac.call(thermal().siteHistory)]);
+  const service = new DataExportService(async () => [await power.call(timeline()), await cells.call(cellHistory), await hvac.call(thermal().siteHistory)]);
   router.use("/data-export", createDataExportRouter(service));
   return service;
 }

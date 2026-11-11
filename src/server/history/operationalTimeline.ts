@@ -42,6 +42,23 @@ export class OperationalTimeline {
       maxPendingBatches: this.options.maxPendingBatches ?? 32, maxPendingBytes: this.options.maxPendingBytes ?? 8 * 1024 ** 2,
       bufferingEnabled: process.env.PRIZM_TIMELINE_BUFFERING !== "false", lastDropReason: this.lastDropReason};
   }
+  /** Current target catalogue, reconstructed from retained shards after restart when needed. */
+  async exportObservations(): Promise<TimelineObservation[]> {
+    await this.flush();
+    await this.init();
+    if (!this.site) return [];
+    const key=siteKey(this.site.id),latest=new Map<string,TimelineObservation>();
+    for(const observation of this.previous.values())latest.set(`${observation.entity}:${observation.stream}`,structuredClone(observation));
+    if(latest.size)return [...latest.values()];
+    const names=[...this.files.keys()].filter(name=>name.startsWith(`${key}-`)).sort().reverse();
+    let scanned=0;
+    for(const name of names){
+      const input=createReadStream(path.join(this.directory,name),{encoding:'utf8'}),lines=createInterface({input,crlfDelay:Infinity});
+      try{for await(const line of lines){let record:Record;try{record=JSON.parse(line)}catch{continue}const observation=record.observation;if(!observation||observation.stream==='command')continue;const identity=`${observation.entity}:${observation.stream}`;if(!latest.has(identity))latest.set(identity,observation);if(++scanned>=200_000)break;}}finally{lines.close();input.destroy();}
+      if(scanned>=200_000)break;
+    }
+    return [...latest.values()];
+  }
   private used() { return [...this.files.values()].reduce((sum, n) => sum + n, 0); }
   private async init() {
     if (this.initialized) return;

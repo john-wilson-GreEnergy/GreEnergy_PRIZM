@@ -47,6 +47,7 @@ assert.match(competitor.status().error || "", /already has a writer/);
 await storage.close();
 const reopened = new OperationalTimeline(path.join(root, "history"), {maxBytes: 1_000_000, reserveBytes: 0}, () => now);
 reopened.ingest({site, observations: []}); await reopened.flush();
+assert((await reopened.exportObservations()).some(item=>item.stream==='electrical'&&item.entity==='1:1'),"Export catalogue rebuilds targets from retained shards after restart");
 assert.equal((await reopened.query(1, 1)).samples, 5, "Persisted evidence survives restart");
 now += 8 * 24 * 3_600_000;
 reopened.ingest({site, observations: [observation("electrical", {kw: 1})]}); await reopened.flush();
