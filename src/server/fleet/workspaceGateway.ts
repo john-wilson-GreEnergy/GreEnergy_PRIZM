@@ -147,8 +147,9 @@ export function createWorkspaceGateway(sessions:LocalSessions,collector:Collecto
   // Parse only our small authentication payload; never consume forwarded command/upload bodies.
   app.use('/api/fleet/workspace-reauthenticate',express.json({limit:'4kb',strict:true}));
   app.use((req,res)=>{
+    const embeddedExplorer=req.method==='GET' && req.url.split('?')[0]==='/api/local/site-data/data-export/explore';
     res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
-      'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+      'Content-Security-Policy':`default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; form-action 'self'; frame-ancestors ${embeddedExplorer?"'self'":"'none'"}; base-uri 'none'`});
     void(async()=>{
       const loopback=['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress??'');
       if(req.headers.host!==origin.host || (req.headers.origin && req.headers.origin!==origin.origin) ||

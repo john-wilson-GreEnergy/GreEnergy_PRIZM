@@ -40,6 +40,7 @@ try{
     legacy.use('/api/local/corrective-guidance',createCorrectiveGuidanceRouter(new CorrectiveGuidanceStore(path.join(dir,`guidance-${n}.json`))));
     legacy.post('/api/local/mock-control',(req,res)=>{calls.push({site:n,body:req.body,cookie:req.headers.cookie,authorization:req.headers.authorization,csrf:req.headers['x-prizm-csrf']});res.cookie('unsafe','never-forward');res.json({site:n,accepted:true});});
     legacy.get('/api/local/snapshot',(_req,res)=>res.json({site:n,source:'fixture'}));
+    legacy.get('/api/local/site-data/data-export/explore',(_req,res)=>res.type('html').send('<!doctype html><title>Fixture explorer</title>'));
     legacy.get('/api/local/redirect',(_req,res)=>res.redirect('https://example.invalid'));
     legacy.get('/api/local/site-data/strings-stream',(_req,res)=>{res.type('text/event-stream');res.write('data: one\n\n');setTimeout(()=>res.end('data: two\n\n'),10);});
     app.use('/api/fleet/workspace',collectorWorkspace(token,()=>true,legacy));
@@ -54,7 +55,11 @@ try{
   }
   auth=await sessions.login(user.email,'Loopback-only workspace fixture','fixture');
   for(const [i,e] of entries.entries()){
-    assert.equal(JSON.parse((await send(e.port,'/api/local/snapshot')).body).site,i+1);
+    const snapshot=await send(e.port,'/api/local/snapshot');assert.equal(JSON.parse(snapshot.body).site,i+1);
+    assert.match(String(snapshot.headers['content-security-policy']),/frame-ancestors 'none'/);
+    const explorer=await send(e.port,'/api/local/site-data/data-export/explore?ticket=12345678-1234-1234-1234-123456789abc');
+    assert.equal(explorer.status,200);assert.match(explorer.body,/Fixture explorer/);
+    assert.match(String(explorer.headers['content-security-policy']),/frame-ancestors 'self'/);
     const result=await send(e.port,'/api/local/mock-control','POST',{target:'synthetic-only',value:i});
     assert.equal(result.status,200);assert.equal(result.headers['set-cookie'],undefined);
     assert.equal(calls.at(-1)?.site,i+1);assert.deepEqual(calls.at(-1)?.body,{target:'synthetic-only',value:i});
