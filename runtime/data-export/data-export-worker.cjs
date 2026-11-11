@@ -2707,7 +2707,7 @@ function freshCell(time, now) {
 }
 
 // src/server/dataExport/model.ts
-var exportLimits = { days: 7, selections: 32, series: 1024, rows: 12e4, readBytes: 256 * 1024 ** 2, outputBytes: 32 * 1024 ** 2, zipBytes: 16 * 1024 ** 2, ms: 25e3 };
+var exportLimits = { days: 7, selections: 32, series: 1024, rows: 1e6, readBytes: 1024 * 1024 ** 2, outputBytes: 192 * 1024 ** 2, zipBytes: 64 * 1024 ** 2, ms: 12e4 };
 var hvacMetrics = [
   ...["space", "supply", "control", "outside", "cell", "cooling", "heating"].map((id) => ({ id, label: { space: "Enclosure temperature", supply: "Supply-air temperature", control: "Control temperature", outside: "Outside temperature", cell: "Average cell temperature", cooling: "Cooling setpoint", heating: "Heating setpoint" }[id], unit: "\xB0C" })),
   { id: "current", label: "Whole-unit supply current", unit: "A" },
@@ -2778,7 +2778,7 @@ async function buildExport(job) {
       s = { id, label, metric, unit, source, gapMs, points: [] };
       series.set(id, s);
     }
-    if (++rows > exportLimits.rows) throw Error("Export exceeds 120,000 readings. Select fewer measurements or a shorter window.");
+    if (++rows > exportLimits.rows) throw Error("Export exceeds 1,000,000 readings. Select fewer measurements or a shorter window.");
     outputEstimate += JSON.stringify(point).length + id.length + label.length + metric.length + 120;
     if (outputEstimate > exportLimits.outputBytes) throw Error("Export size limit reached. Narrow the selection.");
     s.source = source;
@@ -2917,7 +2917,7 @@ async function buildExport(job) {
   let total = 0;
   const addFile = (name, body) => {
     total += Buffer.byteLength(body);
-    if (total > exportLimits.outputBytes) throw Error("Package exceeds 32 MiB before compression. Narrow the selection.");
+    if (total > exportLimits.outputBytes) throw Error("Package exceeds 192 MiB before compression. Narrow the selection.");
     archive.addFile(name, Buffer.from(body));
   };
   for (const source of ["power", "hvac", "cells"]) {
@@ -2943,7 +2943,7 @@ Open report.html offline. All times are UTC. Source time is when the provider re
   check();
   const zipped = await archive.toBufferPromise();
   check();
-  if (zipped.length > exportLimits.zipBytes) throw Error("Compressed package exceeds 16 MiB. Narrow the selection.");
+  if (zipped.length > exportLimits.zipBytes) throw Error("Compressed package exceeds 64 MiB. Narrow the selection.");
   return { archive: zipped, coverage: summaries, rows, warnings };
 }
 
