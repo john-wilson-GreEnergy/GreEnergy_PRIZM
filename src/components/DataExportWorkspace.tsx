@@ -81,6 +81,7 @@ export function DataExportWorkspace() {
   const [selectedArrays, setSelectedArrays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [explorerHtml, setExplorerHtml] = useState("");
+  const [explorerUrl, setExplorerUrl] = useState("");
   const [saved, setSaved] = useState<SavedSelection[]>([]);
   const [saveName, setSaveName] = useState("");
   const [message, setMessage] = useState("");
@@ -112,6 +113,13 @@ export function DataExportWorkspace() {
       controller.current?.abort();
     };
   }, [reload]);
+
+  useEffect(() => {
+    if (!explorerHtml) {setExplorerUrl("");return;}
+    const url = URL.createObjectURL(new Blob([explorerHtml], {type: "text/html"}));
+    setExplorerUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [explorerHtml]);
 
   const resetResult = () => {
     setPreview(null);
@@ -390,7 +398,7 @@ export function DataExportWorkspace() {
       {preview && <section className="export-card"><small>STEP 4</small><h2>Explore selected data</h2>
         <p>{preview.rows.toLocaleString()} readings · {preview.series.length} graph series · {(preview.bytes / 1_048_576).toFixed(2)} MiB ZIP</p>
         <p>Review and filter the generated graphs directly in PRIZM. Download remains optional when you need portable CSV files or an offline copy.</p>
-        {preview.rows>0&&explorerHtml&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" srcDoc={explorerHtml} />}
+        {preview.rows>0&&explorerUrl&&<iframe className="export-explorer" title="Selected data explorer" sandbox="allow-scripts" src={explorerUrl} />}
         <button className="export-primary" onClick={download} disabled={busy || !preview.rows}>Download CSV + offline graphs</button>
         {!preview.rows && <p>No retained readings matched. Try another date range or equipment target.</p>}
         <details><summary>Sources, resolution and limitations</summary><ul>{preview.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details>

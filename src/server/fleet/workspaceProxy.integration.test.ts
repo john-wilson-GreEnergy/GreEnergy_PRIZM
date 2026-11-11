@@ -56,7 +56,7 @@ try{
   auth=await sessions.login(user.email,'Loopback-only workspace fixture','fixture');
   for(const [i,e] of entries.entries()){
     const snapshot=await send(e.port,'/api/local/snapshot');assert.equal(JSON.parse(snapshot.body).site,i+1);
-    assert.match(String(snapshot.headers['content-security-policy']),/frame-src 'self'/);
+    assert.match(String(snapshot.headers['content-security-policy']),/frame-src 'self' blob:/);
     assert.match(String(snapshot.headers['content-security-policy']),/frame-ancestors 'none'/);
     const explorer=await send(e.port,'/api/local/site-data/data-export/explore?ticket=12345678-1234-1234-1234-123456789abc','GET',undefined,{'X-Prizm-Csrf':''});
     assert.equal(explorer.status,200);assert.match(explorer.body,/Fixture explorer/);

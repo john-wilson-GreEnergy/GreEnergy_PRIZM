@@ -73,9 +73,10 @@ test("power shortcuts select commands and optional measured power", () => {
   assert.deepEqual(powerComparisonSelections(targets, [2]), []);
 });
 
-test("embedded explorer renders authenticated report content without a second frame request", () => {
+test("embedded explorer renders authenticated report content from an isolated local document", () => {
   const source = readFileSync(new URL("./DataExportWorkspace.tsx", import.meta.url), "utf8");
-  assert.match(source, /srcDoc=\{explorerHtml\}/);
+  assert.match(source, /new Blob\(\[explorerHtml\], \{type: "text\/html"\}\)/);
   assert.match(source, /sandbox="allow-scripts"/);
-  assert.doesNotMatch(source, /iframe[^>]+src=\{/);
+  assert.match(source, /src=\{explorerUrl\}/);
+  assert.doesNotMatch(source, /srcDoc=/);
 });
