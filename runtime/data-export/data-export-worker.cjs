@@ -2758,6 +2758,43 @@ function graph(s, from, to) {
     return `<path stroke="#06795c" stroke-width="3" d="M${x} ${y(v.min).toFixed(2)}V${y(v.max).toFixed(2)}"/><circle fill="#06795c" cx="${x}" cy="${y(v.max).toFixed(2)}" r="1.5"><title>${htmlEscape(iso(from + b * (to - from) / 240))}: ${v.min}\u2013${v.max}; ${v.count} samples</title></circle>`;
   }).join("")}</svg>`;
 }
+var engineeringColors = ["#2878bd", "#ef6c35", "#22a77a", "#8d62ba", "#d6a11d", "#d34f73", "#4b9ca6", "#7b7f35", "#666f8f"];
+function engineeringFamily(s) {
+  const metric = s.metric.toLowerCase(), unit = s.unit.toLowerCase();
+  if (metric.includes("reactive") || unit.includes("kvar")) return "Reactive power";
+  if (metric.includes("real power") || metric.includes("setpoint") && unit === "kw") return "Real power: command, setting, and actual";
+  if (metric.includes("dc voltage")) return "PCS DC voltage";
+  if (metric.includes("dc current")) return "PCS DC current";
+  if (metric.includes("humidity")) return "Humidity";
+  if (metric.includes("temperature")) return "Temperature";
+  if (metric.includes("cell voltage")) return "Cell voltage";
+  if (metric.includes("string current")) return "String current";
+  if (metric.includes("string soc")) return "String SOC";
+  return s.metric;
+}
+function engineeringFamilyGraph(items, from, to) {
+  let low = Infinity, high = -Infinity;
+  const traces = items.map((s) => {
+    const buckets = /* @__PURE__ */ new Map();
+    for (const p of s.points) {
+      if (p[3] !== "live" || typeof p[2] !== "number" || p[1] === null || p[1] < from || p[1] > to) continue;
+      low = Math.min(low, p[2]); high = Math.max(high, p[2]);
+      const b = Math.min(239, Math.floor((p[1] - from) / (to - from) * 240)), previous = buckets.get(b);
+      buckets.set(b, { min: Math.min(previous?.min ?? p[2], p[2]), max: Math.max(previous?.max ?? p[2], p[2]) });
+    }
+    return { s, buckets };
+  });
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return "<p>No live numeric samples in this family. See CSV for states and quality.</p>";
+  const span = high - low || 1, y = (n) => 205 - (n - low) / span * 170;
+  const plotted = traces.map(({ s, buckets }, index) => { const color = engineeringColors[index % engineeringColors.length]; return [...buckets].map(([bucket, value]) => { const x = 55 + bucket * 4; return `<path stroke="${color}" stroke-width="2" d="M${x} ${y(value.min).toFixed(2)}V${y(value.max).toFixed(2)}"><title>${htmlEscape(s.label)} · ${htmlEscape(s.metric)}: ${value.min}–${value.max} ${htmlEscape(s.unit)}</title></path>`; }).join(""); }).join("");
+  const legend = items.map((s, index) => `<span><i style="background:${engineeringColors[index % engineeringColors.length]}"></i>${htmlEscape(s.label)} · ${htmlEscape(s.metric)}</span>`).join("");
+  return `<div class="legend">${legend}</div><p>${htmlEscape(low)}–${htmlEscape(high)} ${htmlEscape(items[0]?.unit ?? "")}</p><svg role="img" aria-label="${htmlEscape(engineeringFamily(items[0]))}" viewBox="0 0 1040 235"><path stroke="#a9b6b1" d="M55 215H1015M55 25V215"/>${plotted}<text x="58" y="20">${htmlEscape(high)}</text><text x="58" y="212">${htmlEscape(low)}</text></svg>`;
+}
+function engineeringFamilySections(all, from, to) {
+  const families = /* @__PURE__ */ new Map();
+  for (const item of all) { const key = engineeringFamily(item) + "|" + item.unit; if (!families.has(key)) families.set(key, []); families.get(key).push(item); }
+  return [...families].map(([key, items]) => `<section class="engineering-family"><h2>${htmlEscape(key.split("|")[0])} <small>(${htmlEscape(items[0].unit)})</small></h2>${engineeringFamilyGraph(items, from, to)}<p><small>${items.length} coordinated series · recorded min/max envelopes · no interpolation</small></p></section>`).join("");
+}
 async function buildExport(job) {
   const started = performance.now(), series = /* @__PURE__ */ new Map();
   let rows = 0, bytes = 0, outputEstimate = 0, skipped = 0;
@@ -2936,7 +2973,7 @@ ${warnings.join("\n\n")}
 Open report.html offline. All times are UTC. Source time is when the provider reports the measurement; observation time is the recorded frame/point time. HVAC receipt time is included in received_time_utc when available in the recording (not fabricated). No fill-forward, interpolation, or zero substitution. Command values are reported states/setpoints, not proof of physical execution. Measured PCS power is telemetry, not independent meter verification. Whole-unit HVAC current includes compressor, fan and other loads. Temperature units are explicit. CSV text beginning with formula characters is prefixed with an apostrophe for spreadsheet safety.
 `);
   const h = htmlEscape;
-  addFile("report.html", `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><title>PRIZM data export</title><style>body{font:16px system-ui;color:#14312b;background:#f4f7f6;margin:24px auto;max-width:1100px;padding:0 16px}h1{margin-bottom:8px}details{background:white;padding:16px;margin:12px 0;border:1px solid #c6d7d0;border-radius:8px}summary{cursor:pointer;font-weight:650}svg{width:100%;max-height:230px}input{padding:12px;width:min(90%,600px)}small{color:#455e57}li{margin-bottom:6px}.window{font-weight:600}p{overflow-wrap:anywhere}</style><h1>PRIZM selected history</h1><p>${h(job.site)}</p><p class="window">${h(iso(job.request.from))} \u2014 ${h(iso(job.request.to))}</p><p>${rows.toLocaleString("en-US")} recorded readings \xB7 ${all.length} selected series \xB7 UTC</p><details><summary>Coverage and interpretation</summary><ul>${warnings.map((w) => `<li>${h(w)}</li>`).join("")}</ul><p>See coverage.csv and manifest.json for every selected series, including those with no data. Use the CSV files for full retained resolution.</p></details><label>Find equipment or measurement <input id="filter" type="search" placeholder="Array, string, HVAC, command\u2026"></label>${all.map((s, i) => {
+  addFile("report.html", `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><title>PRIZM data export</title><style>body{font:16px system-ui;color:#14312b;background:#f4f7f6;margin:24px auto;max-width:1100px;padding:0 16px}h1{margin-bottom:8px}details,.engineering-family{background:white;padding:16px;margin:12px 0;border:1px solid #c6d7d0;border-radius:8px}summary{cursor:pointer;font-weight:650}svg{width:100%;max-height:260px}input{padding:12px;width:min(90%,600px)}small{color:#455e57}li{margin-bottom:6px}.window{font-weight:600}p{overflow-wrap:anywhere}.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px}.legend span{display:inline-flex;align-items:center;gap:5px}.legend i{width:12px;height:4px;display:inline-block}</style><h1>PRIZM selected history</h1><p>${h(job.site)}</p><p class="window">${h(iso(job.request.from))} \u2014 ${h(iso(job.request.to))}</p><p>${rows.toLocaleString("en-US")} recorded readings \xB7 ${all.length} selected series \xB7 UTC</p><details><summary>Coverage and interpretation</summary><ul>${warnings.map((w) => `<li>${h(w)}</li>`).join("")}</ul><p>See coverage.csv and manifest.json for every selected series, including those with no data. Use the CSV files for full retained resolution.</p></details><h2>Engineering overview</h2><p>Related command, setting, actual, electrical, thermal, and environmental series are aligned for direct comparison.</p>${engineeringFamilySections(all,job.request.from,job.request.to)}<h2>Individual series evidence</h2><label>Find equipment or measurement <input id="filter" type="search" placeholder="Array, string, HVAC, command\u2026"></label>${all.map((s, i) => {
     const c = summaries[i];
     return `<details class="series"><summary>${h(s.label)} \xB7 ${h(s.metric)} (${h(s.unit)})</summary><p>${c.rows} rows; ${c.valid} distinct live source times. Largest gap including edges: ${(c.largestGapMs / 6e4).toFixed(1)} min.</p><p>First / last live source: ${h(iso(c.first) || "Not available")} / ${h(iso(c.last) || "Not available")}</p>${graph(s, job.request.from, job.request.to)}<small>${h(iso(job.request.from))} \u2014 ${h(iso(job.request.to))} \xB7 hover over marks for bucket evidence</small></details>`;
   }).join("")}<script>document.getElementById('filter').addEventListener('input',function(){for(const d of document.querySelectorAll('.series'))d.hidden=!d.querySelector('summary').textContent.toLowerCase().includes(this.value.toLowerCase())});</script></html>`);

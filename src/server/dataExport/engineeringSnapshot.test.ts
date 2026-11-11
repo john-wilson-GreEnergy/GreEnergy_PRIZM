@@ -11,6 +11,7 @@ const analytics=buildEngineeringAnalyticsSnapshot({site:'BHE0021-1',preparedAt:1
 assert.deepEqual(analytics.map(f=>f.name),['csv/site_metrics.csv','html/site_metrics.html']);assert.match(analytics[0].body,/pcs-power/);assert.match(analytics[1].body,/123 kW/);
 const pcs=buildEngineeringPcsSnapshot({pcs:[{arrayIndex:1,pcsIndex:1,acCmdRealPowerKW:100,acRealPowerSettingKW:98,acRealPowerKW:97,electronicsAreaHumidityPct:34,dehumidificationStatus:'ON'}]});
 assert.match(pcs[0].body,/command_real_kw/);assert.match(pcs[0].body,/"100","98","97"/);assert.match(pcs[1].body,/Dehumidification/iu);
+assert.match(pcs[1].body,/PCS AC real power by array/);assert.match(pcs[1].body,/Commanded/);assert.match(pcs[1].body,/Actual/);
 assert.match(buildEngineeringEnvironmentalSnapshot({feather:[{arrayIndex:1,humidity:45}]})[0].body,/humidity/);
 assert.match(buildEngineeringNotificationSnapshot({notifications:[{severity:'warning',code:'2001',name:'Fixture',source:{arrayIndex:1}}]})[0].body,/warning/);
 assert.match(buildEngineeringIndex('BHE0021-1',1790593203000,[1,2]).body,/html\/pcs\.html/);

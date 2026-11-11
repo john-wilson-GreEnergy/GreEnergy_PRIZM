@@ -12,6 +12,19 @@ function documentPage(title:string,body:string){return `<!doctype html><html><me
 function valueAt(row:any,keys:string[]){for(const key of keys){const value=row?.[key];if(value!==undefined&&value!==null&&value!=='')return value}return null}
 function objectRows(value:any,keys:string[]){if(Array.isArray(value))return value;for(const key of keys)if(Array.isArray(value?.[key]))return value[key];return []}
 function tableHtml(headers:string[],rows:unknown[][]){return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
+const engineeringColors=['#2878bd','#ef6c35','#22a77a','#8d62ba','#d6a11d','#d34f73','#4b9ca6','#7b7f35'];
+function pcsPowerGraph(pcs:any[]){
+  const series=[
+    {label:'Commanded',color:engineeringColors[0],keys:['acCmdRealPowerKW','commandRealPowerKW','realPowerCommandKW']},
+    {label:'Setting',color:engineeringColors[1],keys:['acRealPowerSettingKW','realPowerSettingKW']},
+    {label:'Actual',color:engineeringColors[2],keys:['acRealPowerKW','acRealPowerKw']},
+  ], values=pcs.flatMap(row=>series.map(item=>Number(valueAt(row,item.keys))).filter(Number.isFinite)),max=Math.max(1,...values.map(Math.abs)),width=1100,height=360;
+  const x=(index:number)=>90+index*Math.max(1,(width-150)/Math.max(1,pcs.length-1)),y=(value:number)=>height/2-value/max*(height/2-60);
+  const legend=series.map((item,index)=>`<circle cx="${390+index*150}" cy="24" r="5" fill="${item.color}"/><text x="${402+index*150}" y="29">${item.label}</text>`).join('');
+  const marks=pcs.flatMap((row,index)=>series.map((item,offset)=>{const value=Number(valueAt(row,item.keys));return Number.isFinite(value)?`<circle cx="${x(index)+offset*10-10}" cy="${y(value)}" r="5" fill="${item.color}"><title>Array ${esc(valueAt(row,['arrayIndex','array']))} ${item.label}: ${value} kW</title></circle>`:''})).join('');
+  const labels=pcs.map((row,index)=>`<text x="${x(index)}" y="${height-18}" text-anchor="middle">${esc(valueAt(row,['arrayIndex','array']))}</text>`).join('');
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="PCS AC real power by array"><path d="M70 ${height/2}H1070" stroke="#a9b6b1"/><path d="M70 45V${height-45}" stroke="#a9b6b1"/>${legend}${marks}${labels}<text x="18" y="${height/2}" transform="rotate(-90 18 ${height/2})" text-anchor="middle">Power (kW)</text><text x="570" y="${height-2}" text-anchor="middle">Array</text><text x="76" y="58">${max}</text><text x="76" y="${height-52}">-${max}</text></svg>`;
+}
 
 /** Converts the coordinator's current spatial metrics into portable CSV and inline-SVG evidence. */
 export function buildEngineeringAnalyticsSnapshot(analytics:SiteAnalytics):EngineeringSnapshotFile[]{
@@ -27,7 +40,7 @@ export function buildEngineeringAnalyticsSnapshot(analytics:SiteAnalytics):Engin
 export function buildEngineeringPcsSnapshot(view:any):EngineeringSnapshotFile[]{
   const pcs=objectRows(view,['pcs']),headers=['array','pcs','observed_time_utc','command_real_kw','setting_real_kw','actual_real_kw','command_reactive_kvar','setting_reactive_kvar','actual_reactive_kvar','dc_voltage_v','dc_current_a','cabinet_temp_c','heat_sink_temp_c','electronics_humidity_pct','ac_humidity_pct','dc_humidity_pct','dehumidification_status','dehumidification_timer_s','insulation_resistance','operating_state','fault_code','source'];
   const rows=pcs.map((r:any)=>[valueAt(r,['arrayIndex','array']),valueAt(r,['pcsIndex','pcs'])??1,valueAt(r,['telemetryCapturedAt','observedAt','timestamp']),valueAt(r,['acCmdRealPowerKW','commandRealPowerKW','realPowerCommandKW']),valueAt(r,['acRealPowerSettingKW','realPowerSettingKW']),valueAt(r,['acRealPowerKW','acRealPowerKw']),valueAt(r,['acCmdReactivePowerKVAR','commandReactivePowerKVAR']),valueAt(r,['acReactivePowerSettingKVAR','reactivePowerSettingKVAR']),valueAt(r,['acReactivePowerKVAR','acReactivePowerKvar']),valueAt(r,['dcVoltageVolt','dcVoltage']),valueAt(r,['dcCurrentAmp','dcCurrent']),valueAt(r,['cabinetTemperatureC']),valueAt(r,['heatSinkTemperatureC']),valueAt(r,['electronicsAreaHumidityPct']),valueAt(r,['acAreaHumidityPct']),valueAt(r,['dcAreaHumidityPct']),valueAt(r,['dehumidificationStatus']),valueAt(r,['dehumidificationTimerSeconds']),valueAt(r,['insulationResistanceKOhm','insulationResistance']),valueAt(r,['modbusOperatingState','operatingState']),valueAt(r,['modbusFaultCode','faultCode']),valueAt(r,['telemetrySource'])]);
-  return [{name:'csv/pcs.csv',body:csv([headers,...rows])},{name:'html/pcs.html',body:documentPage('PCS power, environment, and diagnostics',`<p class="muted">Command, setting, and actual power are kept as separate columns. Missing telemetry remains blank.</p><section>${tableHtml(headers,rows)}</section>`)}];
+  return [{name:'csv/pcs.csv',body:csv([headers,...rows])},{name:'html/pcs.html',body:documentPage('PCS power, environment, and diagnostics',`<p class="muted">Command, setting, and actual power are kept separate. Missing telemetry remains blank.</p><section><h2>PCS AC real power by array</h2>${pcsPowerGraph(pcs)}</section><section><h2>Engineering values</h2>${tableHtml(headers,rows)}</section>`)}];
 }
 
 export function buildEngineeringEnvironmentalSnapshot(view:any):EngineeringSnapshotFile[]{
