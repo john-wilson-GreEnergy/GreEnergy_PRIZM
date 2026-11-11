@@ -2762,7 +2762,7 @@ var engineeringColors = ["#2878bd", "#ef6c35", "#22a77a", "#8d62ba", "#d6a11d", 
 function engineeringFamily(s) {
   const metric = s.metric.toLowerCase(), unit = s.unit.toLowerCase();
   if (metric.includes("reactive") || unit.includes("kvar")) return "Reactive power";
-  if (metric.includes("real power") || metric.includes("setpoint") && unit === "kw") return "Real power: command, setting, and actual";
+  if (metric.includes("real power") || metric.includes("real-power") || unit === "kw" && (metric.includes("command") || metric.includes("setpoint"))) return "Real power: command, setting, and actual";
   if (metric.includes("dc voltage")) return "PCS DC voltage";
   if (metric.includes("dc current")) return "PCS DC current";
   if (metric.includes("humidity")) return "Humidity";
