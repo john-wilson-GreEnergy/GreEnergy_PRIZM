@@ -6,9 +6,16 @@ import path from "node:path";
 import {BalancingProgressReview} from "./balancingProgress";
 import {finiteReading, timelineChanges, type TimelineBatch, type TimelineObservation, type TimelineEvent, type TimelineReport} from "./operationalTimelineModel";
 
-const HOUR = 3_600_000, RETENTION = 7 * 24 * HOUR;
+const HOUR = 3_600_000, RETENTION = 7 * 24 * HOUR, GIB = 1024 ** 3;
 const pattern = /^([a-f0-9]{64})-(\d{1,4})-(\d{13})\.jsonl$/;
 const siteKey = (id: string) => createHash("sha256").update(id).digest("hex");
+const configuredMaxBytes = () => {
+  const raw = process.env.PRIZM_OPERATIONAL_TIMELINE_MAX_GIB;
+  if (raw == null || raw.trim() === "") return 2 * GIB;
+  const gib = Number(raw);
+  if (!Number.isFinite(gib) || gib < 2 || gib > 64) throw new Error("PRIZM_OPERATIONAL_TIMELINE_MAX_GIB must be between 2 and 64");
+  return Math.floor(gib * GIB);
+};
 type Record = {observation: TimelineObservation; events: TimelineEvent[]};
 type StorageOptions = {maxBytes: number; reserveBytes: number; maxPendingBatches?: number; maxPendingBytes?: number};
 export class OperationalTimeline {
@@ -282,6 +289,9 @@ let instance: OperationalTimeline | undefined;
 let serviceClosed = false;
 export const operationalTimeline = () => {
   if (!instance && serviceClosed) throw new Error("Operational timeline is shut down");
-  return instance ??= new OperationalTimeline(path.resolve(process.env.PRIZM_OPERATIONAL_TIMELINE_DIR || ".prizm-data/operational-timeline"));
+  return instance ??= new OperationalTimeline(
+    path.resolve(process.env.PRIZM_OPERATIONAL_TIMELINE_DIR || ".prizm-data/operational-timeline"),
+    {maxBytes: configuredMaxBytes(), reserveBytes: 5 * GIB},
+  );
 };
 export const closeOperationalTimeline = async () => { serviceClosed = true; await instance?.close(); };
